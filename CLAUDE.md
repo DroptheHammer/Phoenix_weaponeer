@@ -105,8 +105,8 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 - [x] Basic waypoint data structures
 - [x] GitHub Actions for cross-platform releases
 
-### Phase 2: Core Planning ← START HERE
-- [ ] **Map view** - Add Leaflet map showing waypoints and threats
+### Phase 2: Core Planning ← IN PROGRESS
+- [x] **Map view** - Add Leaflet map showing waypoints and threats
 - [ ] **Waypoint editor UI** - Edit coordinates, names, types inline
 - [ ] **Threat placement on map** - Click to add, drag to move
 - [ ] **Attack profile calculator** - Popup CCIP parameters first
