@@ -978,11 +978,13 @@ fn calculate_threat_exposure(
 fn render_kneeboard(card: KneeboardCard) -> Result<Vec<u8>, String>;
 
 #[tauri::command]
-fn export_to_dcs_kneeboard(
+fn export_kneeboard_cards(
     cards: Vec<KneeboardCard>,
-    aircraft: String,
-    dcs_path: String,
+    output_path: String,
 ) -> Result<(), String>;
+
+#[tauri::command]
+fn get_default_dcs_kneeboard_path(aircraft: String) -> Result<String, String>;
 ```
 
 ---
