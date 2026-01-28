@@ -16,10 +16,7 @@ jobs:
         include:
           - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
-            name: 'macos-arm64'
-          - platform: 'macos-13'
-            args: ''
-            name: 'macos-intel'
+            name: 'macos'
           - platform: 'ubuntu-22.04'
             args: ''
             name: 'linux'
