@@ -2,11 +2,26 @@
 //!
 //! Handles parsing of DCS .miz files and other import formats.
 
+pub mod coordinate_conversion;
+pub mod fragorders;
+pub mod threat_mapping;
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use thiserror::Error;
 use zip::ZipArchive;
+
+pub use coordinate_conversion::{
+    dcs_to_latlon, get_theater_params, meters_to_feet, mps_to_ktas, normalize_theater_name,
+    TheaterCoordParams,
+};
+pub use fragorders::{
+    parse_fragorders_json, FragOrdersMission, ProcessedCoordinates, ProcessedFragOrdersData,
+    ProcessedPlayerGroup, ProcessedThreat, ProcessedTriggerZone, ProcessedUnit, ProcessedWaypoint,
+    ThreatMatchConfidence,
+};
+pub use threat_mapping::{get_threat_info, is_threat_unit, normalize_dcs_unit_name};
 
 #[derive(Error, Debug)]
 pub enum ParseError {
@@ -105,47 +120,4 @@ pub struct RawThreat {
     pub y: f64,
     pub unit_type: String,
     pub group_name: String,
-}
-
-/// Theater coordinate parameters for DCS map conversion
-#[derive(Debug, Clone)]
-pub struct TheaterParams {
-    pub lat_origin: f64,
-    pub lon_origin: f64,
-    pub meters_per_deg_lat: f64,
-    pub meters_per_deg_lon: f64,
-}
-
-impl TheaterParams {
-    /// Get parameters for a specific theater
-    pub fn for_theater(theater: &str) -> Option<Self> {
-        match theater {
-            "caucasus" => Some(Self {
-                lat_origin: 42.0,
-                lon_origin: 43.0,
-                meters_per_deg_lat: 111000.0,
-                meters_per_deg_lon: 82000.0,
-            }),
-            "persian_gulf" => Some(Self {
-                lat_origin: 26.0,
-                lon_origin: 56.0,
-                meters_per_deg_lat: 111000.0,
-                meters_per_deg_lon: 100000.0,
-            }),
-            "syria" => Some(Self {
-                lat_origin: 35.0,
-                lon_origin: 36.0,
-                meters_per_deg_lat: 111000.0,
-                meters_per_deg_lon: 91000.0,
-            }),
-            _ => None,
-        }
-    }
-}
-
-/// Convert DCS map coordinates to lat/lon
-pub fn dcs_to_latlon(x: f64, y: f64, params: &TheaterParams) -> (f64, f64) {
-    let lat = params.lat_origin + (y / params.meters_per_deg_lat);
-    let lon = params.lon_origin + (x / params.meters_per_deg_lon);
-    (lat, lon)
 }

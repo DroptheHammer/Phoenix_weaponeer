@@ -544,6 +544,89 @@ impl Database {
             Ok(None)
         }
     }
+
+    /// Get threat system by DCS unit name
+    ///
+    /// Looks up a threat system by its dcs_unit_name field, which should match
+    /// the normalized name from threat_mapping module.
+    pub fn get_threat_by_dcs_name(&self, dcs_name: &str) -> SqliteResult<Option<ThreatSystem>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, nato_designation, type, max_range_nm, min_range_nm,
+                    max_altitude_ft, min_altitude_ft, optimal_altitude_ft, missile_speed_mach,
+                    reload_time_sec, simultaneous_engagements, reaction_time_sec,
+                    radar_info, gun_info, dcs_unit_name, notes
+             FROM threat_systems WHERE dcs_unit_name = ? COLLATE NOCASE"
+        )?;
+
+        let mut rows = stmt.query([dcs_name])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(ThreatSystem {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                nato_designation: row.get(2)?,
+                threat_type: row.get(3)?,
+                max_range_nm: row.get(4)?,
+                min_range_nm: row.get(5)?,
+                max_altitude_ft: row.get(6)?,
+                min_altitude_ft: row.get(7)?,
+                optimal_altitude_ft: row.get(8)?,
+                missile_speed_mach: row.get(9)?,
+                reload_time_sec: row.get(10)?,
+                simultaneous_engagements: row.get(11)?,
+                reaction_time_sec: row.get(12)?,
+                radar_info: row.get(13)?,
+                gun_info: row.get(14)?,
+                dcs_unit_name: row.get(15)?,
+                notes: row.get(16)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Search for threat systems by partial DCS name match
+    ///
+    /// Useful for fuzzy matching when exact match fails
+    pub fn search_threats_by_dcs_name(&self, search_term: &str) -> SqliteResult<Vec<ThreatSystem>> {
+        let conn = self.conn.lock().unwrap();
+        let search_pattern = format!("%{}%", search_term);
+        let mut stmt = conn.prepare(
+            "SELECT id, name, nato_designation, type, max_range_nm, min_range_nm,
+                    max_altitude_ft, min_altitude_ft, optimal_altitude_ft, missile_speed_mach,
+                    reload_time_sec, simultaneous_engagements, reaction_time_sec,
+                    radar_info, gun_info, dcs_unit_name, notes
+             FROM threat_systems
+             WHERE dcs_unit_name LIKE ? COLLATE NOCASE
+                OR name LIKE ? COLLATE NOCASE
+                OR nato_designation LIKE ? COLLATE NOCASE
+             ORDER BY name"
+        )?;
+
+        let threats = stmt.query_map([&search_pattern, &search_pattern, &search_pattern], |row| {
+            Ok(ThreatSystem {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                nato_designation: row.get(2)?,
+                threat_type: row.get(3)?,
+                max_range_nm: row.get(4)?,
+                min_range_nm: row.get(5)?,
+                max_altitude_ft: row.get(6)?,
+                min_altitude_ft: row.get(7)?,
+                optimal_altitude_ft: row.get(8)?,
+                missile_speed_mach: row.get(9)?,
+                reload_time_sec: row.get(10)?,
+                simultaneous_engagements: row.get(11)?,
+                reaction_time_sec: row.get(12)?,
+                radar_info: row.get(13)?,
+                gun_info: row.get(14)?,
+                dcs_unit_name: row.get(15)?,
+                notes: row.get(16)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(threats)
+    }
 }
 
 #[cfg(test)]
@@ -569,5 +652,33 @@ mod tests {
         let db = Database::open_in_memory().expect("Failed to create database");
         let weapons = db.get_weapons_for_aircraft("f16c").expect("Failed to get F-16 weapons");
         assert!(!weapons.is_empty(), "F-16 should have weapons");
+    }
+
+    #[test]
+    fn test_get_threat_by_dcs_name() {
+        let db = Database::open_in_memory().expect("Failed to create database");
+
+        // Test exact match
+        let threat = db.get_threat_by_dcs_name("Buk").expect("Query failed");
+        assert!(threat.is_some(), "Should find Buk by dcs_unit_name");
+        let threat = threat.unwrap();
+        assert_eq!(threat.id, "sa11");
+
+        // Test case insensitivity
+        let threat = db.get_threat_by_dcs_name("buk").expect("Query failed");
+        assert!(threat.is_some(), "Should find buk case-insensitively");
+    }
+
+    #[test]
+    fn test_search_threats_by_dcs_name() {
+        let db = Database::open_in_memory().expect("Failed to create database");
+
+        // Search by partial name
+        let threats = db.search_threats_by_dcs_name("SA-").expect("Query failed");
+        assert!(!threats.is_empty(), "Should find threats with SA- prefix");
+
+        // Search by partial NATO designation
+        let threats = db.search_threats_by_dcs_name("Guideline").expect("Query failed");
+        assert!(!threats.is_empty(), "Should find SA-2 Guideline");
     }
 }

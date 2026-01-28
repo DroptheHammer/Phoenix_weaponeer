@@ -52,6 +52,7 @@ pub fn run() {
             commands::get_fuze_options,
             // Import commands
             commands::parse_miz_file,
+            commands::parse_fragorders_json,
             // Calculation commands
             commands::calculate_attack_profile,
             commands::calculate_threat_exposure,

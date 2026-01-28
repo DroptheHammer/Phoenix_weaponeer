@@ -4,10 +4,44 @@ import type {
   Mission,
   Theater,
   Waypoint,
+  WaypointType,
   ThreatInstance,
   FlightMember,
   Attack,
+  FragOrdersData,
 } from '../types';
+
+/**
+ * Normalize DCS aircraft type to our database aircraft ID
+ */
+function normalizeAircraftType(dcsType: string): string {
+  const typeMap: Record<string, string> = {
+    'F-16C_50': 'f16c',
+    'F-16C': 'f16c',
+    'F-16CM': 'f16c',
+    'FA-18C_hornet': 'f18c',
+    'F/A-18C': 'f18c',
+    'A-10C': 'a10c',
+    'A-10C_2': 'a10c',
+    'F-15E': 'f15e',
+    'F-15ESE': 'f15e',
+  };
+
+  // Check exact match
+  if (typeMap[dcsType]) {
+    return typeMap[dcsType];
+  }
+
+  // Check partial matches
+  for (const [pattern, id] of Object.entries(typeMap)) {
+    if (dcsType.includes(pattern) || pattern.includes(dcsType)) {
+      return id;
+    }
+  }
+
+  // Default to lowercase, replacing non-alphanumeric
+  return dcsType.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 interface MissionState {
   mission: Mission | null;
@@ -20,6 +54,7 @@ interface MissionState {
   closeMission: () => void;
   updateMissionName: (name: string) => void;
   updateMissionNotes: (notes: string) => void;
+  importFromFragOrders: (data: FragOrdersData, groupIndex: number) => void;
 
   // Waypoint actions
   addWaypoint: (waypoint: Omit<Waypoint, 'id'>) => void;
@@ -95,6 +130,69 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       mission: { ...mission, notes, updatedAt: new Date().toISOString() },
       isDirty: true,
     });
+  },
+
+  importFromFragOrders: (data: FragOrdersData, groupIndex: number) => {
+    const now = new Date().toISOString();
+    const group = data.player_groups[groupIndex];
+
+    if (!group) {
+      console.error('Invalid group index for FragOrders import');
+      return;
+    }
+
+    // Convert theater name to Theater type
+    const theater = data.theater as Theater;
+
+    // Convert waypoints (using coordinates and elevation_ft per the Waypoint interface)
+    const waypoints: Waypoint[] = group.waypoints.map((wp) => ({
+      id: uuidv4(),
+      steerpoint: wp.steerpoint,
+      name: wp.name,
+      type: wp.wp_type as WaypointType,
+      coordinates: wp.position,
+      elevation_ft: wp.altitude_ft,
+    }));
+
+    // Convert threats (only those with known system IDs)
+    const threats: ThreatInstance[] = data.threats
+      .filter((t) => t.system_id !== null)
+      .map((t) => ({
+        id: uuidv4(),
+        systemId: t.system_id!,
+        position: t.position,
+        status: 'active' as const,
+        notes: `${t.group_name} - DCS unit: ${t.unit_type}`,
+      }));
+
+    // Create flight members from units (position is 1-4)
+    const flightMembers: FlightMember[] = group.units.slice(0, 4).map((unit, idx) => ({
+      id: uuidv4(),
+      callsign: unit.callsign || `${group.callsign}-${idx + 1}`,
+      position: (idx + 1) as 1 | 2 | 3 | 4,
+      role: idx === 0 ? 'flight_lead' as const : 'wingman' as const,
+      aircraftId: normalizeAircraftType(group.aircraft_type),
+      loadout: [],
+      pilotName: unit.name,
+    }));
+
+    // Create the mission
+    const mission: Mission = {
+      id: uuidv4(),
+      name: `${group.callsign} - ${group.name}`,
+      date: new Date().toISOString().split('T')[0],
+      theater,
+      bullseye: data.bullseye,
+      waypoints,
+      threats,
+      flightMembers,
+      attacks: [],
+      notes: `Imported from FragOrders\nAircraft: ${group.aircraft_type}\nThreats detected: ${data.threats.length} (${threats.length} identified)`,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    set({ mission, isDirty: true, filePath: null });
   },
 
   addWaypoint: (waypointData) => {

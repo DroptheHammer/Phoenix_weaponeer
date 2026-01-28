@@ -4,6 +4,11 @@
 //! via Tauri's IPC mechanism.
 
 use crate::db;
+use crate::parsers::{
+    self, dcs_to_latlon, get_theater_params, get_threat_info, meters_to_feet, mps_to_ktas,
+    normalize_theater_name, ProcessedCoordinates, ProcessedFragOrdersData, ProcessedPlayerGroup,
+    ProcessedThreat, ProcessedTriggerZone, ProcessedUnit, ProcessedWaypoint, ThreatMatchConfidence,
+};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -169,6 +174,300 @@ pub fn parse_miz_file(path: String) -> Result<MizData, String> {
         "MIZ parsing not yet implemented for: {}",
         path
     ))
+}
+
+/// Parse FragOrders JSON output and convert to Phoenix Weaponeer format
+///
+/// This command takes the raw JSON output from FragOrders CLI and processes it:
+/// 1. Normalizes theater name
+/// 2. Converts DCS coordinates to lat/lon
+/// 3. Extracts player-flyable groups with waypoints
+/// 4. Identifies threat units and maps them to database entries
+/// 5. Extracts trigger zones
+#[tauri::command]
+pub fn parse_fragorders_json(
+    state: State<AppState>,
+    json_str: String,
+) -> Result<ProcessedFragOrdersData, String> {
+    // Parse the JSON
+    let mission = parsers::parse_fragorders_json(&json_str)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    // Get theater and coordinate parameters
+    let theater_name = mission.theater.as_deref().unwrap_or("Unknown");
+    let normalized_theater = normalize_theater_name(theater_name);
+    let theater_params = get_theater_params(theater_name)
+        .ok_or_else(|| format!("Unknown theater: {}", theater_name))?;
+
+    // Process bullseye
+    let bullseye = mission
+        .coalition
+        .blue
+        .as_ref()
+        .and_then(|b| b.bullseye.as_ref())
+        .map(|be| {
+            let (lat, lon) = dcs_to_latlon(be.x, be.y, theater_params);
+            ProcessedCoordinates { lat, lon }
+        })
+        .unwrap_or(ProcessedCoordinates { lat: 0.0, lon: 0.0 });
+
+    // Extract player groups from blue coalition
+    let mut player_groups = Vec::new();
+    if let Some(blue) = &mission.coalition.blue {
+        for country in &blue.country {
+            // Check planes
+            if let Some(planes) = &country.plane {
+                for group in &planes.group {
+                    if group.has_player() {
+                        if let Some(processed) = process_player_group(group, theater_params) {
+                            player_groups.push(processed);
+                        }
+                    }
+                }
+            }
+            // Check helicopters
+            if let Some(helis) = &country.helicopter {
+                for group in &helis.group {
+                    if group.has_player() {
+                        if let Some(processed) = process_player_group(group, theater_params) {
+                            player_groups.push(processed);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Extract threats from red coalition
+    let mut threats = Vec::new();
+    if let Some(red) = &mission.coalition.red {
+        for country in &red.country {
+            // Check vehicles (ground threats)
+            if let Some(vehicles) = &country.vehicle {
+                for group in &vehicles.group {
+                    let group_name = group.name.clone().unwrap_or_default();
+                    for unit in &group.units {
+                        if let Some(unit_type) = &unit.unit_type {
+                            if parsers::is_threat_unit(unit_type) {
+                                let threat = process_threat_unit(
+                                    &group_name,
+                                    unit,
+                                    unit_type,
+                                    theater_params,
+                                    &state.db,
+                                );
+                                threats.push(threat);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Deduplicate threats by position (keep one per approximate location)
+    threats = deduplicate_threats(threats);
+
+    // Extract trigger zones
+    let mut trigger_zones = Vec::new();
+    if let Some(triggers) = &mission.triggers {
+        for zone in &triggers.zones {
+            let (lat, lon) = dcs_to_latlon(zone.x, zone.y, theater_params);
+            trigger_zones.push(ProcessedTriggerZone {
+                name: zone.name.clone().unwrap_or_else(|| format!("Zone {}", zone.zone_id.unwrap_or(0))),
+                center: ProcessedCoordinates { lat, lon },
+                radius_m: zone.radius,
+            });
+        }
+    }
+
+    Ok(ProcessedFragOrdersData {
+        theater: normalized_theater,
+        bullseye,
+        player_groups,
+        threats,
+        trigger_zones,
+    })
+}
+
+/// Process a player group into the output format
+fn process_player_group(
+    group: &parsers::fragorders::Group,
+    params: &parsers::TheaterCoordParams,
+) -> Option<ProcessedPlayerGroup> {
+    let name = group.name.clone().unwrap_or_else(|| "Unknown".to_string());
+
+    // Get aircraft type from first player unit
+    let first_player = group.first_player_unit()?;
+    let aircraft_type = first_player.unit_type.clone().unwrap_or_else(|| "Unknown".to_string());
+
+    // Get callsign from first player
+    let callsign = first_player
+        .callsign
+        .as_ref()
+        .map(|c| c.to_string_representation())
+        .unwrap_or_else(|| name.clone());
+
+    // Process units
+    let units: Vec<ProcessedUnit> = group
+        .units
+        .iter()
+        .filter(|u| u.is_player())
+        .map(|u| ProcessedUnit {
+            name: u.name.clone().unwrap_or_default(),
+            callsign: u
+                .callsign
+                .as_ref()
+                .map(|c| c.to_string_representation())
+                .unwrap_or_default(),
+            onboard_num: u.onboard_num.as_ref().map(|n| n.as_string()),
+        })
+        .collect();
+
+    // Process waypoints
+    let waypoints: Vec<ProcessedWaypoint> = group
+        .route
+        .as_ref()
+        .map(|r| {
+            r.points
+                .iter()
+                .enumerate()
+                .map(|(i, pt)| {
+                    let (lat, lon) = dcs_to_latlon(pt.x, pt.y, params);
+                    let alt_ft = pt.alt.map(|a| meters_to_feet(a)).unwrap_or(0.0);
+                    let speed_ktas = pt.speed.map(|s| mps_to_ktas(s));
+
+                    // Infer waypoint type from name and type
+                    let wp_type = infer_waypoint_type(
+                        pt.name.as_deref(),
+                        pt.point_type.as_deref(),
+                        pt.action.as_deref(),
+                    );
+
+                    ProcessedWaypoint {
+                        steerpoint: (i + 1) as i32,
+                        name: pt.name.clone().unwrap_or_else(|| format!("WP{}", i + 1)),
+                        wp_type,
+                        position: ProcessedCoordinates { lat, lon },
+                        altitude_ft: alt_ft,
+                        speed_ktas,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Some(ProcessedPlayerGroup {
+        name,
+        callsign,
+        aircraft_type,
+        units,
+        waypoints,
+    })
+}
+
+/// Process a threat unit into output format
+fn process_threat_unit(
+    group_name: &str,
+    unit: &parsers::fragorders::Unit,
+    unit_type: &str,
+    params: &parsers::TheaterCoordParams,
+    db: &db::Database,
+) -> ProcessedThreat {
+    let (lat, lon) = dcs_to_latlon(unit.x, unit.y, params);
+
+    // Try to map to database entry
+    let (system_id, system_name, confidence) = if let Some((normalized, conf)) = get_threat_info(unit_type) {
+        // Look up in database
+        match db.get_threat_by_dcs_name(normalized) {
+            Ok(Some(threat)) => {
+                let confidence = if conf > 0.8 {
+                    ThreatMatchConfidence::High
+                } else if conf > 0.5 {
+                    ThreatMatchConfidence::Medium
+                } else {
+                    ThreatMatchConfidence::Low
+                };
+                (Some(threat.id), Some(threat.name), confidence)
+            }
+            _ => (None, None, ThreatMatchConfidence::Unknown),
+        }
+    } else {
+        (None, None, ThreatMatchConfidence::Unknown)
+    };
+
+    ProcessedThreat {
+        unit_type: unit_type.to_string(),
+        group_name: group_name.to_string(),
+        position: ProcessedCoordinates { lat, lon },
+        system_id,
+        system_name,
+        confidence,
+    }
+}
+
+/// Infer Phoenix waypoint type from DCS waypoint data
+fn infer_waypoint_type(name: Option<&str>, point_type: Option<&str>, action: Option<&str>) -> String {
+    let name_upper = name.unwrap_or("").to_uppercase();
+    let action_upper = action.unwrap_or("").to_uppercase();
+
+    // Check name patterns
+    if name_upper.contains("IP") {
+        return "ip".to_string();
+    }
+    if name_upper.contains("TGT") || name_upper.contains("TARGET") {
+        return "target".to_string();
+    }
+    if name_upper.contains("CAP") {
+        return "cap".to_string();
+    }
+    if name_upper.contains("MARSHAL") || name_upper.contains("HOLD") {
+        return "marshal".to_string();
+    }
+    if name_upper.contains("TANKER") || name_upper.contains("ARCO") || name_upper.contains("TEXACO") {
+        return "tanker".to_string();
+    }
+    if name_upper.contains("BULLS") || name_upper.contains("BE") {
+        return "bullseye".to_string();
+    }
+
+    // Check DCS point type
+    match point_type {
+        Some("Land") | Some("Landing") => return "divert".to_string(),
+        Some("Takeoff") | Some("TakeOff") | Some("Takeoff Parking Hot") => return "nav".to_string(),
+        _ => {}
+    }
+
+    // Check action
+    if action_upper.contains("LAND") {
+        return "divert".to_string();
+    }
+    if action_upper.contains("ORBIT") || action_upper.contains("HOLD") {
+        return "marshal".to_string();
+    }
+
+    // Default to nav
+    "nav".to_string()
+}
+
+/// Deduplicate threats by approximate position (within ~500m)
+fn deduplicate_threats(threats: Vec<ProcessedThreat>) -> Vec<ProcessedThreat> {
+    let mut result: Vec<ProcessedThreat> = Vec::new();
+    let threshold = 0.005; // ~500m in degrees
+
+    for threat in threats {
+        let dominated = result.iter().any(|existing| {
+            let lat_diff = (existing.position.lat - threat.position.lat).abs();
+            let lon_diff = (existing.position.lon - threat.position.lon).abs();
+            lat_diff < threshold && lon_diff < threshold
+        });
+
+        if !dominated {
+            result.push(threat);
+        }
+    }
+
+    result
 }
 
 // ============================================================================

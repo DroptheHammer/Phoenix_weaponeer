@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMissionStore } from "./stores/missionStore";
+import { FragOrdersImport } from "./components/import";
+import type { FragOrdersData } from "./types";
 
 interface ThreatSystem {
   id: string;
@@ -17,11 +19,17 @@ interface Aircraft {
 }
 
 function App() {
-  const { mission, createMission } = useMissionStore();
+  const { mission, createMission, importFromFragOrders } = useMissionStore();
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+
+  const handleFragOrdersImport = (data: FragOrdersData, groupIndex: number) => {
+    importFromFragOrders(data, groupIndex);
+    setShowImportModal(false);
+  };
 
   useEffect(() => {
     async function loadDatabaseData() {
@@ -42,14 +50,14 @@ function App() {
   }, []);
 
   const handleNewMission = () => {
-    createMission("New Mission", "Caucasus");
+    createMission("New Mission", "caucasus");
   };
 
   return (
     <div className="min-h-screen bg-dcs-dark text-white">
       <header className="bg-dcs-navy p-4 shadow-lg">
-        <h1 className="text-2xl font-bold">DCS Attack Planner</h1>
-        <p className="text-gray-400 text-sm">Phoenix Weaponeer</p>
+        <h1 className="text-2xl font-bold">Phoenix Weaponeer</h1>
+        <p className="text-gray-400 text-sm">DCS Mission Planning Tool</p>
       </header>
 
       <main className="p-6">
@@ -89,12 +97,20 @@ function App() {
           <div className="space-y-6">
             <div className="text-center py-8">
               <p className="text-gray-400 mb-4">No mission loaded</p>
-              <button
-                onClick={handleNewMission}
-                className="bg-dcs-accent hover:bg-red-600 text-white px-6 py-2 rounded-lg transition-colors"
-              >
-                Create New Mission
-              </button>
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={handleNewMission}
+                  className="bg-dcs-accent hover:bg-red-600 text-white px-6 py-2 rounded-lg transition-colors"
+                >
+                  Create New Mission
+                </button>
+                <button
+                  onClick={() => setShowImportModal(true)}
+                  className="bg-dcs-blue hover:bg-blue-600 text-white px-6 py-2 rounded-lg transition-colors"
+                >
+                  Import FragOrders
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-6">
@@ -130,6 +146,13 @@ function App() {
           </div>
         )}
       </main>
+
+      {showImportModal && (
+        <FragOrdersImport
+          onClose={() => setShowImportModal(false)}
+          onImport={handleFragOrdersImport}
+        />
+      )}
     </div>
   );
 }

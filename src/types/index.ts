@@ -65,3 +65,21 @@ export type {
   KneeboardWeaponSection,
   KneeboardEgressSection,
 } from './kneeboard.types';
+
+// FragOrders Import
+export type {
+  FragOrdersData,
+  FragOrdersPlayerGroup,
+  FragOrdersUnit,
+  FragOrdersWaypoint,
+  FragOrdersThreat,
+  ThreatMatchConfidence,
+  FragOrdersTriggerZone,
+  FragOrdersImportOptions,
+} from './fragorders.types';
+
+export {
+  getConfidenceLabel,
+  getConfidenceClass,
+  meetsConfidenceThreshold,
+} from './fragorders.types';
