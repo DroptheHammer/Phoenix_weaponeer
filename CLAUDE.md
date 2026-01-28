@@ -98,27 +98,29 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 
 ## Development Phases
 
-### Phase 1: Foundation
-- [ ] Initialize Tauri + React + TypeScript project
-- [ ] Set up SQLite with threat and weapon databases
-- [ ] Implement .miz file parser
-- [ ] Basic waypoint data structures
+### Phase 1: Foundation ✅ COMPLETE
+- [x] Initialize Tauri + React + TypeScript project
+- [x] Set up SQLite with threat and weapon databases
+- [x] FragOrders JSON import (CLI or paste/file)
+- [x] Basic waypoint data structures
+- [x] GitHub Actions for cross-platform releases
 
-### Phase 2: Core Planning
-- [ ] Waypoint editor UI
-- [ ] Threat placement on map
-- [ ] Attack profile calculator (Popup CCIP first)
-- [ ] Flight roster management
+### Phase 2: Core Planning ← START HERE
+- [ ] **Map view** - Add Leaflet map showing waypoints and threats
+- [ ] **Waypoint editor UI** - Edit coordinates, names, types inline
+- [ ] **Threat placement on map** - Click to add, drag to move
+- [ ] **Attack profile calculator** - Popup CCIP parameters first
+- [ ] **Flight roster management** - Assign pilots and loadouts
 
 ### Phase 3: Output
-- [ ] Kneeboard card renderer
+- [ ] Kneeboard card renderer (768x1024 PNG)
 - [ ] Export to DCS kneeboard folder
 - [ ] PDF export option
 
 ### Phase 4: Polish
-- [ ] FragOrders URL import (scraping)
+- [ ] FragOrders URL import (when API access provided)
 - [ ] Additional aircraft modules (F/A-18, A-10)
-- [ ] Additional attack profiles
+- [ ] Additional attack profiles (level, loft, dive bomb)
 
 ## Important Context
 
