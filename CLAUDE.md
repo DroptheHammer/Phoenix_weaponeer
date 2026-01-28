@@ -114,7 +114,7 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 
 ### Phase 3: Output
 - [ ] Kneeboard card renderer (768x1024 PNG)
-- [ ] Export to DCS kneeboard folder
+- [ ] Export to user-selected folder (with quick-pick for DCS kneeboard folder)
 - [ ] PDF export option
 
 ### Phase 4: Polish
