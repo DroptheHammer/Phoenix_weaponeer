@@ -157,13 +157,11 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 **Last session:** 2026-01-31
 
 **Completed this session:**
-- Added threat source tracking (mission vs planning threats)
-- Enhanced ThreatList UI with grouping, status changes, add threat modal
-- Map shows threat envelopes with visual distinction (solid=mission, dashed=planning)
-- Click-to-add threats on map with placement mode
-- Drag-to-reposition planning threats
-- Fixed click-through issue (markers non-interactive during placement)
-- Added test-data folder with sample missions for portable dev
+- Set up opusplan model configuration for this project
+  - Added global env vars to ~/.zshrc: `ANTHROPIC_DEFAULT_OPUS_MODEL` and `ANTHROPIC_DEFAULT_SONNET_MODEL`
+  - Created .env file in project root with same config (for project-level override)
+  - User can now use `/model opusplan` to use Opus for planning, Sonnet for coding
+  - Configuration persists across sessions (environment variables) and can be overridden mid-session
 
 **Next up:**
 - Attack profile calculator (Popup CCIP parameters)
@@ -172,3 +170,8 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 **To test:**
 - Import `test-data/test_fragorders.json` to verify threat features
 - Validate coordinate conversion with a real mission export
+
+**Note for next session:**
+- Remember to run `source ~/.zshrc` in your terminal to activate the global environment variables if you haven't already
+- `.env` file is gitignored (correct practice for env config) but contains non-sensitive model preferences
+- opusplan config is now available across all projects globally, but can be overridden per-project with .env
