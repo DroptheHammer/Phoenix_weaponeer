@@ -106,9 +106,9 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 - [x] GitHub Actions for cross-platform releases
 
 ### Phase 2: Core Planning ← IN PROGRESS
-- [x] **Map view** - Add Leaflet map showing waypoints and threats
-- [ ] **Waypoint editor UI** - Edit coordinates, names, types inline
-- [ ] **Threat placement on map** - Click to add, drag to move
+- [x] **Map view** - Leaflet map showing waypoints and threat envelopes
+- [x] **Threat management** - Import from mission, add planning threats, visual distinction
+- [x] **Map interaction** - Click-to-add threats, drag to reposition planning threats
 - [ ] **Attack profile calculator** - Popup CCIP parameters first
 - [ ] **Flight roster management** - Assign pilots and loadouts
 
@@ -121,6 +121,10 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 - [ ] FragOrders URL import (when API access provided)
 - [ ] Additional aircraft modules (F/A-18, A-10)
 - [ ] Additional attack profiles (level, loft, dive bomb)
+
+## Known Issues / Future Testing
+
+- [ ] **Coordinate conversion validation** - Waypoints from test_fragorders.json appear in wrong location (LA instead of NTTR). Need to test with a real mission export to determine if this is bad test data or a DCS coordinate conversion bug in `parsers/coordinate_conversion.rs`.
 
 ## Important Context
 

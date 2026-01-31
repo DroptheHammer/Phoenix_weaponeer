@@ -162,6 +162,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
         systemId: t.system_id!,
         position: t.position,
         status: 'active' as const,
+        source: 'mission' as const,
         notes: `${t.group_name} - DCS unit: ${t.unit_type}`,
       }));
 

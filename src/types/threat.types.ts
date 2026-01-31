@@ -47,6 +47,11 @@ export interface GunInfo {
   radarGuided: boolean;
 }
 
+// Source of threat data
+export type ThreatSource =
+  | 'mission'   // From FragOrders/mission file - confirmed by mission creator
+  | 'planning'; // Added by user during planning - assumed/what-if
+
 // Placed threat instance on the map
 export interface ThreatInstance {
   id: string;
@@ -55,6 +60,7 @@ export interface ThreatInstance {
   position: Coordinates;
 
   status: ThreatStatus;
+  source: ThreatSource; // Where this threat came from
   orientationDeg?: number; // Facing direction (for directional systems)
 
   notes?: string;

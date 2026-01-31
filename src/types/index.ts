@@ -17,6 +17,7 @@ export type {
   GunInfo,
   ThreatInstance,
   ThreatStatus,
+  ThreatSource,
 } from './threat.types';
 
 // Aircraft

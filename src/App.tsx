@@ -28,7 +28,7 @@ interface Aircraft {
 type TabType = 'map' | 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
 function App() {
-  const { mission, createMission, importFromFragOrders } = useMissionStore();
+  const { mission, createMission, importFromFragOrders, addThreat, updateThreat } = useMissionStore();
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +69,21 @@ function App() {
 
   const handleNewMission = () => {
     createMission("New Mission", "caucasus");
+  };
+
+  // Map interaction handlers
+  const handleAddThreatFromMap = (systemId: string, position: { lat: number; lon: number }) => {
+    addThreat({
+      systemId,
+      position,
+      status: 'active',
+      source: 'planning',
+      notes: 'Added via map placement',
+    });
+  };
+
+  const handleMoveThreat = (threatId: string, position: { lat: number; lon: number }) => {
+    updateThreat(threatId, { position });
   };
 
   return (
@@ -190,10 +205,13 @@ function App() {
                   threats={mission.threats}
                   bullseye={mission.bullseye}
                   threatSystems={threatSystemMap}
+                  availableThreats={threats}
+                  onAddThreat={handleAddThreatFromMap}
+                  onMoveThreat={handleMoveThreat}
                 />
               )}
               {activeTab === 'waypoints' && <WaypointList />}
-              {activeTab === 'threats' && <ThreatList />}
+              {activeTab === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} />}
               {activeTab === 'flight' && <FlightRoster />}
               {activeTab === 'attacks' && <AttackList />}
               {activeTab === 'kneeboards' && <KneeboardPreview />}
