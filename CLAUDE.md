@@ -1,5 +1,15 @@
 # DCS Attack Planner - Claude Code Instructions
 
+## Session Management (IMPORTANT)
+
+**When the user says they need to pause, leave, change devices, or end the session in ANY way:**
+
+1. **Commit and push all changes to git** (no version tag, just save progress)
+2. **Update this file** with "Session Pickup Notes" at the bottom - what was being worked on, what's next
+3. **Remind the user** if they forget to do this before ending
+
+This ensures work can be resumed from any device (Windows, Linux, macOS, iPhone) with full context.
+
 ## Project Overview
 
 A cross-platform desktop application for planning F-16 (and other aircraft) attack runs against defended targets in DCS World. The tool helps squadron members plan tactical attacks, weaponeer targets, and generate pilot briefing cards (kneeboards).
@@ -139,3 +149,26 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 - pydcs (Python DCS library): https://github.com/pydcs/dcs
 - Tauri docs: https://tauri.app/v2/guides/
 - DCS kneeboard modding: Community wiki resources
+
+---
+
+## Session Pickup Notes
+
+**Last session:** 2026-01-31
+
+**Completed this session:**
+- Added threat source tracking (mission vs planning threats)
+- Enhanced ThreatList UI with grouping, status changes, add threat modal
+- Map shows threat envelopes with visual distinction (solid=mission, dashed=planning)
+- Click-to-add threats on map with placement mode
+- Drag-to-reposition planning threats
+- Fixed click-through issue (markers non-interactive during placement)
+- Added test-data folder with sample missions for portable dev
+
+**Next up:**
+- Attack profile calculator (Popup CCIP parameters)
+- Flight roster management
+
+**To test:**
+- Import `test-data/test_fragorders.json` to verify threat features
+- Validate coordinate conversion with a real mission export
