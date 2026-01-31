@@ -1,0 +1,220 @@
+{
+  "theatre": "Nevada",
+  "coalition": {
+    "blue": {
+      "bullseye": {
+        "x": -20000,
+        "y": -40000
+      },
+      "country": [
+        {
+          "id": 2,
+          "name": "USA",
+          "plane": {
+            "group": [
+              {
+                "name": "Viper Package",
+                "groupId": 1,
+                "frequency": 251.0,
+                "route": {
+                  "points": [
+                    {
+                      "name": "TAKEOFF",
+                      "type": "TakeOff",
+                      "action": "From Parking Area",
+                      "x": -399432,
+                      "y": -18234,
+                      "alt": 1400,
+                      "speed": 130
+                    },
+                    {
+                      "name": "MARSHAL",
+                      "type": "Turning Point",
+                      "action": "Turning Point",
+                      "x": -350000,
+                      "y": -50000,
+                      "alt": 6096,
+                      "speed": 200
+                    },
+                    {
+                      "name": "IP ALPHA",
+                      "type": "Turning Point",
+                      "action": "Turning Point",
+                      "x": -280000,
+                      "y": -80000,
+                      "alt": 4572,
+                      "speed": 250
+                    },
+                    {
+                      "name": "TGT WAREHOUSE",
+                      "type": "Turning Point",
+                      "action": "Turning Point",
+                      "x": -260000,
+                      "y": -90000,
+                      "alt": 3048,
+                      "speed": 280
+                    },
+                    {
+                      "name": "EGRESS",
+                      "type": "Turning Point",
+                      "action": "Turning Point",
+                      "x": -300000,
+                      "y": -100000,
+                      "alt": 6096,
+                      "speed": 300
+                    },
+                    {
+                      "name": "RTB",
+                      "type": "Land",
+                      "action": "Landing",
+                      "x": -399432,
+                      "y": -18234,
+                      "alt": 1400,
+                      "speed": 130
+                    }
+                  ]
+                },
+                "units": [
+                  {
+                    "name": "Viper 1-1",
+                    "unitId": 101,
+                    "type": "F-16C_50",
+                    "x": -399432,
+                    "y": -18234,
+                    "alt": 1400,
+                    "heading": 0.5,
+                    "skill": "Client",
+                    "callsign": {
+                      "name": "Viper",
+                      "1": 1,
+                      "2": 1,
+                      "3": 1
+                    },
+                    "onboard_num": "101"
+                  },
+                  {
+                    "name": "Viper 1-2",
+                    "unitId": 102,
+                    "type": "F-16C_50",
+                    "x": -399472,
+                    "y": -18274,
+                    "alt": 1400,
+                    "heading": 0.5,
+                    "skill": "Client",
+                    "callsign": {
+                      "name": "Viper",
+                      "1": 1,
+                      "2": 2,
+                      "3": 1
+                    },
+                    "onboard_num": "102"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "red": {
+      "bullseye": {
+        "x": 0,
+        "y": 0
+      },
+      "country": [
+        {
+          "id": 81,
+          "name": "CJTF Red",
+          "vehicle": {
+            "group": [
+              {
+                "name": "SA-11 Battery Alpha",
+                "groupId": 50,
+                "units": [
+                  {
+                    "name": "SA-11 SR",
+                    "unitId": 501,
+                    "type": "SA-11_Buk_SR_9S18M1",
+                    "x": -265000,
+                    "y": -85000,
+                    "heading": 0
+                  },
+                  {
+                    "name": "SA-11 LN 1",
+                    "unitId": 502,
+                    "type": "SA-11_Buk_LN_9A310M1",
+                    "x": -265100,
+                    "y": -85100,
+                    "heading": 0
+                  },
+                  {
+                    "name": "SA-11 LN 2",
+                    "unitId": 503,
+                    "type": "SA-11_Buk_LN_9A310M1",
+                    "x": -264900,
+                    "y": -84900,
+                    "heading": 0
+                  }
+                ]
+              },
+              {
+                "name": "AAA Site Bravo",
+                "groupId": 51,
+                "units": [
+                  {
+                    "name": "Shilka 1",
+                    "unitId": 511,
+                    "type": "ZSU-23-4 Shilka",
+                    "x": -261000,
+                    "y": -89000,
+                    "heading": 0
+                  },
+                  {
+                    "name": "Shilka 2",
+                    "unitId": 512,
+                    "type": "ZSU-23-4 Shilka",
+                    "x": -261200,
+                    "y": -89200,
+                    "heading": 0
+                  }
+                ]
+              },
+              {
+                "name": "MANPADS Team",
+                "groupId": 52,
+                "units": [
+                  {
+                    "name": "Igla Team",
+                    "unitId": 521,
+                    "type": "SA-18 Igla-S manridge",
+                    "x": -259500,
+                    "y": -91000,
+                    "heading": 0
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "triggers": {
+    "zones": [
+      {
+        "name": "Target Area",
+        "zoneId": 1,
+        "x": -260000,
+        "y": -90000,
+        "radius": 5000
+      },
+      {
+        "name": "IP Zone",
+        "zoneId": 2,
+        "x": -280000,
+        "y": -80000,
+        "radius": 2000
+      }
+    ]
+  }
+}

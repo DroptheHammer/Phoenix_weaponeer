@@ -1,0 +1,713 @@
+{
+  "result": {
+    "red": {
+      "func": []
+    }
+  },
+  "pictureFileNameN": [],
+  "drawings": {
+    "options": null,
+    "layers": null
+  },
+  "descriptionBlueTask": "DictKey_descriptionBlueTask_3",
+  "pictureFileNameServer": [],
+  "weather": {
+    "atmosphere_type": 0,
+    "wind": {
+      "at2000": {
+        "dir": 0,
+        "speed": 0
+      },
+      "at8000": {
+        "dir": 0,
+        "speed": 0
+      },
+      "atGround": {
+        "dir": 0,
+        "speed": 0
+      }
+    },
+    "enable_fog": false,
+    "fog": {
+      "visibility": 0
+    },
+    "halo": {
+      "preset": "auto"
+    },
+    "visibility": {
+      "distance": 80000
+    },
+    "season": {
+      "temperature": 20
+    },
+    "type_weather": 0,
+    "qnh": 760,
+    "cyclones": [],
+    "name": "Winter, clean sky",
+    "dust_density": 0,
+    "modifiedTime": false,
+    "groundTurbulence": 0,
+    "enableDust": false
+  },
+  "triggers": {
+    "zones": [
+      {
+        "radius": 12.401936551877,
+        "zoneId": 46,
+        "color": [
+          1,
+          1,
+          1,
+          0.15
+        ],
+        "properties": [
+          {
+            "key": "ROLE",
+            "value": ""
+          },
+          {
+            "key": "VALUE",
+            "value": ""
+          },
+          {
+            "key": "OBJECT ID",
+            "value": "96698450"
+          },
+          {
+            "key": "NAME",
+            "value": "cottage_01"
+          }
+        ],
+        "hidden": false,
+        "x": -243264.75,
+        "y": -83386.9140625,
+        "name": "cottage_01",
+        "type": 2,
+        "heading": 0,
+        "verticies": [
+          {
+            "x": -243255.92476198,
+            "y": -83378.200670762
+          },
+          {
+            "x": -243273.93639769,
+            "y": -83378.582308834
+          },
+          {
+            "x": -243273.57523802,
+            "y": -83395.627454238
+          },
+          {
+            "x": -243255.56360231,
+            "y": -83395.245816166
+          }
+        ]
+      },
+      {
+        "radius": 13.434228272108,
+        "zoneId": 47,
+        "color": [
+          1,
+          1,
+          1,
+          0.15
+        ],
+        "properties": [
+          {
+            "key": "ROLE",
+            "value": ""
+          },
+          {
+            "key": "VALUE",
+            "value": ""
+          },
+          {
+            "key": "OBJECT ID",
+            "value": "96698395"
+          },
+          {
+            "key": "NAME",
+            "value": "nevada_vegas_house_02"
+          }
+        ],
+        "hidden": false,
+        "x": -243204.421875,
+        "y": -83329.0234375,
+        "name": "nevada_vegas_house_02",
+        "type": 2,
+        "heading": 0,
+        "verticies": [
+          {
+            "x": -243213.5062613,
+            "y": -83338.920528729
+          },
+          {
+            "x": -243196.05490803,
+            "y": -83339.534020402
+          },
+          {
+            "x": -243195.3374887,
+            "y": -83319.126346271
+          },
+          {
+            "x": -243212.78884197,
+            "y": -83318.512854598
+          }
+        ]
+      },
+      {
+        "radius": 12.570478234383,
+        "zoneId": 48,
+        "color": [
+          1,
+          1,
+          1,
+          0.15
+        ],
+        "properties": [
+          {
+            "key": "ROLE",
+            "value": ""
+          },
+          {
+            "key": "VALUE",
+            "value": ""
+          },
+          {
+            "key": "OBJECT ID",
+            "value": "96698411"
+          },
+          {
+            "key": "NAME",
+            "value": "nevada_vegas_house_07"
+          }
+        ],
+        "hidden": false,
+        "x": -243187.140625,
+        "y": -83427.0859375,
+        "name": "nevada_vegas_house_07",
+        "type": 2,
+        "heading": 0,
+        "verticies": [
+          {
+            "x": -243178.67292764,
+            "y": -83436.376525913
+          },
+          {
+            "x": -243178.07830879,
+            "y": -83418.374372974
+          },
+          {
+            "x": -243195.60832236,
+            "y": -83417.795349087
+          },
+          {
+            "x": -243196.20294121,
+            "y": -83435.797502026
+          }
+        ]
+      },
+      {
+        "radius": 12.401936551877,
+        "zoneId": 49,
+        "color": [
+          1,
+          1,
+          1,
+          0.15
+        ],
+        "properties": [
+          {
+            "key": "ROLE",
+            "value": ""
+          },
+          {
+            "key": "VALUE",
+            "value": ""
+          },
+          {
+            "key": "OBJECT ID",
+            "value": "96698451"
+          },
+          {
+            "key": "NAME",
+            "value": "cottage_01"
+          }
+        ],
+        "hidden": false,
+        "x": -243161.453125,
+        "y": -83295.7109375,
+        "name": "cottage_01-1",
+        "type": 2,
+        "heading": 0,
+        "verticies": [
+          {
+            "x": -243152.18623561,
+            "y": -83287.468802903
+          },
+          {
+            "x": -243170.1933149,
+            "y": -83286.912238613
+          },
+          {
+            "x": -243170.72001439,
+            "y": -83303.953072097
+          },
+          {
+            "x": -243152.7129351,
+            "y": -83304.509636387
+          }
+        ]
+      }
+    ]
+  },
+  "coalition": {
+    "blue": {
+      "bullseye": {
+        "x": -409931.344,
+        "y": -14024.097
+      },
+      "nav_points": [
+        {
+          "type": "Default",
+          "comment": "TYPE=ATC\nDEPARTURE=JUNNO\nINDEX=2\nALTITUDE=17000",
+          "callsignStr": "JUNNO",
+          "id": 96,
+          "x": -342801.18822461,
+          "Y": -5041.0814283061
+        },
+        {
+          "type": "Default",
+          "comment": "TYPE=ATC\nAPPROACH=ARCOE\nINDEX=1\nALTITUDE=\u003e15000",
+          "callsignStr": "ARCOE",
+          "id": 97,
+          "x": -343829.4531411,
+          "Y": -16640.425894828
+        },
+        {
+          "type": "Default",
+          "comment": "TYPE=ATC\nAPPROACH=ARCOE\nINDEX=2\nALTITUDE=\u003e4500",
+          "callsignStr": "APEX",
+          "id": 98,
+          "x": -387335.57823328,
+          "Y": -11301.858754981
+        },
+        {
+          "type": "Default",
+          "comment": "TYPE=MARSHAL",
+          "callsignStr": "MARSHAL",
+          "id": 99,
+          "x": -255398.29264768,
+          "Y": 7077.9270435597
+        },
+        {
+          "type": "Default",
+          "comment": "TYPE=ATC\nDEPARTURE=JUNNO\nINDEX=1\nALTITUDE=\u003c16000",
+          "callsignStr": "ATALF",
+          "id": 145,
+          "x": -380754.15293985,
+          "Y": -2529.9478306379
+        }
+      ],
+      "country": [
+        {
+          "id": 2,
+          "name": "USA",
+          "plane": {
+            "group": [
+              {
+                "category": "",
+                "coalition": "",
+                "country_id": 0,
+                "dynamicSpawnTemplate": false,
+                "name": "Aerial-1",
+                "modulation": 0,
+                "route": {
+                  "points": [
+                    {
+                      "x": -399251.90625,
+                      "y": -18680.568359375,
+                      "alt": 561,
+                      "alt_type": "BARO",
+                      "speed": 138.88888888889,
+                      "action": "From Parking Area",
+                      "task": {
+                        "id": "ComboTask",
+                        "params": {
+                          "tasks": [
+                            {
+                              "id": "EngageTargets",
+                              "number": 1,
+                              "params": null,
+                              "key": "CAP",
+                              "auto": true
+                            },
+                            {
+                              "id": "WrappedAction",
+                              "number": 2,
+                              "params": null,
+                              "key": "",
+                              "auto": true
+                            },
+                            {
+                              "id": "WrappedAction",
+                              "number": 3,
+                              "params": null,
+                              "key": "",
+                              "auto": true
+                            },
+                            {
+                              "id": "WrappedAction",
+                              "number": 4,
+                              "params": null,
+                              "key": "",
+                              "auto": true
+                            },
+                            {
+                              "id": "WrappedAction",
+                              "number": 5,
+                              "params": null,
+                              "key": "",
+                              "auto": true
+                            },
+                            {
+                              "id": "WrappedAction",
+                              "number": 6,
+                              "params": null,
+                              "key": "",
+                              "auto": true
+                            }
+                          ]
+                        }
+                      },
+                      "eta": 0,
+                      "ETA_locked": true,
+                      "airdromeId": 4,
+                      "type": "TakeOffParking",
+                      "name": ""
+                    },
+                    {
+                      "x": -398178.88074134,
+                      "y": -908.9966087091,
+                      "alt": 2000,
+                      "alt_type": "BARO",
+                      "speed": 138.88888888889,
+                      "action": "Turning Point",
+                      "task": {
+                        "id": "ComboTask",
+                        "params": {
+                          "tasks": []
+                        }
+                      },
+                      "eta": 128.18834104797,
+                      "ETA_locked": true,
+                      "airdromeId": 0,
+                      "type": "Turning Point",
+                      "name": ""
+                    }
+                  ]
+                },
+                "units": [
+                  {
+                    "type": "F-16C_50",
+                    "skill": "High",
+                    "unitId": 1,
+                    "x": -399251.90625,
+                    "y": -18680.568359375,
+                    "heading": 0.32900235485583,
+                    "callsign": {
+                      "name": "Enfield11"
+                    },
+                    "radio": null,
+                    "alt": 561,
+                    "alt_type": "BARO",
+                    "speed": 138.88888888889,
+                    "onboard_num": 0,
+                    "parking_id": 0,
+                    "payload": {
+                      "pylons": [],
+                      "fuel": 3249,
+                      "flare": 60,
+                      "chaff": 60,
+                      "gun": 100
+                    },
+                    "name": "Aerial-1-1",
+                    "datalinks": {
+                      "Link16": {
+                        "settings": {
+                          "flightLead": true,
+                          "transmitPower": 3,
+                          "specialChannel": 1,
+                          "fighterChannel": 1,
+                          "missionChannel": 1
+                        },
+                        "network": {
+                          "teamMembers": [
+                            {
+                              "TDOA": true,
+                              "missionUnitID": 0
+                            }
+                          ]
+                        }
+                      },
+                      "IDM": {},
+                      "SADL": {}
+                    },
+                    "addPropAircraft": {
+                      "STN_L16": "00201",
+                      "VoiceCallsignNumber": "11",
+                      "VoiceCallsignLabel": "ED"
+                    }
+                  }
+                ],
+                "task": "CAP",
+                "tasks": [],
+                "uncontrolled": false,
+                "hidden": false,
+                "groupId": 1,
+                "communication": true,
+                "startTime": 0,
+                "frequency": 124
+              }
+            ]
+          },
+          "helicopter": {
+            "group": null
+          },
+          "ship": {
+            "group": null
+          },
+          "vehicle": {
+            "group": [
+              {
+                "category": "",
+                "coalition": "",
+                "country_id": 0,
+                "dynamicSpawnTemplate": false,
+                "name": "Ground-1",
+                "modulation": 0,
+                "route": {
+                  "points": [
+                    {
+                      "x": -398186.99299177,
+                      "y": -18031.429051282,
+                      "alt": 564,
+                      "alt_type": "BARO",
+                      "speed": 0,
+                      "action": "Off Road",
+                      "task": {
+                        "id": "ComboTask",
+                        "params": {
+                          "tasks": [
+                            {
+                              "id": "WrappedAction",
+                              "number": 1,
+                              "params": null,
+                              "key": "",
+                              "auto": true
+                            }
+                          ]
+                        }
+                      },
+                      "eta": 0,
+                      "ETA_locked": true,
+                      "airdromeId": 0,
+                      "type": "Turning Point",
+                      "name": ""
+                    }
+                  ]
+                },
+                "units": [
+                  {
+                    "type": "M1045 HMMWV TOW",
+                    "skill": "Average",
+                    "unitId": 2,
+                    "x": -398186.99299177,
+                    "y": -18031.429051282,
+                    "heading": 0,
+                    "callsign": {
+                      "name": ""
+                    },
+                    "radio": null,
+                    "alt": 0,
+                    "alt_type": "",
+                    "speed": 0,
+                    "onboard_num": 0,
+                    "parking_id": 0,
+                    "payload": {
+                      "pylons": null,
+                      "fuel": 0,
+                      "flare": 0,
+                      "chaff": 0,
+                      "gun": 0
+                    },
+                    "name": "Ground-1-1",
+                    "datalinks": {
+                      "Link16": {
+                        "settings": {
+                          "flightLead": false,
+                          "transmitPower": 0,
+                          "specialChannel": 0,
+                          "fighterChannel": 0,
+                          "missionChannel": 0
+                        },
+                        "network": {
+                          "teamMembers": null
+                        }
+                      },
+                      "IDM": {},
+                      "SADL": {}
+                    },
+                    "addPropAircraft": {
+                      "STN_L16": "",
+                      "VoiceCallsignNumber": "",
+                      "VoiceCallsignLabel": ""
+                    }
+                  }
+                ],
+                "task": "Ground Nothing",
+                "tasks": [],
+                "uncontrolled": false,
+                "hidden": false,
+                "groupId": 2,
+                "communication": false,
+                "startTime": 0,
+                "frequency": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "red": {
+      "bullseye": {
+        "x": -288293.969,
+        "y": -88022.641
+      },
+      "nav_points": [],
+      "country": [
+        {
+          "id": 81,
+          "name": "CJTF Red",
+          "plane": {
+            "group": null
+          },
+          "helicopter": {
+            "group": null
+          },
+          "ship": {
+            "group": null
+          },
+          "vehicle": {
+            "group": [
+              {
+                "category": "",
+                "coalition": "",
+                "country_id": 0,
+                "dynamicSpawnTemplate": false,
+                "name": "Ground-2",
+                "modulation": 0,
+                "route": {
+                  "points": [
+                    {
+                      "x": -397647.53475977,
+                      "y": -16379.85692562,
+                      "alt": 563,
+                      "alt_type": "BARO",
+                      "speed": 0,
+                      "action": "Off Road",
+                      "task": {
+                        "id": "ComboTask",
+                        "params": {
+                          "tasks": [
+                            {
+                              "id": "WrappedAction",
+                              "number": 1,
+                              "params": null,
+                              "key": "",
+                              "auto": true
+                            }
+                          ]
+                        }
+                      },
+                      "eta": 0,
+                      "ETA_locked": true,
+                      "airdromeId": 0,
+                      "type": "Turning Point",
+                      "name": ""
+                    }
+                  ]
+                },
+                "units": [
+                  {
+                    "type": "M1045 HMMWV TOW",
+                    "skill": "Average",
+                    "unitId": 3,
+                    "x": -397647.53475977,
+                    "y": -16379.85692562,
+                    "heading": 0,
+                    "callsign": {
+                      "name": ""
+                    },
+                    "radio": null,
+                    "alt": 0,
+                    "alt_type": "",
+                    "speed": 0,
+                    "onboard_num": 0,
+                    "parking_id": 0,
+                    "payload": {
+                      "pylons": null,
+                      "fuel": 0,
+                      "flare": 0,
+                      "chaff": 0,
+                      "gun": 0
+                    },
+                    "name": "Ground-2-1",
+                    "datalinks": {
+                      "Link16": {
+                        "settings": {
+                          "flightLead": false,
+                          "transmitPower": 0,
+                          "specialChannel": 0,
+                          "fighterChannel": 0,
+                          "missionChannel": 0
+                        },
+                        "network": {
+                          "teamMembers": null
+                        }
+                      },
+                      "IDM": {},
+                      "SADL": {}
+                    },
+                    "addPropAircraft": {
+                      "STN_L16": "",
+                      "VoiceCallsignNumber": "",
+                      "VoiceCallsignLabel": ""
+                    }
+                  }
+                ],
+                "task": "Ground Nothing",
+                "tasks": [],
+                "uncontrolled": false,
+                "hidden": false,
+                "groupId": 3,
+                "communication": false,
+                "startTime": 0,
+                "frequency": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "neutrals": {
+      "bullseye": {
+        "x": 0,
+        "y": 0
+      },
+      "nav_points": [],
+      "country": []
+    }
+  },
+  "theater": "Nevada"
+}
