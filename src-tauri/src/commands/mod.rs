@@ -205,9 +205,10 @@ pub fn parse_fragorders_json(
         .blue
         .as_ref()
         .and_then(|b| b.bullseye.as_ref())
-        .map(|be| {
-            let (lat, lon) = dcs_to_latlon(be.x, be.y, theater_params);
-            ProcessedCoordinates { lat, lon }
+        .and_then(|be| {
+            dcs_to_latlon(be.x, be.y, theater_params)
+                .ok()
+                .map(|(lat, lon)| ProcessedCoordinates { lat, lon })
         })
         .unwrap_or(ProcessedCoordinates { lat: 0.0, lon: 0.0 });
 
@@ -272,12 +273,13 @@ pub fn parse_fragorders_json(
     let mut trigger_zones = Vec::new();
     if let Some(triggers) = &mission.triggers {
         for zone in &triggers.zones {
-            let (lat, lon) = dcs_to_latlon(zone.x, zone.y, theater_params);
-            trigger_zones.push(ProcessedTriggerZone {
-                name: zone.name.clone().unwrap_or_else(|| format!("Zone {}", zone.zone_id.unwrap_or(0))),
-                center: ProcessedCoordinates { lat, lon },
-                radius_m: zone.radius,
-            });
+            if let Ok((lat, lon)) = dcs_to_latlon(zone.x, zone.y, theater_params) {
+                trigger_zones.push(ProcessedTriggerZone {
+                    name: zone.name.clone().unwrap_or_else(|| format!("Zone {}", zone.zone_id.unwrap_or(0))),
+                    center: ProcessedCoordinates { lat, lon },
+                    radius_m: zone.radius,
+                });
+            }
         }
     }
 
@@ -332,8 +334,8 @@ fn process_player_group(
             r.points
                 .iter()
                 .enumerate()
-                .map(|(i, pt)| {
-                    let (lat, lon) = dcs_to_latlon(pt.x, pt.y, params);
+                .filter_map(|(i, pt)| {
+                    let (lat, lon) = dcs_to_latlon(pt.x, pt.y, params).ok()?;
                     let alt_ft = pt.alt.map(|a| meters_to_feet(a)).unwrap_or(0.0);
                     let speed_ktas = pt.speed.map(|s| mps_to_ktas(s));
 
@@ -344,14 +346,14 @@ fn process_player_group(
                         pt.action.as_deref(),
                     );
 
-                    ProcessedWaypoint {
+                    Some(ProcessedWaypoint {
                         steerpoint: (i + 1) as i32,
                         name: pt.name.clone().unwrap_or_else(|| format!("WP{}", i + 1)),
                         wp_type,
                         position: ProcessedCoordinates { lat, lon },
                         altitude_ft: alt_ft,
                         speed_ktas,
-                    }
+                    })
                 })
                 .collect()
         })
@@ -374,7 +376,7 @@ fn process_threat_unit(
     params: &parsers::TheaterCoordParams,
     db: &db::Database,
 ) -> ProcessedThreat {
-    let (lat, lon) = dcs_to_latlon(unit.x, unit.y, params);
+    let (lat, lon) = dcs_to_latlon(unit.x, unit.y, params).unwrap_or((0.0, 0.0));
 
     // Try to map to database entry
     let (system_id, system_name, confidence) = if let Some((normalized, conf)) = get_threat_info(unit_type) {

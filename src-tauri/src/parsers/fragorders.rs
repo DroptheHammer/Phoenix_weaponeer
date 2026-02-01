@@ -394,7 +394,7 @@ mod tests {
         }"#;
 
         let mission = parse_fragorders_json(json).expect("Failed to parse");
-        assert_eq!(mission.theatre.as_deref(), Some("Nevada"));
+        assert_eq!(mission.theater.as_deref(), Some("Nevada"));
     }
 
     #[test]

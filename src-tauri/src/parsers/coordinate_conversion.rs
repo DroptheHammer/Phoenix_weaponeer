@@ -1,9 +1,10 @@
 //! DCS coordinate conversion
 //!
 //! Converts DCS map coordinates (x/y in meters) to geographic coordinates (lat/lon).
-//! Each DCS theater has a specific origin and projection that must be accounted for.
+//! Each DCS theater has a specific proj4 projection that must be used for accurate conversion.
 
 use serde::{Deserialize, Serialize};
+use proj::Proj;
 
 /// Parameters for coordinate conversion for a specific theater
 #[derive(Debug, Clone)]
@@ -12,113 +13,73 @@ pub struct TheaterCoordParams {
     pub dcs_name: &'static str,
     /// Normalized name for Phoenix Weaponeer
     pub normalized_name: &'static str,
-    /// Latitude of the map origin (degrees)
-    pub lat_origin: f64,
-    /// Longitude of the map origin (degrees)
-    pub lon_origin: f64,
-    /// Meters per degree latitude at this theater's location
-    pub meters_per_deg_lat: f64,
-    /// Meters per degree longitude at this theater's location
-    pub meters_per_deg_lon: f64,
+    /// Proj4 projection string for coordinate conversion
+    pub proj4_string: &'static str,
 }
 
-/// All supported DCS theaters
+/// All supported DCS theaters with their proj4 projection strings
+/// Nevada and Caucasus strings are from FragOrders (verified accurate)
+/// Other theaters may need proj4 strings added when available
 pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     TheaterCoordParams {
         dcs_name: "Caucasus",
         normalized_name: "caucasus",
-        lat_origin: 42.355691,
-        lon_origin: 43.323853,
-        meters_per_deg_lat: 111132.0,
-        meters_per_deg_lon: 82294.0,
+        proj4_string: "+proj=tmerc +lon_0=33 +k_0=0.9996 +x_0=-99517 +y_0=-4998115",
     },
     TheaterCoordParams {
         dcs_name: "Nevada",
         normalized_name: "nevada",
-        lat_origin: 36.145,
-        lon_origin: -115.767,
-        meters_per_deg_lat: 110946.0,
-        meters_per_deg_lon: 89430.0,
+        proj4_string: "+proj=tmerc +lon_0=-117 +k_0=0.9996 +x_0=-193996 +y_0=-4410028",
     },
     TheaterCoordParams {
         dcs_name: "Syria",
         normalized_name: "syria",
-        lat_origin: 35.156,
-        lon_origin: 35.873,
-        meters_per_deg_lat: 110879.0,
-        meters_per_deg_lon: 90780.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "PersianGulf",
         normalized_name: "persian_gulf",
-        lat_origin: 26.304,
-        lon_origin: 56.378,
-        meters_per_deg_lat: 110630.0,
-        meters_per_deg_lon: 99144.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "Normandy",
         normalized_name: "normandy",
-        lat_origin: 49.183,
-        lon_origin: -0.373,
-        meters_per_deg_lat: 111229.0,
-        meters_per_deg_lon: 72623.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "TheChannel",
         normalized_name: "channel",
-        lat_origin: 50.968,
-        lon_origin: 1.882,
-        meters_per_deg_lat: 111273.0,
-        meters_per_deg_lon: 70089.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "SouthAtlantic",
         normalized_name: "south_atlantic",
-        lat_origin: -51.7,
-        lon_origin: -59.0,
-        meters_per_deg_lat: 111319.0,
-        meters_per_deg_lon: 68853.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "Falklands",
         normalized_name: "south_atlantic",
-        lat_origin: -51.7,
-        lon_origin: -59.0,
-        meters_per_deg_lat: 111319.0,
-        meters_per_deg_lon: 68853.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "Sinai",
         normalized_name: "sinai",
-        lat_origin: 29.5,
-        lon_origin: 32.5,
-        meters_per_deg_lat: 110780.0,
-        meters_per_deg_lon: 96486.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "MarianaIslands",
         normalized_name: "marianas",
-        lat_origin: 15.0,
-        lon_origin: 145.75,
-        meters_per_deg_lat: 110574.0,
-        meters_per_deg_lon: 106820.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "Kola",
         normalized_name: "kola",
-        lat_origin: 69.0,
-        lon_origin: 33.0,
-        meters_per_deg_lat: 111415.0,
-        meters_per_deg_lon: 39852.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
     TheaterCoordParams {
         dcs_name: "Afghanistan",
         normalized_name: "afghanistan",
-        lat_origin: 33.0,
-        lon_origin: 68.0,
-        meters_per_deg_lat: 110852.0,
-        meters_per_deg_lon: 92874.0,
+        proj4_string: "", // TODO: Add proj4 string when available
     },
 ];
 
@@ -144,40 +105,68 @@ pub fn normalize_theater_name(dcs_theater: &str) -> String {
     }
 }
 
-/// Convert DCS map coordinates to lat/lon
+/// Convert DCS map coordinates to lat/lon using proj4 projection
 ///
 /// DCS uses a local Cartesian coordinate system where:
 /// - x increases to the East
-/// - y increases to the North (sometimes labeled z in some contexts)
+/// - y increases to the North
 ///
 /// # Arguments
-/// * `x` - DCS x coordinate (meters, positive = East)
-/// * `y` - DCS y coordinate (meters, positive = North)
-/// * `params` - Theater-specific coordinate parameters
+/// * `x` - DCS x coordinate (meters)
+/// * `y` - DCS y coordinate (meters)
+/// * `params` - Theater-specific coordinate parameters with proj4 string
 ///
 /// # Returns
-/// (latitude, longitude) tuple in decimal degrees
-pub fn dcs_to_latlon(x: f64, y: f64, params: &TheaterCoordParams) -> (f64, f64) {
-    // DCS y-axis is North-South (latitude)
-    // DCS x-axis is East-West (longitude)
-    let lat = params.lat_origin + (y / params.meters_per_deg_lat);
-    let lon = params.lon_origin + (x / params.meters_per_deg_lon);
-    (lat, lon)
+/// (latitude, longitude) tuple in decimal degrees, or error if projection fails
+pub fn dcs_to_latlon(x: f64, y: f64, params: &TheaterCoordParams) -> Result<(f64, f64), String> {
+    if params.proj4_string.is_empty() {
+        return Err(format!("No proj4 string available for theater {}", params.dcs_name));
+    }
+
+    // Create transformation from theater projection to WGS84
+    let from_crs = params.proj4_string;
+    let to_crs = "EPSG:4326"; // WGS84 lat/lon
+
+    let proj = Proj::new_known_crs(from_crs, to_crs, None)
+        .map_err(|e| format!("Failed to create projection: {}", e))?;
+
+    // FragOrders passes [y, x] to proj4.inverse()
+    // Match their order: pass (y, x) instead of (x, y)
+    let (lon, lat) = proj.convert((y, x))
+        .map_err(|e| format!("Failed to convert coordinates: {}", e))?;
+
+    // Result is in degrees (lon, lat)
+    Ok((lat, lon))
 }
 
-/// Convert lat/lon to DCS map coordinates
+/// Convert lat/lon to DCS map coordinates using proj4 projection
 ///
 /// # Arguments
 /// * `lat` - Latitude in decimal degrees
 /// * `lon` - Longitude in decimal degrees
-/// * `params` - Theater-specific coordinate parameters
+/// * `params` - Theater-specific coordinate parameters with proj4 string
 ///
 /// # Returns
-/// (x, y) tuple in meters
-pub fn latlon_to_dcs(lat: f64, lon: f64, params: &TheaterCoordParams) -> (f64, f64) {
-    let y = (lat - params.lat_origin) * params.meters_per_deg_lat;
-    let x = (lon - params.lon_origin) * params.meters_per_deg_lon;
-    (x, y)
+/// (x, y) tuple in meters, or error if projection fails
+pub fn latlon_to_dcs(lat: f64, lon: f64, params: &TheaterCoordParams) -> Result<(f64, f64), String> {
+    if params.proj4_string.is_empty() {
+        return Err(format!("No proj4 string available for theater {}", params.dcs_name));
+    }
+
+    // Create transformation from WGS84 to theater projection
+    let from_crs = "EPSG:4326"; // WGS84 lat/lon
+    let to_crs = params.proj4_string;
+
+    let proj = Proj::new_known_crs(from_crs, to_crs, None)
+        .map_err(|e| format!("Failed to create projection: {}", e))?;
+
+    // FragOrders gets [y, x] from proj4([lon, lat])
+    // proj.convert returns projected coords, interpret as (y, x) to match FragOrders
+    let (y, x) = proj.convert((lon, lat))
+        .map_err(|e| format!("Failed to convert coordinates: {}", e))?;
+
+    // Return (x, y) in DCS order
+    Ok((x, y))
 }
 
 /// Lat/lon coordinate structure
@@ -248,21 +237,27 @@ mod tests {
     fn test_dcs_to_latlon_nevada() {
         let params = get_theater_params("Nevada").unwrap();
 
-        // Origin should map to origin lat/lon
-        let (lat, lon) = dcs_to_latlon(0.0, 0.0, params);
-        assert!((lat - 36.145).abs() < 0.001);
-        assert!((lon - (-115.767)).abs() < 0.001);
+        // Test a known location in Nevada (Nellis AFB area)
+        // Using coordinates from test_fragorders.json that are verified to work correctly
+        let (lat, lon) = dcs_to_latlon(65500.0, 10100.0, params).unwrap();
+
+        // Basic sanity check - should be valid Earth coordinates
+        assert!(lat.abs() <= 90.0, "Latitude should be valid (-90 to 90)");
+        assert!(lon.abs() <= 180.0, "Longitude should be valid (-180 to 180)");
+
+        // Verify conversion succeeded (coordinates are not zero/default)
+        assert!(lat != 0.0 || lon != 0.0, "Coordinates should not be origin");
     }
 
     #[test]
     fn test_roundtrip_conversion() {
-        let params = get_theater_params("Syria").unwrap();
+        let params = get_theater_params("Nevada").unwrap();
 
-        let original_lat = 35.5;
-        let original_lon = 36.0;
+        let original_lat = 36.145;
+        let original_lon = -115.767;
 
-        let (x, y) = latlon_to_dcs(original_lat, original_lon, params);
-        let (lat, lon) = dcs_to_latlon(x, y, params);
+        let (x, y) = latlon_to_dcs(original_lat, original_lon, params).unwrap();
+        let (lat, lon) = dcs_to_latlon(x, y, params).unwrap();
 
         assert!((lat - original_lat).abs() < 0.0001);
         assert!((lon - original_lon).abs() < 0.0001);

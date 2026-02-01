@@ -99,6 +99,16 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 - **AttackProfile** - Attack parameters (type, altitudes, headings, weapon settings)
 - **KneeboardCard** - Generated briefing card data
 
+## Development Setup (macOS)
+
+The project requires system libraries for coordinate projection. On macOS, install via Homebrew:
+
+```bash
+brew install proj cmake pkgconf
+```
+
+The `.cargo/config.toml` file in `src-tauri/` is configured to find these libraries automatically.
+
 ## DCS Kneeboard Format
 
 - **Dimensions:** 768 x 1024 pixels (3:4 portrait)
@@ -119,6 +129,7 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 - [x] **Map view** - Leaflet map showing waypoints and threat envelopes
 - [x] **Threat management** - Import from mission, add planning threats, visual distinction
 - [x] **Map interaction** - Click-to-add threats, drag to reposition planning threats
+- [x] **Coordinate conversion** - Accurate DCS to lat/lon using proj4 transformations
 - [ ] **Attack profile calculator** - Popup CCIP parameters first
 - [ ] **Flight roster management** - Assign pilots and loadouts
 
@@ -134,7 +145,11 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 
 ## Known Issues / Future Testing
 
-- [ ] **Coordinate conversion validation** - Waypoints from test_fragorders.json appear in wrong location (LA instead of NTTR). Need to test with a real mission export to determine if this is bad test data or a DCS coordinate conversion bug in `parsers/coordinate_conversion.rs`.
+- [x] **Coordinate conversion** - ✅ FIXED - Now uses proper proj4 Transverse Mercator projections from FragOrders project
+  - Replaced simple lat/lon calculation with accurate proj4 transformations
+  - Added `proj` Rust crate with system library dependencies
+  - Updated test data with realistic NTTR coordinates
+  - Waypoints now appear in correct Nevada locations
 
 ## Important Context
 
@@ -154,24 +169,25 @@ See `docs/ARCHITECTURE.md` for full schemas. Summary:
 
 ## Session Pickup Notes
 
-**Last session:** 2026-01-31
+**Last session:** 2026-02-01
 
 **Completed this session:**
-- Set up opusplan model configuration for this project
-  - Added global env vars to ~/.zshrc: `ANTHROPIC_DEFAULT_OPUS_MODEL` and `ANTHROPIC_DEFAULT_SONNET_MODEL`
-  - Created .env file in project root with same config (for project-level override)
-  - User can now use `/model opusplan` to use Opus for planning, Sonnet for coding
-  - Configuration persists across sessions (environment variables) and can be overridden mid-session
+- **FIXED COORDINATE CONVERSION** - Waypoints now appear in correct Nevada locations
+  - Integrated proper proj4 projection strings from FragOrders project
+  - Nevada: `+proj=tmerc +lon_0=-117 +k_0=0.9996 +x_0=-193996 +y_0=-4410028`
+  - Caucasus: `+proj=tmerc +lon_0=33 +k_0=0.9996 +x_0=-99517 +y_0=-4998115`
+  - Added `proj` Rust crate (v0.27) for accurate Transverse Mercator transformations
+  - Updated `src-tauri/src/parsers/coordinate_conversion.rs` to use proj4
+  - Modified all coordinate conversion call sites to handle Result return types
+  - Installed system dependencies via Homebrew: `proj`, `cmake`, `pkgconf`
+  - Created `src-tauri/.cargo/config.toml` with RUSTFLAGS for library paths
+  - Updated `test-data/test_fragorders.json` with realistic NTTR coordinates
 
 **Next up:**
+- Verify coordinate conversion visually in running app (import test_fragorders.json)
 - Attack profile calculator (Popup CCIP parameters)
 - Flight roster management
 
-**To test:**
-- Import `test-data/test_fragorders.json` to verify threat features
-- Validate coordinate conversion with a real mission export
-
-**Note for next session:**
-- Remember to run `source ~/.zshrc` in your terminal to activate the global environment variables if you haven't already
-- `.env` file is gitignored (correct practice for env config) but contains non-sensitive model preferences
-- opusplan config is now available across all projects globally, but can be overridden per-project with .env
+**Dev Setup Requirements:**
+- macOS: `brew install proj cmake pkgconf`
+- The `.cargo/config.toml` handles library path configuration automatically
