@@ -169,27 +169,30 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-02-01
+**Last session:** 2026-02-01 (evening session)
 
 **Completed this session:**
-- ✅ **FIXED COORDINATE CONVERSION** - Waypoints and bullseye now accurately positioned
-  - Root cause: Needed to use `(y, x)` coordinate order, not `(x, y)`
-  - FragOrders passes `[y, x]` (northing, easting) to proj4
-  - Integrated proper proj4 projection strings from FragOrders project
-  - Nevada: `+proj=tmerc +lon_0=-117 +k_0=0.9996 +x_0=-193996 +y_0=-4410028`
-  - Caucasus: `+proj=tmerc +lon_0=33 +k_0=0.9996 +x_0=-99517 +y_0=-4998115`
-  - Added `proj` Rust crate (v0.27) for accurate Transverse Mercator transformations
-  - Updated `src-tauri/src/parsers/coordinate_conversion.rs` to use proj4
-  - Modified all coordinate conversion call sites to handle Result return types
-  - Installed system dependencies via Homebrew: `proj`, `cmake`, `pkgconf`
-  - Created `src-tauri/.cargo/config.toml` with RUSTFLAGS for library paths
-  - Updated `test-data/test_fragorders.json` with realistic NTTR coordinates
-  - **Verified in app:** Waypoints appear in correct NTTR locations, bullseye is accurate
+- ✅ **Created ROADMAP.md** - Comprehensive development roadmap document
+  - Full breakdown of all 4 development phases
+  - Current status tracking (Phase 2.1-2.4 complete)
+  - Next milestone: Attack Profile Calculator (Phase 2.5)
 
-**Important Notes:**
-- Bullseye is a **tactical reference point** for pilot navigation, NOT a map center
-- Map should center on theater bounds or waypoint centroid, not bullseye
-- Coordinate order `(y, x)` is critical - swapping causes shifts in both directions
+**Project Status:**
+- **Phase 1 (Foundation):** ✅ COMPLETE
+- **Phase 2 (Core Planning):** 🔄 IN PROGRESS
+  - ✅ Map visualization (2.1)
+  - ✅ Threat management (2.2)
+  - ✅ Map interaction (2.3)
+  - ✅ Coordinate conversion with proj4 (2.4)
+  - ❌ Attack profile calculator (2.5) - NEXT
+  - ❌ Flight roster management (2.6)
+- **Phase 3 (Output):** ❌ NOT STARTED
+- **Phase 4 (Polish):** ❌ NOT STARTED
+
+**Important Context from Previous Session:**
+- Coordinate conversion fixed using proj4 with (y,x) ordering
+- Waypoints display correctly on NTTR map
+- Bullseye is tactical reference, NOT map center
 
 **Next up:**
 - Attack profile calculator (Popup CCIP parameters)
