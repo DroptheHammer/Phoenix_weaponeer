@@ -172,7 +172,9 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 **Last session:** 2026-02-01
 
 **Completed this session:**
-- **FIXED COORDINATE CONVERSION** - Waypoints now appear in correct Nevada locations
+- ✅ **FIXED COORDINATE CONVERSION** - Waypoints and bullseye now accurately positioned
+  - Root cause: Needed to use `(y, x)` coordinate order, not `(x, y)`
+  - FragOrders passes `[y, x]` (northing, easting) to proj4
   - Integrated proper proj4 projection strings from FragOrders project
   - Nevada: `+proj=tmerc +lon_0=-117 +k_0=0.9996 +x_0=-193996 +y_0=-4410028`
   - Caucasus: `+proj=tmerc +lon_0=33 +k_0=0.9996 +x_0=-99517 +y_0=-4998115`
@@ -182,9 +184,14 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
   - Installed system dependencies via Homebrew: `proj`, `cmake`, `pkgconf`
   - Created `src-tauri/.cargo/config.toml` with RUSTFLAGS for library paths
   - Updated `test-data/test_fragorders.json` with realistic NTTR coordinates
+  - **Verified in app:** Waypoints appear in correct NTTR locations, bullseye is accurate
+
+**Important Notes:**
+- Bullseye is a **tactical reference point** for pilot navigation, NOT a map center
+- Map should center on theater bounds or waypoint centroid, not bullseye
+- Coordinate order `(y, x)` is critical - swapping causes shifts in both directions
 
 **Next up:**
-- Verify coordinate conversion visually in running app (import test_fragorders.json)
 - Attack profile calculator (Popup CCIP parameters)
 - Flight roster management
 
