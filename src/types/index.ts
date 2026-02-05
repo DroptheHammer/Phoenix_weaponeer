@@ -55,6 +55,12 @@ export type {
   StandoffProfile,
 } from './attack.types';
 
+// Calculator
+export type {
+  PopupCCIPInput,
+  PopupCCIPResult,
+} from './calculator.types';
+
 // Kneeboard
 export type {
   KneeboardCard,

@@ -435,6 +435,41 @@ impl Database {
         Ok(weapons)
     }
 
+    /// Get a specific weapon by ID
+    pub fn get_weapon_by_id(&self, id: &str) -> SqliteResult<Option<Weapon>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, category, weight_lbs, drag_index, guidance,
+                    min_release_alt_ft, max_release_alt_ft, min_release_speed_ktas, max_release_speed_ktas,
+                    frag_lethal_radius_ft, frag_effective_radius_ft, frag_min_safe_alt_ft,
+                    dcs_weapon_name, notes
+             FROM weapons WHERE id = ?1"
+        )?;
+
+        let mut rows = stmt.query([id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(Weapon {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                category: row.get(2)?,
+                weight_lbs: row.get(3)?,
+                drag_index: row.get(4)?,
+                guidance: row.get(5)?,
+                min_release_alt_ft: row.get(6)?,
+                max_release_alt_ft: row.get(7)?,
+                min_release_speed_ktas: row.get(8)?,
+                max_release_speed_ktas: row.get(9)?,
+                frag_lethal_radius_ft: row.get(10)?,
+                frag_effective_radius_ft: row.get(11)?,
+                frag_min_safe_alt_ft: row.get(12)?,
+                dcs_weapon_name: row.get(13)?,
+                notes: row.get(14)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Get weapons for a specific aircraft
     pub fn get_weapons_for_aircraft(&self, aircraft_id: &str) -> SqliteResult<Vec<Weapon>> {
         let conn = self.conn.lock().unwrap();

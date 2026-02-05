@@ -55,6 +55,7 @@ pub fn run() {
             commands::parse_fragorders_json,
             // Calculation commands
             commands::calculate_attack_profile,
+            commands::calculate_popup_ccip,
             commands::calculate_threat_exposure,
             // Export commands
             commands::render_kneeboard,

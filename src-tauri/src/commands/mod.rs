@@ -3,6 +3,7 @@
 //! This module contains all the command handlers that are exposed to the frontend
 //! via Tauri's IPC mechanism.
 
+use crate::calculators;
 use crate::db;
 use crate::parsers::{
     self, dcs_to_latlon, get_theater_params, get_threat_info, meters_to_feet, mps_to_ktas,
@@ -52,6 +53,18 @@ pub struct AttackCalculationResult {
     pub release_speed_ktas: f64,
     pub time_to_release_sec: f64,
     pub min_safe_altitude_ft: f64,
+}
+
+/// Input parameters for popup CCIP calculation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PopupCCIPInput {
+    pub target_elevation_ft: f64,
+    pub run_in_altitude_agl: f64,
+    pub run_in_speed_ktas: f64,
+    pub pop_distance_nm: f64,
+    pub apex_altitude_agl: f64,
+    pub dive_angle_deg: f64,
+    pub weapon_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -493,6 +506,41 @@ pub fn calculate_attack_profile(
         time_to_release_sec: 15.0,
         min_safe_altitude_ft: 3000.0,
     })
+}
+
+/// Calculate popup CCIP attack profile
+#[tauri::command]
+pub fn calculate_popup_ccip(
+    state: State<AppState>,
+    input: PopupCCIPInput,
+) -> Result<calculators::PopupCCIPResult, String> {
+    // Look up weapon from database
+    let weapon = state
+        .db
+        .get_weapon_by_id(&input.weapon_id)
+        .map_err(|e| format!("Database error: {}", e))?
+        .ok_or_else(|| format!("Weapon not found: {}", input.weapon_id))?;
+
+    // Convert to calculator's WeaponParams
+    let weapon_params = calculators::WeaponParams {
+        weight_lbs: weapon.weight_lbs,
+        drag_index: weapon.drag_index.unwrap_or(0.027),
+        min_release_alt_ft: weapon.min_release_alt_ft.unwrap_or(3000.0),
+        frag_min_safe_alt_ft: weapon.frag_min_safe_alt_ft,
+    };
+
+    // Call existing calculator
+    let result = calculators::calculate_popup_ccip(
+        input.target_elevation_ft,
+        input.run_in_altitude_agl,
+        input.run_in_speed_ktas,
+        input.pop_distance_nm,
+        input.apex_altitude_agl,
+        input.dive_angle_deg,
+        &weapon_params,
+    );
+
+    Ok(result)
 }
 
 /// Calculate threat exposure during an attack run

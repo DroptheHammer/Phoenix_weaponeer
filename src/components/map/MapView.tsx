@@ -1,9 +1,10 @@
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, ZoomControl, useMapEvents } from 'react-leaflet';
 import { divIcon, DragEndEvent } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Theater, Waypoint, ThreatInstance, Coordinates } from '../../types';
+import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../../types';
 import { THEATERS } from '../../data/theaters';
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect } from 'react';
+import { AttackProfileOverlay } from './AttackProfileOverlay';
 
 interface ThreatSystem {
   id: string;
@@ -18,11 +19,17 @@ interface MapViewProps {
   theater: Theater;
   waypoints?: Waypoint[];
   threats?: ThreatInstance[];
+  attacks?: Attack[];
   bullseye?: Coordinates;
   threatSystems?: Map<string, ThreatSystem>;
   availableThreats?: ThreatSystem[];
+  selectedAttackId?: string;
   onAddThreat?: (systemId: string, position: Coordinates) => void;
   onMoveThreat?: (threatId: string, position: Coordinates) => void;
+  onRemoveThreat?: (threatId: string) => void;
+  onSelectAttack?: (attackId: string) => void;
+  isPlacementMode?: boolean;
+  onPlacePosition?: (position: Coordinates) => void;
 }
 
 function MapController({ theater }: { theater: Theater }) {
@@ -39,23 +46,24 @@ function MapController({ theater }: { theater: Theater }) {
   return null;
 }
 
-// Handle map click events for threat placement
-interface MapClickHandlerProps {
+// Map click handler for threat placement
+function MapClickHandler({
+  isPlacementMode,
+  onPlacePosition
+}: {
   isPlacementMode: boolean;
-  selectedSystemId: string | null;
-  onPlaceThreat: (position: Coordinates) => void;
-}
-
-function MapClickHandler({ isPlacementMode, selectedSystemId, onPlaceThreat }: MapClickHandlerProps) {
+  onPlacePosition?: (position: Coordinates) => void;
+}) {
   useMapEvents({
     click: (e) => {
-      if (isPlacementMode && selectedSystemId) {
-        onPlaceThreat({ lat: e.latlng.lat, lon: e.latlng.lng });
+      if (isPlacementMode && onPlacePosition) {
+        onPlacePosition({ lat: e.latlng.lat, lon: e.latlng.lng });
       }
     },
   });
   return null;
 }
+
 
 // Custom waypoint icon
 const createWaypointIcon = (label: string, type: string) => {
@@ -127,39 +135,25 @@ export function MapView({
   theater,
   waypoints = [],
   threats = [],
+  attacks = [],
   bullseye,
   threatSystems,
   availableThreats = [],
+  selectedAttackId,
   onAddThreat,
   onMoveThreat,
+  onRemoveThreat,
+  onSelectAttack,
+  isPlacementMode = false,
+  onPlacePosition,
 }: MapViewProps) {
   const theaterData = THEATERS[theater];
   const center = theaterData?.defaultBullseye ?? { lat: 0, lon: 0 };
-
-  // Placement mode state
-  const [isPlacementMode, setIsPlacementMode] = useState(false);
-  const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
-
-  // Group available threats by type
-  const threatsByType = useMemo(() => {
-    return availableThreats.reduce((acc, threat) => {
-      const type = threat.threat_type;
-      if (!acc[type]) acc[type] = [];
-      acc[type].push(threat);
-      return acc;
-    }, {} as Record<string, ThreatSystem[]>);
-  }, [availableThreats]);
 
   // Create waypoint route line
   const waypointPath = useMemo(() => {
     return waypoints.map((wp) => [wp.coordinates.lat, wp.coordinates.lon] as [number, number]);
   }, [waypoints]);
-
-  const handlePlaceThreat = (position: Coordinates) => {
-    if (selectedSystemId && onAddThreat) {
-      onAddThreat(selectedSystemId, position);
-    }
-  };
 
   const handleThreatDragEnd = (threatId: string, e: DragEndEvent) => {
     const latlng = e.target.getLatLng();
@@ -168,39 +162,34 @@ export function MapView({
     }
   };
 
-  const selectedSystem = selectedSystemId
-    ? availableThreats.find(t => t.id === selectedSystemId)
-    : null;
-
   return (
     <div className="h-full w-full relative">
       <MapContainer
         center={[center.lat, center.lon]}
         zoom={8}
         className={`h-full w-full ${isPlacementMode ? 'cursor-crosshair' : ''}`}
-        zoomControl={true}
+        zoomControl={false}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={15}
         />
+        <ZoomControl position="bottomleft" />
         <MapController theater={theater} />
-        <MapClickHandler
-          isPlacementMode={isPlacementMode}
-          selectedSystemId={selectedSystemId}
-          onPlaceThreat={handlePlaceThreat}
-        />
+        <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={onPlacePosition} />
 
         {/* Bullseye marker */}
         {bullseye && (
           <Marker position={[bullseye.lat, bullseye.lon]} icon={bullseyeIcon} interactive={!isPlacementMode}>
-            <Popup>
-              <div className="font-semibold">Bullseye</div>
-              <div className="text-sm">
-                {bullseye.lat.toFixed(5)}, {bullseye.lon.toFixed(5)}
-              </div>
-            </Popup>
+            {!isPlacementMode && (
+              <Popup>
+                <div className="font-semibold">Bullseye</div>
+                <div className="text-sm">
+                  {bullseye.lat.toFixed(5)}, {bullseye.lon.toFixed(5)}
+                </div>
+              </Popup>
+            )}
           </Marker>
         )}
 
@@ -212,25 +201,27 @@ export function MapView({
             icon={createWaypointIcon(waypoint.steerpoint.toString(), waypoint.type)}
             interactive={!isPlacementMode}
           >
-            <Popup>
-              <div className="font-semibold">{waypoint.name}</div>
-              <div className="text-sm text-gray-600">
-                Steerpoint {waypoint.steerpoint} • {waypoint.type.toUpperCase()}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                {waypoint.coordinates.lat.toFixed(5)}, {waypoint.coordinates.lon.toFixed(5)}
-              </div>
-              <div className="text-xs text-gray-500">
-                Elev: {waypoint.elevation_ft.toFixed(0)} ft MSL
-              </div>
-              {waypoint.targetInfo && (
-                <div className="text-xs mt-1 border-t pt-1">
-                  <div className="font-medium">Target Info:</div>
-                  <div>{waypoint.targetInfo.description}</div>
-                  <div>Priority: {waypoint.targetInfo.priority}</div>
+            {!isPlacementMode && (
+              <Popup>
+                <div className="font-semibold">{waypoint.name}</div>
+                <div className="text-sm text-gray-600">
+                  Steerpoint {waypoint.steerpoint} • {waypoint.type.toUpperCase()}
                 </div>
-              )}
-            </Popup>
+                <div className="text-xs text-gray-500 mt-1">
+                  {waypoint.coordinates.lat.toFixed(5)}, {waypoint.coordinates.lon.toFixed(5)}
+                </div>
+                <div className="text-xs text-gray-500">
+                  Elev: {waypoint.elevation_ft.toFixed(0)} ft MSL
+                </div>
+                {waypoint.targetInfo && (
+                  <div className="text-xs mt-1 border-t pt-1">
+                    <div className="font-medium">Target Info:</div>
+                    <div>{waypoint.targetInfo.description}</div>
+                    <div>Priority: {waypoint.targetInfo.priority}</div>
+                  </div>
+                )}
+              </Popup>
+            )}
           </Marker>
         ))}
 
@@ -270,112 +261,98 @@ export function MapView({
                   dashArray: isMissionThreat ? undefined : '8, 8',
                 }}
               >
-                <Popup>
-                  <div className="font-semibold">{system.name}</div>
-                  {system.nato_designation && (
-                    <div className="text-sm text-gray-600">{system.nato_designation}</div>
-                  )}
-                  <div className="text-xs text-gray-500 mt-1">
-                    {threat.position.lat.toFixed(5)}, {threat.position.lon.toFixed(5)}
-                  </div>
-                  <div className="text-xs mt-1">
-                    <div>Range: {system.max_range_nm} nm</div>
-                    <div>Max Alt: {(system.max_altitude_ft / 1000).toFixed(1)}k ft</div>
-                    <div>Status: <span className="font-medium capitalize">{threat.status}</span></div>
-                    <div>Source: <span className={`font-medium ${isMissionThreat ? 'text-blue-600' : 'text-orange-600'}`}>
-                      {isMissionThreat ? 'Mission Intel' : 'Planning Assumption'}
-                    </span></div>
-                  </div>
-                  {!isMissionThreat && (
-                    <div className="text-xs text-orange-600 mt-1 border-t pt-1">
-                      Drag marker to reposition
+                {!isPlacementMode && (
+                  <Popup>
+                    <div className="font-semibold">{system.name}</div>
+                    {system.nato_designation && (
+                      <div className="text-sm text-gray-600">{system.nato_designation}</div>
+                    )}
+                    <div className="text-xs text-gray-500 mt-1">
+                      {threat.position.lat.toFixed(5)}, {threat.position.lon.toFixed(5)}
                     </div>
-                  )}
-                  {threat.notes && (
-                    <div className="text-xs text-gray-600 mt-1 border-t pt-1">
-                      {threat.notes}
+                    <div className="text-xs mt-1">
+                      <div>Range: {system.max_range_nm} nm</div>
+                      <div>Max Alt: {(system.max_altitude_ft / 1000).toFixed(1)}k ft</div>
+                      <div>Status: <span className="font-medium capitalize">{threat.status}</span></div>
+                      <div>Source: <span className={`font-medium ${isMissionThreat ? 'text-blue-600' : 'text-orange-600'}`}>
+                        {isMissionThreat ? 'Mission Intel' : 'Planning Assumption'}
+                      </span></div>
                     </div>
-                  )}
-                </Popup>
+                    {!isMissionThreat && (
+                      <div className="text-xs text-orange-600 mt-1 border-t pt-1">
+                        Drag marker to reposition
+                      </div>
+                    )}
+                    {threat.notes && (
+                      <div className="text-xs text-gray-600 mt-1 border-t pt-1">
+                        {threat.notes}
+                      </div>
+                    )}
+                  </Popup>
+                )}
               </Circle>
 
               {/* Draggable center marker for planning threats */}
               <Marker
                 position={[threat.position.lat, threat.position.lon]}
-                icon={createThreatIcon(system.threat_type, isDraggable && !isPlacementMode)}
+                icon={createThreatIcon(system.threat_type, isDraggable)}
                 draggable={isDraggable && !isPlacementMode}
                 interactive={!isPlacementMode}
                 eventHandlers={isDraggable && !isPlacementMode ? {
                   dragend: (e) => handleThreatDragEnd(threat.id, e),
                 } : undefined}
               >
-                <Popup>
-                  <div className="font-semibold">{system.name}</div>
-                  <div className="text-xs text-gray-500">
-                    {isMissionThreat ? 'Mission Intel (fixed)' : 'Drag to reposition'}
-                  </div>
-                </Popup>
+                {!isPlacementMode && (
+                  <Popup>
+                    <div className="font-semibold">{system.name}</div>
+                    {system.nato_designation && (
+                      <div className="text-xs text-gray-600">{system.nato_designation}</div>
+                    )}
+                    <div className="text-xs text-gray-500 mt-1">
+                      {isMissionThreat ? 'Mission Intel (fixed)' : 'Drag to reposition'}
+                    </div>
+                    {!isMissionThreat && onRemoveThreat && (
+                      <button
+                        onClick={() => onRemoveThreat(threat.id)}
+                        className="mt-1 text-xs text-gray-500 hover:text-red-600 transition-colors"
+                        title="Delete threat"
+                      >
+                        × Delete
+                      </button>
+                    )}
+                  </Popup>
+                )}
               </Marker>
             </span>
           );
         })}
+
+        {/* Attack profile overlays */}
+        {attacks.map((attack) => {
+          const ipWaypoint = waypoints.find(wp =>
+            attack.profileType === 'popup_ccip' &&
+            (attack.profile as any).ipWaypointId === wp.id
+          );
+          const targetWaypoint = waypoints.find(wp => wp.id === attack.targetWaypointId);
+
+          if (!ipWaypoint || !targetWaypoint) return null;
+
+          return (
+            <AttackProfileOverlay
+              key={attack.id}
+              attack={attack}
+              ipWaypoint={ipWaypoint}
+              targetWaypoint={targetWaypoint}
+              isSelected={attack.id === selectedAttackId}
+            />
+          );
+        })}
       </MapContainer>
-
-      {/* Threat Placement Toolbar */}
-      <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3 z-[1000] max-w-xs">
-        <div className="font-semibold mb-2 text-gray-800 text-sm">Add Threat</div>
-
-        {!isPlacementMode ? (
-          <button
-            onClick={() => setIsPlacementMode(true)}
-            className="w-full bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-2 rounded transition-colors"
-          >
-            Enter Placement Mode
-          </button>
-        ) : (
-          <div className="space-y-2">
-            <select
-              value={selectedSystemId || ''}
-              onChange={(e) => setSelectedSystemId(e.target.value || null)}
-              className="w-full text-sm border border-gray-300 rounded p-2 text-gray-800"
-            >
-              <option value="">Select threat type...</option>
-              {Object.entries(threatsByType).map(([type, systems]) => (
-                <optgroup key={type} label={type}>
-                  {systems.map((sys) => (
-                    <option key={sys.id} value={sys.id}>
-                      {sys.nato_designation || sys.name} ({sys.max_range_nm}nm)
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-
-            {selectedSystem && (
-              <div className="text-xs text-gray-600 p-2 bg-gray-100 rounded">
-                <div className="font-medium">{selectedSystem.name}</div>
-                <div>Range: {selectedSystem.max_range_nm} nm</div>
-                <div>Click map to place</div>
-              </div>
-            )}
-
-            <button
-              onClick={() => {
-                setIsPlacementMode(false);
-                setSelectedSystemId(null);
-              }}
-              className="w-full bg-gray-500 hover:bg-gray-600 text-white text-sm px-3 py-2 rounded transition-colors"
-            >
-              Exit Placement Mode
-            </button>
-          </div>
-        )}
-      </div>
 
       {/* Placement mode indicator */}
       {isPlacementMode && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-orange-500 text-white px-4 py-2 rounded-full shadow-lg z-[1000] text-sm font-medium">
-          {selectedSystemId ? 'Click map to place threat' : 'Select a threat type'}
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-dcs-accent text-white px-6 py-3 rounded-lg shadow-lg z-[1000] font-medium">
+          Click map to place threat
         </div>
       )}
 

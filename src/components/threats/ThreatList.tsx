@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMissionStore } from '../../stores/missionStore';
 import { formatCoordinatesDMS } from '../../lib/coordinates';
 import type { ThreatStatus, ThreatSource, Coordinates } from '../../types';
@@ -15,6 +16,7 @@ interface ThreatSystem {
 interface ThreatListProps {
   threatSystems: Map<string, ThreatSystem>;
   availableThreats: ThreatSystem[];
+  onRequestPlacement?: (callback: (position: Coordinates) => void) => void;
 }
 
 const STATUS_COLORS: Record<ThreatStatus, string> = {
@@ -46,9 +48,10 @@ const THREAT_TYPE_COLORS: Record<string, string> = {
   EWR: 'text-blue-400',
 };
 
-export function ThreatList({ threatSystems, availableThreats }: ThreatListProps) {
+export function ThreatList({ threatSystems, availableThreats, onRequestPlacement }: ThreatListProps) {
   const { mission, addThreat, updateThreat, removeThreat } = useMissionStore();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isPlacementMode, setIsPlacementMode] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState<string>('');
   const [newThreatCoords, setNewThreatCoords] = useState({ lat: '', lon: '' });
   const [newThreatNotes, setNewThreatNotes] = useState('');
@@ -118,13 +121,25 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
         </div>
         <button
           onClick={() => {
-            if (defaultPosition) {
-              setNewThreatCoords({
-                lat: defaultPosition.lat.toFixed(5),
-                lon: defaultPosition.lon.toFixed(5),
+            if (onRequestPlacement) {
+              // Request map placement - when user clicks map, open modal with coords
+              onRequestPlacement((position) => {
+                setNewThreatCoords({
+                  lat: position.lat.toFixed(5),
+                  lon: position.lon.toFixed(5),
+                });
+                setShowAddModal(true);
               });
+            } else {
+              // Fallback to default position if no map placement available
+              if (defaultPosition) {
+                setNewThreatCoords({
+                  lat: defaultPosition.lat.toFixed(5),
+                  lon: defaultPosition.lon.toFixed(5),
+                });
+              }
+              setShowAddModal(true);
             }
-            setShowAddModal(true);
           }}
           className="bg-dcs-accent hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
         >
@@ -193,18 +208,27 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
       </div>
 
       {/* Add Threat Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-dcs-navy rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto">
-            <h3 className="text-xl font-semibold mb-4">Add Planning Threat</h3>
+      {showAddModal && createPortal(
+        <div
+          className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 z-[2000] flex items-center justify-center"
+          style={{ position: 'fixed', zIndex: 2000 }}
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            className="bg-dcs-navy rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-2xl"
+            style={{ maxWidth: '90vw' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-semibold mb-4 text-white">Add Planning Threat</h3>
 
             {/* Threat system selector */}
             <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Threat System</label>
+              <label className="block text-sm font-medium mb-2 text-white">Threat System</label>
               <select
                 value={selectedSystemId}
                 onChange={(e) => setSelectedSystemId(e.target.value)}
-                className="w-full bg-dcs-dark border border-gray-600 rounded-lg p-2"
+                className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-2"
+                style={{ colorScheme: 'dark' }}
               >
                 <option value="">Select a threat system...</option>
                 {Object.entries(threatsByType).map(([type, systems]) => (
@@ -222,36 +246,36 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
             {/* Coordinates */}
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Latitude</label>
+                <label className="block text-sm font-medium mb-2 text-white">Latitude</label>
                 <input
                   type="text"
                   value={newThreatCoords.lat}
                   onChange={(e) => setNewThreatCoords(prev => ({ ...prev, lat: e.target.value }))}
                   placeholder="e.g., 36.12345"
-                  className="w-full bg-dcs-dark border border-gray-600 rounded-lg p-2"
+                  className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-2"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">Longitude</label>
+                <label className="block text-sm font-medium mb-2 text-white">Longitude</label>
                 <input
                   type="text"
                   value={newThreatCoords.lon}
                   onChange={(e) => setNewThreatCoords(prev => ({ ...prev, lon: e.target.value }))}
                   placeholder="e.g., -115.12345"
-                  className="w-full bg-dcs-dark border border-gray-600 rounded-lg p-2"
+                  className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-2"
                 />
               </div>
             </div>
 
             {/* Notes */}
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Notes (optional)</label>
+              <label className="block text-sm font-medium mb-2 text-white">Notes (optional)</label>
               <input
                 type="text"
                 value={newThreatNotes}
                 onChange={(e) => setNewThreatNotes(e.target.value)}
                 placeholder="e.g., Possible SA-6 based on SIGINT"
-                className="w-full bg-dcs-dark border border-gray-600 rounded-lg p-2"
+                className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-2"
               />
             </div>
 
@@ -279,7 +303,7 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                className="px-4 py-2 bg-gray-700 text-white hover:bg-gray-600 rounded-lg transition-colors"
               >
                 Cancel
               </button>
@@ -292,7 +316,8 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -371,7 +396,7 @@ function ThreatCard({ threat, system, onStatusChange, onRemove }: ThreatCardProp
             className="text-gray-400 hover:text-red-500 p-1 text-lg"
             title="Remove threat"
           >
-            &times;
+            ×
           </button>
         </div>
       </div>

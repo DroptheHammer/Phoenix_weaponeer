@@ -8,7 +8,7 @@ import { ThreatList } from "./components/threats/ThreatList";
 import { FlightRoster } from "./components/flights/FlightRoster";
 import { AttackList } from "./components/attacks/AttackList";
 import { KneeboardPreview } from "./components/kneeboard/KneeboardPreview";
-import type { FragOrdersData } from "./types";
+import type { FragOrdersData, Weapon, FuzeOption } from "./types";
 
 interface ThreatSystem {
   id: string;
@@ -25,21 +25,24 @@ interface Aircraft {
   dcs_module_name: string;
 }
 
-type TabType = 'map' | 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
+type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
 function App() {
   const { mission, createMission, importFromFragOrders, addThreat, updateThreat } = useMissionStore();
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
+  const [weapons, setWeapons] = useState<Weapon[]>([]);
+  const [fuzeOptions, setFuzeOptions] = useState<Map<string, FuzeOption[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabType>('map');
+  const [activePanel, setActivePanel] = useState<PanelType | null>(null);
+  const [threatPlacementCallback, setThreatPlacementCallback] = useState<((position: { lat: number; lon: number }) => void) | null>(null);
 
   const handleFragOrdersImport = (data: FragOrdersData, groupIndex: number) => {
     importFromFragOrders(data, groupIndex);
     setShowImportModal(false);
-    setActiveTab('map'); // Switch to map view after import
+    setActivePanel(null); // Close any open panel after import
   };
 
   // Create threat system map for quick lookups
@@ -52,12 +55,31 @@ function App() {
   useEffect(() => {
     async function loadDatabaseData() {
       try {
-        const [threatData, aircraftData] = await Promise.all([
+        const [threatData, aircraftData, weaponData] = await Promise.all([
           invoke<ThreatSystem[]>("get_all_threats"),
           invoke<Aircraft[]>("get_all_aircraft"),
+          invoke<Weapon[]>("get_all_weapons"),
         ]);
         setThreats(threatData);
         setAircraft(aircraftData);
+        setWeapons(weaponData);
+
+        // Load fuze options for each weapon
+        const fuzeMap = new Map<string, FuzeOption[]>();
+        await Promise.all(
+          weaponData.map(async (weapon) => {
+            try {
+              const fuzes = await invoke<FuzeOption[]>("get_fuze_options", { weaponId: weapon.id });
+              if (fuzes.length > 0) {
+                fuzeMap.set(weapon.id, fuzes);
+              }
+            } catch (e) {
+              console.warn(`Failed to load fuze options for ${weapon.id}:`, e);
+            }
+          })
+        );
+        setFuzeOptions(fuzeMap);
+
         setLoading(false);
       } catch (e) {
         setError(String(e));
@@ -86,6 +108,22 @@ function App() {
     updateThreat(threatId, { position });
   };
 
+  const handleRemoveThreat = (threatId: string) => {
+    const { removeThreat } = useMissionStore.getState();
+    removeThreat(threatId);
+  };
+
+  const handleRequestThreatPlacement = (callback: (position: { lat: number; lon: number }) => void) => {
+    setThreatPlacementCallback(() => callback);
+  };
+
+  const handleMapClickForThreatPlacement = (position: { lat: number; lon: number }) => {
+    if (threatPlacementCallback) {
+      threatPlacementCallback(position);
+      setThreatPlacementCallback(null); // Exit placement mode
+    }
+  };
+
   return (
     <div className="min-h-screen bg-dcs-dark text-white">
       <header className="bg-dcs-navy p-4 shadow-lg">
@@ -103,119 +141,103 @@ function App() {
             <p className="text-red-400">Error: {error}</p>
           </div>
         ) : mission ? (
-          <div className="flex flex-col h-[calc(100vh-120px)]">
-            {/* Mission header */}
-            <div className="bg-dcs-blue rounded-lg p-4 mb-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="text-xl font-semibold">{mission.name}</h2>
-                  <p className="text-gray-300">Theater: {mission.theater}</p>
-                </div>
-                <div className="flex gap-4 text-sm">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-dcs-accent">{mission.waypoints.length}</div>
-                    <div className="text-gray-400">Waypoints</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-red-400">{mission.threats.length}</div>
-                    <div className="text-gray-400">Threats</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-400">{mission.flightMembers.length}</div>
-                    <div className="text-gray-400">Flight</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-400">{mission.attacks.length}</div>
-                    <div className="text-gray-400">Attacks</div>
-                  </div>
-                </div>
-              </div>
+          <div className="relative h-[calc(100vh-120px)]">
+            {/* Map - always visible as background */}
+            <div className="absolute inset-0">
+              <MapView
+                theater={mission.theater}
+                waypoints={mission.waypoints}
+                threats={mission.threats}
+                attacks={mission.attacks}
+                bullseye={mission.bullseye}
+                threatSystems={threatSystemMap}
+                availableThreats={threats}
+                onAddThreat={handleAddThreatFromMap}
+                onMoveThreat={handleMoveThreat}
+                onRemoveThreat={handleRemoveThreat}
+                isPlacementMode={!!threatPlacementCallback}
+                onPlacePosition={handleMapClickForThreatPlacement}
+              />
             </div>
 
-            {/* Tab navigation */}
-            <div className="flex gap-2 mb-4 border-b border-gray-700">
+            {/* Panel toggle buttons - floating on left side */}
+            <div className="absolute left-4 top-4 z-[1000] flex flex-col gap-2">
               <button
-                onClick={() => setActiveTab('map')}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  activeTab === 'map'
-                    ? 'border-b-2 border-dcs-accent text-white'
-                    : 'text-gray-400 hover:text-gray-200'
+                onClick={() => setActivePanel(activePanel === 'waypoints' ? null : 'waypoints')}
+                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
+                  activePanel === 'waypoints'
+                    ? 'bg-dcs-accent text-white'
+                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
                 }`}
               >
-                Map
+                Waypoints ({mission.waypoints.length})
               </button>
               <button
-                onClick={() => setActiveTab('waypoints')}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  activeTab === 'waypoints'
-                    ? 'border-b-2 border-dcs-accent text-white'
-                    : 'text-gray-400 hover:text-gray-200'
+                onClick={() => setActivePanel(activePanel === 'threats' ? null : 'threats')}
+                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
+                  activePanel === 'threats'
+                    ? 'bg-dcs-accent text-white'
+                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
                 }`}
               >
-                Waypoints
+                Threats ({mission.threats.length})
               </button>
               <button
-                onClick={() => setActiveTab('threats')}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  activeTab === 'threats'
-                    ? 'border-b-2 border-dcs-accent text-white'
-                    : 'text-gray-400 hover:text-gray-200'
+                onClick={() => setActivePanel(activePanel === 'flight' ? null : 'flight')}
+                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
+                  activePanel === 'flight'
+                    ? 'bg-dcs-accent text-white'
+                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
                 }`}
               >
-                Threats
+                Flight ({mission.flightMembers.length})
               </button>
               <button
-                onClick={() => setActiveTab('flight')}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  activeTab === 'flight'
-                    ? 'border-b-2 border-dcs-accent text-white'
-                    : 'text-gray-400 hover:text-gray-200'
+                onClick={() => setActivePanel(activePanel === 'attacks' ? null : 'attacks')}
+                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
+                  activePanel === 'attacks'
+                    ? 'bg-dcs-accent text-white'
+                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
                 }`}
               >
-                Flight
+                Attacks ({mission.attacks.length})
               </button>
               <button
-                onClick={() => setActiveTab('attacks')}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  activeTab === 'attacks'
-                    ? 'border-b-2 border-dcs-accent text-white'
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                Attacks
-              </button>
-              <button
-                onClick={() => setActiveTab('kneeboards')}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  activeTab === 'kneeboards'
-                    ? 'border-b-2 border-dcs-accent text-white'
-                    : 'text-gray-400 hover:text-gray-200'
+                onClick={() => setActivePanel(activePanel === 'kneeboards' ? null : 'kneeboards')}
+                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
+                  activePanel === 'kneeboards'
+                    ? 'bg-dcs-accent text-white'
+                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
                 }`}
               >
                 Kneeboards
               </button>
             </div>
 
-            {/* Tab content */}
-            <div className="flex-1 overflow-hidden">
-              {activeTab === 'map' && (
-                <MapView
-                  theater={mission.theater}
-                  waypoints={mission.waypoints}
-                  threats={mission.threats}
-                  bullseye={mission.bullseye}
-                  threatSystems={threatSystemMap}
-                  availableThreats={threats}
-                  onAddThreat={handleAddThreatFromMap}
-                  onMoveThreat={handleMoveThreat}
-                />
-              )}
-              {activeTab === 'waypoints' && <WaypointList />}
-              {activeTab === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} />}
-              {activeTab === 'flight' && <FlightRoster />}
-              {activeTab === 'attacks' && <AttackList />}
-              {activeTab === 'kneeboards' && <KneeboardPreview />}
-            </div>
+            {/* Right sidebar panel - slides in when active */}
+            {activePanel && (
+              <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-dcs-navy shadow-2xl z-[1000] overflow-y-auto">
+                {/* Panel header */}
+                <div className="sticky top-0 bg-dcs-blue p-4 flex justify-between items-center shadow-md z-10">
+                  <h2 className="text-xl font-semibold capitalize">{activePanel}</h2>
+                  <button
+                    onClick={() => setActivePanel(null)}
+                    className="text-gray-400 hover:text-white text-2xl w-8 h-8 flex items-center justify-center"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* Panel content */}
+                <div className="p-4">
+                  {activePanel === 'waypoints' && <WaypointList />}
+                  {activePanel === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} onRequestPlacement={handleRequestThreatPlacement} />}
+                  {activePanel === 'flight' && <FlightRoster />}
+                  {activePanel === 'attacks' && <AttackList weapons={weapons} fuzeOptions={fuzeOptions} />}
+                  {activePanel === 'kneeboards' && <KneeboardPreview />}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-6">
