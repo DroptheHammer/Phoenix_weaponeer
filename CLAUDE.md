@@ -189,30 +189,17 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-02-05 (afternoon session)
+**Last session:** 2026-02-06 (short session)
 
 **Completed this session:**
-- ✅ **UI Restructure** - Map always visible with sliding side panels
-  - Panel buttons on left (Waypoints, Threats, Flight, Attacks, Kneeboards)
-  - Panels slide in from right (1/3 width) overlaying map
-  - Fixed modal z-index issues using React Portals
-  - Zoom controls moved to bottom-left
-  - Removed redundant threat placement toolbar
+- ✅ Added "Context Window HP Bar" UI directive to CLAUDE.md
+  - Token usage ASCII bar displayed after every response
+  - Format template with HP percentage bar
 
-- ✅ **Attack Profile Calculator (Phase 2.5)** - Popup CCIP implementation
-  - Created AttackEditor component with step-by-step workflow
-  - Built PopupCCIPForm with Standard preset profile
-  - Implemented real F-16 attack geometry (offset turn calculations)
-  - Attack visualization on map: POP → ATK → TGT with egress
-  - Auto-calculate egress direction from offset direction
-  - Validated geometry with test scripts (4nm POP, 20° turn, 7500ft apex)
-
-- ✅ **Threat Management Enhancements**
-  - Click-to-place workflow: Add Threat → Click map → Configure
-  - Placement mode indicator banner
-  - Delete button in map popups for planning threats
-  - All map elements non-interactive during placement mode
-  - Fixed popup interference issues
+**Previous session (2026-02-05):**
+- ✅ UI Restructure - Map always visible with sliding side panels
+- ✅ Attack Profile Calculator (Phase 2.5) - Popup CCIP implementation
+- ✅ Threat Management Enhancements - Click-to-place workflow
 
 **Project Status:**
 - **Phase 1 (Foundation):** ✅ COMPLETE
