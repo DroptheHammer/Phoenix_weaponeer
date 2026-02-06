@@ -10,6 +10,16 @@
 
 This ensures work can be resumed from any device (Windows, Linux, macOS, iPhone) with full context.
 
+## UI: Context Window HP Bar
+
+After EVERY response, display a token usage estimate as ASCII bar.
+
+Rules:
+- Estimate cumulative tokens used in this conversation (input + output combined)
+- Context window = 200K tokens (adjust if needed: 128K, 200K, 1M)
+- Display format exactly as shown below
+- This is a UI element only — do not modify any other behavior
+
 ## Project Overview
 
 A cross-platform desktop application for planning F-16 (and other aircraft) attack runs against defended targets in DCS World. The tool helps squadron members plan tactical attacks, weaponeer targets, and generate pilot briefing cards (kneeboards).
