@@ -20,6 +20,16 @@ Rules:
 - Display format exactly as shown below
 - This is a UI element only — do not modify any other behavior
 
+Format:
+
+```
+─────────────────────────────────────
+TOKEN USAGE (estimated)
+[██████░░░░░░░░░░░░░░░░░░░░░░░░] ~XXK / 200K
+HP: ████████████████████████████░░░ XX%
+─────────────────────────────────────
+```
+
 ## Project Overview
 
 A cross-platform desktop application for planning F-16 (and other aircraft) attack runs against defended targets in DCS World. The tool helps squadron members plan tactical attacks, weaponeer targets, and generate pilot briefing cards (kneeboards).
