@@ -2,13 +2,20 @@
 
 ## Session Management (IMPORTANT)
 
+### START OF SESSION
+**When beginning work, ALWAYS:**
+1. **Pull latest from GitHub:** `git pull origin main`
+2. This ensures you're working from the cloud golden master on any device
+
+### END OF SESSION
 **When the user says they need to pause, leave, change devices, or end the session in ANY way:**
 
 1. **Commit and push all changes to git** (no version tag, just save progress)
 2. **Update this file** with "Session Pickup Notes" at the bottom - what was being worked on, what's next
-3. **Remind the user** if they forget to do this before ending
+3. **Push the updated CLAUDE.md** to GitHub
+4. **Remind the user** if they forget to do this before ending
 
-This ensures work can be resumed from any device (Windows, Linux, macOS, iPhone) with full context.
+This workflow ensures GitHub is always the source of truth and work can be resumed from any device (Windows, Linux, macOS, iPhone) with full context.
 
 ## UI: Context Window HP Bar
 
