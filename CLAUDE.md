@@ -204,6 +204,11 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
   - Found iOS Claude Code branch with Context Window HP Bar documentation
   - Merged branch into local main and pushed to GitHub
   - Confirmed complete sync: local ≡ origin/main
+- ✅ **Updated Session Management Policy** - NEW WORKFLOW
+  - Added "START SESSION: git pull origin main" step
+  - GitHub is now the golden master
+  - Each session starts fresh from cloud on any device
+  - Eliminates sync drift across iOS, macOS, Windows, Linux
 
 **Previous session (2026-02-06):**
 - ✅ Added "Context Window HP Bar" UI directive to CLAUDE.md (via iOS)
