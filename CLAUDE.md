@@ -200,11 +200,10 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 **Completed this session:**
 - ✅ **Loadout Management (Phase 2.7)** - COMPLETE
-  - `src-tauri/src/db/mod.rs` - added `StationWeapon` struct + `get_aircraft_stations()` query (joins `aircraft_weapons` with `weapons`)
-  - `src-tauri/src/commands/mod.rs` - added `get_aircraft_stations` Tauri command
-  - `src-tauri/src/lib.rs` - registered new command in `invoke_handler`
-  - `src/components/flights/LoadoutEditor.tsx` - NEW modal: per-station weapon/quantity selector, fetches station data via `invoke`, renders via Portal (z-index 2000), initialises from existing loadout
-  - `src/components/flights/FlightRoster.tsx` - added "Loadout" button per card, `summariseLoadout()` helper shows e.g. "4x mk82, 2x gbu12", renders LoadoutEditor modal
+  - `LoadoutItem` simplified to `{ weaponType: string; quantity: number }` — no stations, no weapon IDs
+  - `src/components/flights/LoadoutEditor.tsx` - NEW modal: dropdown from `get_all_weapons` DB (shows "Name (lbs)"), add/remove weapon rows, renders via Portal (z-index 2000)
+  - `src/components/flights/FlightRoster.tsx` - "Loadout" button per card, summary line e.g. "4x Mk-82 LDGP, 2x GBU-12 Paveway II"
+  - `src/components/attacks/AttackEditor.tsx` - weapon dropdown filtered to attacker's loadout when assigned; clears if attacker changes and weapon no longer available. Falls back to all weapons if pilot has no loadout.
 
 **Project Status:**
 - **Phase 1 (Foundation):** ✅ COMPLETE
@@ -228,8 +227,8 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
   the name field encodes the full callsign compactly. Rust formatter naively produces
   "Viper12 1-1" (redundant). `src/lib/callsign.ts` normalises to "Viper 1-2" at both
   import time (missionStore) and display time (FlightRoster, AttackEditor).
-- **Loadout summary** on roster cards uses raw `weaponId` values (e.g. "4x mk82") — readable enough for DCS pilots; full weapon names are shown inside the LoadoutEditor modal.
-- **F-16C A/G stations:** 3 (Left Wing), 4 (Left Cheek), 6 (Right Cheek), 7 (Right Wing). Stations 1/2/5/8/9 are A/A or fuel — not in `aircraft_weapons` seed.
+- **Loadout stores weapon name string** (e.g. "Mk-82 LDGP") — matched against `weapon.name` from DB when filtering attack editor. The `aircraft_weapons` table still exists in DB but is not surfaced in UI.
+- **Modal background color:** use `bg-dcs-navy` — `bg-dcs-panel` is not defined in tailwind.config.js and renders transparent.
 
 **Next up:**
 - Additional attack profiles (Dive CCIP, Level CCRP)
