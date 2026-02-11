@@ -199,12 +199,12 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 **Last session:** 2026-02-10
 
 **Completed this session:**
-- ✅ **Flight Roster Management (Phase 2.6)** - COMPLETE
-  - `FlightMemberEditor.tsx` - add/edit modal (callsign, position, role, aircraft, pilot name)
-  - `FlightRoster.tsx` - full CRUD with Add Pilot button, Edit per card, aircraft name display
-  - `src/lib/callsign.ts` - shared callsign formatter (see technical notes below)
-  - AttackEditor attacker dropdown now shows: `Viper 1-2 — F-16C Viper — Hammer`
-  - missionStore: improved callsign generation and normalisation on FragOrders import
+- ✅ **Loadout Management (Phase 2.7)** - COMPLETE
+  - `src-tauri/src/db/mod.rs` - added `StationWeapon` struct + `get_aircraft_stations()` query (joins `aircraft_weapons` with `weapons`)
+  - `src-tauri/src/commands/mod.rs` - added `get_aircraft_stations` Tauri command
+  - `src-tauri/src/lib.rs` - registered new command in `invoke_handler`
+  - `src/components/flights/LoadoutEditor.tsx` - NEW modal: per-station weapon/quantity selector, fetches station data via `invoke`, renders via Portal (z-index 2000), initialises from existing loadout
+  - `src/components/flights/FlightRoster.tsx` - added "Loadout" button per card, `summariseLoadout()` helper shows e.g. "4x mk82, 2x gbu12", renders LoadoutEditor modal
 
 **Project Status:**
 - **Phase 1 (Foundation):** ✅ COMPLETE
@@ -214,8 +214,8 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
   - ✅ Map interaction (2.3)
   - ✅ Coordinate conversion with proj4 (2.4)
   - ✅ Attack profile calculator (2.5) - Popup CCIP
-  - ✅ Flight roster management (2.6) - **COMPLETE**
-  - ❌ Loadout management (2.7) - NEXT
+  - ✅ Flight roster management (2.6)
+  - ✅ Loadout management (2.7) - **COMPLETE**
 - **Phase 3 (Output):** ❌ NOT STARTED
 - **Phase 4 (Polish):** ❌ NOT STARTED
 
@@ -228,9 +228,10 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
   the name field encodes the full callsign compactly. Rust formatter naively produces
   "Viper12 1-1" (redundant). `src/lib/callsign.ts` normalises to "Viper 1-2" at both
   import time (missionStore) and display time (FlightRoster, AttackEditor).
+- **Loadout summary** on roster cards uses raw `weaponId` values (e.g. "4x mk82") — readable enough for DCS pilots; full weapon names are shown inside the LoadoutEditor modal.
+- **F-16C A/G stations:** 3 (Left Wing), 4 (Left Cheek), 6 (Right Cheek), 7 (Right Wing). Stations 1/2/5/8/9 are A/A or fuel — not in `aircraft_weapons` seed.
 
 **Next up:**
-- Loadout management (2.7) - per-station weapon assignment per pilot
 - Additional attack profiles (Dive CCIP, Level CCRP)
 - Kneeboard card generation (Phase 3)
 

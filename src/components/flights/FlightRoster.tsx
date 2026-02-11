@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useMissionStore } from '../../stores/missionStore';
 import { FlightMemberEditor } from './FlightMemberEditor';
+import { LoadoutEditor } from './LoadoutEditor';
 import { formatCallsign } from '../../lib/callsign';
-import type { FlightMember, FlightRole } from '../../types';
+import type { FlightMember, FlightRole, LoadoutItem } from '../../types';
 
 interface Aircraft {
   id: string;
@@ -20,10 +21,16 @@ const ROLE_LABELS: Record<FlightRole, string> = {
   wingman: 'Wingman',
 };
 
+function summariseLoadout(loadout: LoadoutItem[]): string {
+  if (!loadout || loadout.length === 0) return 'No loadout';
+  return loadout.map((item) => `${item.quantity}x ${item.weaponType}`).join(', ');
+}
+
 export function FlightRoster({ aircraft }: FlightRosterProps) {
-  const { mission, removeFlightMember } = useMissionStore();
+  const { mission, removeFlightMember, updateFlightMember } = useMissionStore();
   const [showEditor, setShowEditor] = useState(false);
   const [editingMember, setEditingMember] = useState<FlightMember | undefined>(undefined);
+  const [loadoutMember, setLoadoutMember] = useState<FlightMember | undefined>(undefined);
 
   const handleAdd = () => {
     setEditingMember(undefined);
@@ -38,6 +45,21 @@ export function FlightRoster({ aircraft }: FlightRosterProps) {
   const handleCloseEditor = () => {
     setShowEditor(false);
     setEditingMember(undefined);
+  };
+
+  const handleLoadout = (member: FlightMember) => {
+    setLoadoutMember(member);
+  };
+
+  const handleSaveLoadout = (newLoadout: LoadoutItem[]) => {
+    if (loadoutMember) {
+      updateFlightMember(loadoutMember.id, { loadout: newLoadout });
+    }
+    setLoadoutMember(undefined);
+  };
+
+  const handleCloseLoadout = () => {
+    setLoadoutMember(undefined);
   };
 
   const getExistingPositions = (excludeId?: string): number[] => {
@@ -100,9 +122,19 @@ export function FlightRoster({ aircraft }: FlightRosterProps) {
                       <div className="text-xs text-gray-500 mt-0.5">
                         {memberAircraft?.name || member.aircraftId}
                       </div>
+                      <div className="text-xs text-gray-500 mt-0.5 italic">
+                        {summariseLoadout(member.loadout)}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleLoadout(member)}
+                      className="text-gray-400 hover:text-green-400 text-sm px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+                      title="Edit loadout"
+                    >
+                      Loadout
+                    </button>
                     <button
                       onClick={() => handleEdit(member)}
                       className="text-gray-400 hover:text-blue-400 text-sm px-2 py-1 rounded hover:bg-gray-700 transition-colors"
@@ -132,6 +164,19 @@ export function FlightRoster({ aircraft }: FlightRosterProps) {
           aircraft={aircraft}
           existingPositions={getExistingPositions(editingMember?.id)}
           onClose={handleCloseEditor}
+        />
+      )}
+
+      {/* Loadout modal */}
+      {loadoutMember && (
+        <LoadoutEditor
+          aircraftName={
+            aircraft.find((a) => a.id === loadoutMember.aircraftId)?.name ??
+            loadoutMember.aircraftId
+          }
+          loadout={loadoutMember.loadout}
+          onSave={handleSaveLoadout}
+          onClose={handleCloseLoadout}
         />
       )}
     </div>

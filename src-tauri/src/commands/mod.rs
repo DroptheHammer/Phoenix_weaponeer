@@ -174,6 +174,7 @@ pub fn get_fuze_options(state: State<AppState>, weapon_id: String) -> Result<Vec
     state.db.get_fuze_options(&weapon_id).map_err(|e| e.to_string())
 }
 
+
 // ============================================================================
 // Import Commands
 // ============================================================================

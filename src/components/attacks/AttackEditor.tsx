@@ -83,13 +83,12 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
     return ((bearing * 180) / Math.PI + 360) % 360;
   }
 
-  // Filter weapons by attacker's aircraft if selected
-  const availableWeapons = attackerId && attacker
-    ? weapons.filter(w => {
-        // TODO: Check aircraft compatibility from aircraft_weapons table
-        return true; // For now, show all weapons
-      })
-    : weapons;
+  // Filter weapons to attacker's loadout if they have one assigned
+  const loadoutWeaponNames = attacker?.loadout?.map((l) => l.weaponType) ?? [];
+  const availableWeapons =
+    loadoutWeaponNames.length > 0
+      ? weapons.filter((w) => loadoutWeaponNames.includes(w.name))
+      : weapons;
 
   // Calculate profile only when explicitly called
   const triggerCalculation = useCallback(() => {
@@ -194,7 +193,18 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
                 <label className="block text-sm font-medium mb-1">Attacker</label>
                 <select
                   value={attackerId}
-                  onChange={(e) => setAttackerId(e.target.value)}
+                  onChange={(e) => {
+                    setAttackerId(e.target.value);
+                    // Clear weapon if it's not in the new attacker's loadout
+                    const newAttacker = flightMembers.find((fm) => fm.id === e.target.value);
+                    const newLoadoutNames = newAttacker?.loadout?.map((l) => l.weaponType) ?? [];
+                    if (newLoadoutNames.length > 0) {
+                      const selectedWeaponName = weapons.find((w) => w.id === weaponId)?.name;
+                      if (selectedWeaponName && !newLoadoutNames.includes(selectedWeaponName)) {
+                        setWeaponId('');
+                      }
+                    }
+                  }}
                   className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
                   style={{ colorScheme: 'dark' }}
                 >

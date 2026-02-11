@@ -13,8 +13,6 @@ export interface FlightMember {
 export type FlightRole = 'flight_lead' | 'element_lead' | 'wingman';
 
 export interface LoadoutItem {
-  station: number;
-  weaponId: string;
+  weaponType: string; // e.g. "Mk-82", "GBU-12", free text
   quantity: number;
-  fuzeId?: string;
 }
