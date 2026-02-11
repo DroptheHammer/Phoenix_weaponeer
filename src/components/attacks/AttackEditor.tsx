@@ -13,14 +13,23 @@ import type {
   FuzeOption,
 } from '../../types';
 
+import { formatCallsign } from '../../lib/callsign';
+
+interface Aircraft {
+  id: string;
+  name: string;
+  dcs_module_name: string;
+}
+
 interface AttackEditorProps {
   attack?: Attack;
   onClose: () => void;
   weapons: Weapon[];
   fuzeOptions: Map<string, FuzeOption[]>;
+  aircraft: Aircraft[];
 }
 
-export function AttackEditor({ attack, onClose, weapons, fuzeOptions }: AttackEditorProps) {
+export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }: AttackEditorProps) {
   const { mission, addAttack, updateAttack } = useMissionStore();
   const { calculatePopupCCIP, result: calcResult, loading: calcLoading } = useAttackCalculator();
 
@@ -190,11 +199,19 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions }: AttackEd
                   style={{ colorScheme: 'dark' }}
                 >
                   <option value="">Select attacker...</option>
-                  {flightMembers.map((fm) => (
-                    <option key={fm.id} value={fm.id}>
-                      {fm.callsign} ({fm.aircraftId})
-                    </option>
-                  ))}
+                  {flightMembers.map((fm) => {
+                    const ac = aircraft.find((a) => a.id === fm.aircraftId);
+                    const label = [
+                      formatCallsign(fm.callsign),
+                      ac?.name || fm.aircraftId,
+                      fm.pilotName,
+                    ].filter(Boolean).join(' — ');
+                    return (
+                      <option key={fm.id} value={fm.id}>
+                        {label}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>

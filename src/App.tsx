@@ -232,8 +232,8 @@ function App() {
                 <div className="p-4">
                   {activePanel === 'waypoints' && <WaypointList />}
                   {activePanel === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} onRequestPlacement={handleRequestThreatPlacement} />}
-                  {activePanel === 'flight' && <FlightRoster />}
-                  {activePanel === 'attacks' && <AttackList weapons={weapons} fuzeOptions={fuzeOptions} />}
+                  {activePanel === 'flight' && <FlightRoster aircraft={aircraft} />}
+                  {activePanel === 'attacks' && <AttackList weapons={weapons} fuzeOptions={fuzeOptions} aircraft={aircraft} />}
                   {activePanel === 'kneeboards' && <KneeboardPreview />}
                 </div>
               </div>

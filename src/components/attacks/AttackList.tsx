@@ -13,12 +13,19 @@ const PROFILE_LABELS: Record<AttackProfileType, string> = {
   standoff: 'Standoff',
 };
 
+interface Aircraft {
+  id: string;
+  name: string;
+  dcs_module_name: string;
+}
+
 interface AttackListProps {
   weapons: Weapon[];
   fuzeOptions: Map<string, FuzeOption[]>;
+  aircraft: Aircraft[];
 }
 
-export function AttackList({ weapons, fuzeOptions }: AttackListProps) {
+export function AttackList({ weapons, fuzeOptions, aircraft }: AttackListProps) {
   const { mission, removeAttack } = useMissionStore();
   const [showEditor, setShowEditor] = useState(false);
   const [editingAttack, setEditingAttack] = useState<Attack | undefined>(undefined);
@@ -129,6 +136,7 @@ export function AttackList({ weapons, fuzeOptions }: AttackListProps) {
           onClose={handleCloseEditor}
           weapons={weapons}
           fuzeOptions={fuzeOptions}
+          aircraft={aircraft}
         />
       )}
     </div>
