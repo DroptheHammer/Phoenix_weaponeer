@@ -196,29 +196,15 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-02-08 (morning session)
+**Last session:** 2026-02-10
 
 **Completed this session:**
-- ✅ Fired up app to verify full Tauri build working
-- ✅ Checked git sync between local and GitHub
-  - Found iOS Claude Code branch with Context Window HP Bar documentation
-  - Merged branch into local main and pushed to GitHub
-  - Confirmed complete sync: local ≡ origin/main
-- ✅ **Updated Session Management Policy** - NEW WORKFLOW
-  - Added "START SESSION: git pull origin main" step
-  - GitHub is now the golden master
-  - Each session starts fresh from cloud on any device
-  - Eliminates sync drift across iOS, macOS, Windows, Linux
-
-**Previous session (2026-02-06):**
-- ✅ Added "Context Window HP Bar" UI directive to CLAUDE.md (via iOS)
-  - Token usage ASCII bar displayed after every response
-  - Format template with HP percentage bar
-
-**Session before (2026-02-05):**
-- ✅ UI Restructure - Map always visible with sliding side panels
-- ✅ Attack Profile Calculator (Phase 2.5) - Popup CCIP implementation
-- ✅ Threat Management Enhancements - Click-to-place workflow
+- ✅ **Flight Roster Management (Phase 2.6)** - COMPLETE
+  - `FlightMemberEditor.tsx` - add/edit modal (callsign, position, role, aircraft, pilot name)
+  - `FlightRoster.tsx` - full CRUD with Add Pilot button, Edit per card, aircraft name display
+  - `src/lib/callsign.ts` - shared callsign formatter (see technical notes below)
+  - AttackEditor attacker dropdown now shows: `Viper 1-2 — F-16C Viper — Hammer`
+  - missionStore: improved callsign generation and normalisation on FragOrders import
 
 **Project Status:**
 - **Phase 1 (Foundation):** ✅ COMPLETE
@@ -227,8 +213,9 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
   - ✅ Threat management (2.2)
   - ✅ Map interaction (2.3)
   - ✅ Coordinate conversion with proj4 (2.4)
-  - ✅ Attack profile calculator (2.5) - **COMPLETE**
-  - ❌ Flight roster management (2.6) - NEXT
+  - ✅ Attack profile calculator (2.5) - Popup CCIP
+  - ✅ Flight roster management (2.6) - **COMPLETE**
+  - ❌ Loadout management (2.7) - NEXT
 - **Phase 3 (Output):** ❌ NOT STARTED
 - **Phase 4 (Polish):** ❌ NOT STARTED
 
@@ -237,9 +224,13 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 - Modal components render via React Portal to document.body (z-index 2000)
 - Popup CCIP validated geometry: POP 4nm → ATK 2.14nm @ 7500ft → 20° dive
 - Map placement mode disables all popups and interactions
+- **DCS callsign format:** DCS stores callsigns as `{name="Viper12", 1=1, 2=1}` where
+  the name field encodes the full callsign compactly. Rust formatter naively produces
+  "Viper12 1-1" (redundant). `src/lib/callsign.ts` normalises to "Viper 1-2" at both
+  import time (missionStore) and display time (FlightRoster, AttackEditor).
 
 **Next up:**
-- Flight roster management (assign pilots, aircraft, loadouts)
+- Loadout management (2.7) - per-station weapon assignment per pilot
 - Additional attack profiles (Dive CCIP, Level CCRP)
 - Kneeboard card generation (Phase 3)
 
