@@ -22,6 +22,7 @@ pub struct AppState {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Get the app data directory for the database
             let app_data_dir = app.path().app_data_dir().expect("Failed to get app data dir");
@@ -60,6 +61,7 @@ pub fn run() {
             // Export commands
             commands::render_kneeboard,
             commands::export_to_dcs_kneeboard,
+            commands::save_kneeboard_png,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

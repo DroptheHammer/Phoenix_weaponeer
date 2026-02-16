@@ -42,9 +42,58 @@ export interface KneeboardThreatItem {
   notes?: string;
 }
 
+/** One step in the numbered procedure */
+export interface KneeboardStep {
+  title: string;      // e.g. "② ROLL IN"
+  lines: string[];    // Bullet lines (short, readable)
+  isWarning?: boolean; // Draw with red accent (e.g. weapons release step)
+}
+
+/** Raw attack geometry used to draw the diagram */
+export interface KneeboardDiagramData {
+  type: string; // 'popup_ccip' | 'dive_ccip' | 'level_ccrp' | ...
+  egressDirection: string;
+  egressHeading_deg: number;
+
+  // Popup CCIP
+  popupCCIP?: {
+    runInHeading_deg: number;
+    runInAltitude_ft: number;
+    runInSpeed_ktas: number;
+    popDistance_nm: number;
+    climbAngle_deg: number;
+    apexAltitude_ft: number;
+    rollInAltitude_ft: number;
+    diveAngle_deg: number;
+    releaseAltitude_ft: number;
+    releaseSpeed_ktas: number;
+    minAltitude_ft: number;
+  };
+
+  // Dive CCIP
+  diveCCIP?: {
+    ingressHeading_deg: number;
+    rollInAltitude_ft: number;
+    diveAngle_deg: number;
+    releaseAltitude_ft: number;
+    releaseSpeed_ktas: number;
+    pulloutG: number;
+  };
+
+  // Level CCRP
+  levelCCRP?: {
+    ingressHeading_deg: number;
+    releaseAltitude_ft: number;
+    releaseSpeed_ktas: number;
+    egressHeading_deg: number;
+  };
+}
+
 export interface KneeboardAttackSection {
   profileType: string; // Human readable
-  parameters: Record<string, string>; // Key-value pairs to display
+  parameters: Record<string, string>; // Key-value summary (still kept for reference)
+  steps?: KneeboardStep[];           // NEW: numbered procedure
+  diagram?: KneeboardDiagramData;    // NEW: raw data for diagram drawing
 }
 
 export interface KneeboardWeaponSection {

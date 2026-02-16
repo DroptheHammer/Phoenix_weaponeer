@@ -580,6 +580,23 @@ pub fn export_to_dcs_kneeboard(
     Err("DCS export not yet implemented".to_string())
 }
 
+/// Save a kneeboard PNG (base64-encoded) to a file path
+///
+/// The frontend renders the card to a canvas and sends the PNG as a base64 string.
+/// This command decodes and writes it to disk.
+#[tauri::command]
+pub fn save_kneeboard_png(path: String, base64_data: String) -> Result<(), String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ============================================================================
 // Utility Functions
 // ============================================================================

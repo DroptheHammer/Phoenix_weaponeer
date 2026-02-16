@@ -234,7 +234,13 @@ function App() {
                   {activePanel === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} onRequestPlacement={handleRequestThreatPlacement} />}
                   {activePanel === 'flight' && <FlightRoster aircraft={aircraft} />}
                   {activePanel === 'attacks' && <AttackList weapons={weapons} fuzeOptions={fuzeOptions} aircraft={aircraft} />}
-                  {activePanel === 'kneeboards' && <KneeboardPreview />}
+                  {activePanel === 'kneeboards' && (
+                    <KneeboardPreview
+                      weapons={weapons}
+                      fuzeOptions={fuzeOptions}
+                      threatSystems={threats}
+                    />
+                  )}
                 </div>
               </div>
             )}

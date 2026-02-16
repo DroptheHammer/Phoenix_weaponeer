@@ -1,97 +1,258 @@
-import type { KneeboardCard } from '../../types';
+import { useRef, useEffect, useState, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
+import { useMissionStore } from '../../stores/missionStore';
+import { buildKneeboardCard, kneeboardFilename, type ThreatSystemInfo } from '../../lib/buildKneeboardCard';
+import {
+  renderKneeboardCard,
+  canvasToBase64Png,
+  KNEEBOARD_WIDTH,
+  KNEEBOARD_HEIGHT,
+} from '../../lib/renderKneeboardCanvas';
+import type { Weapon, FuzeOption } from '../../types';
 
 interface KneeboardPreviewProps {
-  card?: KneeboardCard;
+  weapons: Weapon[];
+  fuzeOptions: Map<string, FuzeOption[]>;
+  threatSystems: ThreatSystemInfo[];
 }
 
-export function KneeboardPreview({ card }: KneeboardPreviewProps) {
-  if (!card) {
+// Preview is shown at half scale to fit the sidebar
+const PREVIEW_WIDTH = 384;
+const PREVIEW_HEIGHT = 512;
+
+export function KneeboardPreview({ weapons, fuzeOptions, threatSystems }: KneeboardPreviewProps) {
+  const { mission } = useMissionStore();
+
+  const [selectedAttackId, setSelectedAttackId] = useState<string>('');
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+
+  // Full-res hidden canvas for actual PNG generation
+  const fullCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Scaled preview canvas
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Auto-select first attack when mission changes
+  useEffect(() => {
+    if (mission?.attacks.length) {
+      setSelectedAttackId((prev) =>
+        mission.attacks.find((a) => a.id === prev) ? prev : mission.attacks[0].id,
+      );
+    } else {
+      setSelectedAttackId('');
+    }
+  }, [mission]);
+
+  // Re-render whenever selected attack changes
+  useEffect(() => {
+    if (!mission || !selectedAttackId || !fullCanvasRef.current || !previewCanvasRef.current) {
+      // Clear preview
+      const pCtx = previewCanvasRef.current?.getContext('2d');
+      if (pCtx) {
+        pCtx.clearRect(0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+        pCtx.fillStyle = '#1E2A3A';
+        pCtx.fillRect(0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+        pCtx.fillStyle = '#667788';
+        pCtx.font = '14px Arial';
+        pCtx.textAlign = 'center';
+        pCtx.fillText('Select an attack to preview', PREVIEW_WIDTH / 2, PREVIEW_HEIGHT / 2);
+      }
+      return;
+    }
+
+    const card = buildKneeboardCard(mission, selectedAttackId, weapons, fuzeOptions, threatSystems);
+    if (!card) return;
+
+    const fullCanvas = fullCanvasRef.current;
+    const previewCanvas = previewCanvasRef.current;
+
+    // Draw full-res card
+    renderKneeboardCard(fullCanvas, card);
+
+    // Scale down to preview canvas
+    const pCtx = previewCanvas.getContext('2d');
+    if (!pCtx) return;
+    previewCanvas.width = PREVIEW_WIDTH;
+    previewCanvas.height = PREVIEW_HEIGHT;
+    pCtx.drawImage(fullCanvas, 0, 0, KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, 0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+
+  }, [mission, selectedAttackId, weapons, fuzeOptions, threatSystems]);
+
+  const handleExport = useCallback(async () => {
+    if (!mission || !selectedAttackId || !fullCanvasRef.current) return;
+    const card = buildKneeboardCard(mission, selectedAttackId, weapons, fuzeOptions, threatSystems);
+    if (!card) return;
+
+    const defaultName = kneeboardFilename(card.header.callsign, card.header.targetName);
+    const path = await save({
+      defaultPath: defaultName,
+      filters: [{ name: 'PNG Image', extensions: ['png'] }],
+      title: 'Save Kneeboard Card',
+    });
+    if (!path) return; // user cancelled
+
+    setExporting(true);
+    setExportMsg(null);
+    try {
+      renderKneeboardCard(fullCanvasRef.current, card);
+      const base64 = canvasToBase64Png(fullCanvasRef.current);
+      await invoke<void>('save_kneeboard_png', { path, base64Data: base64 });
+      setExportMsg(`Saved: ${path.split('/').pop()}`);
+    } catch (e) {
+      setExportMsg(`Error: ${String(e)}`);
+    } finally {
+      setExporting(false);
+    }
+  }, [mission, selectedAttackId, weapons, fuzeOptions, threatSystems]);
+
+  const handleExportAll = useCallback(async () => {
+    if (!mission || !mission.attacks.length || !fullCanvasRef.current) return;
+
+    // Ask for a folder by saving the first card — use its directory for the rest
+    const firstCard = buildKneeboardCard(mission, mission.attacks[0].id, weapons, fuzeOptions, threatSystems);
+    if (!firstCard) return;
+
+    const firstDefault = kneeboardFilename(firstCard.header.callsign, firstCard.header.targetName);
+    const firstPath = await save({
+      defaultPath: firstDefault,
+      filters: [{ name: 'PNG Image', extensions: ['png'] }],
+      title: `Save All ${mission.attacks.length} Kneeboard Cards — pick folder & first filename`,
+    });
+    if (!firstPath) return;
+
+    // Extract folder from chosen path
+    const folderMatch = firstPath.match(/^(.*)[/\\][^/\\]+$/);
+    const folder = folderMatch ? folderMatch[1] : '.';
+
+    setExporting(true);
+    setExportMsg(null);
+    let saved = 0;
+    const errors: string[] = [];
+
+    try {
+      for (const attack of mission.attacks) {
+        const card = buildKneeboardCard(mission, attack.id, weapons, fuzeOptions, threatSystems);
+        if (!card) continue;
+        renderKneeboardCard(fullCanvasRef.current, card);
+        const base64 = canvasToBase64Png(fullCanvasRef.current);
+        const filename = kneeboardFilename(card.header.callsign, card.header.targetName);
+        const path = `${folder}/${filename}`;
+        try {
+          await invoke<void>('save_kneeboard_png', { path, base64Data: base64 });
+          saved++;
+        } catch (e) {
+          errors.push(`${filename}: ${String(e)}`);
+        }
+      }
+      setExportMsg(
+        errors.length
+          ? `Saved ${saved} card(s) with ${errors.length} error(s)`
+          : `Saved ${saved} card(s) to ${folder.split('/').pop()}/`,
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [mission, weapons, fuzeOptions, threatSystems]);
+
+  if (!mission) {
     return (
-      <div className="text-gray-400 text-center py-8">
-        Select an attack to preview its kneeboard card.
+      <div className="text-gray-400 text-center py-8 text-sm">
+        No mission loaded.
       </div>
     );
   }
 
-  return (
-    <div className="flex justify-center">
-      <div
-        className="bg-amber-50 text-gray-900 shadow-lg"
-        style={{
-          width: '384px', // Half of 768px for preview
-          height: '512px', // Half of 1024px
-          fontSize: '8px',
-        }}
-      >
-        {/* Header */}
-        <div className="bg-gray-700 text-white px-2 py-1 flex justify-between items-center">
-          <span className="font-bold">{card.header.callsign}</span>
-          <span>{card.header.missionDate}</span>
-          <span className="font-bold">{card.header.targetName}</span>
-        </div>
-
-        {/* Target Section */}
-        <div className="border-b border-gray-300 px-2 py-1">
-          <div className="font-bold text-xs">TARGET</div>
-          <div>{card.targetSection.name}</div>
-          <div className="font-mono text-xs">{card.targetSection.coordinates}</div>
-          <div>Elev: {card.targetSection.elevation_ft} ft MSL</div>
-        </div>
-
-        {/* Threats Section */}
-        <div className="border-b border-gray-300 px-2 py-1">
-          <div className="font-bold text-xs">THREATS</div>
-          {card.threatSection.threats.length > 0 ? (
-            card.threatSection.threats.map((threat, i) => (
-              <div key={i} className="flex justify-between">
-                <span>{threat.name}</span>
-                <span>
-                  {threat.bearing_deg}° / {threat.distance_nm.toFixed(1)} nm
-                </span>
-              </div>
-            ))
-          ) : (
-            <div className="text-gray-500">No threats in area</div>
-          )}
-        </div>
-
-        {/* Attack Section */}
-        <div className="border-b border-gray-300 px-2 py-1">
-          <div className="font-bold text-xs">ATTACK: {card.attackSection.profileType}</div>
-          {Object.entries(card.attackSection.parameters).map(([key, value]) => (
-            <div key={key} className="flex justify-between">
-              <span>{key}:</span>
-              <span className="font-mono">{value}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Weapon Section */}
-        <div className="border-b border-gray-300 px-2 py-1">
-          <div className="font-bold text-xs">WEAPON</div>
-          <div>
-            {card.weaponSection.weaponName} × {card.weaponSection.quantity}
-          </div>
-          <div>Fuze: {card.weaponSection.fuze}</div>
-          <div>Mode: {card.weaponSection.releaseMode}</div>
-          {card.weaponSection.minSafeAlt_ft && (
-            <div className="text-red-600 font-bold">
-              MIN SAFE: {card.weaponSection.minSafeAlt_ft} ft AGL
-            </div>
-          )}
-        </div>
-
-        {/* Egress Section */}
-        <div className="px-2 py-1">
-          <div className="font-bold text-xs">EGRESS</div>
-          <div>
-            {card.egressSection.direction} - HDG {card.egressSection.heading_deg}°
-          </div>
-          {card.egressSection.fenceOutWaypoint && (
-            <div>Fence Out: {card.egressSection.fenceOutWaypoint}</div>
-          )}
-        </div>
+  if (!mission.attacks.length) {
+    return (
+      <div className="text-gray-400 text-center py-8 text-sm">
+        No attacks planned yet. Add attacks to generate kneeboard cards.
       </div>
+    );
+  }
+
+  const getAttackLabel = (attackId: string) => {
+    const attack = mission.attacks.find((a) => a.id === attackId);
+    if (!attack) return attackId;
+    const attacker = mission.flightMembers.find((m) => m.id === attack.attackerId);
+    const target = mission.waypoints.find((w) => w.id === attack.targetWaypointId);
+    const callsign = attacker?.callsign ?? '?';
+    const targetName = target?.name ?? '?';
+    const profile = attack.profileType.replace(/_/g, ' ').toUpperCase();
+    return `${callsign} → ${targetName} (${profile})`;
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Hidden full-res canvas for rendering */}
+      <canvas
+        ref={fullCanvasRef}
+        width={KNEEBOARD_WIDTH}
+        height={KNEEBOARD_HEIGHT}
+        className="hidden"
+      />
+
+      {/* Attack selector */}
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Select attack</label>
+        <select
+          value={selectedAttackId}
+          onChange={(e) => setSelectedAttackId(e.target.value)}
+          className="w-full bg-dcs-dark text-white text-sm rounded px-2 py-1 border border-gray-600"
+        >
+          {mission.attacks.map((attack) => (
+            <option key={attack.id} value={attack.id}>
+              {getAttackLabel(attack.id)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Preview canvas */}
+      <div className="flex justify-center">
+        <canvas
+          ref={previewCanvasRef}
+          width={PREVIEW_WIDTH}
+          height={PREVIEW_HEIGHT}
+          className="border border-gray-600 rounded"
+          style={{ width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT }}
+        />
+      </div>
+
+      {/* Export controls */}
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <button
+            onClick={handleExport}
+            disabled={exporting || !selectedAttackId}
+            className="flex-1 bg-dcs-accent hover:bg-red-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium py-1.5 rounded transition-colors"
+          >
+            {exporting ? 'Saving…' : 'Export Selected'}
+          </button>
+          <button
+            onClick={handleExportAll}
+            disabled={exporting}
+            className="flex-1 bg-dcs-blue hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium py-1.5 rounded transition-colors"
+          >
+            {exporting ? 'Saving…' : `Export All (${mission.attacks.length})`}
+          </button>
+        </div>
+
+        {exportMsg && (
+          <div
+            className={`text-xs rounded p-2 font-mono ${
+              exportMsg.startsWith('Error') ? 'bg-red-900 text-red-200' : 'bg-green-900 text-green-200'
+            }`}
+          >
+            {exportMsg}
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-500">
+        Cards saved as 768×1024 PNG (DCS kneeboard format).
+        Place in: <code className="font-mono">Saved Games/DCS/Kneeboard/F-16C/</code>
+      </p>
     </div>
   );
 }
