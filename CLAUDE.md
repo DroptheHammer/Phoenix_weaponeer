@@ -196,43 +196,50 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-02-10
+**Last session:** 2026-02-16
 
 **Completed this session:**
-- ✅ **Loadout Management (Phase 2.7)** - COMPLETE
-  - `LoadoutItem` simplified to `{ weaponType: string; quantity: number }` — no stations, no weapon IDs
-  - `src/components/flights/LoadoutEditor.tsx` - NEW modal: dropdown from `get_all_weapons` DB (shows "Name (lbs)"), add/remove weapon rows, renders via Portal (z-index 2000)
-  - `src/components/flights/FlightRoster.tsx` - "Loadout" button per card, summary line e.g. "4x Mk-82 LDGP, 2x GBU-12 Paveway II"
-  - `src/components/attacks/AttackEditor.tsx` - weapon dropdown filtered to attacker's loadout when assigned; clears if attacker changes and weapon no longer available. Falls back to all weapons if pilot has no loadout.
+- ✅ **Kneeboard Card Generation (Phase 3 start)**
+  - `src/lib/buildKneeboardCard.ts` — assembles `KneeboardCard` from mission data: finds pilot, target WP, weapon, fuze, nearby threats (bearing/distance), generates numbered steps and diagram data
+  - `src/lib/renderKneeboardCanvas.ts` — draws 768×1024 DCS-format PNG on HTML Canvas:
+    - Header (dark navy): callsign, target name, profile type, date
+    - Target section: name, coordinates (DD MM'SS"), elevation
+    - Weapon section: compact "2× Mk-82 | Pair | M905" + min-safe-alt warning
+    - Threats section: compact rows with BRG/DIST/MAX RNG, red highlight if inside engagement range
+    - Attack diagram: side-profile altitude view (IP → POP → ★apex → ATK → TGT → egress arrow) with scaled altitude lines, hard deck, release alt
+    - Step-by-step procedure: 5 numbered steps for popup CCIP (check-in, pop, roll-in, release, egress) written for amateurs
+  - `src/components/kneeboard/KneeboardPreview.tsx` — full UI: attack selector dropdown, live canvas preview (half-scale), "Export Selected" (native save dialog) and "Export All" (picks folder) buttons
+  - `save_kneeboard_png` Rust command — decodes base64 PNG, writes to path (with dir creation)
+  - Added `tauri-plugin-dialog` for native save file picker (`dialog:allow-save` in capabilities)
+  - `src/types/kneeboard.types.ts` — added `KneeboardStep`, `KneeboardDiagramData`, wired into `KneeboardAttackSection`
 
 **Project Status:**
 - **Phase 1 (Foundation):** ✅ COMPLETE
-- **Phase 2 (Core Planning):** 🔄 IN PROGRESS
-  - ✅ Map visualization (2.1)
-  - ✅ Threat management (2.2)
-  - ✅ Map interaction (2.3)
-  - ✅ Coordinate conversion with proj4 (2.4)
-  - ✅ Attack profile calculator (2.5) - Popup CCIP
-  - ✅ Flight roster management (2.6)
-  - ✅ Loadout management (2.7) - **COMPLETE**
-- **Phase 3 (Output):** ❌ NOT STARTED
+- **Phase 2 (Core Planning):** ✅ COMPLETE
+  - ✅ Map visualization, Threat management, Map interaction, Coordinate conversion
+  - ✅ Popup CCIP attack calculator
+  - ✅ Flight roster + loadout management
+- **Phase 3 (Output):** 🔄 IN PROGRESS
+  - ✅ Kneeboard canvas renderer + export (this session)
+  - ❌ PDF export (not started)
 - **Phase 4 (Polish):** ❌ NOT STARTED
 
 **Important Technical Notes:**
 - Attack geometry uses law of cosines for offset turn calculations
 - Modal components render via React Portal to document.body (z-index 2000)
 - Popup CCIP validated geometry: POP 4nm → ATK 2.14nm @ 7500ft → 20° dive
-- Map placement mode disables all popups and interactions
-- **DCS callsign format:** DCS stores callsigns as `{name="Viper12", 1=1, 2=1}` where
-  the name field encodes the full callsign compactly. Rust formatter naively produces
-  "Viper12 1-1" (redundant). `src/lib/callsign.ts` normalises to "Viper 1-2" at both
-  import time (missionStore) and display time (FlightRoster, AttackEditor).
-- **Loadout stores weapon name string** (e.g. "Mk-82 LDGP") — matched against `weapon.name` from DB when filtering attack editor. The `aircraft_weapons` table still exists in DB but is not surfaced in UI.
+- **DCS callsign format:** DCS stores callsigns as `{name="Viper12", 1=1, 2=1}`. `src/lib/callsign.ts` normalises to "Viper 1-2" at import and display time.
+- **Loadout stores weapon name string** (e.g. "Mk-82 LDGP") — matched against `weapon.name` from DB when filtering attack editor.
 - **Modal background color:** use `bg-dcs-navy` — `bg-dcs-panel` is not defined in tailwind.config.js and renders transparent.
+- **Kneeboard export:** Canvas → `canvas.toDataURL('image/png')` → base64 → `save_kneeboard_png` Rust command. Native save dialog via `tauri-plugin-dialog` `save()` call.
+- **Known pre-existing TS errors:** `AttackEditor.tsx`, `PopupCCIPForm.tsx` have unused var warnings and a `offsetDirection` field mismatch with `PopupCCIPProfile` type — pre-existing, not blocking.
+- **Kneeboard diagram:** side-profile (altitude vs distance), not top-down map. ATK X position computed from `rollInAltitude / tan(diveAngle)` in nm.
 
-**Next up:**
-- Additional attack profiles (Dive CCIP, Level CCRP)
-- Kneeboard card generation (Phase 3)
+**Next up (kneeboard polish):**
+- Test kneeboard with real mission data — check layout doesn't overflow 1024px with many threats
+- Export All: currently saves to same folder as first save dialog pick — may want dedicated folder picker
+- DCS folder quick-pick: button to auto-navigate save dialog to `Saved Games/DCS/Kneeboard/F-16C/`
+- Additional attack profiles: Dive CCIP and Level CCRP diagrams + steps already wired
 
 **Dev Setup Requirements:**
 - macOS: `brew install proj cmake pkgconf`
