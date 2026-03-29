@@ -17,26 +17,6 @@
 
 This workflow ensures GitHub is always the source of truth and work can be resumed from any device (Windows, Linux, macOS, iPhone) with full context.
 
-## UI: Context Window HP Bar
-
-After EVERY response, display a token usage estimate as ASCII bar.
-
-Rules:
-- Estimate cumulative tokens used in this conversation (input + output combined)
-- Context window = 200K tokens (adjust if needed: 128K, 200K, 1M)
-- Display format exactly as shown below where the bars equal the % of the total limits
-- This is a UI element only — do not modify any other behavior
-
-Format:
-
-```
-─────────────────────────────────────
-TOKEN USAGE (estimated)
-[██████░░░░░░░░░░░░░░░░░░░░░░░░] ~XXK / 200K
-HP: ████████████████████████████░░░ XX%
-─────────────────────────────────────
-```
-
 ## Project Overview
 
 A cross-platform desktop application for planning F-16 (and other aircraft) attack runs against defended targets in DCS World. The tool helps squadron members plan tactical attacks, weaponeer targets, and generate pilot briefing cards (kneeboards).
@@ -152,17 +132,18 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 - [x] Basic waypoint data structures
 - [x] GitHub Actions for cross-platform releases
 
-### Phase 2: Core Planning ← IN PROGRESS
+### Phase 2: Core Planning ✅ COMPLETE
 - [x] **Map view** - Leaflet map showing waypoints and threat envelopes
 - [x] **Threat management** - Import from mission, add planning threats, visual distinction
 - [x] **Map interaction** - Click-to-add threats, drag to reposition planning threats
 - [x] **Coordinate conversion** - Accurate DCS to lat/lon using proj4 transformations
-- [ ] **Attack profile calculator** - Popup CCIP parameters first
-- [ ] **Flight roster management** - Assign pilots and loadouts
+- [x] **Attack profile calculator** - Popup CCIP with geometry visualization
+- [x] **Flight roster management** - Assign pilots and loadouts
 
-### Phase 3: Output
-- [ ] Kneeboard card renderer (768x1024 PNG)
-- [ ] Export to user-selected folder (with quick-pick for DCS kneeboard folder)
+### Phase 3: Output ← IN PROGRESS
+- [x] Kneeboard card renderer (768x1024 PNG)
+- [x] Export to user-selected folder (native save dialog)
+- [ ] Quick-pick for DCS kneeboard folder
 - [ ] PDF export option
 
 ### Phase 4: Polish
