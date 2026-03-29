@@ -24,7 +24,7 @@ After EVERY response, display a token usage estimate as ASCII bar.
 Rules:
 - Estimate cumulative tokens used in this conversation (input + output combined)
 - Context window = 200K tokens (adjust if needed: 128K, 200K, 1M)
-- Display format exactly as shown below
+- Display format exactly as shown below where the bars equal the % of the total limits
 - This is a UI element only — do not modify any other behavior
 
 Format:

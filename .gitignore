@@ -29,6 +29,8 @@ yarn-error.log*
 
 # Tauri
 src-tauri/target/
+src-tauri/*.png
+src-tauri/*.jpg
 
 # Database files (generated)
 *.db
