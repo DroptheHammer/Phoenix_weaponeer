@@ -177,9 +177,19 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-02-16
+**Last session:** 2026-03-29
 
 **Completed this session:**
+- ✅ **Project Documentation Sync**
+  - Updated ROADMAP.md to reflect Phase 2 complete, Phase 3 in progress
+  - Updated CLAUDE.md Development Phases section to match actual status
+  - Removed token usage HP bar requirement from instructions
+  - Added .gitignore rules for PNG/JPG in src-tauri/ (kneeboard exports)
+  - All project status documents now in sync
+
+**Previous session:** 2026-02-16
+
+**Completed previous session:**
 - ✅ **Kneeboard Card Generation (Phase 3 start)**
   - `src/lib/buildKneeboardCard.ts` — assembles `KneeboardCard` from mission data: finds pilot, target WP, weapon, fuze, nearby threats (bearing/distance), generates numbered steps and diagram data
   - `src/lib/renderKneeboardCanvas.ts` — draws 768×1024 DCS-format PNG on HTML Canvas:
@@ -216,11 +226,11 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 - **Known pre-existing TS errors:** `AttackEditor.tsx`, `PopupCCIPForm.tsx` have unused var warnings and a `offsetDirection` field mismatch with `PopupCCIPProfile` type — pre-existing, not blocking.
 - **Kneeboard diagram:** side-profile (altitude vs distance), not top-down map. ATK X position computed from `rollInAltitude / tan(diveAngle)` in nm.
 
-**Next up (kneeboard polish):**
-- Test kneeboard with real mission data — check layout doesn't overflow 1024px with many threats
-- Export All: currently saves to same folder as first save dialog pick — may want dedicated folder picker
-- DCS folder quick-pick: button to auto-navigate save dialog to `Saved Games/DCS/Kneeboard/F-16C/`
-- Additional attack profiles: Dive CCIP and Level CCRP diagrams + steps already wired
+**Next up:**
+- **Phase 3.2 Completion:** DCS folder quick-pick — button to auto-detect/navigate save dialog to `Saved Games/DCS/Kneeboard/F-16C/`
+- **Phase 3.3 (Optional):** PDF export — multi-card PDF generation for print-friendly briefing packages
+- **Phase 4 Polish:** Additional aircraft (F/A-18, A-10), attack profiles (level CCRP, loft, dive bomb), or FragOrders URL import
+- **Testing:** Verify kneeboard layout with real mission data (many threats, overflow handling)
 
 **Dev Setup Requirements:**
 - macOS: `brew install proj cmake pkgconf`
