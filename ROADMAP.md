@@ -32,7 +32,7 @@ Cross-platform desktop app for planning F-16 attack missions in DCS World.
 
 ---
 
-## Phase 2: Core Planning 🔄 IN PROGRESS
+## Phase 2: Core Planning ✅ COMPLETE
 
 ### 2.1 Map Visualization ✅
 - [x] Leaflet map integration
@@ -58,52 +58,49 @@ Cross-platform desktop app for planning F-16 attack missions in DCS World.
 - [x] Caucasus projection support
 - [x] Correct (y,x) coordinate ordering
 
-### 2.5 Attack Profile Calculator ❌ NOT STARTED
-- [ ] Attack profile data model
-- [ ] Popup CCIP calculator
-  - Run-in parameters (altitude, speed, heading)
-  - Pop distance and climb angle
-  - Apex altitude
-  - Dive angle and release altitude
-  - Egress direction
-- [ ] Attack profile UI component
-- [ ] Link attacks to target waypoints
-- [ ] Calculate/display attack geometry on map
+### 2.5 Attack Profile Calculator ✅
+- [x] Attack profile data model
+- [x] Popup CCIP calculator
+  - [x] Run-in parameters (altitude, speed, heading)
+  - [x] Pop distance and climb angle
+  - [x] Apex altitude
+  - [x] Dive angle and release altitude
+  - [x] Egress direction
+- [x] Attack profile UI component
+- [x] Link attacks to target waypoints
+- [x] Calculate/display attack geometry on map
 
-### 2.6 Flight Roster Management ❌ NOT STARTED
-- [ ] Flight member data model
-- [ ] Add/edit flight members (1-4 per flight)
-- [ ] Assign callsigns and positions
-- [ ] Aircraft selection (F-16C initially)
-- [ ] Loadout editor
-  - Station-based weapon assignment
-  - Fuze selection per weapon
-  - Quantity per station
-- [ ] Assign attacks to flight members
+### 2.6 Flight Roster Management ✅
+- [x] Flight member data model
+- [x] Add/edit flight members (1-4 per flight)
+- [x] Assign callsigns and positions
+- [x] Aircraft selection (F-16C initially)
+- [x] Loadout editor (simple weapon type + quantity)
+- [x] Assign attacks to flight members
 
 ---
 
-## Phase 3: Output ❌ NOT STARTED
+## Phase 3: Output 🔄 IN PROGRESS
 
-### 3.1 Kneeboard Card Renderer
-- [ ] 768x1024 pixel canvas
-- [ ] Layout engine with sections:
-  - Header (callsign, date, target)
-  - Target info (coords, elevation, description)
-  - Threats (nearby SAMs with bearing/range)
-  - Attack profile (parameters table)
-  - Weapon settings (fuze, release mode)
-  - Egress/abort procedures
-- [ ] Font rendering (readable at cockpit distance)
-- [ ] PNG export
+### 3.1 Kneeboard Card Renderer ✅
+- [x] 768x1024 pixel canvas
+- [x] Layout engine with sections:
+  - [x] Header (callsign, date, target)
+  - [x] Target info (coords, elevation, description)
+  - [x] Threats (nearby SAMs with bearing/range)
+  - [x] Attack profile diagram (side-view altitude profile)
+  - [x] Weapon settings (fuze, release mode)
+  - [x] Step-by-step procedures
+- [x] Font rendering (readable at cockpit distance)
+- [x] PNG export
 
-### 3.2 Export System
-- [ ] File picker for output location
-- [ ] Quick-pick for DCS kneeboard folder detection
-- [ ] Batch export (all flight members)
-- [ ] Filename convention (callsign_target_date.png)
+### 3.2 Export System ✅
+- [x] Native file picker for output location
+- [x] Export selected attack card
+- [x] Batch export (all flight members to folder)
+- [ ] Quick-pick for DCS kneeboard folder detection (planned)
 
-### 3.3 PDF Export (Optional)
+### 3.3 PDF Export (Optional) ❌ NOT STARTED
 - [ ] Multi-card PDF generation
 - [ ] Print-friendly layout
 
@@ -146,13 +143,23 @@ Cross-platform desktop app for planning F-16 attack missions in DCS World.
 
 ## Current Status
 
-**Last Updated:** 2026-02-01
+**Last Updated:** 2026-03-29
 
-**Completed:** Phases 1.x, 2.1-2.4
-**Next Up:** 2.5 Attack Profile Calculator
+**Completed:**
+- Phase 1: Foundation (all sections)
+- Phase 2: Core Planning (all sections 2.1-2.6)
+- Phase 3: Output (sections 3.1-3.2 complete, 3.3 not started)
+
+**Next Up:**
+- Phase 3.2 enhancement: DCS kneeboard folder quick-pick
+- Phase 4: Polish features
 
 ---
 
 ## Session Notes
 
-Previous session fixed coordinate conversion - waypoints now display correctly on NTTR map using proj4 transformations with correct (y,x) coordinate ordering.
+**2026-03-29:** Roadmap updated to reflect completion of Phase 2 and progress on Phase 3. Kneeboard card generation and export system now fully functional.
+
+**2026-02-16:** Completed kneeboard card renderer with canvas-based PNG generation, attack profile diagrams, and native file export dialogs.
+
+**2026-02-01:** Fixed coordinate conversion - waypoints now display correctly on NTTR map using proj4 transformations with correct (y,x) coordinate ordering.
