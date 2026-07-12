@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save, open } from '@tauri-apps/plugin-dialog';
 import { useMissionStore } from '../../stores/missionStore';
 import { buildKneeboardCard, kneeboardFilename, type ThreatSystemInfo } from '../../lib/buildKneeboardCard';
+import { getDcsKneeboardPath, getAircraftKneeboardPath } from '../../lib/dcsExport';
 import {
   renderKneeboardCard,
   canvasToBase64Png,
@@ -109,21 +110,14 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems }: Kneebo
   const handleExportAll = useCallback(async () => {
     if (!mission || !mission.attacks.length || !fullCanvasRef.current) return;
 
-    // Ask for a folder by saving the first card — use its directory for the rest
-    const firstCard = buildKneeboardCard(mission, mission.attacks[0].id, weapons, fuzeOptions, threatSystems);
-    if (!firstCard) return;
-
-    const firstDefault = kneeboardFilename(firstCard.header.callsign, firstCard.header.targetName);
-    const firstPath = await save({
-      defaultPath: firstDefault,
-      filters: [{ name: 'PNG Image', extensions: ['png'] }],
-      title: `Save All ${mission.attacks.length} Kneeboard Cards — pick folder & first filename`,
+    // Use proper folder picker
+    const folder = await open({
+      directory: true,
+      multiple: false,
+      title: `Select folder for ${mission.attacks.length} kneeboard cards`,
     });
-    if (!firstPath) return;
 
-    // Extract folder from chosen path
-    const folderMatch = firstPath.match(/^(.*)[/\\][^/\\]+$/);
-    const folder = folderMatch ? folderMatch[1] : '.';
+    if (!folder) return; // user cancelled
 
     setExporting(true);
     setExportMsg(null);
@@ -148,8 +142,90 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems }: Kneebo
       setExportMsg(
         errors.length
           ? `Saved ${saved} card(s) with ${errors.length} error(s)`
-          : `Saved ${saved} card(s) to ${folder.split('/').pop()}/`,
+          : `Saved ${saved} card(s) to folder`,
       );
+    } catch (e) {
+      setExportMsg(`Error: ${String(e)}`);
+    } finally {
+      setExporting(false);
+    }
+  }, [mission, weapons, fuzeOptions, threatSystems]);
+
+  const handleExportToDCS = useCallback(async () => {
+    if (!mission || !mission.attacks.length || !fullCanvasRef.current) return;
+
+    setExporting(true);
+    setExportMsg('Detecting DCS folder...');
+
+    try {
+      // Get aircraft from first attack to determine kneeboard folder
+      const firstAttack = mission.attacks[0];
+      const attacker = mission.flightMembers.find(m => m.id === firstAttack.attackerId);
+
+      if (!attacker) {
+        setExportMsg('Error: Could not find flight member for attack');
+        setExporting(false);
+        return;
+      }
+
+      const aircraftPath = getAircraftKneeboardPath(attacker.aircraftId);
+      const dcsPath = await getDcsKneeboardPath(aircraftPath);
+
+      let folder: string;
+      if (dcsPath) {
+        // DCS folder detected - use it
+        folder = dcsPath;
+        setExportMsg(`Exporting to DCS ${aircraftPath} folder...`);
+      } else {
+        // DCS not detected - fall back to folder picker
+        setExportMsg('DCS folder not detected. Please select folder manually.');
+        const selectedFolder = await open({
+          directory: true,
+          multiple: false,
+          title: 'DCS not detected - select export folder',
+        });
+
+        if (!selectedFolder) {
+          setExporting(false);
+          return;
+        }
+        folder = selectedFolder;
+      }
+
+      // Export all cards to the selected/detected folder
+      let saved = 0;
+      const errors: string[] = [];
+
+      for (const attack of mission.attacks) {
+        const card = buildKneeboardCard(mission, attack.id, weapons, fuzeOptions, threatSystems);
+        if (!card) continue;
+        renderKneeboardCard(fullCanvasRef.current, card);
+        const base64 = canvasToBase64Png(fullCanvasRef.current);
+        const filename = kneeboardFilename(card.header.callsign, card.header.targetName);
+        const path = `${folder}/${filename}`;
+        try {
+          await invoke<void>('save_kneeboard_png', { path, base64Data: base64 });
+          saved++;
+        } catch (e) {
+          errors.push(`${filename}: ${String(e)}`);
+        }
+      }
+
+      if (dcsPath) {
+        setExportMsg(
+          errors.length
+            ? `Saved ${saved} cards to DCS with ${errors.length} error(s)`
+            : `✓ Saved ${saved} cards to DCS ${aircraftPath} kneeboard folder`,
+        );
+      } else {
+        setExportMsg(
+          errors.length
+            ? `Saved ${saved} card(s) with ${errors.length} error(s)`
+            : `Saved ${saved} card(s) to folder`,
+        );
+      }
+    } catch (e) {
+      setExportMsg(`Error: ${String(e)}`);
     } finally {
       setExporting(false);
     }
@@ -237,6 +313,14 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems }: Kneebo
             {exporting ? 'Saving…' : `Export All (${mission.attacks.length})`}
           </button>
         </div>
+
+        <button
+          onClick={handleExportToDCS}
+          disabled={exporting}
+          className="w-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium py-1.5 rounded transition-colors"
+        >
+          {exporting ? 'Saving…' : `🎯 Export All to DCS Folder`}
+        </button>
 
         {exportMsg && (
           <div

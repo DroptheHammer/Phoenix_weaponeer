@@ -597,6 +597,42 @@ pub fn save_kneeboard_png(path: String, base64_data: String) -> Result<(), Strin
     Ok(())
 }
 
+/// Detect the DCS "Saved Games" folder path
+///
+/// Windows: %USERPROFILE%\Saved Games\DCS
+/// Mac/Linux: DCS not officially supported, returns None
+#[tauri::command]
+pub fn detect_dcs_folder() -> Result<Option<String>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::env;
+
+        // Try standard location: %USERPROFILE%\Saved Games\DCS
+        if let Ok(profile) = env::var("USERPROFILE") {
+            let dcs_path = format!("{}\\Saved Games\\DCS", profile);
+            if std::path::Path::new(&dcs_path).exists() {
+                return Ok(Some(dcs_path));
+            }
+        }
+
+        // Try legacy DCS.openbeta if main not found
+        if let Ok(profile) = env::var("USERPROFILE") {
+            let beta_path = format!("{}\\Saved Games\\DCS.openbeta", profile);
+            if std::path::Path::new(&beta_path).exists() {
+                return Ok(Some(beta_path));
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Mac/Linux: DCS not officially supported
+        Ok(None)
+    }
+}
+
 // ============================================================================
 // Utility Functions
 // ============================================================================

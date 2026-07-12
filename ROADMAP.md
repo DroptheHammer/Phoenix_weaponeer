@@ -97,8 +97,9 @@ Cross-platform desktop app for planning F-16 attack missions in DCS World.
 ### 3.2 Export System ✅
 - [x] Native file picker for output location
 - [x] Export selected attack card
-- [x] Batch export (all flight members to folder)
-- [ ] Quick-pick for DCS kneeboard folder detection (planned)
+- [x] Batch export with proper folder picker (improved UX)
+- [x] DCS kneeboard folder auto-detection (Windows)
+- [x] Quick export to DCS with graceful fallback
 
 ### 3.3 PDF Export (Optional) ❌ NOT STARTED
 - [ ] Multi-card PDF generation
@@ -143,20 +144,23 @@ Cross-platform desktop app for planning F-16 attack missions in DCS World.
 
 ## Current Status
 
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-07-12
 
 **Completed:**
 - Phase 1: Foundation (all sections)
 - Phase 2: Core Planning (all sections 2.1-2.6)
-- Phase 3: Output (sections 3.1-3.2 complete, 3.3 not started)
+- Phase 3: Output (sections 3.1-3.2 complete, 3.3 optional not started)
 
 **Next Up:**
-- Phase 3.2 enhancement: DCS kneeboard folder quick-pick
-- Phase 4: Polish features
+- **Phase 3.5: Bugfix Sprint** — see `docs/BUGFIX_PLAN.md` (4 staged fixes: NaN heading geometry, overlay ignoring saved profile, import robustness, map interaction). Must complete before Phase 4.
+- Phase 3.3 (Optional): PDF export for print-friendly briefing packages
+- Phase 4: Polish features (additional aircraft, attack profiles, enhanced import)
 
 ---
 
 ## Session Notes
+
+**2026-07-12:** Phase 3.2 Export System completed. Added proper folder picker for batch export, DCS folder auto-detection on Windows, and quick export button with graceful fallback. Export UX significantly improved.
 
 **2026-03-29:** Roadmap updated to reflect completion of Phase 2 and progress on Phase 3. Kneeboard card generation and export system now fully functional.
 

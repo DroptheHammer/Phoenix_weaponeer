@@ -140,11 +140,12 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 - [x] **Attack profile calculator** - Popup CCIP with geometry visualization
 - [x] **Flight roster management** - Assign pilots and loadouts
 
-### Phase 3: Output ← IN PROGRESS
+### Phase 3: Output ✅ MOSTLY COMPLETE
 - [x] Kneeboard card renderer (768x1024 PNG)
-- [x] Export to user-selected folder (native save dialog)
-- [ ] Quick-pick for DCS kneeboard folder
-- [ ] PDF export option
+- [x] Export single card to user-selected location
+- [x] Batch export with proper folder picker
+- [x] DCS folder auto-detection and quick export
+- [ ] PDF export option (optional)
 
 ### Phase 4: Polish
 - [ ] FragOrders URL import (when API access provided)
@@ -177,9 +178,33 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-03-29
+**Last session:** 2026-07-12
 
 **Completed this session:**
+- ✅ **Bug Scan + Bugfix Plan (Phase 3.5 created)**
+  - Ran a full codebase bug scan after user reported "weird movement around waypoints" on the map
+  - Found 7 bugs (2 critical) — root cause of the map bug: NaN heading from cleared form input poisons attack overlay geometry; overlay also ignores saved profile values entirely
+  - Wrote `docs/BUGFIX_PLAN.md`: 4 staged fixes with per-task verification and stage gates, designed for Sonnet 4.5/4.6 execution one task at a time
+  - **Next session: execute Stage 1 of docs/BUGFIX_PLAN.md**
+  - All 19 Rust tests pass; coordinate conversion verified healthy
+- ✅ **Phase 3: Export System Completion** 
+  - **Improved batch export UX:** Replaced awkward save-file workaround with proper folder picker using `open({ directory: true })`
+  - **DCS folder auto-detection (Windows):** Added `detect_dcs_folder` Rust command that detects `%USERPROFILE%\Saved Games\DCS` or `DCS.openbeta` on Windows
+  - **Quick export to DCS:** New "🎯 Export All to DCS Folder" button that auto-detects DCS kneeboard path and exports directly, with graceful fallback to folder picker if DCS not found
+  - **Cross-platform support:** Mac/Linux users get folder picker (DCS not officially supported on these platforms)
+  - **Files modified:**
+    - `src-tauri/src/commands/mod.rs` — added `detect_dcs_folder` command with Windows path detection
+    - `src-tauri/src/lib.rs` — registered new command in invoke handler
+    - `src/lib/dcsExport.ts` — new utility module with `getDcsKneeboardPath()` and `getAircraftKneeboardPath()` helpers
+    - `src/components/kneeboard/KneeboardPreview.tsx` — added `handleExportToDCS()`, updated button UI with three export options
+  - **Three export workflows:**
+    1. Export Selected — save single card with filename picker (unchanged)
+    2. Export All to Folder — batch export with proper folder picker (improved)
+    3. Export All to DCS Folder — auto-detect DCS path and batch export (new)
+
+**Previous session:** 2026-03-29
+
+**Completed previous session:**
 - ✅ **Project Documentation Sync**
   - Updated ROADMAP.md to reflect Phase 2 complete, Phase 3 in progress
   - Updated CLAUDE.md Development Phases section to match actual status
@@ -210,9 +235,11 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
   - ✅ Map visualization, Threat management, Map interaction, Coordinate conversion
   - ✅ Popup CCIP attack calculator
   - ✅ Flight roster + loadout management
-- **Phase 3 (Output):** 🔄 IN PROGRESS
-  - ✅ Kneeboard canvas renderer + export (this session)
-  - ❌ PDF export (not started)
+- **Phase 3 (Output):** ✅ MOSTLY COMPLETE
+  - ✅ Kneeboard canvas renderer (Feb 2026)
+  - ✅ PNG export with folder picker (Jul 2026)
+  - ✅ DCS folder auto-detection and quick export (Jul 2026)
+  - ❌ PDF export (optional, not started)
 - **Phase 4 (Polish):** ❌ NOT STARTED
 
 **Important Technical Notes:**
@@ -222,15 +249,25 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 - **DCS callsign format:** DCS stores callsigns as `{name="Viper12", 1=1, 2=1}`. `src/lib/callsign.ts` normalises to "Viper 1-2" at import and display time.
 - **Loadout stores weapon name string** (e.g. "Mk-82 LDGP") — matched against `weapon.name` from DB when filtering attack editor.
 - **Modal background color:** use `bg-dcs-navy` — `bg-dcs-panel` is not defined in tailwind.config.js and renders transparent.
-- **Kneeboard export:** Canvas → `canvas.toDataURL('image/png')` → base64 → `save_kneeboard_png` Rust command. Native save dialog via `tauri-plugin-dialog` `save()` call.
+- **Kneeboard export:** Three workflows: (1) Export Selected - single card with filename picker, (2) Export All to Folder - batch with folder picker, (3) Export All to DCS - auto-detects `%USERPROFILE%\Saved Games\DCS\Kneeboard\{aircraft}\` on Windows
+- **DCS path detection:** `detect_dcs_folder` command checks standard DCS and DCS.openbeta paths on Windows, returns None on Mac/Linux
 - **Known pre-existing TS errors:** `AttackEditor.tsx`, `PopupCCIPForm.tsx` have unused var warnings and a `offsetDirection` field mismatch with `PopupCCIPProfile` type — pre-existing, not blocking.
 - **Kneeboard diagram:** side-profile (altitude vs distance), not top-down map. ATK X position computed from `rollInAltitude / tan(diveAngle)` in nm.
 
-**Next up:**
-- **Phase 3.2 Completion:** DCS folder quick-pick — button to auto-detect/navigate save dialog to `Saved Games/DCS/Kneeboard/F-16C/`
-- **Phase 3.3 (Optional):** PDF export — multi-card PDF generation for print-friendly briefing packages
-- **Phase 4 Polish:** Additional aircraft (F/A-18, A-10), attack profiles (level CCRP, loft, dive bomb), or FragOrders URL import
-- **Testing:** Verify kneeboard layout with real mission data (many threats, overflow handling)
+**Next up (IN ORDER):**
+1. **Phase 3.5 Bugfix Sprint — START HERE:** Execute `docs/BUGFIX_PLAN.md` stage by stage. Fixes the "weird movement around waypoints" bug (NaN heading → broken overlay geometry) plus 6 other bugs found in the 2026-07-12 code scan. Plan is written for Sonnet 4.5/4.6 execution: one small task at a time, each with its own verification, stage gates between stages.
+2. **Phase 3.3 (Optional):** PDF export — multi-card PDF generation for print-friendly briefing packages
+3. **Phase 4 Polish:** Additional aircraft (F/A-18, A-10), attack profiles (level CCRP, loft, dive bomb), or FragOrders URL import
+4. **Testing:** Verify kneeboard export on Windows machine with DCS installed
+5. **Enhancement:** Query aircraft kneeboard paths from database instead of hardcoded mapping
+
+**Bug scan findings (2026-07-12, full detail in docs/BUGFIX_PLAN.md):**
+- NaN heading from cleared input poisons attack overlay geometry (`PopupCCIPForm` → `attackGeometry.ts` `??` doesn't catch NaN)
+- `AttackProfileOverlay` uses hardcoded `getRecommendedParams()` test data, ignores saved profile values
+- Rust: failed threat coordinate conversion lands threats at (0,0); waypoints silently dropped
+- `infer_waypoint_type` substring matching too loose ("SLIP"→ip, "BEACH"→bullseye)
+- react-leaflet `interactive` prop is creation-time only — placement mode toggle doesn't propagate
+- Reminder: run the app with `npm run tauri dev`, NOT `npm run dev` (plain Vite has no Tauri backend)
 
 **Dev Setup Requirements:**
 - macOS: `brew install proj cmake pkgconf`
