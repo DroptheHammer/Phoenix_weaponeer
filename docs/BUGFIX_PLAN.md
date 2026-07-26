@@ -8,7 +8,8 @@
 - Complete ONE task at a time. Run that task's verification before moving on.
 - After each stage, run the Stage Gate commands. Do not start the next stage on a red gate.
 - Check off tasks in this file (`[ ]` → `[x]`) as you complete them, and commit after each stage with message `Bugfix Stage N: <summary>`.
-- Test data for manual checks: `test-data/test_fragorders.json` (Nevada theater, waypoints incl. "IP ALPHA" and "TGT WAREHOUSE").
+- Test data for manual checks: `test-data/nttr_redflag_viper1.json` — import it and select group **`Viper 1 (Hot)`** (14 waypoints, incl. "IP", "TGT1", "TGT2"). See `test-data/README.md`.
+  - Do NOT use `test-data/test_fragorders.json`: it is synthetic and its coordinates land 300+ km off the NTTR map.
 - Launch app with `npm run tauri dev` (NOT `npm run dev` — the plain Vite server has no Tauri backend and throws `window.__TAURI_INTERNALS__` errors).
 
 ---
@@ -51,7 +52,7 @@
 ### Stage 1 Gate
 1. `npx tsc --noEmit` — no new errors vs. before the stage.
 2. Manual repro in the app (`npm run tauri dev`):
-   - Import `test-data/test_fragorders.json`, add a flight member, create an attack: target "TGT WAREHOUSE", IP "IP ALPHA".
+   - Import `test-data/nttr_redflag_viper1.json` (group `Viper 1 (Hot)`), add a flight member, create an attack: target "TGT1", IP "IP".
    - In the Heading field: type `90`, then select-all and delete so it's empty. Save (calculate first if required).
    - Map view: the attack overlay (blue dashed IP leg → yellow offset leg → red attack leg → green egress) must render along the IP→Target axis. No missing/mispositioned POP/ATK/TGT markers, no console errors about invalid LatLng.
    - Reopen the attack: the Heading field is empty, overlay still correct.
@@ -123,28 +124,23 @@ This stage also resolves the **known pre-existing TS errors**: `AttackEditor.tsx
 - Keep the drop (a waypoint with no coordinates is unusable) but log it: on `Err(e)`, `eprintln!("WARNING: dropping waypoint {:?}: {}", pt.name, e)` before returning `None`. Steerpoint numbering must continue to use the pre-filter `enumerate` index `(i + 1)` so surviving waypoints keep their original steerpoint numbers (this is already the case — do not change it).
 - Verify: `cargo test --lib` passes.
 
-### Task 3.3 — Word-boundary matching in waypoint type inference
-- File: `src-tauri/src/commands/mod.rs`, `infer_waypoint_type` (~line 426)
-- Problem: `name_upper.contains("IP")` classifies "SLIP"/"SHIP" as IP; `contains("BE")` classifies "BEACH"/"ABERDEEN" as bullseye.
-- Fix: tokenize the name on non-alphanumeric characters and match whole tokens:
-  ```rust
-  let tokens: Vec<&str> = name_upper.split(|c: char| !c.is_alphanumeric()).collect();
-  let has = |t: &str| tokens.iter().any(|tok| *tok == t);
-  ```
-  Then: `has("IP")` → ip; `has("TGT") || has("TARGET") || name_upper.contains("TARGET")` → target; `has("CAP")` → cap; `has("MARSHAL") || has("HOLD")` → marshal; tanker names unchanged (they're distinctive); `has("BULLS") || has("BULLSEYE") || has("BE")` → bullseye. Keep the existing point_type/action fallbacks unchanged.
-- Add unit tests in the same file's `#[cfg(test)]` module (create one if commands/mod.rs has none — otherwise put tests next to the function):
-  ```rust
-  assert_eq!(infer_waypoint_type(Some("IP ALPHA"), None, None), "ip");
-  assert_eq!(infer_waypoint_type(Some("SLIP"), None, None), "nav");
-  assert_eq!(infer_waypoint_type(Some("TGT WAREHOUSE"), None, None), "target");
-  assert_eq!(infer_waypoint_type(Some("BEACH"), None, None), "nav");
-  assert_eq!(infer_waypoint_type(Some("BULLSEYE"), None, None), "bullseye");
-  assert_eq!(infer_waypoint_type(Some("MARSHAL"), None, None), "marshal");
-  ```
+### Task 3.3 — Word-boundary matching in waypoint type inference ✅ DONE (2026-07-26)
+Completed ahead of the rest of Stage 3, while diagnosing the reported map problems.
+
+- File: `src-tauri/src/commands/mod.rs`, `infer_waypoint_type`
+- Problem: `name_upper.contains("IP")` classified "SLIP"/"SHIP" as IP; `contains("BE")` classified "BEACH"/"ABERDEEN" as bullseye.
+- Fixed by tokenizing on non-alphanumeric characters and matching whole tokens, plus a `has_numbered` helper so "TGT1"/"IP2" still classify.
+
+Two corrections to what this task originally prescribed, both found by testing against the real NTTR Red Flag mission:
+
+1. **Tanker callsigns must NOT imply a tanker waypoint.** The original plan said to leave tanker names unchanged because "they're distinctive" — they are not. The real Viper 1 route has a plain nav turnpoint named **ARCO**, which the old code (and the proposed fix) misclassified as a tanker. Only explicit words now match: `TANKER`, `AAR`, `REFUEL`, `REFUELING`. Word-boundary matching alone would not have caught this, since ARCO is already a whole token.
+2. **DCS point-type spellings vary.** The `Some("Takeoff Parking Hot")` arm never matched anything — real exports use `TakeOffParkingHot` (no spaces). Point types are now normalized (uppercased, non-alphanumerics stripped) before comparison.
+
+Tests added in a new `#[cfg(test)] mod tests` in `commands/mod.rs`, including `classifies_real_nttr_redflag_route`, which pins all 14 waypoints of the real Viper 1 route.
 
 ### Stage 3 Gate
-1. `cargo test --lib` — all tests pass, including the new `infer_waypoint_type` tests.
-2. Manual: re-import `test-data/test_fragorders.json` in the app — "IP ALPHA" renders yellow (ip), "TGT WAREHOUSE" red (target), and the IP/Target dropdowns in the attack editor are populated as before (no regression).
+1. `cargo test --lib` — all tests pass, including the new `infer_waypoint_type` tests. ✅ 25 passing as of 2026-07-26.
+2. Manual: import `test-data/nttr_redflag_viper1.json` (group `Viper 1 (Hot)`) — "IP" renders yellow (ip), "TGT1"/"TGT2" red (target), "ARCO" plain nav (NOT tanker), and the IP/Target dropdowns in the attack editor are populated (no regression).
 
 ---
 

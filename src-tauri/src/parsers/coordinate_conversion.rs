@@ -233,20 +233,52 @@ mod tests {
         assert_eq!(normalize_theater_name("Unknown Map"), "unknown_map");
     }
 
+    /// Ground-truth check against real-world landmarks.
+    ///
+    /// A range/validity check is not enough here: DCS `x` is the *northing* and
+    /// `y` is the *easting*, so swapping them still yields perfectly valid
+    /// coordinates — just several hundred km away. These waypoints come from the
+    /// NTTR_Training_RF_v13 mission and are pinned to their real locations, which
+    /// is the only thing that actually detects an axis or offset regression.
     #[test]
-    fn test_dcs_to_latlon_nevada() {
+    fn test_dcs_to_latlon_nevada_landmarks() {
         let params = get_theater_params("Nevada").unwrap();
 
-        // Test a known location in Nevada (Nellis AFB area)
-        // Using coordinates from test_fragorders.json that are verified to work correctly
-        let (lat, lon) = dcs_to_latlon(65500.0, 10100.0, params).unwrap();
+        // (dcs_x/northing, dcs_y/easting, expected lat, expected lon, what it is)
+        let landmarks = [
+            (-398_222.0, -17_321.7, 36.235, -115.034, "Nellis AFB"),
+            (-399_114.0, -18_563.8, 36.22719, -115.04801, "Viper 1 takeoff (Nellis ramp)"),
+            (-273_087.4, -31_442.0, 37.36496, -115.16433, "ALAMO (town of Alamo, NV)"),
+            (-228_744.7, -134_384.0, 37.77695, -116.32308, "IP (Tonopah Test Range)"),
+            (-239_390.1, -160_753.4, 37.68234, -116.62299, "TGT1 (Tonopah Test Range Airfield)"),
+        ];
 
-        // Basic sanity check - should be valid Earth coordinates
-        assert!(lat.abs() <= 90.0, "Latitude should be valid (-90 to 90)");
-        assert!(lon.abs() <= 180.0, "Longitude should be valid (-180 to 180)");
+        for (x, y, want_lat, want_lon, what) in landmarks {
+            let (lat, lon) = dcs_to_latlon(x, y, params).unwrap();
+            assert!(
+                (lat - want_lat).abs() < 0.01 && (lon - want_lon).abs() < 0.01,
+                "{what}: got ({lat:.5}, {lon:.5}), want ({want_lat}, {want_lon})"
+            );
+        }
+    }
 
-        // Verify conversion succeeded (coordinates are not zero/default)
-        assert!(lat != 0.0 || lon != 0.0, "Coordinates should not be origin");
+    /// Guards the axis convention explicitly.
+    ///
+    /// `test_roundtrip_conversion` cannot catch this on its own — if both
+    /// directions swapped axes consistently, a round trip would still succeed.
+    #[test]
+    fn test_dcs_axis_order_is_x_northing_y_easting() {
+        let params = get_theater_params("Nevada").unwrap();
+
+        // Increasing DCS x must move north; increasing DCS y must move east.
+        let (base_lat, base_lon) = dcs_to_latlon(-398_222.0, -17_321.7, params).unwrap();
+        let (north_lat, north_lon) = dcs_to_latlon(-388_222.0, -17_321.7, params).unwrap();
+        let (east_lat, east_lon) = dcs_to_latlon(-398_222.0, -7_321.7, params).unwrap();
+
+        assert!(north_lat > base_lat, "+x must increase latitude (move north)");
+        assert!((north_lon - base_lon).abs() < 0.01, "+x must not shift longitude much");
+        assert!(east_lon > base_lon, "+y must increase longitude (move east)");
+        assert!((east_lat - base_lat).abs() < 0.01, "+y must not shift latitude much");
     }
 
     #[test]

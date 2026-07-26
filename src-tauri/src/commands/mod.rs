@@ -427,31 +427,60 @@ fn infer_waypoint_type(name: Option<&str>, point_type: Option<&str>, action: Opt
     let name_upper = name.unwrap_or("").to_uppercase();
     let action_upper = action.unwrap_or("").to_uppercase();
 
+    // Match whole tokens, not substrings: "SLIP" is not an IP, "BEACH" is not a
+    // bullseye. Split on anything non-alphanumeric so "IP ALPHA", "TGT-1" and
+    // "IP/ALPHA" all tokenize the way a planner would read them.
+    let tokens: Vec<&str> = name_upper
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let has = |t: &str| tokens.iter().any(|tok| *tok == t);
+    // Numbered variants are common ("TGT1", "IP2"), so also accept a token that
+    // is the keyword followed only by digits.
+    let has_numbered = |t: &str| {
+        tokens.iter().any(|tok| {
+            tok.strip_prefix(t)
+                .map(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+                .unwrap_or(false)
+        })
+    };
+
     // Check name patterns
-    if name_upper.contains("IP") {
+    if has("IP") || has_numbered("IP") {
         return "ip".to_string();
     }
-    if name_upper.contains("TGT") || name_upper.contains("TARGET") {
+    if has("TGT") || has_numbered("TGT") || has("TARGET") || has_numbered("TARGET") {
         return "target".to_string();
     }
-    if name_upper.contains("CAP") {
+    if has("CAP") || has_numbered("CAP") {
         return "cap".to_string();
     }
-    if name_upper.contains("MARSHAL") || name_upper.contains("HOLD") {
+    if has("MARSHAL") || has("HOLD") {
         return "marshal".to_string();
     }
-    if name_upper.contains("TANKER") || name_upper.contains("ARCO") || name_upper.contains("TEXACO") {
+    // Only explicit words imply a tanker waypoint. Tanker *callsigns* (ARCO,
+    // TEXACO, SHELL) are deliberately excluded: they are also ordinary nav-fix
+    // names, and real missions do use them that way — NTTR Red Flag routes a
+    // strike package through a turnpoint named "ARCO" that is not an AAR track.
+    if has("TANKER") || has("AAR") || has("REFUEL") || has("REFUELING") {
         return "tanker".to_string();
     }
-    if name_upper.contains("BULLS") || name_upper.contains("BE") {
+    if has("BULLS") || has("BULLSEYE") || has("BE") {
         return "bullseye".to_string();
     }
 
-    // Check DCS point type
-    match point_type {
-        Some("Land") | Some("Landing") => return "divert".to_string(),
-        Some("Takeoff") | Some("TakeOff") | Some("Takeoff Parking Hot") => return "nav".to_string(),
-        _ => {}
+    // Check DCS point type. DCS spells these several ways across versions and
+    // export paths ("TakeOffParkingHot", "TakeOffParking", "Takeoff"), so
+    // normalize before comparing rather than listing every literal.
+    let type_norm = point_type
+        .unwrap_or("")
+        .to_uppercase()
+        .replace(|c: char| !c.is_alphanumeric(), "");
+    if type_norm == "LAND" || type_norm == "LANDING" {
+        return "divert".to_string();
+    }
+    if type_norm.starts_with("TAKEOFF") {
+        return "nav".to_string();
     }
 
     // Check action
@@ -646,4 +675,84 @@ fn chrono_now() -> String {
     let secs = now.as_secs();
     // Approximate ISO format (good enough for scaffolding)
     format!("2024-01-01T00:00:{}Z", secs % 86400)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn infer(name: &str) -> String {
+        infer_waypoint_type(Some(name), Some("Turning Point"), Some("Turning Point"))
+    }
+
+    #[test]
+    fn infers_types_from_whole_tokens() {
+        assert_eq!(infer("IP ALPHA"), "ip");
+        assert_eq!(infer("IP"), "ip");
+        assert_eq!(infer("IP2"), "ip");
+        assert_eq!(infer("TGT WAREHOUSE"), "target");
+        assert_eq!(infer("TGT1"), "target");
+        assert_eq!(infer("TARGET"), "target");
+        assert_eq!(infer("MARSHAL"), "marshal");
+        assert_eq!(infer("BULLSEYE"), "bullseye");
+        assert_eq!(infer("TANKER"), "tanker");
+    }
+
+    #[test]
+    fn substrings_do_not_trigger_false_matches() {
+        // Previously "SLIP"/"SHIP" matched IP and "BEACH" matched bullseye.
+        assert_eq!(infer("SLIP"), "nav");
+        assert_eq!(infer("SHIP"), "nav");
+        assert_eq!(infer("BEACH"), "nav");
+        assert_eq!(infer("ABERDEEN"), "nav");
+        assert_eq!(infer("EGRESS"), "nav");
+    }
+
+    #[test]
+    fn tanker_callsigns_are_not_tanker_waypoints() {
+        // NTTR Red Flag routes the Viper package through a turnpoint named
+        // "ARCO", which is a nav fix even though ARCO is also a tanker callsign.
+        assert_eq!(infer("ARCO"), "nav");
+        assert_eq!(infer("TEXACO"), "nav");
+        assert_eq!(infer("SHELL"), "nav");
+    }
+
+    #[test]
+    fn point_type_spellings_are_normalized() {
+        assert_eq!(infer_waypoint_type(Some("LAND"), Some("Land"), Some("Landing")), "divert");
+        // DCS exports this as "TakeOffParkingHot" — no spaces.
+        assert_eq!(
+            infer_waypoint_type(None, Some("TakeOffParkingHot"), Some("From Parking Area Hot")),
+            "nav"
+        );
+        assert_eq!(infer_waypoint_type(None, Some("TakeOffParking"), None), "nav");
+    }
+
+    /// The real Viper 1 (Hot) route from NTTR_Training_RF_v13, in order.
+    #[test]
+    fn classifies_real_nttr_redflag_route() {
+        let route = [
+            ("", "TakeOffParkingHot", "nav"),
+            ("", "Turning Point", "nav"),
+            ("JUNNO", "Turning Point", "nav"),
+            ("DREAM", "Turning Point", "nav"),
+            ("MARSHAL", "Turning Point", "marshal"),
+            ("MEZ", "Turning Point", "nav"),
+            ("IP", "Turning Point", "ip"),
+            ("TGT1", "Turning Point", "target"),
+            ("TGT2", "Turning Point", "target"),
+            ("EGRESS", "Turning Point", "nav"),
+            ("ALAMO", "Turning Point", "nav"),
+            ("ARCO", "Turning Point", "nav"),
+            ("APEX", "Turning Point", "nav"),
+            ("LAND", "Land", "divert"),
+        ];
+        for (name, point_type, expected) in route {
+            assert_eq!(
+                infer_waypoint_type(Some(name), Some(point_type), None),
+                expected,
+                "waypoint {name:?} ({point_type})"
+            );
+        }
+    }
 }
