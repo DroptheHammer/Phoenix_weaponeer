@@ -140,8 +140,18 @@ Two corrections to what this task originally prescribed, both found by testing a
 
 Tests added in a new `#[cfg(test)] mod tests` in `commands/mod.rs`, including `classifies_real_nttr_redflag_route`, which pins all 14 waypoints of the real Viper 1 route.
 
+### Task 3.4 — Fail loudly when a theater has no projection (added 2026-07-26)
+Not in the original plan, but it is the root cause that makes 3.1 and 3.2 fire en masse.
+
+`get_theater_params` *succeeds* for Syria, PersianGulf, Sinai, Normandy, TheChannel, MarianaIslands, Kola, SouthAtlantic and Afghanistan — they are all listed in `THEATER_PARAMS` — but every one has `proj4_string: ""`. So the import passed its theater check and then failed every single coordinate conversion, producing a "successful" import with a (0,0) bullseye, no waypoints and no threats.
+
+- `parse_fragorders_json` now rejects a known-but-unprojected theater up front, naming the theaters that do work.
+- Added `supported_theater_names()` in `coordinate_conversion.rs`, which filters out entries with an empty proj4 string so the list cannot drift from reality.
+- Bullseye conversion failure is now a hard error rather than a silent (0,0); a *missing* bullseye is still fine, since not every mission defines one.
+- Trigger zones log a warning when dropped, matching waypoints and threats.
+
 ### Stage 3 Gate
-1. `cargo test --lib` — all tests pass, including the new `infer_waypoint_type` tests. ✅ 25 passing as of 2026-07-26.
+1. `cargo test --lib` — all tests pass, including the new `infer_waypoint_type` tests. ✅ 27 passing as of 2026-07-26.
 2. Manual: import `test-data/nttr_redflag_viper1.json` (group `Viper 1 (Hot)`) — "IP" renders yellow (ip), "TGT1"/"TGT2" red (target), "ARCO" plain nav (NOT tanker), and the IP/Target dropdowns in the attack editor are populated (no regression).
 
 ---
@@ -176,6 +186,6 @@ Tests added in a new `#[cfg(test)] mod tests` in `commands/mod.rs`, including `c
 ## Completion checklist
 - [x] Stage 1 complete + gate green (commit `Bugfix Stage 1: NaN heading guard`)
 - [x] Stage 2 complete + gate green (commit `Bugfix Stage 2: overlay uses saved profile; tsc green`)
-- [ ] Stage 3 complete + gate green (commit `Bugfix Stage 3: import robustness + type inference tests`)
+- [x] Stage 3 complete + gate green (commit `Bugfix Stage 3: import robustness + type inference tests`)
 - [ ] Stage 4 complete + gate green (commit `Bugfix Stage 4: map interaction + geo dedupe`)
 - [ ] Update `docs/BUGFIX_PLAN.md` status to COMPLETE, update `ROADMAP.md` and `CLAUDE.md` session notes

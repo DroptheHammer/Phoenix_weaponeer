@@ -213,18 +213,35 @@ pub fn parse_fragorders_json(
     let theater_params = get_theater_params(theater_name)
         .ok_or_else(|| format!("Unknown theater: {}", theater_name))?;
 
-    // Process bullseye
-    let bullseye = mission
+    // A known theater with no projection string is worse than an unknown one:
+    // every dcs_to_latlon call below would fail, so the import would "succeed"
+    // with a (0,0) bullseye, no waypoints and no threats. Fail loudly instead.
+    if theater_params.proj4_string.is_empty() {
+        return Err(format!(
+            "Theater {} is recognized but has no coordinate projection defined yet, \
+             so waypoints and threats cannot be positioned. Supported theaters: {}.",
+            theater_name,
+            parsers::supported_theater_names().join(", ")
+        ));
+    }
+
+    // Process bullseye. Unlike waypoints, a missing bullseye is normal (not every
+    // mission defines one) — but a conversion *failure* is not, so it is reported
+    // rather than quietly becoming (0,0) off the coast of Africa.
+    let bullseye = match mission
         .coalition
         .blue
         .as_ref()
         .and_then(|b| b.bullseye.as_ref())
-        .and_then(|be| {
-            dcs_to_latlon(be.x, be.y, theater_params)
-                .ok()
-                .map(|(lat, lon)| ProcessedCoordinates { lat, lon })
-        })
-        .unwrap_or(ProcessedCoordinates { lat: 0.0, lon: 0.0 });
+    {
+        Some(be) => match dcs_to_latlon(be.x, be.y, theater_params) {
+            Ok((lat, lon)) => ProcessedCoordinates { lat, lon },
+            Err(e) => {
+                return Err(format!("Failed to convert bullseye coordinates: {}", e));
+            }
+        },
+        None => ProcessedCoordinates { lat: 0.0, lon: 0.0 },
+    };
 
     // Extract player groups from blue coalition
     let mut player_groups = Vec::new();
@@ -264,14 +281,15 @@ pub fn parse_fragorders_json(
                     for unit in &group.units {
                         if let Some(unit_type) = &unit.unit_type {
                             if parsers::is_threat_unit(unit_type) {
-                                let threat = process_threat_unit(
+                                if let Some(threat) = process_threat_unit(
                                     &group_name,
                                     unit,
                                     unit_type,
                                     theater_params,
                                     &state.db,
-                                );
-                                threats.push(threat);
+                                ) {
+                                    threats.push(threat);
+                                }
                             }
                         }
                     }
@@ -287,12 +305,17 @@ pub fn parse_fragorders_json(
     let mut trigger_zones = Vec::new();
     if let Some(triggers) = &mission.triggers {
         for zone in &triggers.zones {
-            if let Ok((lat, lon)) = dcs_to_latlon(zone.x, zone.y, theater_params) {
-                trigger_zones.push(ProcessedTriggerZone {
-                    name: zone.name.clone().unwrap_or_else(|| format!("Zone {}", zone.zone_id.unwrap_or(0))),
+            let name = zone
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("Zone {}", zone.zone_id.unwrap_or(0)));
+            match dcs_to_latlon(zone.x, zone.y, theater_params) {
+                Ok((lat, lon)) => trigger_zones.push(ProcessedTriggerZone {
+                    name,
                     center: ProcessedCoordinates { lat, lon },
                     radius_m: zone.radius,
-                });
+                }),
+                Err(e) => eprintln!("WARNING: dropping trigger zone {:?}: {}", name, e),
             }
         }
     }
@@ -349,7 +372,21 @@ fn process_player_group(
                 .iter()
                 .enumerate()
                 .filter_map(|(i, pt)| {
-                    let (lat, lon) = dcs_to_latlon(pt.x, pt.y, params).ok()?;
+                    // A waypoint with no usable coordinates cannot be planned
+                    // against, so it is still dropped — but say so rather than
+                    // letting it vanish from the route without a trace.
+                    let (lat, lon) = match dcs_to_latlon(pt.x, pt.y, params) {
+                        Ok(coords) => coords,
+                        Err(e) => {
+                            eprintln!(
+                                "WARNING: dropping waypoint {} {:?}: {}",
+                                i + 1,
+                                pt.name,
+                                e
+                            );
+                            return None;
+                        }
+                    };
                     let alt_ft = pt.alt.map(|a| meters_to_feet(a)).unwrap_or(0.0);
                     let speed_ktas = pt.speed.map(|s| mps_to_ktas(s));
 
@@ -389,8 +426,19 @@ fn process_threat_unit(
     unit_type: &str,
     params: &parsers::TheaterCoordParams,
     db: &db::Database,
-) -> ProcessedThreat {
-    let (lat, lon) = dcs_to_latlon(unit.x, unit.y, params).unwrap_or((0.0, 0.0));
+) -> Option<ProcessedThreat> {
+    // Previously fell back to (0.0, 0.0), which silently placed unconvertible
+    // threats in the Gulf of Guinea instead of reporting the failure.
+    let (lat, lon) = match dcs_to_latlon(unit.x, unit.y, params) {
+        Ok(coords) => coords,
+        Err(e) => {
+            eprintln!(
+                "WARNING: dropping threat {:?} in group {:?} ({}): {}",
+                unit.name, group_name, unit_type, e
+            );
+            return None;
+        }
+    };
 
     // Try to map to database entry
     let (system_id, system_name, confidence) = if let Some((normalized, conf)) = get_threat_info(unit_type) {
@@ -412,14 +460,14 @@ fn process_threat_unit(
         (None, None, ThreatMatchConfidence::Unknown)
     };
 
-    ProcessedThreat {
+    Some(ProcessedThreat {
         unit_type: unit_type.to_string(),
         group_name: group_name.to_string(),
         position: ProcessedCoordinates { lat, lon },
         system_id,
         system_name,
         confidence,
-    }
+    })
 }
 
 /// Infer Phoenix waypoint type from DCS waypoint data

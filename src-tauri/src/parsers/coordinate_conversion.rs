@@ -97,6 +97,18 @@ pub fn get_theater_params_by_normalized(normalized_name: &str) -> Option<&'stati
         .find(|p| p.normalized_name.eq_ignore_ascii_case(normalized_name))
 }
 
+/// DCS names of the theaters that can actually be converted right now.
+///
+/// A theater listed in `THEATER_PARAMS` with an empty `proj4_string` is known
+/// but not yet usable, so it is deliberately excluded here.
+pub fn supported_theater_names() -> Vec<&'static str> {
+    THEATER_PARAMS
+        .iter()
+        .filter(|p| !p.proj4_string.is_empty())
+        .map(|p| p.dcs_name)
+        .collect()
+}
+
 /// Normalize theater name from DCS format to Phoenix format
 pub fn normalize_theater_name(dcs_theater: &str) -> String {
     match get_theater_params(dcs_theater) {
@@ -223,6 +235,32 @@ mod tests {
 
         let params = get_theater_params("PersianGulf").expect("Persian Gulf should exist");
         assert_eq!(params.normalized_name, "persian_gulf");
+    }
+
+    #[test]
+    fn test_supported_theaters_exclude_those_without_a_projection() {
+        let supported = supported_theater_names();
+        assert!(supported.contains(&"Nevada"));
+        assert!(supported.contains(&"Caucasus"));
+
+        // Known to DCS, but no proj4 string yet — must not be advertised as usable,
+        // because every conversion for it fails.
+        assert!(!supported.contains(&"Syria"));
+        assert!(!supported.contains(&"PersianGulf"));
+
+        for name in &supported {
+            let params = get_theater_params(name).unwrap();
+            assert!(!params.proj4_string.is_empty(), "{name} should have a projection");
+        }
+    }
+
+    #[test]
+    fn test_conversion_fails_loudly_without_a_projection() {
+        let params = get_theater_params("Syria").expect("Syria should be a known theater");
+        assert!(
+            dcs_to_latlon(1000.0, 2000.0, params).is_err(),
+            "a theater with no proj4 string must error, not return a bogus position"
+        );
     }
 
     #[test]
