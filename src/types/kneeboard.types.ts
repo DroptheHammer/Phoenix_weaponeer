@@ -57,7 +57,7 @@ export interface KneeboardDiagramData {
 
   // Popup CCIP
   popupCCIP?: {
-    runInHeading_deg: number;
+    runInHeading_deg?: number; // undefined = no IP set, heading indeterminate
     runInAltitude_ft: number;
     runInSpeed_ktas: number;
     popDistance_nm: number;

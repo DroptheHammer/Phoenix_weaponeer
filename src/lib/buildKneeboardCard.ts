@@ -150,16 +150,20 @@ function generateSteps(
   releaseMode: string,
   fuze: string,
   minSafeAlt?: number,
+  runInHeading?: number,
 ): KneeboardStep[] {
   const p = attack.profile;
   const qty = attack.releaseQuantity;
+  const headingText = runInHeading != null
+    ? `${Math.round(runInHeading).toString().padStart(3, '0')}°`
+    : '---';
 
   if (p.type === 'popup_ccip') {
     return [
       {
         title: '① CHECK IN AT IP',
         lines: [
-          `Inbound heading: ${p.runInHeading_deg}°`,
+          `Inbound heading: ${headingText}`,
           `Altitude: ${p.runInAltitude_ft.toLocaleString()}ft AGL  |  Speed: ${p.runInSpeed_ktas} KTAS`,
           'Master arm ON — confirm weapon type selected',
         ],
@@ -177,7 +181,7 @@ function generateSteps(
         lines: [
           `At ${p.rollInAltitude_ft.toLocaleString()}ft AGL — roll inverted, acquire target`,
           `Pitch to ${p.diveAngle_deg}° dive angle`,
-          `Attack heading: ${p.runInHeading_deg}° — center pipper on target`,
+          `Attack heading: ${headingText} — center pipper on target`,
         ],
       },
       {
@@ -307,7 +311,7 @@ function generateSteps(
 
 // ─── Diagram data extraction ──────────────────────────────────────────────────
 
-function buildDiagramData(attack: Attack): KneeboardDiagramData | undefined {
+function buildDiagramData(attack: Attack, runInHeading?: number): KneeboardDiagramData | undefined {
   const p = attack.profile;
 
   if (p.type === 'popup_ccip') {
@@ -316,7 +320,7 @@ function buildDiagramData(attack: Attack): KneeboardDiagramData | undefined {
       egressDirection: p.egressDirection,
       egressHeading_deg: p.egressHeading_deg,
       popupCCIP: {
-        runInHeading_deg: p.runInHeading_deg,
+        runInHeading_deg: runInHeading,
         runInAltitude_ft: p.runInAltitude_ft,
         runInSpeed_ktas: p.runInSpeed_ktas,
         popDistance_nm: p.popDistance_nm,
@@ -429,11 +433,22 @@ export function buildKneeboardCard(
 
   // IP waypoint name for egress section (popup CCIP only)
   let fenceOutWaypoint: string | undefined;
+  // Run-in heading: user override if set, otherwise the natural IP→Target bearing
+  let runInHeading: number | undefined;
   if (attack.profile.type === 'popup_ccip') {
     const popupProfile = attack.profile;
     if (popupProfile.ipWaypointId) {
       const ipWp = mission.waypoints.find((w) => w.id === popupProfile.ipWaypointId);
-      if (ipWp) fenceOutWaypoint = `STPT ${ipWp.steerpoint} - ${ipWp.name}`;
+      if (ipWp) {
+        fenceOutWaypoint = `STPT ${ipWp.steerpoint} - ${ipWp.name}`;
+        runInHeading = bearingDeg(ipWp.coordinates, targetPos);
+      }
+    }
+    if (
+      popupProfile.runInHeading_deg != null &&
+      Number.isFinite(popupProfile.runInHeading_deg)
+    ) {
+      runInHeading = popupProfile.runInHeading_deg;
     }
   }
 
@@ -464,8 +479,8 @@ export function buildKneeboardCard(
     attackSection: {
       profileType: getProfileLabel(attack.profileType),
       parameters: formatAttackParams(attack),
-      steps: generateSteps(attack, weaponName, releaseMode, fuzeName, minSafeAlt),
-      diagram: buildDiagramData(attack),
+      steps: generateSteps(attack, weaponName, releaseMode, fuzeName, minSafeAlt, runInHeading),
+      diagram: buildDiagramData(attack, runInHeading),
     },
     weaponSection: {
       weaponName,

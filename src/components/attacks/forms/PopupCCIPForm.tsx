@@ -127,8 +127,11 @@ export function PopupCCIPForm({
             <label className="block text-sm font-medium mb-1">Heading (deg)</label>
             <input
               type="number"
-              value={profile.runInHeading_deg || ''}
-              onChange={(e) => onChange({ ...profile, runInHeading_deg: parseFloat(e.target.value) })}
+              value={profile.runInHeading_deg ?? ''}
+              onChange={(e) => onChange({
+                ...profile,
+                runInHeading_deg: e.target.value === '' ? undefined : parseFloat(e.target.value),
+              })}
               className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
               placeholder="Auto from IP→Target"
             />
@@ -240,7 +243,7 @@ export function PopupCCIPForm({
           <div className="bg-dcs-darker rounded p-2">
             <label className="block text-xs text-gray-400 mb-1">Final Attack Heading</label>
             <div className="text-white font-medium">
-              {profile.runInHeading_deg
+              {profile.runInHeading_deg != null
                 ? `${Math.round(profile.runInHeading_deg).toString().padStart(3, '0')}°`
                 : calculatedAttackHeading !== null
                   ? `${Math.round(calculatedAttackHeading).toString().padStart(3, '0')}°`

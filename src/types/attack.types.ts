@@ -65,7 +65,7 @@ export interface PopupCCIPProfile {
 
   // Run-in
   ipWaypointId: string; // Initial Point waypoint
-  runInHeading_deg: number;
+  runInHeading_deg?: number; // undefined = auto from IP→Target bearing
   runInAltitude_ft: number; // AGL
   runInSpeed_ktas: number;
 

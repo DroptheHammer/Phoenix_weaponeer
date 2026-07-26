@@ -368,7 +368,7 @@ function drawPopupCCIPDiagram(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.fillText(
-    `ATTACK HDG: ${pd.runInHeading_deg}°  ←  EGRESS ${diagram.egressDirection?.toUpperCase()} ${diagram.egressHeading_deg}°  →`,
+    `ATTACK HDG: ${pd.runInHeading_deg != null ? `${Math.round(pd.runInHeading_deg).toString().padStart(3, '0')}°` : '---'}  ←  EGRESS ${diagram.egressDirection?.toUpperCase()} ${diagram.egressHeading_deg}°  →`,
     KNEEBOARD_WIDTH / 2, boxY + 3,
   );
   ctx.textBaseline = 'alphabetic';

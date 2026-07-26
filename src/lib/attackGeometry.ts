@@ -200,7 +200,9 @@ export function calculatePopupGeometry(
   const naturalAttackHeading = calculateBearing(ipPoint, targetPoint);
 
   // Use user-specified attack heading or natural heading
-  const attackHeading = userAttackHeading ?? naturalAttackHeading;
+  const attackHeading = (userAttackHeading != null && Number.isFinite(userAttackHeading))
+    ? userAttackHeading
+    : naturalAttackHeading;
 
   // Calculate key points along the attack route
 
