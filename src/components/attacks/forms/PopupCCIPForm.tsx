@@ -100,6 +100,26 @@ export function PopupCCIPForm({
             </button>
           ))}
         </div>
+        <p className="text-xs text-gray-400 mt-2">
+          Presets overwrite pop distance, apex and dive angle. To keep your own
+          numbers, edit the fields below and press Calculate.
+        </p>
+      </div>
+
+      {/* Calculate — saving requires a calculation result, and applying a preset
+          used to be the only way to produce one, which overwrote manual edits. */}
+      <div>
+        <button
+          onClick={onCalculate}
+          className="w-full bg-dcs-accent hover:bg-blue-500 text-white font-semibold px-4 py-3 rounded transition-colors"
+        >
+          Calculate Profile
+        </button>
+        {!calculatorResult && (
+          <p className="text-xs text-yellow-400 mt-2">
+            Run a calculation to enable Save.
+          </p>
+        )}
       </div>
 
       {/* Run-in Section */}

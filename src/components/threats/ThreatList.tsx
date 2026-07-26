@@ -214,7 +214,7 @@ export function ThreatList({ threatSystems, availableThreats, onRequestPlacement
           onClick={() => setShowAddModal(false)}
         >
           <div
-            className="bg-dcs-navy rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-2xl"
+            className="bg-dcs-navy text-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-2xl"
             style={{ maxWidth: '90vw' }}
             onClick={(e) => e.stopPropagation()}
           >

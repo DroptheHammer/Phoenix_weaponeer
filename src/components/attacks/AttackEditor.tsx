@@ -30,7 +30,12 @@ interface AttackEditorProps {
 
 export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }: AttackEditorProps) {
   const { mission, addAttack, updateAttack } = useMissionStore();
-  const { calculatePopupCCIP, result: calcResult, loading: calcLoading } = useAttackCalculator();
+  const {
+    calculatePopupCCIP,
+    result: calcResult,
+    loading: calcLoading,
+    error: calcError,
+  } = useAttackCalculator();
 
   // Form state
   const [targetWaypointId, setTargetWaypointId] = useState(attack?.targetWaypointId || '');
@@ -95,6 +100,21 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
     });
   }, [selectedTarget, selectedWeapon, popupProfile, weaponId, calculatePopupCCIP]);
 
+  // Human-readable version of the checks below, so a disabled Save button can
+  // explain itself instead of leaving the planner guessing.
+  const missingRequirements = [
+    !targetWaypointId && 'a target waypoint',
+    !attackerId && 'an attacker',
+    !weaponId && 'a weapon',
+    !popupProfile.ipWaypointId && 'an IP waypoint',
+    !popupProfile.runInAltitude_ft && 'run-in altitude',
+    !popupProfile.runInSpeed_ktas && 'run-in speed',
+    !popupProfile.popDistance_nm && 'pop distance',
+    !popupProfile.apexAltitude_ft && 'apex altitude',
+    !popupProfile.diveAngle_deg && 'dive angle',
+    !calcResult && 'a calculation (press Calculate Profile)',
+  ].filter((v): v is string => typeof v === 'string');
+
   // Validate form
   const canSave = Boolean(
     targetWaypointId &&
@@ -136,7 +156,7 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
 
   return createPortal(
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]">
-      <div className="bg-dcs-navy rounded-lg p-6 w-[800px] max-h-[90vh] overflow-y-auto">
+      <div className="bg-dcs-navy text-white rounded-lg p-6 w-[800px] max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-semibold">
             {attack ? 'Edit Attack' : 'Add Attack'}
@@ -318,6 +338,19 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
           {calcLoading && (
             <div className="text-center text-yellow-400">
               Calculating...
+            </div>
+          )}
+
+          {calcError && (
+            <div className="text-center text-red-400 text-sm">
+              Calculation failed: {calcError}
+            </div>
+          )}
+
+          {/* Say why saving is blocked rather than just greying the button out. */}
+          {!canSave && missingRequirements.length > 0 && (
+            <div className="text-sm text-yellow-400 border border-yellow-700 bg-yellow-900 bg-opacity-20 rounded p-3">
+              Still needed before saving: {missingRequirements.join(', ')}.
             </div>
           )}
 

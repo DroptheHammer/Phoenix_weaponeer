@@ -77,6 +77,11 @@ export function AttackProfileOverlay({
     runInSpeed_ktas: num(profile.runInSpeed_ktas, params.runInSpeed_ktas),
   };
 
+  // Calculator results are raw floats (a climb angle arrives as 17.891334…),
+  // so format before drawing them on the map.
+  const nm = (v: number) => (Math.round(v * 10) / 10).toFixed(1);
+  const deg = (v: number) => Math.round(v);
+
   // Don't attribute planner-edited numbers to the reference source.
   const isEdited = (Object.keys(effective) as (keyof ChucksGuideParams)[]).some(
     (key) => key !== 'source' && effective[key] !== params[key],
@@ -193,11 +198,14 @@ export function AttackProfileOverlay({
         position={[geometry.offsetTurnPoint.lat, geometry.offsetTurnPoint.lon]}
         icon={createLabelIcon('POP', 'yellow')}
       >
-        <Tooltip permanent direction="top" offset={[0, -20]}>
+        {/* POP hangs below while ATK sits above: the two points are only a
+            fraction of a mile apart on a tight profile, so same-side permanent
+            tooltips overlap and neither can be read. */}
+        <Tooltip permanent direction="bottom" offset={[0, 20]} className="attack-tooltip">
           <div className="text-xs font-semibold">
-            <div>{effective.offsetRange_nm}nm: Turn {effective.offsetAngle_deg}° {effective.offsetDirection}</div>
-            <div>{Math.round(popAlt)}ft AGL @ {Math.round(popSpeed)} KTAS</div>
-            <div>Climb {effective.climbAngle_deg}° nose up</div>
+            <div>{nm(effective.offsetRange_nm)}nm: Turn {deg(effective.offsetAngle_deg)}° {effective.offsetDirection}</div>
+            <div>{Math.round(popAlt).toLocaleString()}ft AGL @ {Math.round(popSpeed)} KTAS</div>
+            <div>Climb {deg(effective.climbAngle_deg)}° nose up</div>
           </div>
         </Tooltip>
       </Marker>
@@ -208,10 +216,10 @@ export function AttackProfileOverlay({
         position={[geometry.turnInPoint.lat, geometry.turnInPoint.lon]}
         icon={createLabelIcon('ATK', 'orange')}
       >
-        <Tooltip permanent direction="top" offset={[0, -20]}>
+        <Tooltip permanent direction="top" offset={[0, -20]} className="attack-tooltip">
           <div className="text-xs font-semibold">
-            <div>{effective.turnInRange_nm}nm: Roll nose on</div>
-            <div>{Math.round(atkAlt)}ft AGL @ {Math.round(atkSpeed)} KTAS</div>
+            <div>{nm(effective.turnInRange_nm)}nm: Roll nose on</div>
+            <div>{Math.round(atkAlt).toLocaleString()}ft AGL @ {Math.round(atkSpeed)} KTAS</div>
             <div>Attack hdg: {Math.round(geometry.attackHeading).toString().padStart(3, '0')}°</div>
           </div>
         </Tooltip>
@@ -223,7 +231,7 @@ export function AttackProfileOverlay({
         position={[geometry.targetPoint.lat, geometry.targetPoint.lon]}
         icon={createLabelIcon('TGT', 'red')}
       >
-        <Tooltip permanent direction="bottom" offset={[0, 20]}>
+        <Tooltip permanent direction="bottom" offset={[0, 20]} className="attack-tooltip">
           <div className="text-xs font-semibold">
             {calculatorResult ? (
               <>

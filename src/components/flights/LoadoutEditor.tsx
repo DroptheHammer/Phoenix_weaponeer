@@ -65,7 +65,7 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-dcs-navy border border-gray-600 rounded-xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[90vh]">
+      <div className="bg-dcs-navy text-white border border-gray-600 rounded-xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
           <div>

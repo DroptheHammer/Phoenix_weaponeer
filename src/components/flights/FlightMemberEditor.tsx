@@ -90,7 +90,7 @@ export function FlightMemberEditor({
 
   return createPortal(
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]">
-      <div className="bg-dcs-navy rounded-lg p-6 w-[500px] max-h-[90vh] overflow-y-auto">
+      <div className="bg-dcs-navy text-white rounded-lg p-6 w-[500px] max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-semibold">
             {member ? 'Edit Pilot' : 'Add Pilot'}
