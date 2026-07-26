@@ -22,12 +22,11 @@ interface MapViewProps {
   attacks?: Attack[];
   bullseye?: Coordinates;
   threatSystems?: Map<string, ThreatSystem>;
-  availableThreats?: ThreatSystem[];
   selectedAttackId?: string;
-  onAddThreat?: (systemId: string, position: Coordinates) => void;
   onMoveThreat?: (threatId: string, position: Coordinates) => void;
   onRemoveThreat?: (threatId: string) => void;
-  onSelectAttack?: (attackId: string) => void;
+  // Threat placement is driven by ThreatList via onRequestPlacement: it supplies
+  // the callback, App toggles isPlacementMode, and a map click reports the position.
   isPlacementMode?: boolean;
   onPlacePosition?: (position: Coordinates) => void;
 }
@@ -177,12 +176,9 @@ export function MapView({
   attacks = [],
   bullseye,
   threatSystems,
-  availableThreats = [],
   selectedAttackId,
-  onAddThreat,
   onMoveThreat,
   onRemoveThreat,
-  onSelectAttack,
   isPlacementMode = false,
   onPlacePosition,
 }: MapViewProps) {

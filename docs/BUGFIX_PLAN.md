@@ -105,8 +105,10 @@ This stage also resolves the **known pre-existing TS errors**: `AttackEditor.tsx
 - Run `npx tsc --noEmit`. Fix every remaining error — they are all unused imports/variables (`AttackEditor.tsx`, `AttackProfileOverlay.tsx`, `MapView.tsx`, `ThreatList.tsx`, `attackGeometry.ts`). Delete unused imports/vars; prefix intentionally-unused function params with `_`.
 - Do NOT change behavior in this task — removal of dead code only.
 
+Note on what "dead code" turned out to mean here: `MapView`'s `availableThreats`/`onAddThreat`/`onSelectAttack` props were superseded by the `onRequestPlacement` → `isPlacementMode`/`onPlacePosition` callback flow. Removing them cascaded into `App.tsx` (the props were still being passed, and `handleAddThreatFromMap` plus the `addThreat` store binding became orphaned). All behaviour-neutral, but it does mean Stage 2 touches `App.tsx`, which the plan did not anticipate.
+
 ### Stage 2 Gate
-1. `npm run build` — **must pass with zero TS errors** (this becomes the standing gate for all later work).
+1. `npm run build` — **must pass with zero TS errors** (this becomes the standing gate for all later work). ✅ green as of 2026-07-26 (down from 24 pre-existing errors).
 2. Manual: open an attack, change Pop Distance from 4.0 to 2.5nm and apex to 5000ft, save. The POP marker on the map must move to ~2.5nm from target and the POP/ATK tooltips must show the edited values, not 4nm/7500ft.
 3. Set egress direction to `left`: green egress line goes left of attack heading AND label says "Defend left".
 
@@ -172,8 +174,8 @@ Tests added in a new `#[cfg(test)] mod tests` in `commands/mod.rs`, including `c
 ---
 
 ## Completion checklist
-- [ ] Stage 1 complete + gate green (commit `Bugfix Stage 1: NaN heading guard`)
-- [ ] Stage 2 complete + gate green (commit `Bugfix Stage 2: overlay uses saved profile; tsc green`)
+- [x] Stage 1 complete + gate green (commit `Bugfix Stage 1: NaN heading guard`)
+- [x] Stage 2 complete + gate green (commit `Bugfix Stage 2: overlay uses saved profile; tsc green`)
 - [ ] Stage 3 complete + gate green (commit `Bugfix Stage 3: import robustness + type inference tests`)
 - [ ] Stage 4 complete + gate green (commit `Bugfix Stage 4: map interaction + geo dedupe`)
 - [ ] Update `docs/BUGFIX_PLAN.md` status to COMPLETE, update `ROADMAP.md` and `CLAUDE.md` session notes

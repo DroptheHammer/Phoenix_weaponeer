@@ -51,7 +51,6 @@ const THREAT_TYPE_COLORS: Record<string, string> = {
 export function ThreatList({ threatSystems, availableThreats, onRequestPlacement }: ThreatListProps) {
   const { mission, addThreat, updateThreat, removeThreat } = useMissionStore();
   const [showAddModal, setShowAddModal] = useState(false);
-  const [isPlacementMode, setIsPlacementMode] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState<string>('');
   const [newThreatCoords, setNewThreatCoords] = useState({ lat: '', lon: '' });
   const [newThreatNotes, setNewThreatNotes] = useState('');

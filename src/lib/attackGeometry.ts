@@ -164,8 +164,8 @@ export interface ChucksGuideParams {
  * TODO: Replace with database lookup
  */
 export function getRecommendedParams(
-  weaponId: string,
-  profileType: string
+  _weaponId: string,
+  _profileType: string
 ): ChucksGuideParams {
   // Test data - Validated 2-phase popup CCIP profile
   // POP at 4nm from 100ft, turn 20° right, climb 2.11nm @ 30° to ATK at 7500ft

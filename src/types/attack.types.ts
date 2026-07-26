@@ -74,6 +74,11 @@ export interface PopupCCIPProfile {
   climbAngle_deg: number;
   apexAltitude_ft: number; // AGL
 
+  // Offset maneuver (optional — undefined falls back to recommended params)
+  offsetDirection?: 'left' | 'right';
+  offsetAngle_deg?: number; // Degrees off the attack axis during the offset leg
+  turnInRange_nm?: number; // Range from target to turn in for the attack
+
   // Attack
   rollInAltitude_ft: number; // AGL
   diveAngle_deg: number;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useMissionStore } from '../../stores/missionStore';
 import { useAttackCalculator } from '../../hooks/useAttackCalculator';
@@ -8,8 +8,6 @@ import type {
   AttackProfileType,
   PopupCCIPProfile,
   Weapon,
-  FlightMember,
-  Waypoint,
   FuzeOption,
 } from '../../types';
 
@@ -40,7 +38,8 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
   const [fuzeId, setFuzeId] = useState(attack?.fuzeId || '');
   const [releaseQuantity, setReleaseQuantity] = useState(attack?.releaseQuantity || 1);
   const [releaseMode, setReleaseMode] = useState<'single' | 'pair' | 'ripple'>(attack?.releaseMode || 'single');
-  const [profileType, setProfileType] = useState<AttackProfileType>(attack?.profileType || 'popup_ccip');
+  // Only popup CCIP is implemented, so this is read-only for now.
+  const [profileType] = useState<AttackProfileType>(attack?.profileType || 'popup_ccip');
   const [popupProfile, setPopupProfile] = useState<Partial<PopupCCIPProfile>>(
     attack && attack.profileType === 'popup_ccip' ? (attack.profile as PopupCCIPProfile) : {
       type: 'popup_ccip',

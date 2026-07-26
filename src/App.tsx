@@ -28,7 +28,7 @@ interface Aircraft {
 type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
 function App() {
-  const { mission, createMission, importFromFragOrders, addThreat, updateThreat } = useMissionStore();
+  const { mission, createMission, importFromFragOrders, updateThreat } = useMissionStore();
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
   const [weapons, setWeapons] = useState<Weapon[]>([]);
@@ -94,16 +94,6 @@ function App() {
   };
 
   // Map interaction handlers
-  const handleAddThreatFromMap = (systemId: string, position: { lat: number; lon: number }) => {
-    addThreat({
-      systemId,
-      position,
-      status: 'active',
-      source: 'planning',
-      notes: 'Added via map placement',
-    });
-  };
-
   const handleMoveThreat = (threatId: string, position: { lat: number; lon: number }) => {
     updateThreat(threatId, { position });
   };
@@ -151,8 +141,6 @@ function App() {
                 attacks={mission.attacks}
                 bullseye={mission.bullseye}
                 threatSystems={threatSystemMap}
-                availableThreats={threats}
-                onAddThreat={handleAddThreatFromMap}
                 onMoveThreat={handleMoveThreat}
                 onRemoveThreat={handleRemoveThreat}
                 isPlacementMode={!!threatPlacementCallback}

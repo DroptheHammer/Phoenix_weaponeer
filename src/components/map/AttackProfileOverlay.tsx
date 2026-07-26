@@ -1,7 +1,8 @@
-import { Polyline, Marker, Tooltip, Circle } from 'react-leaflet';
+import { Polyline, Marker, Tooltip } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import type { Attack, Waypoint, PopupCCIPProfile, PopupCCIPResult } from '../../types';
-import { calculatePopupGeometry, getRecommendedParams, calculatePointAtDistance, calculateDistance } from '../../lib/attackGeometry';
+import type { ChucksGuideParams } from '../../lib/attackGeometry';
+import { calculatePopupGeometry, getRecommendedParams, calculatePointAtDistance } from '../../lib/attackGeometry';
 
 interface AttackProfileOverlayProps {
   attack: Attack;
@@ -44,24 +45,49 @@ export function AttackProfileOverlay({
   // Get recommended parameters (from Chuck's Guides)
   const params = getRecommendedParams(attack.weaponId, 'popup_ccip');
 
+  // The saved profile wins wherever the planner has actually set a value;
+  // recommended params only fill the gaps. Checked with Number.isFinite rather
+  // than truthiness so a legitimate 0 is honoured and a stray NaN is not.
+  const num = (v: number | undefined, fallback: number) =>
+    v != null && Number.isFinite(v) ? v : fallback;
+
+  const effective: ChucksGuideParams = {
+    ...params,
+    offsetRange_nm: num(profile.popDistance_nm, params.offsetRange_nm),
+    offsetAngle_deg: num(profile.offsetAngle_deg, params.offsetAngle_deg),
+    offsetDirection: profile.offsetDirection ?? params.offsetDirection,
+    climbAngle_deg: num(profile.climbAngle_deg, params.climbAngle_deg),
+    turnInRange_nm: num(profile.turnInRange_nm, params.turnInRange_nm),
+    apexAltitude_ft: num(profile.apexAltitude_ft, params.apexAltitude_ft),
+    minReleaseAltitude_ft: num(profile.releaseAltitude_ft, params.minReleaseAltitude_ft),
+    runInAltitude_ft: num(profile.runInAltitude_ft, params.runInAltitude_ft),
+    runInSpeed_ktas: num(profile.runInSpeed_ktas, params.runInSpeed_ktas),
+  };
+
+  // Don't attribute planner-edited numbers to the reference source.
+  const isEdited = (Object.keys(effective) as (keyof ChucksGuideParams)[]).some(
+    (key) => key !== 'source' && effective[key] !== params[key],
+  );
+  const sourceLabel = isEdited ? `${params.source} — edited` : params.source;
+
   // Calculate tactical geometry with offset turns
   const geometry = calculatePopupGeometry(
     ipWaypoint.coordinates,
     targetWaypoint.coordinates,
-    params,
+    effective,
     profile.runInHeading_deg // User can override attack heading
   );
 
   // Calculate altitude and speed at each point
-  const runInAlt = profile.runInAltitude_ft || params.runInAltitude_ft;
-  const runInSpeed = profile.runInSpeed_ktas || params.runInSpeed_ktas;
+  const runInAlt = effective.runInAltitude_ft;
+  const runInSpeed = effective.runInSpeed_ktas;
 
   // At POP: same as run-in (start of climb)
   const popAlt = runInAlt;
   const popSpeed = runInSpeed;
 
   // At ATK: roll-in altitude from calculator, estimate speed using energy conservation
-  const atkAlt = calculatorResult?.roll_in_altitude_agl || params.apexAltitude_ft;
+  const atkAlt = calculatorResult?.roll_in_altitude_agl || effective.apexAltitude_ft;
   // Energy conservation: v² = v₀² - 2*g*Δh (simplified, ignores thrust/drag)
   // g ≈ 32.2 ft/s², 1 knot = 1.68781 ft/s
   const g = 32.2; // ft/s²
@@ -72,7 +98,7 @@ export function AttackProfileOverlay({
   const atkSpeed = atkSpeedFtPerSec / knotsToFtPerSec;
 
   // At TGT: release altitude and speed from calculator
-  const tgtAlt = calculatorResult?.release_altitude_agl || params.minReleaseAltitude_ft;
+  const tgtAlt = calculatorResult?.release_altitude_agl || effective.minReleaseAltitude_ft;
   const tgtSpeed = calculatorResult?.release_speed_ktas || runInSpeed;
 
   // Calculate egress heading (90° turn from attack heading)
@@ -155,9 +181,9 @@ export function AttackProfileOverlay({
       >
         <Tooltip permanent direction="top" offset={[0, -20]}>
           <div className="text-xs font-semibold">
-            <div>{params.offsetRange_nm}nm: Turn {params.offsetAngle_deg}° {params.offsetDirection}</div>
+            <div>{effective.offsetRange_nm}nm: Turn {effective.offsetAngle_deg}° {effective.offsetDirection}</div>
             <div>{Math.round(popAlt)}ft AGL @ {Math.round(popSpeed)} KTAS</div>
-            <div>Climb {params.climbAngle_deg}° nose up</div>
+            <div>Climb {effective.climbAngle_deg}° nose up</div>
           </div>
         </Tooltip>
       </Marker>
@@ -169,7 +195,7 @@ export function AttackProfileOverlay({
       >
         <Tooltip permanent direction="top" offset={[0, -20]}>
           <div className="text-xs font-semibold">
-            <div>{params.turnInRange_nm}nm: Roll nose on</div>
+            <div>{effective.turnInRange_nm}nm: Roll nose on</div>
             <div>{Math.round(atkAlt)}ft AGL @ {Math.round(atkSpeed)} KTAS</div>
             <div>Attack hdg: {Math.round(geometry.attackHeading).toString().padStart(3, '0')}°</div>
           </div>
@@ -188,7 +214,7 @@ export function AttackProfileOverlay({
                 <div>Release: {Math.round(tgtAlt)}ft AGL @ {Math.round(tgtSpeed)} KTAS</div>
               </>
             ) : (
-              <div>Min: {params.minReleaseAltitude_ft}ft</div>
+              <div>Min: {effective.minReleaseAltitude_ft}ft</div>
             )}
           </div>
         </Tooltip>
@@ -199,7 +225,7 @@ export function AttackProfileOverlay({
         position={[geometry.ipPoint.lat, geometry.ipPoint.lon]}
         icon={divIcon({
           html: `<div class="bg-blue-900 bg-opacity-90 text-white px-2 py-1 rounded text-xs font-semibold whitespace-nowrap border border-blue-400">
-            IP: ${params.runInAltitude_ft}ft @ ${params.runInSpeed_ktas}kts
+            IP: ${effective.runInAltitude_ft}ft @ ${effective.runInSpeed_ktas}kts
           </div>`,
           className: 'custom-info-label',
           iconSize: [120, 20],
@@ -212,7 +238,7 @@ export function AttackProfileOverlay({
         position={[egressPoint.lat, egressPoint.lon]}
         icon={divIcon({
           html: `<div class="bg-green-900 bg-opacity-90 text-white px-2 py-1 rounded text-xs font-semibold whitespace-nowrap border border-green-400">
-            Defend ${params.offsetDirection}, Exit ${Math.round(egressBearing).toString().padStart(3, '0')}°
+            Defend ${profile.egressDirection ?? effective.offsetDirection}, Exit ${Math.round(egressBearing).toString().padStart(3, '0')}°
           </div>`,
           className: 'custom-info-label',
           iconSize: [150, 20],
@@ -226,7 +252,7 @@ export function AttackProfileOverlay({
           position={[geometry.ipPoint.lat, geometry.ipPoint.lon]}
           icon={divIcon({
             html: `<div class="bg-gray-900 bg-opacity-75 text-gray-300 px-2 py-1 rounded text-xs italic border border-gray-600">
-              Source: ${params.source}
+              Source: ${sourceLabel}
             </div>`,
             className: 'custom-info-label',
             iconSize: [120, 20],
