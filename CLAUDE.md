@@ -178,97 +178,126 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-07-12
+**Last session:** 2026-07-26
 
-**Completed this session:**
-- ✅ **Bug Scan + Bugfix Plan (Phase 3.5 created)**
-  - Ran a full codebase bug scan after user reported "weird movement around waypoints" on the map
-  - Found 7 bugs (2 critical) — root cause of the map bug: NaN heading from cleared form input poisons attack overlay geometry; overlay also ignores saved profile values entirely
-  - Wrote `docs/BUGFIX_PLAN.md`: 4 staged fixes with per-task verification and stage gates, designed for Sonnet 4.5/4.6 execution one task at a time
-  - **Next session: execute Stage 1 of docs/BUGFIX_PLAN.md**
-  - All 19 Rust tests pass; coordinate conversion verified healthy
-- ✅ **Phase 3: Export System Completion** 
-  - **Improved batch export UX:** Replaced awkward save-file workaround with proper folder picker using `open({ directory: true })`
-  - **DCS folder auto-detection (Windows):** Added `detect_dcs_folder` Rust command that detects `%USERPROFILE%\Saved Games\DCS` or `DCS.openbeta` on Windows
-  - **Quick export to DCS:** New "🎯 Export All to DCS Folder" button that auto-detects DCS kneeboard path and exports directly, with graceful fallback to folder picker if DCS not found
-  - **Cross-platform support:** Mac/Linux users get folder picker (DCS not officially supported on these platforms)
-  - **Files modified:**
-    - `src-tauri/src/commands/mod.rs` — added `detect_dcs_folder` command with Windows path detection
-    - `src-tauri/src/lib.rs` — registered new command in invoke handler
-    - `src/lib/dcsExport.ts` — new utility module with `getDcsKneeboardPath()` and `getAircraftKneeboardPath()` helpers
-    - `src/components/kneeboard/KneeboardPreview.tsx` — added `handleExportToDCS()`, updated button UI with three export options
-  - **Three export workflows:**
-    1. Export Selected — save single card with filename picker (unchanged)
-    2. Export All to Folder — batch export with proper folder picker (improved)
-    3. Export All to DCS Folder — auto-detect DCS path and batch export (new)
+**Completed this session — Phase 3.5 Bugfix Sprint, ALL FOUR STAGES + verification**
 
-**Previous session:** 2026-03-29
+All of `docs/BUGFIX_PLAN.md` is done and checked off. Gates: `npm run build`
+passes with **zero TS errors** (was 24 pre-existing) and **27 Rust tests** pass.
+Every fix was verified by hand in the running app against the real mission.
 
-**Completed previous session:**
-- ✅ **Project Documentation Sync**
-  - Updated ROADMAP.md to reflect Phase 2 complete, Phase 3 in progress
-  - Updated CLAUDE.md Development Phases section to match actual status
-  - Removed token usage HP bar requirement from instructions
-  - Added .gitignore rules for PNG/JPG in src-tauri/ (kneeboard exports)
-  - All project status documents now in sync
+Commits (all pushed): `0992772` Stage 1 · `debb9d8` map framing · `b3b2352`
+waypoint inference + coordinate ground truth · `8810c96` Stage 2 · `4a94439`
+Stage 3 · `06540df` Stage 4 · `60962e5` UI fixes from manual verification.
 
-**Previous session:** 2026-02-16
+**The reported bug had three separate causes, all fixed:**
+1. Clearing the Heading field stored `parseFloat('') = NaN`, which passed the
+   `??` fallback in `attackGeometry.ts` and made every overlay point invalid.
+2. `AttackProfileOverlay` drew hardcoded `getRecommendedParams()` values and
+   ignored the saved profile, so editing pop distance or apex did nothing.
+3. The map framed a hardcoded theater coordinate, never the imported mission.
 
-**Completed previous session:**
-- ✅ **Kneeboard Card Generation (Phase 3 start)**
-  - `src/lib/buildKneeboardCard.ts` — assembles `KneeboardCard` from mission data: finds pilot, target WP, weapon, fuze, nearby threats (bearing/distance), generates numbered steps and diagram data
-  - `src/lib/renderKneeboardCanvas.ts` — draws 768×1024 DCS-format PNG on HTML Canvas:
-    - Header (dark navy): callsign, target name, profile type, date
-    - Target section: name, coordinates (DD MM'SS"), elevation
-    - Weapon section: compact "2× Mk-82 | Pair | M905" + min-safe-alt warning
-    - Threats section: compact rows with BRG/DIST/MAX RNG, red highlight if inside engagement range
-    - Attack diagram: side-profile altitude view (IP → POP → ★apex → ATK → TGT → egress arrow) with scaled altitude lines, hard deck, release alt
-    - Step-by-step procedure: 5 numbered steps for popup CCIP (check-in, pop, roll-in, release, egress) written for amateurs
-  - `src/components/kneeboard/KneeboardPreview.tsx` — full UI: attack selector dropdown, live canvas preview (half-scale), "Export Selected" (native save dialog) and "Export All" (picks folder) buttons
-  - `save_kneeboard_png` Rust command — decodes base64 PNG, writes to path (with dir creation)
-  - Added `tauri-plugin-dialog` for native save file picker (`dialog:allow-save` in capabilities)
-  - `src/types/kneeboard.types.ts` — added `KneeboardStep`, `KneeboardDiagramData`, wired into `KneeboardAttackSection`
+**READ THIS BEFORE TOUCHING COORDINATE CONVERSION — it is not broken.**
+It has now been suspected and cleared twice, costing two sessions. Verified
+against ground truth: Nellis round-trips to 5 decimals, and ALAMO converts to
+37.36496/-115.16433 versus the real town at 37.3644/-115.1633. The axis
+convention is **DCS x = northing, y = easting**, and `dcs_to_latlon` passing
+`(y, x)` to proj is correct. It is now pinned by landmark tests plus an
+explicit axis-order test in `coordinate_conversion.rs`. Note a round-trip test
+can NEVER catch an axis swap, since swapping both directions still round-trips
+— that weak test is what gave false confidence.
 
-**Project Status:**
-- **Phase 1 (Foundation):** ✅ COMPLETE
-- **Phase 2 (Core Planning):** ✅ COMPLETE
-  - ✅ Map visualization, Threat management, Map interaction, Coordinate conversion
-  - ✅ Popup CCIP attack calculator
-  - ✅ Flight roster + loadout management
-- **Phase 3 (Output):** ✅ MOSTLY COMPLETE
-  - ✅ Kneeboard canvas renderer (Feb 2026)
-  - ✅ PNG export with folder picker (Jul 2026)
-  - ✅ DCS folder auto-detection and quick export (Jul 2026)
-  - ❌ PDF export (optional, not started)
-- **Phase 4 (Polish):** ❌ NOT STARTED
+The actual culprit both times was **`test-data/test_fragorders.json`**: it is
+synthetic, and its waypoints land 300+ km outside the NTTR map in eastern
+Nevada. **Use `test-data/nttr_redflag_viper1.json`** (real FragOrders export,
+group `Viper 1 (Hot)`, 14 waypoints) for anything involving map positions. See
+`test-data/README.md`.
 
-**Important Technical Notes:**
+**Corrections to what BUGFIX_PLAN.md originally prescribed** (found by testing
+against the real mission rather than the synthetic fixture):
+- Task 3.3 said to leave tanker names alone because "they're distinctive". They
+  are not — the real Viper route has a plain nav turnpoint named **ARCO**, which
+  is also a tanker callsign in that same mission. Word-boundary matching alone
+  would not have caught it. Only `TANKER`/`AAR`/`REFUEL` imply a tanker now.
+- Task 2.4's "unused imports only" was actually a superseded `MapView` API,
+  which cascaded into `App.tsx`.
+- Task 4.1 covered only `MapView`'s markers; `AttackProfileOverlay` had six more
+  with no `interactive` prop at all, sitting right on the attack axis.
+- Added Task 3.4 (not in the plan): a theater can be *known* and still have no
+  projection. `get_theater_params` succeeds for Syria, PersianGulf, Sinai and
+  six others, but all have an empty `proj4_string`, so import passed its check
+  then failed every conversion and reported success with an empty mission.
+
+**Serious pre-existing bug found only by running the app:** there was **no
+Calculate button**. `canSave` required a calculation result, but the only thing
+that produced one was clicking a preset — and presets overwrite pop distance,
+apex and dive angle. So a planner typing their own numbers got a permanently
+greyed-out Save and no way forward; hand-edited profiles were unsaveable.
+
+**Marker stacking is now explicit** (`src/components/map/mapLayers.ts`).
+Leaflet stacks markers by latitude by default, so a threat could hide a
+steerpoint depending purely on which was further south. Order is now attack
+points (POP/ATK/TGT) > waypoints > bullseye > info labels > threats. Per squadron
+requirement: navigation and attack symbols must always be on top, so a symbol
+under the nose is never ambiguous.
+
+**Manual verification — all five checks passed in-app:**
+1. Import frames the whole Nellis–Tonopah route; ARCO renders as nav
+2. Clearing Heading falls back to the true IP→TGT1 bearing (248°)
+3. Edited apex (5000ft) reaches the map — previously ignored
+4. Egress `left` flips the green line AND the label ("Defend left, Exit 158°")
+5. Placement-mode clicks land on top of existing markers
+
+**Git:** the auth problem is fixed. The stored token had expired, so several
+previous sessions committed locally but never reached GitHub — the remote was
+months stale. Re-authenticated with `gh auth login` after clearing the keychain
+entry; all 12 commits are pushed and `main` is in sync. **At session end, check
+`git status` shows `## main...origin/main` with nothing after it** — that is the
+"everything is backed up" signal. `[ahead N]` means the push did not happen.
+
+**Important Technical Notes (carried forward — these describe how the code works):**
 - Attack geometry uses law of cosines for offset turn calculations
-- Modal components render via React Portal to document.body (z-index 2000)
-- Popup CCIP validated geometry: POP 4nm → ATK 2.14nm @ 7500ft → 20° dive
-- **DCS callsign format:** DCS stores callsigns as `{name="Viper12", 1=1, 2=1}`. `src/lib/callsign.ts` normalises to "Viper 1-2" at import and display time.
-- **Loadout stores weapon name string** (e.g. "Mk-82 LDGP") — matched against `weapon.name` from DB when filtering attack editor.
-- **Modal background color:** use `bg-dcs-navy` — `bg-dcs-panel` is not defined in tailwind.config.js and renders transparent.
-- **Kneeboard export:** Three workflows: (1) Export Selected - single card with filename picker, (2) Export All to Folder - batch with folder picker, (3) Export All to DCS - auto-detects `%USERPROFILE%\Saved Games\DCS\Kneeboard\{aircraft}\` on Windows
-- **DCS path detection:** `detect_dcs_folder` command checks standard DCS and DCS.openbeta paths on Windows, returns None on Mac/Linux
-- **Known pre-existing TS errors:** `AttackEditor.tsx`, `PopupCCIPForm.tsx` have unused var warnings and a `offsetDirection` field mismatch with `PopupCCIPProfile` type — pre-existing, not blocking.
-- **Kneeboard diagram:** side-profile (altitude vs distance), not top-down map. ATK X position computed from `rollInAltitude / tan(diveAngle)` in nm.
+- Modal components render via React Portal to `document.body` (z-index 2000).
+  Because they mount outside the App container they do NOT inherit its
+  `text-white`; each modal sets its own. See `src/index.css`.
+- Popup CCIP reference geometry: POP 4nm → ATK 2.14nm @ 7500ft → 20° dive
+- **DCS callsign format:** DCS stores callsigns as `{name="Viper12", 1=1, 2=1}`.
+  `src/lib/callsign.ts` normalises to "Viper 1-2" at import and display time.
+- **Loadout stores the weapon name string** (e.g. "Mk-82 LDGP"), matched against
+  `weapon.name` from the DB when filtering the attack editor.
+- **Modal background:** use `bg-dcs-navy`. `bg-dcs-panel` is not defined in
+  `tailwind.config.js` and renders transparent.
+- **Kneeboard export:** three workflows — (1) Export Selected, single card with
+  filename picker; (2) Export All to Folder, batch with folder picker;
+  (3) Export All to DCS, auto-detects
+  `%USERPROFILE%\\Saved Games\\DCS\\Kneeboard\\{aircraft}\\` on Windows.
+  `detect_dcs_folder` returns None on Mac/Linux.
+- **Kneeboard diagram** is a side-profile (altitude vs distance), not a top-down
+  map. ATK X position comes from `rollInAltitude / tan(diveAngle)` in nm.
+- **Geo math lives in `src/lib/coordinates.ts`** — `calculateBearing`,
+  `calculateDistance`, `calculateDestination`. There were four duplicate
+  implementations before Stage 4; do not add a fifth. `attackGeometry.ts`
+  re-exports `calculateDestination` as `calculatePointAtDistance`.
+- **Marker stacking:** `src/components/map/mapLayers.ts` (`MARKER_Z`). Leaflet
+  orders markers by latitude by default, which is why this is explicit.
+- **react-leaflet gotcha:** `interactive` and tooltip `direction` are applied
+  only when a layer is created. Toggling them on an existing marker does
+  nothing — include the changing value in the component `key` to force a
+  remount.
 
 **Next up (IN ORDER):**
-1. **Phase 3.5 Bugfix Sprint — START HERE:** Execute `docs/BUGFIX_PLAN.md` stage by stage. Fixes the "weird movement around waypoints" bug (NaN heading → broken overlay geometry) plus 6 other bugs found in the 2026-07-12 code scan. Plan is written for Sonnet 4.5/4.6 execution: one small task at a time, each with its own verification, stage gates between stages.
-2. **Phase 3.3 (Optional):** PDF export — multi-card PDF generation for print-friendly briefing packages
-3. **Phase 4 Polish:** Additional aircraft (F/A-18, A-10), attack profiles (level CCRP, loft, dive bomb), or FragOrders URL import
-4. **Testing:** Verify kneeboard export on Windows machine with DCS installed
-5. **Enhancement:** Query aircraft kneeboard paths from database instead of hardcoded mapping
-
-**Bug scan findings (2026-07-12, full detail in docs/BUGFIX_PLAN.md):**
-- NaN heading from cleared input poisons attack overlay geometry (`PopupCCIPForm` → `attackGeometry.ts` `??` doesn't catch NaN)
-- `AttackProfileOverlay` uses hardcoded `getRecommendedParams()` test data, ignores saved profile values
-- Rust: failed threat coordinate conversion lands threats at (0,0); waypoints silently dropped
-- `infer_waypoint_type` substring matching too loose ("SLIP"→ip, "BEACH"→bullseye)
-- react-leaflet `interactive` prop is creation-time only — placement mode toggle doesn't propagate
-- Reminder: run the app with `npm run tauri dev`, NOT `npm run dev` (plain Vite has no Tauri backend)
+1. **Phase 3.3 (Optional):** PDF export — multi-card print-friendly packages
+2. **Phase 4 Polish:** additional aircraft (F/A-18, A-10), attack profiles
+   (level CCRP, loft, dive bomb), or FragOrders URL import
+3. **Proj4 strings for remaining theaters** — Syria, Persian Gulf, Sinai etc.
+   now fail loudly instead of silently corrupting, but they still cannot be
+   used. Source the strings the way Nevada/Caucasus were.
+4. **Testing:** verify kneeboard export on Windows with DCS installed
+5. **Enhancement:** query aircraft kneeboard paths from the database instead of
+   the hardcoded mapping
 
 **Dev Setup Requirements:**
 - macOS: `brew install proj cmake pkgconf`
 - The `.cargo/config.toml` handles library path configuration automatically
+- Run with `npm run tauri dev`, NOT `npm run dev` (plain Vite has no Tauri
+  backend and throws `window.__TAURI_INTERNALS__` errors)

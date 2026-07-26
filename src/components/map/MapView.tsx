@@ -5,6 +5,7 @@ import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../
 import { THEATERS } from '../../data/theaters';
 import { Fragment, useMemo, useEffect } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
+import { MARKER_Z } from './mapLayers';
 
 interface ThreatSystem {
   id: string;
@@ -220,6 +221,7 @@ export function MapView({
             key={`bullseye-${isPlacementMode}`}
             position={[bullseye.lat, bullseye.lon]}
             icon={bullseyeIcon}
+            zIndexOffset={MARKER_Z.bullseye}
             interactive={!isPlacementMode}
           >
             {!isPlacementMode && (
@@ -239,6 +241,7 @@ export function MapView({
             key={`${waypoint.id}-${isPlacementMode}`}
             position={[waypoint.coordinates.lat, waypoint.coordinates.lon]}
             icon={createWaypointIcon(waypoint.steerpoint.toString(), waypoint.type)}
+            zIndexOffset={MARKER_Z.waypoint}
             interactive={!isPlacementMode}
           >
             {!isPlacementMode && (
@@ -336,6 +339,7 @@ export function MapView({
               <Marker
                 position={[threat.position.lat, threat.position.lon]}
                 icon={createThreatIcon(system.threat_type, isDraggable)}
+                zIndexOffset={MARKER_Z.threat}
                 draggable={isDraggable && !isPlacementMode}
                 interactive={!isPlacementMode}
                 eventHandlers={isDraggable && !isPlacementMode ? {

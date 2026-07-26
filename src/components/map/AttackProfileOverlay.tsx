@@ -2,6 +2,7 @@ import { Polyline, Marker, Tooltip } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import type { Attack, Waypoint, PopupCCIPProfile, PopupCCIPResult } from '../../types';
 import type { ChucksGuideParams } from '../../lib/attackGeometry';
+import { MARKER_Z } from './mapLayers';
 import { calculatePopupGeometry, getRecommendedParams, calculatePointAtDistance } from '../../lib/attackGeometry';
 
 interface AttackProfileOverlayProps {
@@ -197,6 +198,7 @@ export function AttackProfileOverlay({
         interactive={!isPlacementMode}
         position={[geometry.offsetTurnPoint.lat, geometry.offsetTurnPoint.lon]}
         icon={createLabelIcon('POP', 'yellow')}
+        zIndexOffset={MARKER_Z.attackPoint}
       >
         {/* POP hangs below while ATK sits above: the two points are only a
             fraction of a mile apart on a tight profile, so same-side permanent
@@ -215,6 +217,7 @@ export function AttackProfileOverlay({
         interactive={!isPlacementMode}
         position={[geometry.turnInPoint.lat, geometry.turnInPoint.lon]}
         icon={createLabelIcon('ATK', 'orange')}
+        zIndexOffset={MARKER_Z.attackPoint}
       >
         <Tooltip permanent direction="top" offset={[0, -20]} className="attack-tooltip">
           <div className="text-xs font-semibold">
@@ -230,6 +233,7 @@ export function AttackProfileOverlay({
         interactive={!isPlacementMode}
         position={[geometry.targetPoint.lat, geometry.targetPoint.lon]}
         icon={createLabelIcon('TGT', 'red')}
+        zIndexOffset={MARKER_Z.attackPoint}
       >
         <Tooltip permanent direction="bottom" offset={[0, 20]} className="attack-tooltip">
           <div className="text-xs font-semibold">
@@ -256,6 +260,7 @@ export function AttackProfileOverlay({
           iconSize: [120, 20],
           iconAnchor: [60, -15],
         })}
+        zIndexOffset={MARKER_Z.label}
       />
 
       {/* Egress info label */}
@@ -270,6 +275,7 @@ export function AttackProfileOverlay({
           iconSize: [150, 20],
           iconAnchor: [75, 10],
         })}
+        zIndexOffset={MARKER_Z.label}
       />
 
       {/* Source attribution */}
@@ -285,6 +291,7 @@ export function AttackProfileOverlay({
             iconSize: [120, 20],
             iconAnchor: [60, 35],
           })}
+          zIndexOffset={MARKER_Z.label}
         />
       )}
     </>

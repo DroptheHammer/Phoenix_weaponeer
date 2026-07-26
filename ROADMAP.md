@@ -80,7 +80,7 @@ Cross-platform desktop app for planning F-16 attack missions in DCS World.
 
 ---
 
-## Phase 3: Output 🔄 IN PROGRESS
+## Phase 3: Output ✅ MOSTLY COMPLETE (PDF export outstanding)
 
 ### 3.1 Kneeboard Card Renderer ✅
 - [x] 768x1024 pixel canvas
@@ -104,6 +104,52 @@ Cross-platform desktop app for planning F-16 attack missions in DCS World.
 ### 3.3 PDF Export (Optional) ❌ NOT STARTED
 - [ ] Multi-card PDF generation
 - [ ] Print-friendly layout
+
+---
+
+## Phase 3.5: Bugfix Sprint ✅ COMPLETE (2026-07-26)
+
+Prompted by "weird movement around the waypoints" on the map. Full detail in
+`docs/BUGFIX_PLAN.md`; all four stages implemented, both gates green, and every
+fix verified by hand in the running app against the real NTTR Red Flag mission.
+
+### 3.5.1 Attack Geometry ✅
+- [x] Clearing the heading field stored `NaN`, which propagated into every
+      overlay point — the reported bug
+- [x] Overlay drew hardcoded reference params and ignored the saved profile, so
+      editing pop distance or apex changed nothing on the map
+- [x] Egress label always read "Defend right" regardless of the drawn line
+
+### 3.5.2 Map ✅
+- [x] Map framed a hardcoded theater coordinate instead of the imported mission
+- [x] Placement-mode clicks were swallowed by markers (`interactive` is applied
+      only at layer creation in react-leaflet)
+- [x] Explicit marker stacking order — navigation and attack symbols always
+      above threats, rather than Leaflet's default latitude ordering
+
+### 3.5.3 Import Robustness ✅
+- [x] Failed threat conversions placed threats at (0,0); now dropped and logged
+- [x] Silently dropped waypoints and trigger zones now logged
+- [x] A known theater with no proj4 string used to pass the theater check and
+      then fail every conversion, reporting success with an empty mission; now
+      rejected up front
+- [x] Waypoint type inference matched bare substrings ("SLIP" → IP) and treated
+      tanker callsigns as tanker waypoints (the real Viper route has a nav
+      turnpoint named ARCO)
+
+### 3.5.4 Attack Editor ✅
+- [x] Saving a hand-edited profile was impossible — only presets triggered the
+      required calculation, and presets overwrite the edited values
+- [x] Disabled Save now explains what is missing; calculation errors are shown
+- [x] Portal-rendered modals inherited near-black text on a navy panel
+
+### 3.5.5 Test Data & Regression Cover ✅
+- [x] Real FragOrders export promoted to `test-data/nttr_redflag_viper1.json`
+- [x] `test_fragorders.json` marked as synthetic — its coordinates land 300+ km
+      off the NTTR map, and it caused two separate false hunts for a
+      coordinate-conversion bug that never existed
+- [x] Coordinate conversion pinned by ground-truth landmark tests and an
+      explicit axis-order test (a round-trip test cannot detect an axis swap)
 
 ---
 
