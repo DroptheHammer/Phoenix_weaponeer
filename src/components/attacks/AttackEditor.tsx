@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useMissionStore } from '../../stores/missionStore';
 import { useAttackCalculator } from '../../hooks/useAttackCalculator';
 import { PopupCCIPForm } from './forms/PopupCCIPForm';
+import { calculateBearing } from '../../lib/coordinates';
 import type {
   Attack,
   AttackProfileType,
@@ -68,19 +69,6 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
   const calculatedAttackHeading = selectedIP && selectedTarget
     ? calculateBearing(selectedIP.coordinates, selectedTarget.coordinates)
     : null;
-
-  // Helper function to calculate bearing
-  function calculateBearing(start: { lat: number; lon: number }, end: { lat: number; lon: number }): number {
-    const lat1 = (start.lat * Math.PI) / 180;
-    const lat2 = (end.lat * Math.PI) / 180;
-    const dLon = ((end.lon - start.lon) * Math.PI) / 180;
-
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-
-    const bearing = Math.atan2(y, x);
-    return ((bearing * 180) / Math.PI + 360) % 360;
-  }
 
   // Filter weapons to attacker's loadout if they have one assigned
   const loadoutWeaponNames = attacker?.loadout?.map((l) => l.weaponType) ?? [];

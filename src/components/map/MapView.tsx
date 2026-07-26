@@ -3,7 +3,7 @@ import { divIcon, DragEndEvent } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../../types';
 import { THEATERS } from '../../data/theaters';
-import { useMemo, useEffect } from 'react';
+import { Fragment, useMemo, useEffect } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
 
 interface ThreatSystem {
@@ -216,7 +216,12 @@ export function MapView({
 
         {/* Bullseye marker */}
         {bullseye && (
-          <Marker position={[bullseye.lat, bullseye.lon]} icon={bullseyeIcon} interactive={!isPlacementMode}>
+          <Marker
+            key={`bullseye-${isPlacementMode}`}
+            position={[bullseye.lat, bullseye.lon]}
+            icon={bullseyeIcon}
+            interactive={!isPlacementMode}
+          >
             {!isPlacementMode && (
               <Popup>
                 <div className="font-semibold">Bullseye</div>
@@ -231,7 +236,7 @@ export function MapView({
         {/* Waypoint markers */}
         {waypoints.map((waypoint) => (
           <Marker
-            key={waypoint.id}
+            key={`${waypoint.id}-${isPlacementMode}`}
             position={[waypoint.coordinates.lat, waypoint.coordinates.lon]}
             icon={createWaypointIcon(waypoint.steerpoint.toString(), waypoint.type)}
             interactive={!isPlacementMode}
@@ -282,7 +287,7 @@ export function MapView({
           const isDraggable = !isMissionThreat && !!onMoveThreat;
 
           return (
-            <span key={threat.id}>
+            <Fragment key={`${threat.id}-${isPlacementMode}`}>
               {/* Threat engagement envelope */}
               <Circle
                 center={[threat.position.lat, threat.position.lon]}
@@ -358,7 +363,7 @@ export function MapView({
                   </Popup>
                 )}
               </Marker>
-            </span>
+            </Fragment>
           );
         })}
 
@@ -374,11 +379,12 @@ export function MapView({
 
           return (
             <AttackProfileOverlay
-              key={attack.id}
+              key={`${attack.id}-${isPlacementMode}`}
               attack={attack}
               ipWaypoint={ipWaypoint}
               targetWaypoint={targetWaypoint}
               isSelected={attack.id === selectedAttackId}
+              isPlacementMode={isPlacementMode}
             />
           );
         })}

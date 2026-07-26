@@ -10,15 +10,27 @@ interface AttackProfileOverlayProps {
   targetWaypoint: Waypoint;
   calculatorResult?: PopupCCIPResult;
   isSelected?: boolean;
+  /** While placing a threat, overlay markers must not swallow the map click. */
+  isPlacementMode?: boolean;
 }
 
 /**
  * Create a custom icon with a label
  */
+// Tailwind only emits classes it can see as complete literals, so `bg-${color}-500`
+// is not safe to construct at runtime — it survived only because these exact
+// literals happen to appear in other files. Look them up explicitly instead.
+const labelColorClasses: Record<string, string> = {
+  red: 'bg-red-500',
+  yellow: 'bg-yellow-500',
+  orange: 'bg-orange-500',
+};
+
 function createLabelIcon(label: string, color: string = 'red') {
+  const colorClass = labelColorClasses[color] ?? 'bg-gray-500';
   return divIcon({
     html: `<div class="flex flex-col items-center">
-      <div class="bg-${color}-500 text-white font-bold rounded-full w-10 h-10 flex items-center justify-center shadow-lg border-2 border-white text-sm">
+      <div class="${colorClass} text-white font-bold rounded-full w-10 h-10 flex items-center justify-center shadow-lg border-2 border-white text-sm">
         ${label}
       </div>
     </div>`,
@@ -34,6 +46,7 @@ export function AttackProfileOverlay({
   targetWaypoint,
   calculatorResult,
   isSelected = false,
+  isPlacementMode = false,
 }: AttackProfileOverlayProps) {
   // Only support popup CCIP for now
   if (attack.profileType !== 'popup_ccip') {
@@ -176,6 +189,7 @@ export function AttackProfileOverlay({
 
       {/* Pop Point marker */}
       <Marker
+        interactive={!isPlacementMode}
         position={[geometry.offsetTurnPoint.lat, geometry.offsetTurnPoint.lon]}
         icon={createLabelIcon('POP', 'yellow')}
       >
@@ -190,6 +204,7 @@ export function AttackProfileOverlay({
 
       {/* Attack Point marker */}
       <Marker
+        interactive={!isPlacementMode}
         position={[geometry.turnInPoint.lat, geometry.turnInPoint.lon]}
         icon={createLabelIcon('ATK', 'orange')}
       >
@@ -204,6 +219,7 @@ export function AttackProfileOverlay({
 
       {/* Target/Release point marker */}
       <Marker
+        interactive={!isPlacementMode}
         position={[geometry.targetPoint.lat, geometry.targetPoint.lon]}
         icon={createLabelIcon('TGT', 'red')}
       >
@@ -222,6 +238,7 @@ export function AttackProfileOverlay({
 
       {/* IP info label */}
       <Marker
+        interactive={!isPlacementMode}
         position={[geometry.ipPoint.lat, geometry.ipPoint.lon]}
         icon={divIcon({
           html: `<div class="bg-blue-900 bg-opacity-90 text-white px-2 py-1 rounded text-xs font-semibold whitespace-nowrap border border-blue-400">
@@ -235,6 +252,7 @@ export function AttackProfileOverlay({
 
       {/* Egress info label */}
       <Marker
+        interactive={!isPlacementMode}
         position={[egressPoint.lat, egressPoint.lon]}
         icon={divIcon({
           html: `<div class="bg-green-900 bg-opacity-90 text-white px-2 py-1 rounded text-xs font-semibold whitespace-nowrap border border-green-400">
@@ -249,6 +267,7 @@ export function AttackProfileOverlay({
       {/* Source attribution */}
       {isSelected && (
         <Marker
+          interactive={!isPlacementMode}
           position={[geometry.ipPoint.lat, geometry.ipPoint.lon]}
           icon={divIcon({
             html: `<div class="bg-gray-900 bg-opacity-75 text-gray-300 px-2 py-1 rounded text-xs italic border border-gray-600">

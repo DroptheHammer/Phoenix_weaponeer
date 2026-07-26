@@ -5,10 +5,15 @@
  * Chuck's Guides recommendations and user modifications.
  */
 
-export interface Coordinates {
-  lat: number;
-  lon: number;
-}
+import type { Coordinates } from '../types';
+import { calculateBearing, calculateDistance, calculateDestination } from './coordinates';
+
+// Kept as the canonical name used by this module and its consumers; the
+// implementation lives in ./coordinates alongside the other geo math.
+export const calculatePointAtDistance = calculateDestination;
+
+export type { Coordinates };
+export { calculateBearing, calculateDistance };
 
 export interface PopupGeometry {
   // Key points along the route
@@ -27,69 +32,6 @@ export interface PopupGeometry {
   offsetAngle_deg: number;        // Degrees off attack axis
   turnInRange_nm: number;         // Distance from target to turn in
   climbAngle_deg: number;         // Nose up during offset leg
-}
-
-/**
- * Calculate bearing from point A to point B (in degrees, 0-360)
- */
-export function calculateBearing(start: Coordinates, end: Coordinates): number {
-  const lat1 = (start.lat * Math.PI) / 180;
-  const lat2 = (end.lat * Math.PI) / 180;
-  const dLon = ((end.lon - start.lon) * Math.PI) / 180;
-
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) -
-            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-
-  const bearing = Math.atan2(y, x);
-  return ((bearing * 180) / Math.PI + 360) % 360;
-}
-
-/**
- * Calculate a point at a given distance and bearing from a start point
- */
-export function calculatePointAtDistance(
-  start: Coordinates,
-  bearing: number,
-  distanceNm: number
-): Coordinates {
-  const R = 3440.065; // Earth radius in nautical miles
-  const d = distanceNm;
-  const brng = (bearing * Math.PI) / 180;
-  const lat1 = (start.lat * Math.PI) / 180;
-  const lon1 = (start.lon * Math.PI) / 180;
-
-  const lat2 = Math.asin(
-    Math.sin(lat1) * Math.cos(d / R) +
-    Math.cos(lat1) * Math.sin(d / R) * Math.cos(brng)
-  );
-
-  const lon2 = lon1 + Math.atan2(
-    Math.sin(brng) * Math.sin(d / R) * Math.cos(lat1),
-    Math.cos(d / R) - Math.sin(lat1) * Math.sin(lat2)
-  );
-
-  return {
-    lat: (lat2 * 180) / Math.PI,
-    lon: (lon2 * 180) / Math.PI,
-  };
-}
-
-/**
- * Calculate distance between two points in nautical miles
- */
-export function calculateDistance(point1: Coordinates, point2: Coordinates): number {
-  const R = 3440.065; // Earth radius in nautical miles
-  const lat1 = point1.lat * Math.PI / 180;
-  const lat2 = point2.lat * Math.PI / 180;
-  const dLat = (point2.lat - point1.lat) * Math.PI / 180;
-  const dLon = (point2.lon - point1.lon) * Math.PI / 180;
-
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1) * Math.cos(lat2) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
 }
 
 /**

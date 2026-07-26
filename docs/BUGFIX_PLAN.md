@@ -1,7 +1,7 @@
 # Bugfix Sprint Plan — Map & Geometry Bugs
 
 **Created:** 2026-07-12
-**Status:** NOT STARTED
+**Status:** ALL FOUR STAGES COMPLETE (2026-07-26) — pending manual in-app verification
 **Context:** A code scan found 7 bugs, two of which explain the reported "weird movement around the waypoints" on the map. This plan fixes them in 4 stages. Each task is small, self-contained, and verifiable — designed to be executed one task at a time by Claude Sonnet 4.5/4.6 in a fresh session.
 
 **Rules for the executing session:**
@@ -177,8 +177,10 @@ Not in the original plan, but it is the root cause that makes 3.1 and 3.2 fire e
 - File: `src/components/map/AttackProfileOverlay.tsx`, `createLabelIcon` uses `bg-${color}-500` — a dynamic Tailwind class that only works because the same literals appear in other files.
 - Replace with an explicit lookup: `const colorClasses: Record<string, string> = { red: 'bg-red-500', yellow: 'bg-yellow-500', orange: 'bg-orange-500' };` and use `colorClasses[color] ?? 'bg-gray-500'`.
 
+Note on scope (2026-07-26): Task 4.1 as written covered only `MapView`'s own markers, but `AttackProfileOverlay` renders six more (POP/ATK/TGT plus the IP, egress and source labels) and passed no `interactive` prop at all — so they swallowed clicks along the attack axis, which is exactly where a planner wants to drop a threat. It now takes an `isPlacementMode` prop, and its key in `MapView` includes the flag so the remount actually applies.
+
 ### Stage 4 Gate
-1. `npm run build` green, `cargo test --lib` green.
+1. `npm run build` green, `cargo test --lib` green. ✅ both green as of 2026-07-26 (27 Rust tests, zero TS errors).
 2. Full manual regression pass: import test mission → add flight member → create attack → verify overlay → place a planning threat via map click (including clicking on a marker) → drag the threat → export kneeboard to a folder and open the PNG (768×1024, correct content).
 
 ---
@@ -187,5 +189,5 @@ Not in the original plan, but it is the root cause that makes 3.1 and 3.2 fire e
 - [x] Stage 1 complete + gate green (commit `Bugfix Stage 1: NaN heading guard`)
 - [x] Stage 2 complete + gate green (commit `Bugfix Stage 2: overlay uses saved profile; tsc green`)
 - [x] Stage 3 complete + gate green (commit `Bugfix Stage 3: import robustness + type inference tests`)
-- [ ] Stage 4 complete + gate green (commit `Bugfix Stage 4: map interaction + geo dedupe`)
-- [ ] Update `docs/BUGFIX_PLAN.md` status to COMPLETE, update `ROADMAP.md` and `CLAUDE.md` session notes
+- [x] Stage 4 complete + gate green (commit `Bugfix Stage 4: map interaction + geo dedupe`)
+- [ ] Update `ROADMAP.md` and `CLAUDE.md` session notes
