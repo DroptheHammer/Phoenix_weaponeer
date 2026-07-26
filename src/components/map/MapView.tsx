@@ -32,16 +32,55 @@ interface MapViewProps {
   onPlacePosition?: (position: Coordinates) => void;
 }
 
-function MapController({ theater }: { theater: Theater }) {
+/**
+ * Frames the map on the mission itself.
+ *
+ * Fits the view to the actual waypoints (and threats, so their rings stay visible)
+ * rather than a fixed theater coordinate. Bullseye is deliberately excluded — it is
+ * an arbitrary reference datum, often far from the route, and letting it drive the
+ * viewport pushes the flight path to the edge of the screen.
+ *
+ * Falls back to the theater's default view only when there is nothing to frame.
+ */
+function MapController({
+  theater,
+  waypoints,
+  threats,
+}: {
+  theater: Theater;
+  waypoints: Waypoint[];
+  threats: ThreatInstance[];
+}) {
   const map = useMap();
   const theaterData = THEATERS[theater];
 
+  // Fit only when the set of points actually changes, so panning/zooming isn't
+  // yanked back on every unrelated re-render.
+  const fitKey = useMemo(
+    () =>
+      [
+        ...waypoints.map((wp) => `${wp.coordinates.lat},${wp.coordinates.lon}`),
+        ...threats.map((t) => `${t.position.lat},${t.position.lon}`),
+      ].join('|'),
+    [waypoints, threats],
+  );
+
   useEffect(() => {
+    const points: [number, number][] = [
+      ...waypoints.map((wp) => [wp.coordinates.lat, wp.coordinates.lon] as [number, number]),
+      ...threats.map((t) => [t.position.lat, t.position.lon] as [number, number]),
+    ].filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
+
+    if (points.length > 0) {
+      map.fitBounds(points, { padding: [48, 48], maxZoom: 11 });
+      return;
+    }
+
     if (theaterData) {
       const center = theaterData.defaultBullseye;
       map.setView([center.lat, center.lon], 8);
     }
-  }, [theater, theaterData, map]);
+  }, [fitKey, theater, theaterData, map]);
 
   return null;
 }
@@ -176,7 +215,7 @@ export function MapView({
           maxZoom={15}
         />
         <ZoomControl position="bottomleft" />
-        <MapController theater={theater} />
+        <MapController theater={theater} waypoints={waypoints} threats={threats} />
         <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={onPlacePosition} />
 
         {/* Bullseye marker */}
