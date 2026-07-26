@@ -241,6 +241,10 @@ points (POP/ATK/TGT) > waypoints > bullseye > info labels > threats. Per squadro
 requirement: navigation and attack symbols must always be on top, so a symbol
 under the nose is never ambiguous.
 
+**Also this session — planned projection support for all DCS maps.** See
+`docs/THEATER_DATA_REQUEST.md` (ready to send to the FragOrders author) and item 1 under "Next
+up" below. Not started in code.
+
 **Manual verification — all five checks passed in-app:**
 1. Import frames the whole Nellis–Tonopah route; ARCO renders as nav
 2. Clearing Heading falls back to the true IP→TGT1 bearing (248°)
@@ -286,12 +290,41 @@ entry; all 12 commits are pushed and `main` is in sync. **At session end, check
   remount.
 
 **Next up (IN ORDER):**
-1. **Phase 3.3 (Optional):** PDF export — multi-card print-friendly packages
-2. **Phase 4 Polish:** additional aircraft (F/A-18, A-10), attack profiles
+
+1. **Projection support for every DCS map — START HERE.** The squadron flies all
+   maps, but only Nevada and Caucasus have proj4 strings; the rest are rejected
+   at import. Plan is written and approved (see below). `docs/THEATER_DATA_REQUEST.md`
+   is ready to send to the FragOrders author at FragOrders.
+   - **Blocked on the FragOrders author** only for the per-map data. Two things can proceed now:
+     - `git pull` in `~/Projects/fragorders` — that clone is 6 months stale
+       (last commit `69fe3f5`, 2026-01-26) and the newer `ui/src/lib/theater.ts`
+       may already list every map, which would make the request moot. FragOrders
+       handles all maps correctly in daily use, so the data exists somewhere;
+       it is not in the Go/SQL/proto layers of the stale checkout.
+     - **Build the derivation harness** (`src-tauri/src/bin/derive_projection.rs`).
+       Not blocked at all — prove it against Caucasus and Nevada as controls.
+   - **Method is already validated.** Given ground-truth (DCS x/y ↔ lat/lon)
+     pairs and `k_0=0.9996`, the offsets fall out exactly:
+     ```
+     Nellis (36.235,-115.034) → raw tmerc @ lon_0=-117 → E=176674.252, N=4011806.003
+     x_0 = dcs_y - E = -17321.7  - 176674.252  = -193995.95  (published -193996)
+     y_0 = dcs_x - N = -398222.0 - 4011806.003 = -4410028.0  (published -4410028)
+     ```
+   - **Decided:** unverified projections import with a **visible warning** (UI
+     banner + caution line on kneeboard cards), never silently trusted.
+   - **Watch out:** we match the DCS `theatre` string exactly, so a wrong
+     `dcs_name` means the map is rejected even with a perfect projection.
+     `Sinai` and `SouthAtlantic`/`Falklands` are the least certain — the request
+     doc asks the FragOrders author to confirm all of them.
+   - **Known desync to fix as part of this:** Rust has 12 theaters,
+     `src/types/mission.types.ts` has 9 (`marianas` and `afghanistan` cannot be
+     represented in the frontend at all). Adding a map currently means editing
+     three places. Plan is to make Rust the single source of truth via a
+     `list_theaters` command. `bounds` in `src/data/theaters.ts` is dead data,
+     never read anywhere.
+2. **Phase 3.3 (Optional):** PDF export — multi-card print-friendly packages
+3. **Phase 4 Polish:** additional aircraft (F/A-18, A-10), attack profiles
    (level CCRP, loft, dive bomb), or FragOrders URL import
-3. **Proj4 strings for remaining theaters** — Syria, Persian Gulf, Sinai etc.
-   now fail loudly instead of silently corrupting, but they still cannot be
-   used. Source the strings the way Nevada/Caucasus were.
 4. **Testing:** verify kneeboard export on Windows with DCS installed
 5. **Enhancement:** query aircraft kneeboard paths from the database instead of
    the hardcoded mapping
