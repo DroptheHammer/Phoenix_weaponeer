@@ -5,6 +5,14 @@ import type { Coordinates } from './waypoint.types';
  */
 export interface FragOrdersData {
   theater: string;
+  /** Theater name as DCS writes it, for display */
+  theater_display_name: string;
+  /**
+   * False when this map's projection has never been checked against a known
+   * landmark. The import still works; the UI must warn rather than present the
+   * positions as trustworthy.
+   */
+  projection_verified: boolean;
   bullseye: Coordinates;
   player_groups: FragOrdersPlayerGroup[];
   threats: FragOrdersThreat[];

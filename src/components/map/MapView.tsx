@@ -2,7 +2,7 @@ import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, ZoomC
 import { divIcon, DragEndEvent } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../../types';
-import { THEATERS } from '../../data/theaters';
+import { useTheaterInfo } from '../../stores/theaterStore';
 import { Fragment, useMemo, useEffect } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
 import { MARKER_Z } from './mapLayers';
@@ -52,7 +52,7 @@ function MapController({
   threats: ThreatInstance[];
 }) {
   const map = useMap();
-  const theaterData = THEATERS[theater];
+  const theaterInfo = useTheaterInfo(theater);
 
   // Fit only when the set of points actually changes, so panning/zooming isn't
   // yanked back on every unrelated re-render.
@@ -76,11 +76,11 @@ function MapController({
       return;
     }
 
-    if (theaterData) {
-      const center = theaterData.defaultBullseye;
+    if (theaterInfo) {
+      const center = theaterInfo.default_center;
       map.setView([center.lat, center.lon], 8);
     }
-  }, [fitKey, theater, theaterData, map]);
+  }, [fitKey, theater, theaterInfo, map]);
 
   return null;
 }
@@ -183,8 +183,8 @@ export function MapView({
   isPlacementMode = false,
   onPlacePosition,
 }: MapViewProps) {
-  const theaterData = THEATERS[theater];
-  const center = theaterData?.defaultBullseye ?? { lat: 0, lon: 0 };
+  const theaterInfo = useTheaterInfo(theater);
+  const center = theaterInfo?.default_center ?? { lat: 0, lon: 0 };
 
   // Create waypoint route line
   const waypointPath = useMemo(() => {

@@ -44,6 +44,8 @@ pub fn run() {
             commands::new_mission,
             commands::save_mission,
             commands::load_mission,
+            // Theater commands
+            commands::list_theaters,
             // Database commands
             commands::get_all_threats,
             commands::get_threats_by_type,

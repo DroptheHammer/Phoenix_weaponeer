@@ -20,13 +20,14 @@ export interface Mission {
   updatedAt: string;
 }
 
-export type Theater =
-  | 'caucasus'
-  | 'persian_gulf'
-  | 'syria'
-  | 'nevada'
-  | 'normandy'
-  | 'channel'
-  | 'south_atlantic'
-  | 'sinai'
-  | 'kola';
+/**
+ * Stable theater id (e.g. 'nevada', 'south_atlantic').
+ *
+ * Deliberately not a union of literals. The authoritative list lives in
+ * `THEATER_PARAMS` in `src-tauri/src/parsers/coordinate_conversion.rs` and
+ * reaches the frontend through the `list_theaters` command — see
+ * `src/stores/theaterStore.ts`. A hard-coded union here is what let the two
+ * lists drift apart, leaving three maps that the backend supported but that
+ * could not be represented in the frontend at all.
+ */
+export type Theater = string;

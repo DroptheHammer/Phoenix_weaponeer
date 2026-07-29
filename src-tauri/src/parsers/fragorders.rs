@@ -283,6 +283,12 @@ pub struct ZoneProperty {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessedFragOrdersData {
     pub theater: String,
+    /// Theater name as DCS wrote it, for display in warnings
+    pub theater_display_name: String,
+    /// False when this theater's projection has not been independently
+    /// confirmed. Everything still imports, but the UI must say so — positions
+    /// could be systematically offset without looking obviously wrong.
+    pub projection_verified: bool,
     pub bullseye: ProcessedCoordinates,
     pub player_groups: Vec<ProcessedPlayerGroup>,
     pub threats: Vec<ProcessedThreat>,

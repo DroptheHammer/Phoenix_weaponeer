@@ -17,11 +17,25 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
 
   return (
     <div className="space-y-4">
+      {/* Warn before the import is committed, not just after. */}
+      {!data.projection_verified && (
+        <div className="rounded-lg border border-amber-500/60 bg-amber-950/60 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-200">
+            {data.theater_display_name}: coordinates unverified
+          </p>
+          <p className="text-sm text-amber-100/90">
+            This map's projection has not been checked against a known landmark.
+            Waypoints may be systematically offset. Confirm one against the DCS
+            F10 map before flying these cards.
+          </p>
+        </div>
+      )}
+
       {/* Theater and Bullseye */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-dcs-dark rounded-lg p-3">
           <h4 className="text-sm text-gray-400 mb-1">Theater</h4>
-          <p className="font-medium capitalize">{data.theater.replace('_', ' ')}</p>
+          <p className="font-medium">{data.theater_display_name}</p>
         </div>
         <div className="bg-dcs-dark rounded-lg p-3">
           <h4 className="text-sm text-gray-400 mb-1">Bullseye</h4>

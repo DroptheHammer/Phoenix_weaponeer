@@ -153,6 +153,53 @@ fix verified by hand in the running app against the real NTTR Red Flag mission.
 
 ---
 
+## Phase 3.6: Theater Projection Support ✅ COMPLETE (2026-07-29)
+
+Only Nevada and Caucasus had proj4 projections, so every other map was rejected
+at import. The FragOrders author supplied FragOrders' full theater table
+(`docs/fragorders-response-maps.txt`), taking coverage from 2 maps to 12 of 13.
+
+### 3.6.1 Projections ✅
+- [x] 10 new proj4 strings: Syria, Persian Gulf, Normandy, Marianas, Falklands,
+      Sinai, Kola, Afghanistan, plus two maps we did not previously list at all
+      (Germany Cold War, Iraq)
+- [x] Caucasus and Nevada confirmed identical to our own ground-truth strings —
+      no adjustment needed on either verified map
+- [x] `+k` normalized to `+k_0` (PROJ alias FragOrders uses on four theaters)
+- [x] Normandy's float noise rounded (`-195526.00000000204` → `-195526`)
+
+### 3.6.2 DCS Name Corrections ✅
+- [x] Sinai is `SinaiMap` in DCS, not `Sinai` — would have rejected every Sinai
+      mission regardless of the projection
+- [x] Removed `SouthAtlantic`, which DCS never writes; the map is `Falklands`
+
+### 3.6.3 Single Source of Truth ✅
+- [x] `THEATER_PARAMS` (Rust) is now authoritative; frontend reads it via a new
+      `list_theaters` command instead of keeping a parallel hard-coded list
+- [x] Deleted `src/data/theaters.ts` — its 9-theater list had drifted from
+      Rust's 12, and its `bounds` field was dead data read by nothing
+- [x] `Theater` is no longer a union of string literals that had to be edited
+      in lockstep
+
+### 3.6.4 Unverified Projections ✅
+- [x] Nine projections cross-checked by re-projecting each theater's published
+      corner bounds — they land on whole kilometres, which a wrong offset would
+      not (`test_projections_reproduce_their_own_map_corners`)
+- [x] Sinai, Kola and Afghanistan ship hand-typed bounds and cannot be checked
+      this way; flagged `verified: false` and warned about in the UI, both in
+      the import preview and as a banner over the map
+- [x] No weak check invented for the unverifiable three — a round-trip test
+      would pass regardless and repeat the false-confidence mistake that cost
+      two sessions on coordinate conversion
+
+### 3.6.5 Still Outstanding ❌
+- [ ] **The Channel** — the only map FragOrders did not supply. Needs
+      ground-truth (DCS x/y ↔ lat/lon) pairs read off the F10 map by someone
+      who owns it, then the offsets fall out arithmetically.
+- [ ] Verify Sinai, Kola and Afghanistan against a real mission in DCS
+
+---
+
 ## Phase 4: Polish ❌ NOT STARTED
 
 ### 4.1 Enhanced Import
@@ -190,15 +237,21 @@ fix verified by hand in the running app against the real NTTR Red Flag mission.
 
 ## Current Status
 
-**Last Updated:** 2026-07-12
+**Last Updated:** 2026-07-29
 
 **Completed:**
 - Phase 1: Foundation (all sections)
 - Phase 2: Core Planning (all sections 2.1-2.6)
 - Phase 3: Output (sections 3.1-3.2 complete, 3.3 optional not started)
+- Phase 3.5: Bugfix Sprint (all four stages, verified in-app)
+- Phase 3.6: Theater Projection Support (12 of 13 maps)
 
 **Next Up:**
-- **Phase 3.5: Bugfix Sprint** — see `docs/BUGFIX_PLAN.md` (4 staged fixes: NaN heading geometry, overlay ignoring saved profile, import robustness, map interaction). Must complete before Phase 4.
+- **Mission save/load UI** — `save_mission` and `load_mission` are fully
+  implemented in Rust and registered, but nothing in the frontend calls either.
+  A planner can import a mission, spend an hour on threats and attack profiles,
+  and has no way to save the work. Listed under 4.5 as "not started"; in fact
+  only the UI half is missing.
 - Phase 3.3 (Optional): PDF export for print-friendly briefing packages
 - Phase 4: Polish features (additional aircraft, attack profiles, enhanced import)
 

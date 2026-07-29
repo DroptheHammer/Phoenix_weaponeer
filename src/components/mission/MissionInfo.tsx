@@ -1,8 +1,10 @@
 import { useMissionStore } from '../../stores/missionStore';
-import { getTheaterDisplayName } from '../../data/theaters';
+import { useTheaterInfo } from '../../stores/theaterStore';
 
 export function MissionInfo() {
   const { mission, updateMissionName, updateMissionNotes } = useMissionStore();
+  // Called before the early return — hooks cannot be conditional.
+  const theaterInfo = useTheaterInfo(mission?.theater);
 
   if (!mission) {
     return null;
@@ -23,7 +25,7 @@ export function MissionInfo() {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">Theater</label>
-          <div className="text-white">{getTheaterDisplayName(mission.theater)}</div>
+          <div className="text-white">{theaterInfo?.display_name ?? mission.theater}</div>
         </div>
         <div>
           <label className="block text-sm text-gray-400 mb-1">Date</label>

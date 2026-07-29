@@ -13,8 +13,8 @@ use thiserror::Error;
 use zip::ZipArchive;
 
 pub use coordinate_conversion::{
-    dcs_to_latlon, get_theater_params, meters_to_feet, mps_to_ktas, normalize_theater_name,
-    supported_theater_names, TheaterCoordParams,
+    all_theater_params, dcs_to_latlon, get_theater_params, meters_to_feet, mps_to_ktas,
+    normalize_theater_name, supported_theater_names, TheaterCoordParams,
 };
 pub use fragorders::{
     parse_fragorders_json, FragOrdersMission, ProcessedCoordinates, ProcessedFragOrdersData,

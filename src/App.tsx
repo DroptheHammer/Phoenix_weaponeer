@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMissionStore } from "./stores/missionStore";
+import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
 import { FragOrdersImport } from "./components/import";
 import { MapView } from "./components/map/MapView";
 import { WaypointList } from "./components/waypoints/WaypointList";
@@ -29,6 +30,8 @@ type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
 function App() {
   const { mission, createMission, importFromFragOrders, updateThreat } = useMissionStore();
+  const loadTheaters = useTheaterStore((state) => state.loadTheaters);
+  const theaterInfo = useTheaterInfo(mission?.theater);
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
   const [weapons, setWeapons] = useState<Weapon[]>([]);
@@ -59,6 +62,7 @@ function App() {
           invoke<ThreatSystem[]>("get_all_threats"),
           invoke<Aircraft[]>("get_all_aircraft"),
           invoke<Weapon[]>("get_all_weapons"),
+          loadTheaters(),
         ]);
         setThreats(threatData);
         setAircraft(aircraftData);
@@ -87,7 +91,7 @@ function App() {
       }
     }
     loadDatabaseData();
-  }, []);
+  }, [loadTheaters]);
 
   const handleNewMission = () => {
     createMission("New Mission", "caucasus");
@@ -147,6 +151,44 @@ function App() {
                 onPlacePosition={handleMapClickForThreatPlacement}
               />
             </div>
+
+            {/*
+              Unverified projection warning.
+
+              Positions on these maps are believed correct but have never been
+              checked against a known landmark, so they could be systematically
+              offset while still looking entirely plausible. Say so rather than
+              letting a planner assume the coordinates are trustworthy.
+            */}
+            {theaterInfo && !theaterInfo.verified && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-2xl">
+                <div className="flex items-start gap-3 rounded-lg border border-amber-500/60 bg-amber-950/95 px-4 py-3 shadow-lg">
+                  <svg
+                    className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+                    />
+                  </svg>
+                  <div className="text-sm">
+                    <p className="font-semibold text-amber-200">
+                      {theaterInfo.display_name}: coordinates unverified
+                    </p>
+                    <p className="text-amber-100/90">
+                      This map's projection has not been checked against a known
+                      landmark. Confirm a waypoint against the DCS F10 map before
+                      flying these cards.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Panel toggle buttons - floating on left side */}
             <div className="absolute left-4 top-4 z-[1000] flex flex-col gap-2">
