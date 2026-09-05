@@ -46,3 +46,6 @@ coverage/
 
 # Claude Code
 .claude/
+
+# Scratch drop-zone for files the user wants Claude to inspect (exports, saved missions)
+Other Items/

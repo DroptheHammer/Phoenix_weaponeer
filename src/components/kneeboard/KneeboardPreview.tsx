@@ -10,10 +10,10 @@ import {
   KNEEBOARD_WIDTH,
   KNEEBOARD_HEIGHT,
 } from '../../lib/renderKneeboardCanvas';
-import type { Weapon, FuzeOption } from '../../types';
+import type { DbWeapon, FuzeOption } from '../../types';
 
 interface KneeboardPreviewProps {
-  weapons: Weapon[];
+  weapons: DbWeapon[];
   fuzeOptions: Map<string, FuzeOption[]>;
   threatSystems: ThreatSystemInfo[];
 }

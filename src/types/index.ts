@@ -30,6 +30,7 @@ export type {
 // Weapons
 export type {
   Weapon,
+  DbWeapon,
   WeaponCategory,
   GuidanceType,
   FuzeOption,

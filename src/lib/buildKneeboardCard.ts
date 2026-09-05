@@ -6,7 +6,10 @@ import type {
 } from '../types/kneeboard.types';
 import type { Mission } from '../types/mission.types';
 import type { Attack } from '../types/attack.types';
-import type { Weapon, FuzeOption } from '../types/weapon.types';
+import type { DbWeapon, FuzeOption } from '../types/weapon.types';
+import { resolveEgressHeading } from './attackGeometry';
+import { runAttackChecks } from './attackChecks';
+import { getTheaterInfo } from '../stores/theaterStore';
 
 // Minimal threat system shape (matches what App.tsx gets from the DB)
 export interface ThreatSystemInfo {
@@ -122,15 +125,23 @@ function getProfileLabel(type: string): string {
   return labels[type] ?? type.toUpperCase().replace(/_/g, ' ');
 }
 
-function getEgressInfo(attack: Attack): { direction: string; heading: number } {
+/**
+ * Egress direction and heading for the card. `attackHeading` is the final
+ * run-in; when the profile has no explicit egress heading the break is
+ * resolved from it, the same way the map overlay does.
+ */
+function getEgressInfo(attack: Attack, attackHeading?: number): { direction: string; heading: number } {
   const p = attack.profile;
   if (p.type === 'popup_ccip') {
-    return { direction: p.egressDirection.toUpperCase(), heading: p.egressHeading_deg };
+    return {
+      direction: p.egressDirection.toUpperCase(),
+      heading: resolveEgressHeading(p, attackHeading ?? 0),
+    };
   }
   if (p.type === 'dive_ccip') {
     return {
       direction: p.egressDirection === 'straight' ? 'STRAIGHT' : p.egressDirection.toUpperCase(),
-      heading: 0, // DiveCCIPProfile has no egress heading — maintain ingress track
+      heading: resolveEgressHeading(p, p.ingressHeading_deg),
     };
   }
   if (p.type === 'level_ccrp') {
@@ -154,9 +165,12 @@ function generateSteps(
 ): KneeboardStep[] {
   const p = attack.profile;
   const qty = attack.releaseQuantity;
-  const headingText = runInHeading != null
-    ? `${Math.round(runInHeading).toString().padStart(3, '0')}°`
-    : '---';
+  const fmtHeading = (h?: number) =>
+    h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---';
+  const headingText = fmtHeading(runInHeading);
+  // Without a run-in heading there is nothing to break away from.
+  const egressText =
+    runInHeading != null ? fmtHeading(getEgressInfo(attack, runInHeading).heading) : '---';
 
   if (p.type === 'popup_ccip') {
     return [
@@ -196,7 +210,7 @@ function generateSteps(
       {
         title: '⑤ EGRESS',
         lines: [
-          `Break ${p.egressDirection.toUpperCase()} — heading ${p.egressHeading_deg}°`,
+          `Break ${p.egressDirection.toUpperCase()} — heading ${egressText}`,
           `Hard deck: ${p.minAltitude_ft.toLocaleString()}ft AGL  — jink vs AAA/MANPADs`,
           'Safe arm — confirm weapons away',
         ],
@@ -318,7 +332,7 @@ function buildDiagramData(attack: Attack, runInHeading?: number): KneeboardDiagr
     return {
       type: 'popup_ccip',
       egressDirection: p.egressDirection,
-      egressHeading_deg: p.egressHeading_deg,
+      egressHeading_deg: runInHeading != null ? resolveEgressHeading(p, runInHeading) : NaN,
       popupCCIP: {
         runInHeading_deg: runInHeading,
         runInAltitude_ft: p.runInAltitude_ft,
@@ -339,7 +353,7 @@ function buildDiagramData(attack: Attack, runInHeading?: number): KneeboardDiagr
     return {
       type: 'dive_ccip',
       egressDirection: p.egressDirection,
-      egressHeading_deg: 0,
+      egressHeading_deg: resolveEgressHeading(p, p.ingressHeading_deg),
       diveCCIP: {
         ingressHeading_deg: p.ingressHeading_deg,
         rollInAltitude_ft: p.rollInAltitude_ft,
@@ -373,7 +387,7 @@ function buildDiagramData(attack: Attack, runInHeading?: number): KneeboardDiagr
 export function buildKneeboardCard(
   mission: Mission,
   attackId: string,
-  weapons: Weapon[],
+  weapons: DbWeapon[],
   fuzeOptions: Map<string, FuzeOption[]>,
   threatSystems: ThreatSystemInfo[],
 ): KneeboardCard | null {
@@ -400,11 +414,8 @@ export function buildKneeboardCard(
     }
   }
 
-  // Min safe alt from weapon frag data (handles both camelCase TS type and snake_case DB return)
-  const minSafeAlt: number | undefined =
-    weapon?.fragPattern?.minSafeAlt_ft ??
-    (weapon as unknown as Record<string, number>)?.frag_min_safe_alt_ft ??
-    undefined;
+  // Min safe alt from the weapon's frag data
+  const minSafeAlt: number | undefined = weapon?.frag_min_safe_alt_ft ?? undefined;
 
   // Threats within 60nm of target, sorted by distance (max 6)
   const targetPos = targetWp.coordinates;
@@ -452,7 +463,24 @@ export function buildKneeboardCard(
     }
   }
 
-  const egress = getEgressInfo(attack);
+  const egress = getEgressInfo(attack, runInHeading);
+
+  // A card flown off a tablet must carry the same caveat the screen shows.
+  // Fail warn-open: an unknown or not-yet-loaded theater is treated as
+  // unverified rather than silently trusted.
+  const theater = getTheaterInfo(mission.theater);
+  const caution = theater?.verified
+    ? undefined
+    : `${theater?.display_name ?? mission.theater}: map projection unverified — confirm steerpoints on the F10 map`;
+
+  // Sanity checks against the weapon's own limits. On a card these are
+  // printed, not hidden — a pilot must see that the numbers disagree.
+  const checkWarnings = runAttackChecks({
+    profileType: attack.profileType,
+    profile: attack.profile,
+    weapon: weapon ?? null,
+    targetElevation_ft: targetWp.elevation_ft,
+  }).map((c) => c.text);
 
   const releaseMode =
     attack.releaseMode === 'ripple'
@@ -467,6 +495,7 @@ export function buildKneeboardCard(
       callsign: attacker.callsign,
       missionDate: mission.date,
       targetName: targetWp.name,
+      caution,
     },
     targetSection: {
       name: targetWp.name,
@@ -488,6 +517,7 @@ export function buildKneeboardCard(
       fuze: fuzeName,
       releaseMode,
       minSafeAlt_ft: minSafeAlt,
+      warnings: checkWarnings.length ? checkWarnings : undefined,
     },
     egressSection: {
       direction: egress.direction,

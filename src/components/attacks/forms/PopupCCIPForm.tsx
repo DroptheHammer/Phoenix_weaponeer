@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PopupCCIPProfile, Waypoint, Weapon, PopupCCIPResult } from '../../../types';
+import type { PopupCCIPProfile, Waypoint, DbWeapon, PopupCCIPResult } from '../../../types';
+import { resolveEgressHeading } from '../../../lib/attackGeometry';
+import { runAttackChecks } from '../../../lib/attackChecks';
 
 interface PopupCCIPFormProps {
   profile: Partial<PopupCCIPProfile>;
   ipWaypoints: Waypoint[];
   targetElevation: number;
-  selectedWeapon: Weapon | null;
+  selectedWeapon: DbWeapon | null;
   onChange: (profile: Partial<PopupCCIPProfile>) => void;
   calculatorResult: PopupCCIPResult | null;
   onCalculate: () => void;
@@ -70,6 +72,19 @@ export function PopupCCIPForm({
     // Calculate after preset is applied
     setTimeout(() => onCalculate(), 100);
   };
+
+  // The heading the attack will actually fly: planner override, else IP→target.
+  const effectiveAttackHeading =
+    profile.runInHeading_deg != null && Number.isFinite(profile.runInHeading_deg)
+      ? profile.runInHeading_deg
+      : calculatedAttackHeading;
+
+  const checks = runAttackChecks({
+    profileType: 'popup_ccip',
+    profile,
+    weapon: selectedWeapon,
+    targetElevation_ft: targetElevation,
+  });
 
   // Update calculated values when calculator returns results
   useEffect(() => {
@@ -338,41 +353,47 @@ export function PopupCCIPForm({
               value={profile.egressHeading_deg || ''}
               onChange={(e) => onChange({ ...profile, egressHeading_deg: parseFloat(e.target.value) })}
               className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="Auto"
+              placeholder={
+                // Show the heading the card and map will use if this is left blank.
+                effectiveAttackHeading != null
+                  ? `Auto: ${Math.round(resolveEgressHeading(profile, effectiveAttackHeading))}°`
+                  : 'Auto'
+              }
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Hard Deck (ft MSL)</label>
+            {/* AGL, like every other altitude on this form — the card prints it as AGL. */}
+            <label className="block text-sm font-medium mb-1">Hard Deck (ft AGL)</label>
             <input
               type="number"
               value={profile.minAltitude_ft || ''}
               onChange={(e) => onChange({ ...profile, minAltitude_ft: parseFloat(e.target.value) })}
               className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder={`${Math.round(targetElevation + 500)}`}
+              placeholder="500"
             />
           </div>
         </div>
       </div>
 
-      {/* Weapon Safety Check */}
+      {/*
+        Weapon constraints. The previous version of this block read camelCase
+        fields (`minReleaseAlt_ft`, `fragPattern`) that the database never
+        returns, so it showed a green tick for every release altitude — which
+        is how a card came to print a release 1,000 ft under min-safe.
+      */}
       {selectedWeapon && calculatorResult && (
         <div className="bg-dcs-darker rounded-lg p-4">
           <h4 className="font-semibold mb-2">Weapon Constraints</h4>
           <div className="text-sm space-y-1">
-            {selectedWeapon.minReleaseAlt_ft && calculatorResult.release_altitude_agl < selectedWeapon.minReleaseAlt_ft && (
-              <div className="text-red-400">
-                ⚠ Release altitude below weapon minimum ({selectedWeapon.minReleaseAlt_ft} ft)
-              </div>
-            )}
-            {selectedWeapon.fragPattern?.minSafeAlt_ft && calculatorResult.release_altitude_agl < selectedWeapon.fragPattern.minSafeAlt_ft && (
-              <div className="text-red-400">
-                ⚠ Release altitude below frag safety ({selectedWeapon.fragPattern.minSafeAlt_ft} ft)
-              </div>
-            )}
-            {(!selectedWeapon.minReleaseAlt_ft || calculatorResult.release_altitude_agl >= selectedWeapon.minReleaseAlt_ft) &&
-             (!selectedWeapon.fragPattern?.minSafeAlt_ft || calculatorResult.release_altitude_agl >= selectedWeapon.fragPattern.minSafeAlt_ft) && (
-              <div className="text-green-400">✓ Within weapon constraints</div>
+            {checks.length === 0 ? (
+              <div className="text-green-400">✓ Within {selectedWeapon.name} limits</div>
+            ) : (
+              checks.map((check) => (
+                <div key={check.text} className={check.level === 'error' ? 'text-red-400' : 'text-yellow-400'}>
+                  ⚠ {check.text}
+                </div>
+              ))
             )}
           </div>
         </div>

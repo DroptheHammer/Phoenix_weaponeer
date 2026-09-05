@@ -191,6 +191,25 @@ export function calculatePopupGeometry(
 }
 
 /**
+ * Egress heading for a profile: the planner's explicit value when set, else a
+ * 90° break off the attack heading in the chosen direction.
+ *
+ * The map overlay and the kneeboard card must agree on this. The card used to
+ * print the raw profile field — which is usually unset — as "undefined°".
+ */
+export function resolveEgressHeading(
+  egress: { egressDirection?: 'left' | 'right' | 'straight'; egressHeading_deg?: number },
+  attackHeading: number,
+): number {
+  if (egress.egressHeading_deg != null && Number.isFinite(egress.egressHeading_deg)) {
+    return egress.egressHeading_deg;
+  }
+  if (egress.egressDirection === 'left') return (attackHeading - 90 + 360) % 360;
+  if (egress.egressDirection === 'right') return (attackHeading + 90) % 360;
+  return attackHeading;
+}
+
+/**
  * Generate tactical script for kneeboard
  * Example: "From waypoint 7, attack waypoint 8 via POPUP CCIP, MK82 LD, single.
  *           7nm turn 35 degrees right and 20 degrees nose up,

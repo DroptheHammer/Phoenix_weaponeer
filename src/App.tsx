@@ -11,7 +11,7 @@ import { AttackList } from "./components/attacks/AttackList";
 import { KneeboardPreview } from "./components/kneeboard/KneeboardPreview";
 import { UnsavedChangesDialog } from "./components/mission/UnsavedChangesDialog";
 import { openMission, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
-import type { FragOrdersData, Weapon, FuzeOption } from "./types";
+import type { FragOrdersData, DbWeapon, FuzeOption } from "./types";
 
 interface ThreatSystem {
   id: string;
@@ -40,7 +40,7 @@ function App() {
   const theaterInfo = useTheaterInfo(mission?.theater);
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
-  const [weapons, setWeapons] = useState<Weapon[]>([]);
+  const [weapons, setWeapons] = useState<DbWeapon[]>([]);
   const [fuzeOptions, setFuzeOptions] = useState<Map<string, FuzeOption[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,7 +136,7 @@ function App() {
         const [threatData, aircraftData, weaponData] = await Promise.all([
           invoke<ThreatSystem[]>("get_all_threats"),
           invoke<Aircraft[]>("get_all_aircraft"),
-          invoke<Weapon[]>("get_all_weapons"),
+          invoke<DbWeapon[]>("get_all_weapons"),
           loadTheaters(),
         ]);
         setThreats(threatData);

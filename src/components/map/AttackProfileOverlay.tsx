@@ -3,7 +3,12 @@ import { divIcon } from 'leaflet';
 import type { Attack, Waypoint, PopupCCIPProfile, PopupCCIPResult } from '../../types';
 import type { ChucksGuideParams } from '../../lib/attackGeometry';
 import { MARKER_Z } from './mapLayers';
-import { calculatePopupGeometry, getRecommendedParams, calculatePointAtDistance } from '../../lib/attackGeometry';
+import {
+  calculatePopupGeometry,
+  getRecommendedParams,
+  calculatePointAtDistance,
+  resolveEgressHeading,
+} from '../../lib/attackGeometry';
 
 interface AttackProfileOverlayProps {
   attack: Attack;
@@ -120,10 +125,8 @@ export function AttackProfileOverlay({
   const tgtAlt = calculatorResult?.release_altitude_agl || effective.minReleaseAltitude_ft;
   const tgtSpeed = calculatorResult?.release_speed_ktas || runInSpeed;
 
-  // Calculate egress heading (90° turn from attack heading)
-  const egressBearing = profile.egressDirection === 'left'
-    ? (geometry.attackHeading - 90 + 360) % 360
-    : (geometry.attackHeading + 90) % 360;
+  // Egress heading — shared with the kneeboard card so both say the same thing.
+  const egressBearing = resolveEgressHeading(profile, geometry.attackHeading);
 
   // Calculate egress point using proper bearing calculation
   const egressPoint = calculatePointAtDistance(

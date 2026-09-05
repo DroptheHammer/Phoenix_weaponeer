@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMissionStore } from '../../stores/missionStore';
 import { AttackEditor } from './AttackEditor';
-import type { AttackProfileType, Weapon, FuzeOption, Attack } from '../../types';
+import type { AttackProfileType, DbWeapon, FuzeOption, Attack } from '../../types';
 
 const PROFILE_LABELS: Record<AttackProfileType, string> = {
   level_ccrp: 'Level CCRP',
@@ -20,7 +20,7 @@ interface Aircraft {
 }
 
 interface AttackListProps {
-  weapons: Weapon[];
+  weapons: DbWeapon[];
   fuzeOptions: Map<string, FuzeOption[]>;
   aircraft: Aircraft[];
 }

@@ -86,9 +86,9 @@ export interface PopupCCIPProfile {
   releaseSpeed_ktas: number;
 
   // Egress
-  minAltitude_ft: number; // Hard deck
+  minAltitude_ft: number; // Hard deck, ft AGL — the card and diagram print it as AGL
   egressDirection: 'left' | 'right';
-  egressHeading_deg: number;
+  egressHeading_deg?: number; // undefined = auto: 90° break off the attack heading (resolveEgressHeading)
 }
 
 export interface LoftCCRPProfile {

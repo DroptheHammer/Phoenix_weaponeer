@@ -20,6 +20,8 @@ export interface KneeboardHeader {
   callsign: string;
   missionDate: string;
   targetName: string;
+  /** Drawn as an amber strip under the header, e.g. an unverified map projection */
+  caution?: string;
 }
 
 export interface KneeboardTargetSection {
@@ -103,6 +105,8 @@ export interface KneeboardWeaponSection {
   armingDelay?: string;
   releaseMode: string;
   minSafeAlt_ft?: number;
+  /** Sanity-check failures from attackChecks, drawn as red ⚠ lines under the weapon */
+  warnings?: string[];
 }
 
 export interface KneeboardEgressSection {

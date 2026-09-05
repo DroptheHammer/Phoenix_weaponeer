@@ -16,6 +16,9 @@ const C = {
   accent: '#CC2200',
   accentBg: '#FFF0EE',
   accentLight: '#FFE0DC',
+  // Amber for cautions (unverified data). Red on this card means danger.
+  caution: '#8A5A00',
+  cautionBg: '#FFF1CC',
   stepTitleBg: '#2C3E50',
   stepTitleText: '#FFFFFF',
   stepBg: '#FAFAF4',
@@ -60,6 +63,11 @@ function txt(
   }
 }
 
+/** "042°" for a heading, "---" when there is none (no IP, cleared field). */
+function fmtHdg(h: number | undefined): string {
+  return h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---';
+}
+
 function sectionStrip(ctx: CanvasRenderingContext2D, label: string, y: number, rightText?: string): number {
   fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, C.sectionBg);
   txt(ctx, label, 8, y + 14, { bold: true, size: 11, family: SANS, color: C.sectionLabel });
@@ -86,6 +94,15 @@ function drawHeader(ctx: CanvasRenderingContext2D, card: KneeboardCard): number 
 
   hLine(ctx, 58, '#334455', 2);
   return 60;
+}
+
+/** Amber strip directly under the header, e.g. "coordinates unverified". */
+function drawCautionStrip(ctx: CanvasRenderingContext2D, caution: string, y: number): number {
+  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, C.cautionBg);
+  txt(ctx, `⚠ ${caution}`, 10, y + 14, {
+    size: 12, bold: true, family: SANS, color: C.caution, maxW: KNEEBOARD_WIDTH - 20,
+  });
+  return y + 20;
 }
 
 // ─── Target section (compact, ~80px) ─────────────────────────────────────────
@@ -120,6 +137,15 @@ function drawWeaponSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y
     fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, C.accentLight);
     txt(ctx, `⚠ MIN SAFE ALT: ${w.minSafeAlt_ft.toLocaleString()}ft AGL`, 10, y + 14, {
       size: 12, bold: true, family: SANS, color: C.accent,
+    });
+    y += 20;
+  }
+
+  // Sanity-check failures: the numbers on this card contradict the weapon.
+  for (const warning of w.warnings ?? []) {
+    fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, C.accentLight);
+    txt(ctx, `⚠ ${warning}`, 10, y + 14, {
+      size: 12, bold: true, family: SANS, color: C.accent, maxW: KNEEBOARD_WIDTH - 20,
     });
     y += 20;
   }
@@ -368,7 +394,7 @@ function drawPopupCCIPDiagram(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.fillText(
-    `ATTACK HDG: ${pd.runInHeading_deg != null ? `${Math.round(pd.runInHeading_deg).toString().padStart(3, '0')}°` : '---'}  ←  EGRESS ${diagram.egressDirection?.toUpperCase()} ${diagram.egressHeading_deg}°  →`,
+    `ATTACK HDG: ${fmtHdg(pd.runInHeading_deg)}  ←  EGRESS ${diagram.egressDirection?.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}  →`,
     KNEEBOARD_WIDTH / 2, boxY + 3,
   );
   ctx.textBaseline = 'alphabetic';
@@ -486,7 +512,29 @@ function drawLevelCCRPDiagram(
 
 // ─── Step-by-step procedure ───────────────────────────────────────────────────
 
-function drawSteps(ctx: CanvasRenderingContext2D, steps: KneeboardStep[], y: number): number {
+/** Vertical rhythm of the step list. Compact is used only when the normal one would run under the footer. */
+interface StepSpacing {
+  lineH: number;
+  gap: number;
+}
+const STEP_SPACING_NORMAL: StepSpacing = { lineH: 19, gap: 6 };
+const STEP_SPACING_COMPACT: StepSpacing = { lineH: 17, gap: 2 };
+
+/** Height `drawSteps` will consume, so the caller can pick a spacing that fits. */
+function measureSteps(steps: KneeboardStep[], spacing: StepSpacing): number {
+  let h = 20 + 4; // section strip + top pad
+  for (const step of steps) {
+    h += 22 + 4 + step.lines.length * spacing.lineH + spacing.gap;
+  }
+  return h;
+}
+
+function drawSteps(
+  ctx: CanvasRenderingContext2D,
+  steps: KneeboardStep[],
+  y: number,
+  spacing: StepSpacing = STEP_SPACING_NORMAL,
+): number {
   y = sectionStrip(ctx, 'STEP-BY-STEP PROCEDURE', y, 'Follow in order');
   y += 4;
 
@@ -499,7 +547,7 @@ function drawSteps(ctx: CanvasRenderingContext2D, steps: KneeboardStep[], y: num
 
     // Content lines
     const contentBg = step.isWarning ? '#FFF5F3' : C.stepBg;
-    const lineH = 19;
+    const { lineH } = spacing;
     fillRect(ctx, 6, y, KNEEBOARD_WIDTH - 12, step.lines.length * lineH + 6, contentBg);
     y += 4;
     for (const line of step.lines) {
@@ -513,11 +561,13 @@ function drawSteps(ctx: CanvasRenderingContext2D, steps: KneeboardStep[], y: num
       });
       y += lineH;
     }
-    y += 6;  // gap between steps
+    y += spacing.gap;
   }
 
   return y;
 }
+
+const FOOTER_HEIGHT = 26;
 
 // ─── Main render function ─────────────────────────────────────────────────────
 
@@ -535,8 +585,11 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
 
   let y = 0;
 
-  // 1. Header
+  // 1. Header (+ caution strip when the card's data carries a caveat)
   y = drawHeader(ctx, card);
+  if (card.header.caution) {
+    y = drawCautionStrip(ctx, card.header.caution, y);
+  }
 
   // 2. Target
   y = drawTargetSection(ctx, card, y);
@@ -552,13 +605,21 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
     y = drawAttackDiagram(ctx, card.attackSection.diagram, y);
   }
 
-  // 6. Step-by-step
+  // 6. Step-by-step. The footer is drawn last and paints over anything under
+  //    it, so a long procedure (popup: 5 steps × 3 lines) used to lose its
+  //    last lines silently. Tighten the spacing only when that would happen.
   if (card.attackSection.steps?.length) {
-    y = drawSteps(ctx, card.attackSection.steps, y);
+    const steps = card.attackSection.steps;
+    const footerTop = KNEEBOARD_HEIGHT - FOOTER_HEIGHT;
+    const spacing =
+      y + measureSteps(steps, STEP_SPACING_NORMAL) <= footerTop
+        ? STEP_SPACING_NORMAL
+        : STEP_SPACING_COMPACT;
+    y = drawSteps(ctx, steps, y, spacing);
   }
 
   // 7. Footer
-  fillRect(ctx, 0, KNEEBOARD_HEIGHT - 26, KNEEBOARD_WIDTH, 26, C.headerBg);
+  fillRect(ctx, 0, KNEEBOARD_HEIGHT - FOOTER_HEIGHT, KNEEBOARD_WIDTH, FOOTER_HEIGHT, C.headerBg);
   txt(ctx, 'PHOENIX WEAPONEER', 10, KNEEBOARD_HEIGHT - 10, { size: 10, bold: true, family: MONO, color: '#667788' });
   txt(ctx, 'UNCLASSIFIED // TRAINING USE ONLY', KNEEBOARD_WIDTH / 2, KNEEBOARD_HEIGHT - 10, {
     size: 9, family: MONO, color: '#445566', align: 'center',

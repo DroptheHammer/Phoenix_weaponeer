@@ -4,11 +4,12 @@ import { useMissionStore } from '../../stores/missionStore';
 import { useAttackCalculator } from '../../hooks/useAttackCalculator';
 import { PopupCCIPForm } from './forms/PopupCCIPForm';
 import { calculateBearing } from '../../lib/coordinates';
+import { runAttackChecks } from '../../lib/attackChecks';
 import type {
   Attack,
   AttackProfileType,
   PopupCCIPProfile,
-  Weapon,
+  DbWeapon,
   FuzeOption,
 } from '../../types';
 
@@ -23,7 +24,7 @@ interface Aircraft {
 interface AttackEditorProps {
   attack?: Attack;
   onClose: () => void;
-  weapons: Weapon[];
+  weapons: DbWeapon[];
   fuzeOptions: Map<string, FuzeOption[]>;
   aircraft: Aircraft[];
 }
@@ -114,6 +115,15 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
     !popupProfile.diveAngle_deg && 'dive angle',
     !calcResult && 'a calculation (press Calculate Profile)',
   ].filter((v): v is string => typeof v === 'string');
+
+  // Weapon/profile sanity checks. Shown, not blocking — a planner may have a
+  // reason — but they print on the card too, so nobody flies them unseen.
+  const checks = runAttackChecks({
+    profileType,
+    profile: popupProfile,
+    weapon: selectedWeapon ?? null,
+    targetElevation_ft: selectedTarget?.elevation_ft,
+  });
 
   // Validate form
   const canSave = Boolean(
@@ -344,6 +354,17 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft }
           {calcError && (
             <div className="text-center text-red-400 text-sm">
               Calculation failed: {calcError}
+            </div>
+          )}
+
+          {checks.length > 0 && (
+            <div className="text-sm border border-red-800 bg-red-950 bg-opacity-40 rounded p-3 space-y-1">
+              <div className="font-semibold text-red-300">This attack will print with warnings:</div>
+              {checks.map((check) => (
+                <div key={check.text} className={check.level === 'error' ? 'text-red-400' : 'text-yellow-400'}>
+                  ⚠ {check.text}
+                </div>
+              ))}
             </div>
           )}
 
