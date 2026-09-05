@@ -178,7 +178,71 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-07-29
+**Last session:** 2026-09-05
+
+**Completed this session — Phase 3.6 verified in-app, and Mission Save/Open built**
+
+Gates: `npm run build` clean, **31 Rust tests** pass (was 30).
+
+**Phase 3.6 is confirmed on screen.** The Sinai unverified-projection warning
+appears in both places it should, and imports still work now that the theater
+list arrives asynchronously from `list_theaters`.
+
+**A planner can now keep their work.** Open / Save / Save As live in the app
+header with a dirty indicator, Cmd/Ctrl+S, and a Save/Discard/Cancel guard in
+front of anything that would replace the mission (New, Import, Open, Close).
+
+**Two landmines were sitting in the way, both found before writing any UI:**
+
+1. **The Rust `Mission` struct had no `#[serde(rename_all = "camelCase")]`.**
+   Its fields are `flight_members`/`created_at`; the frontend's are
+   `flightMembers`/`createdAt`. The first Save would have died with `missing
+   field 'flight_members'`. Fixed, and pinned by
+   `mission_files_round_trip_with_camel_case_keys`, which asserts the *on-disk*
+   key spellings — those are the contract a later Open depends on.
+   **Any field added to Rust `Mission` from now on needs `#[serde(default)]`,
+   or every previously saved mission stops loading.**
+2. **`capabilities/default.json` granted `dialog:allow-save` but not
+   `dialog:allow-open`** — while `KneeboardPreview.tsx` has been calling
+   `open()` for the batch folder picker all along. **"Export All to Folder" has
+   been broken this entire time** and nobody had exercised it. Fixed as a side
+   effect; confirmed working by a folder export in this session.
+
+**Verified by hand, and cross-checked against the files it produced** — the
+saved missions on disk carry camelCase keys, and the Sinai save round-tripped a
+complete attack with its nested profile (climb angle, apex, roll-in altitude),
+which proves the `Vec<Value>` passthrough for every array. Kneeboard export
+(single file and folder) both worked.
+
+**Not verified:** the Save/Discard/Cancel guard and Escape-to-close. Worth two
+minutes next session.
+
+**New in the codebase:**
+- `src/lib/missionFile.ts` — the only place that talks to `save_mission` /
+  `load_mission`. `save_mission` appends no extension, so this layer adds
+  `.json` itself.
+- `src/components/common/Modal.tsx` — the first shared modal. Four components
+  (`AttackEditor`, `LoadoutEditor`, `FlightMemberEditor`, `ThreatList`) still
+  hand-roll the same portal markup; folding them in is mechanical and was
+  deliberately left for its own commit so it would not bury this one.
+- `src/components/mission/UnsavedChangesDialog.tsx`
+- `test-data/sinai_SYNTHETIC_banner_check.json` — **UI check only.** Its
+  coordinates were generated *from* the Sinai projection they are meant to test,
+  so round-tripping them proves nothing. Deliberately not turned into a test;
+  that is the same false confidence `test_fragorders.json` cost two sessions.
+
+**Import is reachable again.** The Import button existed only on the no-mission
+landing screen, so once a mission was loaded there was no way back to it. It is
+in the header toolbar now.
+
+**Next up:** see the numbered list at the bottom of the previous session's
+notes — items 3 (The Channel projection), 4 (kneeboard caution line for
+unverified maps) and Phase 3.3 (PDF export) are the live ones. Items 1 and 2 are
+done.
+
+---
+
+**Previous session:** 2026-07-29
 
 **Completed this session — Phase 3.6, theater projections for 12 of 13 maps**
 

@@ -80,7 +80,7 @@ interface MissionState {
 
   // State management
   markClean: () => void;
-  setFilePath: (path: string) => void;
+  setFilePath: (path: string | null) => void;
 }
 
 export const useMissionStore = create<MissionState>((set, get) => ({
@@ -392,7 +392,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     set({ isDirty: false });
   },
 
-  setFilePath: (path: string) => {
+  setFilePath: (path: string | null) => {
     set({ filePath: path });
   },
 }));

@@ -69,3 +69,27 @@ now pinned by ground-truth landmark tests in
 `src-tauri/src/parsers/coordinate_conversion.rs`.
 
 Prefer `nttr_redflag_viper1.json` for anything involving positions on a map.
+
+### `sinai_SYNTHETIC_banner_check.json` — ⚠️ SYNTHETIC, UI CHECK ONLY
+
+Hand-built, **not** FragOrders output. It exists for exactly one purpose: Sinai
+is one of three theaters whose projection has never been independently
+confirmed (`verified: false`), so this file is a way to see the amber
+"coordinates unverified" warning in the import preview and the banner over the
+map without owning a Sinai mission.
+
+**Its coordinates prove nothing.** They were generated *from* the very Sinai
+projection the warning is about, by projecting chosen lat/lons backwards. Round-
+tripping them therefore succeeds no matter whether that projection is right —
+which is precisely the false confidence that `test_fragorders.json` above cost
+two sessions to unlearn. Never cite this file as evidence that Sinai positions
+are correct.
+
+Contents: one F-16C flight (`Hawk 1 (Sinai synthetic)`, skill `Client`) with
+four waypoints — DEPART, IP, TGT1, EGRESS — and one SA-6 near TGT1. Theater key
+is `theatre: "SinaiMap"`, which is the name DCS actually writes; plain `Sinai`
+matches nothing.
+
+Retiring the `verified: false` flag needs the opposite of this file: real
+ground-truth pairs (DCS x/y and lat/lon) read off the DCS F10 map by someone who
+owns Sinai.

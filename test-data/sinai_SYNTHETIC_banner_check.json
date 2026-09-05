@@ -1,0 +1,129 @@
+{
+  "_WARNING": "SYNTHETIC. Hand-built to exercise the unverified-projection warning on an unverified theater. The coordinates below were generated FROM the projection this file is meant to test, so they prove nothing about it. Never cite this file as evidence that Sinai positions are correct. See test-data/README.md.",
+  "theatre": "SinaiMap",
+  "triggers": {
+    "zones": []
+  },
+  "coalition": {
+    "blue": {
+      "bullseye": {
+        "x": 37797,
+        "y": 169222
+      },
+      "nav_points": [],
+      "country": [
+        {
+          "id": 2,
+          "name": "USA",
+          "plane": {
+            "group": [
+              {
+                "name": "Hawk 1 (Sinai synthetic)",
+                "groupId": 1,
+                "task": "CAS",
+                "frequency": 251.0,
+                "units": [
+                  {
+                    "name": "Hawk 1-1",
+                    "unitId": 1,
+                    "type": "F-16C_50",
+                    "x": 93361,
+                    "y": 111882,
+                    "alt": 100,
+                    "heading": 0,
+                    "skill": "Client",
+                    "callsign": { "name": "Hawk11", "1": 1, "2": 1, "3": 1 },
+                    "onboard_num": "010"
+                  },
+                  {
+                    "name": "Hawk 1-2",
+                    "unitId": 2,
+                    "type": "F-16C_50",
+                    "x": 93361,
+                    "y": 111912,
+                    "alt": 100,
+                    "heading": 0,
+                    "skill": "Client",
+                    "callsign": { "name": "Hawk11", "1": 1, "2": 2, "3": 2 },
+                    "onboard_num": "011"
+                  }
+                ],
+                "route": {
+                  "points": [
+                    {
+                      "name": "DEPART",
+                      "type": "TakeOff",
+                      "action": "From Runway",
+                      "x": 93361,
+                      "y": 111882,
+                      "alt": 100,
+                      "alt_type": "BARO",
+                      "speed": 130
+                    },
+                    {
+                      "name": "IP",
+                      "type": "Turning Point",
+                      "action": "Turning Point",
+                      "x": 59977,
+                      "y": 188395,
+                      "alt": 6000,
+                      "alt_type": "BARO",
+                      "speed": 220
+                    },
+                    {
+                      "name": "TGT1",
+                      "type": "Turning Point",
+                      "action": "Turning Point",
+                      "x": 10246,
+                      "y": 227004,
+                      "alt": 6000,
+                      "alt_type": "BARO",
+                      "speed": 220
+                    },
+                    {
+                      "name": "EGRESS",
+                      "type": "Turning Point",
+                      "action": "Turning Point",
+                      "x": -28182,
+                      "y": 275530,
+                      "alt": 8000,
+                      "alt_type": "BARO",
+                      "speed": 220
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "red": {
+      "country": [
+        {
+          "id": 18,
+          "name": "Insurgents",
+          "vehicle": {
+            "group": [
+              {
+                "name": "TGT1 SAM",
+                "groupId": 2,
+                "units": [
+                  {
+                    "name": "TGT1 SAM LN",
+                    "unitId": 10,
+                    "type": "Kub 2P25 ln",
+                    "x": 12000,
+                    "y": 229000,
+                    "heading": 0,
+                    "skill": "Average"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

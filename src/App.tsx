@@ -9,6 +9,8 @@ import { ThreatList } from "./components/threats/ThreatList";
 import { FlightRoster } from "./components/flights/FlightRoster";
 import { AttackList } from "./components/attacks/AttackList";
 import { KneeboardPreview } from "./components/kneeboard/KneeboardPreview";
+import { UnsavedChangesDialog } from "./components/mission/UnsavedChangesDialog";
+import { openMission, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
 import type { FragOrdersData, Weapon, FuzeOption } from "./types";
 
 interface ThreatSystem {
@@ -28,8 +30,12 @@ interface Aircraft {
 
 type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
+const toolbarButton =
+  'px-3 py-1.5 rounded-lg text-sm font-medium bg-dcs-blue hover:bg-blue-600 transition-colors';
+
 function App() {
-  const { mission, createMission, importFromFragOrders, updateThreat } = useMissionStore();
+  const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat } =
+    useMissionStore();
   const loadTheaters = useTheaterStore((state) => state.loadTheaters);
   const theaterInfo = useTheaterInfo(mission?.theater);
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
@@ -41,12 +47,81 @@ function App() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
   const [threatPlacementCallback, setThreatPlacementCallback] = useState<((position: { lat: number; lon: number }) => void) | null>(null);
+  // Action held back by the unsaved-changes guard, with the phrase shown to the user.
+  const [pendingAction, setPendingAction] = useState<{ label: string; run: () => void } | null>(null);
+  const [fileMsg, setFileMsg] = useState<string | null>(null);
 
   const handleFragOrdersImport = (data: FragOrdersData, groupIndex: number) => {
     importFromFragOrders(data, groupIndex);
     setShowImportModal(false);
     setActivePanel(null); // Close any open panel after import
   };
+
+  /**
+   * Run `action`, but stop first if it would discard unsaved planning.
+   *
+   * Everything that replaces or drops the current mission goes through here —
+   * New, Import, Open and Close. Without it an hour of threat placement and
+   * attack profiles vanishes on a single click.
+   */
+  const guardUnsaved = (label: string, action: () => void) => {
+    if (mission && isDirty) {
+      setPendingAction({ label, run: action });
+      return;
+    }
+    action();
+  };
+
+  const reportFileResult = (result: FileResult, verb: string) => {
+    if (result.status === 'ok') {
+      setFileMsg(`${verb}: ${result.path.split(/[/\\]/).pop()}`);
+    } else if (result.status === 'error') {
+      setFileMsg(`Error: ${result.message}`);
+    }
+  };
+
+  const handleSave = async () => {
+    setFileMsg(null);
+    reportFileResult(await saveMission(), 'Saved');
+  };
+
+  const handleSaveAs = async () => {
+    setFileMsg(null);
+    reportFileResult(await saveMissionAs(), 'Saved');
+  };
+
+  const handleOpen = () => {
+    guardUnsaved('open another mission', async () => {
+      setFileMsg(null);
+      const result = await openMission();
+      if (result.status === 'ok') setActivePanel(null);
+      reportFileResult(result, 'Opened');
+    });
+  };
+
+  const handleImportClick = () => {
+    guardUnsaved('import a new mission', () => setShowImportModal(true));
+  };
+
+  const handleCloseMission = () => {
+    guardUnsaved('close this mission', () => {
+      closeMission();
+      setActivePanel(null);
+      setFileMsg(null);
+    });
+  };
+
+  // Cmd/Ctrl+S. There was no keyboard layer at all before this.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        if (useMissionStore.getState().mission) void handleSave();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Create threat system map for quick lookups
   const threatSystemMap = useMemo(() => {
@@ -94,7 +169,7 @@ function App() {
   }, [loadTheaters]);
 
   const handleNewMission = () => {
-    createMission("New Mission", "caucasus");
+    guardUnsaved('start a new mission', () => createMission("New Mission", "caucasus"));
   };
 
   // Map interaction handlers
@@ -120,9 +195,60 @@ function App() {
 
   return (
     <div className="min-h-screen bg-dcs-dark text-white">
-      <header className="bg-dcs-navy p-4 shadow-lg">
-        <h1 className="text-2xl font-bold">Phoenix Weaponeer</h1>
-        <p className="text-gray-400 text-sm">DCS Mission Planning Tool</p>
+      <header className="bg-dcs-navy px-4 py-3 shadow-lg flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Phoenix Weaponeer</h1>
+          <p className="text-gray-400 text-sm">DCS Mission Planning Tool</p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {fileMsg && (
+            <span
+              className={`text-sm ${fileMsg.startsWith('Error') ? 'text-red-400' : 'text-gray-400'}`}
+            >
+              {fileMsg}
+            </span>
+          )}
+
+          {mission && (
+            <span className="text-sm text-gray-300 max-w-[16rem] truncate" title={mission.name}>
+              {mission.name}
+              {/* Unsaved-work indicator. */}
+              {isDirty && <span className="text-dcs-accent ml-1">&#9679;</span>}
+            </span>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button onClick={handleOpen} className={toolbarButton}>
+              Open
+            </button>
+            {/*
+              Import used to exist only on the no-mission landing screen, so
+              once a mission was loaded there was no way back to it.
+            */}
+            <button onClick={handleImportClick} className={toolbarButton}>
+              Import
+            </button>
+            {mission && (
+              <>
+                <button
+                  onClick={handleSave}
+                  disabled={!isDirty}
+                  className={`${toolbarButton} disabled:opacity-40 disabled:hover:bg-dcs-blue`}
+                  title="Save (Cmd/Ctrl+S)"
+                >
+                  Save
+                </button>
+                <button onClick={handleSaveAs} className={toolbarButton}>
+                  Save As
+                </button>
+                <button onClick={handleCloseMission} className={toolbarButton}>
+                  Close
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </header>
 
       <main className="p-6">
@@ -287,10 +413,16 @@ function App() {
                   Create New Mission
                 </button>
                 <button
-                  onClick={() => setShowImportModal(true)}
+                  onClick={handleImportClick}
                   className="bg-dcs-blue hover:bg-blue-600 text-white px-6 py-2 rounded-lg transition-colors"
                 >
                   Import FragOrders
+                </button>
+                <button
+                  onClick={handleOpen}
+                  className="bg-dcs-blue hover:bg-blue-600 text-white px-6 py-2 rounded-lg transition-colors"
+                >
+                  Open Saved Mission
                 </button>
               </div>
             </div>
@@ -333,6 +465,18 @@ function App() {
         <FragOrdersImport
           onClose={() => setShowImportModal(false)}
           onImport={handleFragOrdersImport}
+        />
+      )}
+
+      {pendingAction && (
+        <UnsavedChangesDialog
+          actionLabel={pendingAction.label}
+          onProceed={() => {
+            const { run } = pendingAction;
+            setPendingAction(null);
+            run();
+          }}
+          onCancel={() => setPendingAction(null)}
         />
       )}
     </div>

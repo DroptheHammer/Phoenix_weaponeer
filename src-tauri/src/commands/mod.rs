@@ -16,7 +16,17 @@ use serde_json::Value;
 use tauri::State;
 
 /// Mission data structure
+///
+/// The field names here are the on-disk format of a saved mission *and* the
+/// IPC contract with the frontend, whose `Mission` interface
+/// (`src/types/mission.types.ts`) is camelCase. Hence `rename_all`: without it
+/// `save_mission` rejects the store's mission with `missing field
+/// 'flight_members'`.
+///
+/// Any field added here later needs `#[serde(default)]`, or every mission
+/// saved before that day stops loading.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Mission {
     pub id: String,
     pub name: String,
@@ -849,5 +859,50 @@ mod tests {
                 "waypoint {name:?} ({point_type})"
             );
         }
+    }
+
+    /// The frontend's `Mission` interface is camelCase; this struct is the
+    /// other end of that wire and is also the saved-file format. Pin both key
+    /// spellings — without `rename_all` the first Save fails with
+    /// `missing field 'flight_members'`, which is exactly the bug this guards.
+    #[test]
+    fn mission_files_round_trip_with_camel_case_keys() {
+        let from_frontend = r#"{
+            "id": "m1",
+            "name": "Red Flag 24-1",
+            "date": "2026-09-05",
+            "theater": "nevada",
+            "bullseye": { "lat": 36.2, "lon": -115.0 },
+            "waypoints": [{ "id": "w1", "steerpoint": 1, "elevation_ft": 1870 }],
+            "threats": [],
+            "flightMembers": [{ "id": "f1", "callsign": "Viper 1-1" }],
+            "attacks": [],
+            "notes": "",
+            "createdAt": "2026-09-05T00:00:00Z",
+            "updatedAt": "2026-09-05T00:00:00Z"
+        }"#;
+
+        let mission: Mission = serde_json::from_str(from_frontend)
+            .expect("the store's camelCase mission must deserialize");
+
+        let path = std::env::temp_dir().join("phoenix_mission_round_trip.json");
+        let path_str = path.to_string_lossy().to_string();
+
+        save_mission(mission, path_str.clone()).expect("save");
+        let on_disk = std::fs::read_to_string(&path).expect("read back");
+
+        // The saved file is what a later Open reads, so its keys matter.
+        assert!(on_disk.contains("\"flightMembers\""), "got: {on_disk}");
+        assert!(on_disk.contains("\"createdAt\""), "got: {on_disk}");
+        assert!(on_disk.contains("\"updatedAt\""), "got: {on_disk}");
+        assert!(!on_disk.contains("flight_members"), "got: {on_disk}");
+
+        let reloaded = load_mission(path_str).expect("load");
+        assert_eq!(reloaded.name, "Red Flag 24-1");
+        assert_eq!(reloaded.flight_members.len(), 1);
+        // Nested shapes are `Value`, so they pass through untouched.
+        assert_eq!(reloaded.waypoints[0]["elevation_ft"], 1870);
+
+        std::fs::remove_file(&path).ok();
     }
 }

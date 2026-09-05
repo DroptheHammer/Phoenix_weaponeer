@@ -192,6 +192,13 @@ at import. The FragOrders author supplied FragOrders' full theater table
       would pass regardless and repeat the false-confidence mistake that cost
       two sessions on coordinate conversion
 
+### 3.6.6 Verified in-app ✅ (2026-09-05)
+- [x] Import works with the theater list arriving asynchronously from
+      `list_theaters` rather than a hard-coded frontend table
+- [x] The amber unverified-projection warning shows in the import preview and as
+      a banner over the map, exercised on Sinai via
+      `test-data/sinai_SYNTHETIC_banner_check.json`
+
 ### 3.6.5 Still Outstanding ❌
 - [ ] **The Channel** — the only map FragOrders did not supply. Needs
       ground-truth (DCS x/y ↔ lat/lon) pairs read off the F10 map by someone
@@ -228,7 +235,10 @@ at import. The FragOrders author supplied FragOrders' full theater table
 - [ ] Weather considerations
 
 ### 4.5 Quality of Life
-- [ ] Mission save/load to JSON files
+- [x] Mission save/load to JSON files ✅ (2026-09-05)
+  - [x] Open / Save / Save As in the app header, native pickers
+  - [x] Dirty indicator and an unsaved-changes guard on New/Import/Open/Close
+  - [x] Cmd/Ctrl+S
 - [ ] Recently used missions list
 - [ ] Copy/paste attacks between flight members
 - [ ] Undo/redo for planning changes
@@ -237,9 +247,10 @@ at import. The FragOrders author supplied FragOrders' full theater table
 
 ## Current Status
 
-**Last Updated:** 2026-07-29
+**Last Updated:** 2026-09-05
 
 **Completed:**
+- Phase 4.5: Mission save/load UI (2026-09-05)
 - Phase 1: Foundation (all sections)
 - Phase 2: Core Planning (all sections 2.1-2.6)
 - Phase 3: Output (sections 3.1-3.2 complete, 3.3 optional not started)
@@ -247,12 +258,9 @@ at import. The FragOrders author supplied FragOrders' full theater table
 - Phase 3.6: Theater Projection Support (12 of 13 maps)
 
 **Next Up:**
-- **Mission save/load UI** — `save_mission` and `load_mission` are fully
-  implemented in Rust and registered, but nothing in the frontend calls either.
-  A planner can import a mission, spend an hour on threats and attack profiles,
-  and has no way to save the work. Listed under 4.5 as "not started"; in fact
-  only the UI half is missing.
 - Phase 3.3 (Optional): PDF export for print-friendly briefing packages
+- Kneeboard caution line for unverified theaters (the UI warns, the printed card
+  does not)
 - Phase 4: Polish features (additional aircraft, attack profiles, enhanced import)
 
 ---
