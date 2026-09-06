@@ -10,10 +10,13 @@ use crate::parsers::{
     normalize_theater_name, ProcessedCoordinates, ProcessedFragOrdersData, ProcessedPlayerGroup,
     ProcessedThreat, ProcessedTriggerZone, ProcessedUnit, ProcessedWaypoint, ThreatMatchConfidence,
 };
+use crate::profiles;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::State;
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_shell::ShellExt;
 
 /// Mission data structure
 ///
@@ -142,6 +145,49 @@ pub fn load_mission(path: String) -> Result<Mission, String> {
     let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mission: Mission = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     Ok(mission)
+}
+
+// ============================================================================
+// Delivery Profile Commands
+// ============================================================================
+
+/// The squadron's profile folder: `<app data>/profiles`, next to the database.
+/// Created on first use with a README explaining the format.
+fn profiles_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Cannot resolve app data dir: {e}"))?
+        .join("profiles");
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+        std::fs::write(dir.join("README.txt"), profiles::USER_DIR_README)
+            .map_err(|e| format!("Cannot write README: {e}"))?;
+    }
+    Ok(dir)
+}
+
+/// Bundled profiles merged with the squadron's overrides. Unreadable user
+/// files come back as warnings so the UI can say so.
+#[tauri::command]
+pub fn list_delivery_profiles(app: AppHandle) -> Result<profiles::ProfileLibrary, String> {
+    let dir = profiles_dir(&app)?;
+    profiles::load_all(&dir)
+}
+
+/// Open the squadron profile folder in Finder / Explorer.
+///
+/// `Shell::open` is deprecated in favour of tauri-plugin-opener; it still
+/// works, and a second plugin for one folder-reveal is not worth it yet.
+#[allow(deprecated)]
+#[tauri::command]
+pub fn reveal_profiles_dir(app: AppHandle) -> Result<String, String> {
+    let dir = profiles_dir(&app)?;
+    let path = dir.to_string_lossy().to_string();
+    app.shell()
+        .open(path.clone(), None)
+        .map_err(|e| format!("Cannot open {path}: {e}"))?;
+    Ok(path)
 }
 
 // ============================================================================

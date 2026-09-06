@@ -56,6 +56,28 @@ export type {
   StandoffProfile,
 } from './attack.types';
 
+// Delivery profiles
+export type {
+  DeliveryProfile,
+  ProfileGeometry,
+  DeliveryModeCode,
+  WeaponClass,
+  ProfileParams,
+  LevelParams,
+  DiveParams,
+  PopupParams,
+  LoftParams,
+  SightSetting,
+  ProfileLibrary,
+} from './profile.types';
+export {
+  SUPPORTED_GEOMETRIES,
+  levelParams,
+  diveParams,
+  popupParams,
+  loftParams,
+} from './profile.types';
+
 // Calculator
 export type {
   PopupCCIPInput,

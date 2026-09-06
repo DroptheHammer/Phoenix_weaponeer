@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMissionStore } from "./stores/missionStore";
 import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
+import { useProfileStore } from "./stores/profileStore";
 import { FragOrdersImport } from "./components/import";
 import { MapView } from "./components/map/MapView";
 import { WaypointList } from "./components/waypoints/WaypointList";
@@ -37,6 +38,7 @@ function App() {
   const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat } =
     useMissionStore();
   const loadTheaters = useTheaterStore((state) => state.loadTheaters);
+  const loadProfiles = useProfileStore((state) => state.loadProfiles);
   const theaterInfo = useTheaterInfo(mission?.theater);
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
@@ -138,6 +140,7 @@ function App() {
           invoke<Aircraft[]>("get_all_aircraft"),
           invoke<DbWeapon[]>("get_all_weapons"),
           loadTheaters(),
+          loadProfiles(),
         ]);
         setThreats(threatData);
         setAircraft(aircraftData);
@@ -166,7 +169,7 @@ function App() {
       }
     }
     loadDatabaseData();
-  }, [loadTheaters]);
+  }, [loadTheaters, loadProfiles]);
 
   const handleNewMission = () => {
     guardUnsaved('start a new mission', () => createMission("New Mission", "caucasus"));

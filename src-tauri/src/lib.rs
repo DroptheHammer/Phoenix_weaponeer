@@ -9,6 +9,7 @@ pub mod commands;
 pub mod db;
 pub mod exporters;
 pub mod parsers;
+pub mod profiles;
 
 use db::Database;
 use tauri::Manager;
@@ -46,6 +47,9 @@ pub fn run() {
             commands::load_mission,
             // Theater commands
             commands::list_theaters,
+            // Delivery profile library
+            commands::list_delivery_profiles,
+            commands::reveal_profiles_dir,
             // Database commands
             commands::get_all_threats,
             commands::get_threats_by_type,

@@ -13,7 +13,10 @@ import type {
 } from '../types';
 
 /**
- * Normalize DCS aircraft type to our database aircraft ID
+ * Normalize DCS aircraft type to our database aircraft ID.
+ *
+ * The ids must match the `aircraft` seed in `src-tauri/src/db/mod.rs` and the
+ * `aircraftId` in each profile file under `src-tauri/resources/profiles/`.
  */
 function normalizeAircraftType(dcsType: string): string {
   const typeMap: Record<string, string> = {
@@ -26,6 +29,16 @@ function normalizeAircraftType(dcsType: string): string {
     'A-10C_2': 'a10c',
     'F-15E': 'f15e',
     'F-15ESE': 'f15e',
+    'F-4E-45MC': 'f4e',
+    'F-4E': 'f4e',
+    'A-4E-C': 'a4ec',
+    'F-5E-3': 'f5e',
+    'F-5E': 'f5e',
+    'F-14B': 'f14',
+    'F-14A-135-GR': 'f14',
+    'F-14A': 'f14',
+    'Mirage-F1': 'f1', // every F1 variant starts with this (CE, EE, M-EE, BE…)
+    'AV8BNA': 'av8b',
   };
 
   // Check exact match

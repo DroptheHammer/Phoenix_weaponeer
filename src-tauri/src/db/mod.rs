@@ -78,13 +78,21 @@ pub struct Aircraft {
     pub kneeboard_path: String,
 }
 
+/// Bump this whenever the schema or the seed data changes.
+///
+/// The database holds reference data only — threats, weapons, aircraft.
+/// Missions live in JSON files. So an out-of-date database is simply dropped
+/// and rebuilt from the seed; there is nothing in it to migrate. Without this,
+/// new seed rows (say, an aircraft) never reach a database that already
+/// exists, because seeding only runs on empty tables.
+const SCHEMA_VERSION: i32 = 2;
+
 impl Database {
     /// Open or create the database at the given path
     pub fn open<P: AsRef<Path>>(path: P) -> SqliteResult<Self> {
         let conn = Connection::open(path)?;
         let db = Self { conn: Mutex::new(conn) };
-        db.initialize_tables()?;
-        db.seed_data_if_empty()?;
+        db.migrate()?;
         Ok(db)
     }
 
@@ -92,9 +100,38 @@ impl Database {
     pub fn open_in_memory() -> SqliteResult<Self> {
         let conn = Connection::open_in_memory()?;
         let db = Self { conn: Mutex::new(conn) };
-        db.initialize_tables()?;
-        db.seed_data_if_empty()?;
+        db.migrate()?;
         Ok(db)
+    }
+
+    /// Bring the database to `SCHEMA_VERSION`: rebuild from seed if stale.
+    fn migrate(&self) -> SqliteResult<()> {
+        let stale = {
+            let conn = self.conn.lock().unwrap();
+            let version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+            if version < SCHEMA_VERSION {
+                println!("Reference database is v{version}, rebuilding as v{SCHEMA_VERSION}");
+                conn.execute_batch(
+                    r#"
+                    DROP TABLE IF EXISTS aircraft_weapons;
+                    DROP TABLE IF EXISTS fuze_options;
+                    DROP TABLE IF EXISTS aircraft;
+                    DROP TABLE IF EXISTS weapons;
+                    DROP TABLE IF EXISTS threat_systems;
+                    "#,
+                )?;
+            }
+            version < SCHEMA_VERSION
+        };
+
+        self.initialize_tables()?;
+        self.seed_data_if_empty()?;
+
+        if stale {
+            let conn = self.conn.lock().unwrap();
+            conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
+        }
+        Ok(())
     }
 
     /// Initialize database tables
@@ -256,11 +293,19 @@ impl Database {
 
             // Seed aircraft
             conn.execute_batch(r#"
+                -- ids must match normalizeAircraftType in src/stores/missionStore.ts
+                -- and the aircraftId in each src-tauri/resources/profiles/*.json
                 INSERT INTO aircraft (id, name, dcs_module_name, max_speed_ktas, stall_speed_ktas, max_g, service_ceiling_ft, kneeboard_path) VALUES
                 ('f16c', 'F-16C Viper', 'F-16C_50', 1200, 130, 9.0, 50000, 'F-16C'),
                 ('f18c', 'F/A-18C Hornet', 'FA-18C_hornet', 1034, 125, 7.5, 50000, 'FA-18C'),
-                ('a10c', 'A-10C Warthog', 'A-10C_2', 380, 120, 6.0, 45000, 'A-10C'),
-                ('f15e', 'F-15E Strike Eagle', 'F-15ESE', 1434, 130, 9.0, 60000, 'F-15E');
+                ('a10c', 'A-10C II Warthog', 'A-10C_2', 380, 120, 6.0, 45000, 'A-10C'),
+                ('f15e', 'F-15E Strike Eagle', 'F-15ESE', 1434, 130, 9.0, 60000, 'F-15E'),
+                ('f4e', 'F-4E Phantom II', 'F-4E-45MC', 1260, 150, 7.0, 55000, 'F-4E-45MC'),
+                ('a4ec', 'A-4E-C Skyhawk', 'A-4E-C', 585, 120, 7.0, 40000, 'A-4E-C'),
+                ('f5e', 'F-5E Tiger II', 'F-5E-3', 940, 140, 7.3, 50000, 'F-5E-3'),
+                ('f14', 'F-14A/B Tomcat', 'F-14B', 1350, 120, 7.5, 50000, 'F-14B'),
+                ('f1', 'Mirage F1', 'Mirage-F1CE', 1250, 140, 7.0, 52000, 'Mirage-F1CE'),
+                ('av8b', 'AV-8B Harrier II', 'AV8BNA', 585, 100, 7.0, 43000, 'AV8BNA');
             "#)?;
 
             // Seed aircraft-weapon compatibility (F-16C)

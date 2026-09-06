@@ -1,0 +1,149 @@
+[
+  {
+    "id": "f4e.dive.man30",
+    "aircraftId": "f4e",
+    "name": "30° Manual Dive",
+    "summary": "Fixed sight, 30° dive, 450 kt, release at 4,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "MAN",
+    "weaponClasses": [
+      "bomb_ld",
+      "bomb_hd",
+      "rocket"
+    ],
+    "defaultFor": [
+      "bomb_ld",
+      "rocket"
+    ],
+    "params": {
+      "ingressAltitude_ft": 8000,
+      "rollInAltitude_ft": 8000,
+      "diveAngle_deg": 30,
+      "releaseAltitude_ft": 4500,
+      "releaseSpeed_ktas": 450,
+      "pulloutG": 4
+    },
+    "sight": {
+      "depression_mils": 105,
+      "notes": "Mk-82 LD, 30° / 450 KCAS / 4,500 ft — check against the depression table for the actual load"
+    },
+    "procedure": [
+      "Delivery mode DIRECT, weapon selected, sight depression set",
+      "Roll in, establish 30° and 450 kt — a steady dive is the whole trick",
+      "Pipper on the target at release altitude: pickle, 4 G recovery"
+    ],
+    "source": "community practice (Heatblur F-4E manual depression tables, estimated)",
+    "verified": false
+  },
+  {
+    "id": "f4e.dive.man45",
+    "aircraftId": "f4e",
+    "name": "45° Manual Dive",
+    "summary": "Fixed sight, steep dive from 12,000 ft, release at 6,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "MAN",
+    "weaponClasses": [
+      "bomb_ld",
+      "bomb_hd",
+      "rocket"
+    ],
+    "params": {
+      "ingressAltitude_ft": 12000,
+      "rollInAltitude_ft": 12000,
+      "diveAngle_deg": 45,
+      "releaseAltitude_ft": 6500,
+      "releaseSpeed_ktas": 450,
+      "pulloutG": 5
+    },
+    "sight": {
+      "depression_mils": 85,
+      "notes": "Mk-82 LD, 45° / 450 KCAS / 6,500 ft — check against the depression table"
+    },
+    "procedure": [
+      "Delivery mode DIRECT, weapon selected, sight depression set",
+      "Steep roll-in; throttle back to hold 450 kt",
+      "Pipper on at release altitude: pickle, 5 G recovery — do not press"
+    ],
+    "source": "community practice (Heatblur F-4E manual depression tables, estimated)",
+    "verified": false
+  },
+  {
+    "id": "f4e.dive.dtos30",
+    "aircraftId": "f4e",
+    "name": "Dive Toss 30°",
+    "summary": "Radar lock in the dive, pickle and pull — WRCS releases",
+    "geometry": "dive",
+    "deliveryMode": "DTOS",
+    "weaponClasses": [
+      "bomb_ld",
+      "bomb_hd"
+    ],
+    "params": {
+      "ingressAltitude_ft": 8000,
+      "rollInAltitude_ft": 8000,
+      "diveAngle_deg": 30,
+      "releaseAltitude_ft": 4500,
+      "releaseSpeed_ktas": 450,
+      "pulloutG": 4
+    },
+    "procedure": [
+      "WRCS: DIVE TOSS; radar in A/G, WSO ready to lock",
+      "Roll in, pipper on the target, radar lock (freeze) — pickle and hold",
+      "Pull 4 G straight through — the WRCS releases on its own"
+    ],
+    "source": "community practice (Heatblur F-4E manual)",
+    "verified": false
+  },
+  {
+    "id": "f4e.level.laydown",
+    "aircraftId": "f4e",
+    "name": "Laydown 500 ft (HD)",
+    "summary": "Fast and low with Snakeyes — WRCS laydown or visual",
+    "geometry": "level",
+    "deliveryMode": "MAN",
+    "weaponClasses": [
+      "bomb_hd",
+      "cluster"
+    ],
+    "defaultFor": [
+      "bomb_hd",
+      "cluster"
+    ],
+    "params": {
+      "releaseAltitude_ft": 500,
+      "releaseSpeed_ktas": 500
+    },
+    "procedure": [
+      "High-drag bombs only",
+      "WRCS: LAYDOWN with release range set, or DIRECT and pickle on the target",
+      "Level at 500 ft, 500 kt — hold it through release"
+    ],
+    "source": "community practice (Heatblur F-4E manual)",
+    "verified": false
+  },
+  {
+    "id": "f4e.loft.labs45",
+    "aircraftId": "f4e",
+    "name": "LABS Loft 45°",
+    "summary": "Low ingress, timed pull-up, LABS release",
+    "geometry": "loft",
+    "deliveryMode": "LABS",
+    "weaponClasses": [
+      "bomb_ld"
+    ],
+    "params": {
+      "ingressAltitude_ft": 500,
+      "ingressSpeed_ktas": 500,
+      "pullUpDistance_nm": 3.5,
+      "pullUpAngle_deg": 45,
+      "releaseAltitude_ft": 4000
+    },
+    "procedure": [
+      "WRCS: LOFT, pull-up timer set for the run-in speed",
+      "Over the pull-up point: pickle and hold, 4 G to 45° nose up",
+      "Bomb releases on the timer — roll off and dive away"
+    ],
+    "source": "community practice (Heatblur F-4E manual, estimated)",
+    "verified": false
+  }
+]
