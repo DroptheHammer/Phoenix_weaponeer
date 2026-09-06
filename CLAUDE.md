@@ -178,9 +178,70 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-05
+**Last session:** 2026-09-05 (afternoon)
 
-**Completed this session — Phase 3.6 verified in-app, and Mission Save/Open built**
+**The revamp has started. Read `docs/REVAMP_PLAN.md` first — it is the
+approved plan and the order of work (M0 → M1 → M2 → M3).**
+
+**Why:** the user came back after time away and said the tool feels clunky,
+has one attack style, and casual squadron pilots need to *want* to use it in a
+few-minute flight-lead briefing slot. The squadron flies 1960s–modern aircraft,
+a different one each weekend; the reason a planner exists is that legacy
+strike aircraft need real delivery guidance (manual dive with mils, DTOS,
+LABS). Design decisions and the user's own words are in the plan's Context.
+
+**Rollback point exists — `v0.1-pre-revamp`.** Tag and branch `pre-revamp`,
+both on GitHub at `13067c1` (last commit before any revamp work). Recipes:
+- Look around: `git checkout v0.1-pre-revamp` (detached) or `git switch pre-revamp`
+- One old file back: `git checkout v0.1-pre-revamp -- path/to/file`
+- Undo the revamp on `main` while keeping history: `git revert` the commits
+  after `13067c1`. Only with the user's explicit say-so: `git reset --hard
+  v0.1-pre-revamp` and force-push.
+Nothing in the plan deletes or moves that tag.
+
+**M0 (card trust fixes) is DONE and reviewed in-app by the user** — commits
+`1b33ee0` and the follow-up after it. Gates: `npm run build` clean, **32 Rust
+tests** pass.
+- Egress heading no longer prints "undefined°"; `resolveEgressHeading` in
+  `src/lib/attackGeometry.ts` is the one rule the map overlay and the card
+  share. Wording is **"Egress RIGHT"**, per the user — not "Break".
+- **Weapon sanity checks were dead.** The editor read camelCase fields
+  (`minReleaseAlt_ft`, `fragPattern`) that the database never returns, so it
+  always showed a green tick. `src/lib/attackChecks.ts` is now the single
+  place for these; results show in the editor and print as red ⚠ lines on
+  the card. `src/lib/attackValidation.ts` read the same phantom fields, had no
+  importers, and is gone.
+- **The runtime weapon shape is `DbWeapon`** (`src/types/weapon.types.ts`,
+  snake_case, exactly the Rust struct). The camelCase `Weapon` type is a
+  legacy model nothing at runtime matches; do not read weapon limits through it.
+- **Release altitude never defaults below the weapon.** Rust
+  `calculate_release_altitude` floors at max(min release alt, frag min-safe);
+  the popup form's release altitude is an editable field defaulting to that.
+  The user's rule: the tool puts the minimum in; only warn if a person lowers
+  it. (The form's "Min Release Altitude" input had been bound to the hard-deck
+  field — same field as "Hard Deck" further down.)
+- A guided weapon on a visual pass is a *caution*, not an error — the user
+  confirmed a JDAM off a pop-up is legitimate.
+- Unverified-map caution now prints on the card (amber strip under the
+  header, fail warn-open). The step list tightens spacing instead of running
+  under the footer. Hard deck is AGL everywhere.
+
+**Conventions added this session:**
+- `Other Items/` at the repo root is a **git-ignored drop-zone**: the user
+  puts exported cards / saved missions there so Claude can `Read` them
+  (reads outside the project are blocked). Never commit it.
+- The user is not a developer (see memory). Explain in aviation terms.
+
+**Next up: M1 — profile library + auto-build**, per `docs/REVAMP_PLAN.md`
+§M1. Suggested order: §1 data model + §2 loading (Rust `list_delivery_profiles`
+with `include_str!` bundles + `profileStore`), then §4 auto-build and §5 the
+editor redesign, then §6 level/dive geometry and card, then §7 seed data
+(ESTIMATED, 10 aircraft). §3 (weapon classes, loadout from FragOrders pylons)
+can slot in wherever it unblocks. Every profile ships `verified: false`.
+
+---
+
+**Earlier session (2026-09-05, morning):** Phase 3.6 verified in-app, and Mission Save/Open built
 
 Gates: `npm run build` clean, **31 Rust tests** pass (was 30).
 

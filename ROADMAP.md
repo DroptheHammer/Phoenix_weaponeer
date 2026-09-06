@@ -245,11 +245,51 @@ at import. The FragOrders author supplied FragOrders' full theater table
 
 ---
 
+## Phase 5: Revamp 🚧 IN PROGRESS (started 2026-09-05)
+
+Full plan, decisions and the user's design principles: `docs/REVAMP_PLAN.md`.
+Rollback point: tag `v0.1-pre-revamp` / branch `pre-revamp` at `13067c1`.
+
+### M0 — Card trust fixes ✅ (2026-09-05, reviewed in-app)
+- [x] Egress heading "undefined°" — one shared resolver for map and card;
+      wording is "Egress RIGHT"
+- [x] Weapon sanity checks (they had been silently dead — reading fields the
+      DB never returns): weapon vs delivery, release vs weapon minimum and frag
+      min-safe, speed limits, hard deck vs release, roll-in vs release. Shown in
+      the editor, printed on the card
+- [x] Release altitude never defaults below the weapon (floor = max(min
+      release, frag min-safe)); editable field that defaults to the floor
+- [x] Unverified-map caution strip on the card
+- [x] Step list no longer runs under the footer
+- [x] Hard deck is AGL everywhere; the duplicate hard-deck input is gone
+
+### M1 — Profile library + auto-build ❌ NEXT
+- [ ] `DeliveryProfile` model; bundled per-aircraft JSON + user override folder
+- [ ] Auto-build: target → attacker → weapon → complete, alert-free attack;
+      Customize reveals the numbers
+- [ ] Level and dive geometry, overlay, card (CCIP / manual-with-mils / DTOS /
+      CCRP-AUTO step text)
+- [ ] Weapon classes; loadout from FragOrders pylons
+- [ ] Seed profiles for F-16C, F/A-18C, A-10C II, F-4E, A-4E-C, F-5E, F-14,
+      Mirage F1, AV-8B, F-15E — all ESTIMATED until a pilot verifies
+
+### M2 — Map-first, hands-on ❌
+- [ ] Rail by job (Targets / Threats / Flight / Cards) with a readiness line
+- [ ] Threat palette: drag chips onto the map
+- [ ] Attack handles on the overlay; exposure colouring inside SAM rings
+
+### M3 — Send to flight ❌
+- [ ] One-click brief pack: per-pilot PNGs, zip laid out for Saved Games,
+      mission file
+
+---
+
 ## Current Status
 
 **Last Updated:** 2026-09-05
 
 **Completed:**
+- Phase 5 M0: card trust fixes (2026-09-05)
 - Phase 4.5: Mission save/load UI (2026-09-05)
 - Phase 1: Foundation (all sections)
 - Phase 2: Core Planning (all sections 2.1-2.6)
@@ -258,10 +298,8 @@ at import. The FragOrders author supplied FragOrders' full theater table
 - Phase 3.6: Theater Projection Support (12 of 13 maps)
 
 **Next Up:**
-- Phase 3.3 (Optional): PDF export for print-friendly briefing packages
-- Kneeboard caution line for unverified theaters (the UI warns, the printed card
-  does not)
-- Phase 4: Polish features (additional aircraft, attack profiles, enhanced import)
+- **Phase 5 M1 — profile library + auto-build** (`docs/REVAMP_PLAN.md`)
+- Then M2 (map-first) and M3 (send to flight); PDF export only if asked
 
 ---
 
