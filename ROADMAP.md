@@ -263,15 +263,19 @@ Rollback point: tag `v0.1-pre-revamp` / branch `pre-revamp` at `13067c1`.
 - [x] Step list no longer runs under the footer
 - [x] Hard deck is AGL everywhere; the duplicate hard-deck input is gone
 
-### M1 — Profile library + auto-build ❌ NEXT
-- [ ] `DeliveryProfile` model; bundled per-aircraft JSON + user override folder
-- [ ] Auto-build: target → attacker → weapon → complete, alert-free attack;
+### M1 — Profile library + auto-build 🚧 BUILT, NOT YET VERIFIED IN-APP (2026-09-06)
+- [x] `DeliveryProfile` model; bundled per-aircraft JSON + user override folder;
+      validated on load, tested
+- [x] Auto-build: target → attacker → weapon → complete, alert-free attack;
       Customize reveals the numbers
-- [ ] Level and dive geometry, overlay, card (CCIP / manual-with-mils / DTOS /
-      CCRP-AUTO step text)
-- [ ] Weapon classes; loadout from FragOrders pylons
-- [ ] Seed profiles for F-16C, F/A-18C, A-10C II, F-4E, A-4E-C, F-5E, F-14,
-      Mirage F1, AV-8B, F-15E — all ESTIMATED until a pilot verifies
+- [x] Level and dive geometry, overlay, card (CCIP / manual-with-mils / DTOS /
+      CCRP-AUTO step text; ESTIMATED strip; profile setup lines)
+- [x] Weapon classes (derived in TS — no schema change)
+- [ ] Loadout from FragOrders pylons (needs a CLSID → weapon table)
+- [x] Seed profiles for F-16C, F/A-18C, A-10C II, F-4E, A-4E-C, F-5E, F-14,
+      Mirage F1, AV-8B, F-15E — 62 profiles, all ESTIMATED until a pilot verifies
+- [ ] Loft geometry (LABS / F-16 loft profiles ship hidden until then)
+- [ ] Eyeball in the running app
 
 ### M2 — Map-first, hands-on ❌
 - [ ] Rail by job (Targets / Threats / Flight / Cards) with a readiness line

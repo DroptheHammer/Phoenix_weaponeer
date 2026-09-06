@@ -178,7 +178,7 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-05 (afternoon)
+**Last session:** 2026-09-05 → 06 (late night)
 
 **The revamp has started. Read `docs/REVAMP_PLAN.md` first — it is the
 approved plan and the order of work (M0 → M1 → M2 → M3).**
@@ -232,12 +232,81 @@ tests** pass.
   (reads outside the project are blocked). Never commit it.
 - The user is not a developer (see memory). Explain in aviation terms.
 
-**Next up: M1 — profile library + auto-build**, per `docs/REVAMP_PLAN.md`
-§M1. Suggested order: §1 data model + §2 loading (Rust `list_delivery_profiles`
-with `include_str!` bundles + `profileStore`), then §4 auto-build and §5 the
-editor redesign, then §6 level/dive geometry and card, then §7 seed data
-(ESTIMATED, 10 aircraft). §3 (weapon classes, loadout from FragOrders pylons)
-can slot in wherever it unblocks. Every profile ships `verified: false`.
+**M1 (profile library + auto-build) is BUILT — see below for what is and is
+not committed.** Work continued into the early hours of 2026-09-06.
+
+**Everything is committed and pushed** (the tools came back at the end of
+the session — the user installed full Xcode; `git` and `cargo` work again).
+Ignore the older references below to an "uncommitted" tree; the safety
+tarball in `Other Items/` is now redundant and can be deleted.
+
+**START OF NEXT SESSION: eyeball M1 in the running app** — it is built and
+gated but has never been seen on screen. `npm run tauri dev`, then:
+1. Import `test-data/nttr_redflag_viper1.json`, group Viper 1 (Hot). First
+   launch prints "Reference database is v1, rebuilding as v2" — expected.
+2. Attacks → Add Attack. Pick TGT1, Viper 1-1, then Mk-82 LDGP (the pilots
+   have no loadout yet, so the weapon list is every A/G store). Expect the
+   "30° Dive CCIP" chip selected, heading from the IP, egress away from the
+   SA-11 site, the key-numbers line, and an ESTIMATED badge. Save.
+3. The map should draw ROLL / REL / TGT and the egress line; Kneeboards
+   should show the dive card with an amber ESTIMATED strip and the profile's
+   setup lines as step ①.
+4. Try a GBU-31: expect "Level CCRP 20k (JDAM)" by default, with the
+   pop-up and dive chips still offered.
+5. Customize → change a number → see "edited from …" and the reset link.
+6. Flight → give a pilot an F-4E and a Mk-82: expect "30° Manual Dive" with
+   105 mils on the card.
+
+What M1 delivers (all `npm run build` clean; Rust tests last green at 37
+before the seed files were added — the ten-file library has been validated
+by a Python mirror of the same rules, but `cargo test` must confirm):
+- `src-tauri/src/profiles/mod.rs` + `resources/profiles/*.json`: 62 profiles
+  for F-16C, F/A-18C, A-10C II, F-15E, F-4E, A-4E-C, F-5E, F-14, Mirage F1,
+  AV-8B. All ESTIMATED. `defaultFor: [classes]` per profile; exactly one
+  default per (aircraft, weapon class) — a test enforces it. Squadron
+  overrides in `<app data>/profiles/*.json` (README written on first use).
+- **Smart weapons are listed on the visual profiles** (dive CCIP, DTOS,
+  pop-up) — the user was explicit: level CCRP for every LGB/JDAM is
+  predictable and exploitable; DTOS over a ridge with a JDAM is a real
+  tactic. Level CCRP/AUTO is the *default* for lgb/jdam, not the only option.
+- `src/lib/autoBuildAttack.ts`: target + attacker + weapon → complete attack
+  from the aircraft's default profile; heading from the IP (nearest `ip`
+  waypoint before the target, else the previous one); egress away from the
+  nearest threat; release floored at max(weapon min release, frag min-safe)
+  with every adjustment reported; never returns an error-level check. Pure —
+  scratch-tested against the saved Sinai mission.
+- `AttackEditor.tsx` rewritten around it: Target / Attacker / Weapon (from
+  the loadout when one exists) → profile chips → heading + Left/Right → key
+  numbers line → **Customize** (fuze, mode, quantity, then `DiveForm` /
+  `LevelForm` / the existing `PopupCCIPForm`). No Calculate button; Save is
+  gated only on problems and error-level checks.
+- Level and dive on the map (`DiveOverlay`, `LevelOverlay`) and the card
+  (mode-keyed steps: MAN prints the sight mils, DTOS says designate-pull;
+  the profile's own setup lines are step ①; ESTIMATED prints as an amber
+  strip).
+- `attackChecks` now gates weapon class against the profile's list instead
+  of guessing from guidance.
+- Reference DB has `PRAGMA user_version` (v2): a stale DB is dropped and
+  rebuilt from seed — that is how the six new aircraft rows reach an
+  existing install. First launch after this prints "rebuilding as v2".
+
+**Not done in M1 (deliberate):** loadout from FragOrders pylons (§3 of the
+plan — needs a CLSID→weapon table; today every imported pilot has an empty
+loadout and the editor offers every A/G store instead); loft geometry (LABS
+and F-16 loft profiles ship hidden); nothing verified in-app yet — the dev
+app could not run without the linker. **Eyeball M1 in the app before
+anything else next session**: import NTTR, Attacks → Add, pick TGT1 + Viper
+1-1 + Mk-82 → expect "30° Dive CCIP" selected, heading from the IP, egress
+away from the SA-11, and a card with the ESTIMATED strip.
+
+**Rust replica to keep in sync:** `popupReleaseAltitude_ft` in
+`autoBuildAttack.ts` mirrors `calculate_release_altitude` in
+`src-tauri/src/calculators/mod.rs`. If one changes, change the other.
+
+**Pending commit message (Phases B + C + seeds):** "M1: level and dive on
+map and card; auto-build editor; 62-profile library for ten aircraft" — the
+three commit-message drafts are in the session transcript; the substance is
+the bullets above.
 
 ---
 
