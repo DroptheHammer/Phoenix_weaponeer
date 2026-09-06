@@ -1,0 +1,92 @@
+[
+  {
+    "id": "f1.dive.man30",
+    "aircraftId": "f1",
+    "name": "30° Manual Dive",
+    "summary": "Fixed reticle, 30° dive, 450 kt, release at 4,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "MAN",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
+    "defaultFor": ["bomb_ld", "bomb_hd", "rocket"],
+    "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4500, "releaseSpeed_ktas": 450, "pulloutG": 4 },
+    "sight": { "depression_mils": 95, "notes": "Mk-82 LD, 30° / 450 kt / 4,500 ft — check the Mirage F1 manual depression tables (§7.7) for the actual load" },
+    "procedure": [
+      "Sight in manual bombing mode, depression set, station selected",
+      "Roll in, establish 30° and 450 kt — hold them",
+      "Reticle on the target at release altitude: pickle, 4 G recovery"
+    ],
+    "source": "community practice (Aerges Mirage F1 manual depression tables, estimated)",
+    "verified": false
+  },
+  {
+    "id": "f1.dive.man45",
+    "aircraftId": "f1",
+    "name": "45° Manual Dive",
+    "summary": "Fixed reticle, steep dive from 12,000 ft, release at 6,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "MAN",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
+    "params": { "ingressAltitude_ft": 12000, "rollInAltitude_ft": 12000, "diveAngle_deg": 45, "releaseAltitude_ft": 6500, "releaseSpeed_ktas": 450, "pulloutG": 5 },
+    "sight": { "depression_mils": 75, "notes": "Mk-82 LD, 45° / 450 kt / 6,500 ft — check the depression tables" },
+    "procedure": [
+      "Sight in manual bombing mode, depression set",
+      "Steep roll-in; throttle back to hold 450 kt",
+      "Reticle on at release altitude: pickle, 5 G recovery — do not press"
+    ],
+    "source": "community practice (Aerges Mirage F1 manual depression tables, estimated)",
+    "verified": false
+  },
+  {
+    "id": "f1.dive.ccip30",
+    "aircraftId": "f1",
+    "name": "30° Dive CCIP",
+    "summary": "Computed impact point, 30° dive from 8,000 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd"],
+    "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4500, "releaseSpeed_ktas": 450, "pulloutG": 4 },
+    "procedure": [
+      "Sight in CCIP bombing mode, station selected",
+      "Roll in, put the pipper short of the target and let it walk up",
+      "Pickle at release altitude — 4 G recovery"
+    ],
+    "source": "community practice (Aerges Mirage F1 manual)",
+    "verified": false
+  },
+  {
+    "id": "f1.level.laydown",
+    "aircraftId": "f1",
+    "name": "Laydown 500 ft (HD)",
+    "summary": "Fast and low with retarded bombs or CBUs",
+    "geometry": "level",
+    "deliveryMode": "MAN",
+    "weaponClasses": ["bomb_hd", "cluster"],
+    "defaultFor": ["cluster"],
+    "params": { "releaseAltitude_ft": 500, "releaseSpeed_ktas": 480 },
+    "procedure": [
+      "Retarded bombs or CBUs only",
+      "Sight caged, station selected",
+      "Level at 500 ft, 480 kt — pickle as the target passes the reticle"
+    ],
+    "source": "community practice (estimated)",
+    "verified": false
+  },
+  {
+    "id": "f1.dive.strafe",
+    "aircraftId": "f1",
+    "name": "Gun 10°",
+    "summary": "Shallow gun pass, cease by 1,000 ft",
+    "geometry": "dive",
+    "deliveryMode": "MAN",
+    "weaponClasses": ["gun"],
+    "defaultFor": ["gun"],
+    "params": { "ingressAltitude_ft": 3000, "rollInAltitude_ft": 2500, "diveAngle_deg": 10, "releaseAltitude_ft": 1000, "releaseSpeed_ktas": 380, "pulloutG": 3 },
+    "procedure": [
+      "Guns selected, sight in gun mode",
+      "Roll in, reticle on, short bursts",
+      "Cease fire at 1,000 ft and pull — never press a gun pass"
+    ],
+    "source": "community practice (estimated)",
+    "verified": false
+  }
+]

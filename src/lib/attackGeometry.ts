@@ -190,6 +190,120 @@ export function calculatePopupGeometry(
   };
 }
 
+// ─── Level and dive geometry ──────────────────────────────────────────────────
+//
+// Both are straight-line deliveries along one attack heading: the aircraft
+// runs in from the IP (or from `ingressLength_nm` back when there is no IP),
+// reaches its roll-in / release point at a range set by altitude and dive
+// angle, and breaks off over the target. Pure trigonometry — cheap enough to
+// run on every mouse move once the map gets drag handles.
+
+const FT_PER_NM = 6076.12;
+const G_FT_S2 = 32.174;
+const KT_TO_FT_S = 1.68781;
+
+export interface LevelGeometry {
+  ingressStart: Coordinates;
+  releasePoint: Coordinates;
+  targetPoint: Coordinates;
+  egressPoint: Coordinates;
+  attackHeading: number;
+  egressHeading: number;
+  releaseRange_nm: number;
+}
+
+export interface DiveGeometry {
+  ingressStart: Coordinates;
+  rollInPoint: Coordinates;
+  releasePoint: Coordinates;
+  targetPoint: Coordinates;
+  egressPoint: Coordinates;
+  attackHeading: number;
+  egressHeading: number;
+  rollInRange_nm: number;
+  releaseRange_nm: number;
+}
+
+/**
+ * Ground range a store covers from a level release, ignoring drag — a
+ * schematic number for the map and card, not a ballistic solution. The jet's
+ * own computer does the real one.
+ */
+export function levelReleaseRange_nm(releaseAltitude_agl: number, speed_ktas: number): number {
+  const v = speed_ktas * KT_TO_FT_S;
+  const t = Math.sqrt((2 * Math.max(releaseAltitude_agl, 0)) / G_FT_S2);
+  return (v * t) / FT_PER_NM;
+}
+
+/** Ground range from the target at which a given altitude sits on a dive of `diveAngle_deg`. */
+export function diveGroundRange_nm(altitude_agl: number, diveAngle_deg: number): number {
+  const angle = Math.max(diveAngle_deg, 1) * (Math.PI / 180);
+  return altitude_agl / Math.tan(angle) / FT_PER_NM;
+}
+
+export function calculateLevelGeometry(
+  targetPoint: Coordinates,
+  attackHeading: number,
+  params: {
+    releaseAltitude_agl: number;
+    releaseSpeed_ktas: number;
+    egressDirection?: 'left' | 'right' | 'straight';
+    egressHeading_deg?: number;
+    ipPoint?: Coordinates;
+  },
+  ingressLength_nm = 8,
+): LevelGeometry {
+  const reciprocal = (attackHeading + 180) % 360;
+  const releaseRange_nm = levelReleaseRange_nm(params.releaseAltitude_agl, params.releaseSpeed_ktas);
+  const releasePoint = calculatePointAtDistance(targetPoint, reciprocal, releaseRange_nm);
+  const ingressStart =
+    params.ipPoint ?? calculatePointAtDistance(targetPoint, reciprocal, releaseRange_nm + ingressLength_nm);
+  const egressHeading = resolveEgressHeading(params, attackHeading);
+  return {
+    ingressStart,
+    releasePoint,
+    targetPoint,
+    egressPoint: calculatePointAtDistance(targetPoint, egressHeading, 1.5),
+    attackHeading,
+    egressHeading,
+    releaseRange_nm,
+  };
+}
+
+export function calculateDiveGeometry(
+  targetPoint: Coordinates,
+  attackHeading: number,
+  params: {
+    rollInAltitude_ft: number;
+    releaseAltitude_ft: number;
+    diveAngle_deg: number;
+    egressDirection?: 'left' | 'right' | 'straight';
+    egressHeading_deg?: number;
+    ipPoint?: Coordinates;
+  },
+  ingressLength_nm = 8,
+): DiveGeometry {
+  const reciprocal = (attackHeading + 180) % 360;
+  const rollInRange_nm = diveGroundRange_nm(params.rollInAltitude_ft, params.diveAngle_deg);
+  const releaseRange_nm = diveGroundRange_nm(params.releaseAltitude_ft, params.diveAngle_deg);
+  const rollInPoint = calculatePointAtDistance(targetPoint, reciprocal, rollInRange_nm);
+  const releasePoint = calculatePointAtDistance(targetPoint, reciprocal, releaseRange_nm);
+  const ingressStart =
+    params.ipPoint ?? calculatePointAtDistance(targetPoint, reciprocal, rollInRange_nm + ingressLength_nm);
+  const egressHeading = resolveEgressHeading(params, attackHeading);
+  return {
+    ingressStart,
+    rollInPoint,
+    releasePoint,
+    targetPoint,
+    egressPoint: calculatePointAtDistance(targetPoint, egressHeading, 1.5),
+    attackHeading,
+    egressHeading,
+    rollInRange_nm,
+    releaseRange_nm,
+  };
+}
+
 /**
  * Egress heading for a profile: the planner's explicit value when set, else a
  * 90° break off the attack heading in the chosen direction.

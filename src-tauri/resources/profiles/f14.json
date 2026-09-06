@@ -1,0 +1,89 @@
+[
+  {
+    "id": "f14.dive.ccip30",
+    "aircraftId": "f14",
+    "name": "30° Dive CCIP",
+    "summary": "Computer Pilot mode, 30° dive from 8,000 ft, pickle at 4,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb"],
+    "defaultFor": ["bomb_ld", "bomb_hd", "cluster"],
+    "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4500, "releaseSpeed_ktas": 450, "pulloutG": 4 },
+    "procedure": [
+      "A/G, delivery mode COMPUTER PILOT (CCIP), station and quantity set",
+      "Roll in, pipper short of the target and let it walk up",
+      "Pickle at release altitude — 4 G recovery"
+    ],
+    "source": "community practice (Heatblur F-14 manual)",
+    "verified": false
+  },
+  {
+    "id": "f14.dive.ccip45",
+    "aircraftId": "f14",
+    "name": "45° Dive CCIP",
+    "summary": "Steep dive from 12,000 ft, pickle at 6,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb"],
+    "params": { "ingressAltitude_ft": 12000, "rollInAltitude_ft": 12000, "diveAngle_deg": 45, "releaseAltitude_ft": 6500, "releaseSpeed_ktas": 450, "pulloutG": 5 },
+    "procedure": [
+      "A/G, COMPUTER PILOT (CCIP)",
+      "Steep roll-in — the Tomcat builds speed fast, throttle back",
+      "Pickle at release altitude — 5 G recovery, do not press"
+    ],
+    "source": "community practice (Heatblur F-14 manual)",
+    "verified": false
+  },
+  {
+    "id": "f14.popup.std",
+    "aircraftId": "f14",
+    "name": "Pop-up 4 nm",
+    "summary": "Low run-in, pop at 4 nm to a 7,500 ft apex, 20° dive",
+    "geometry": "popup",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster"],
+    "params": { "runInAltitude_ft": 500, "runInSpeed_ktas": 480, "popDistance_nm": 4, "apexAltitude_ft": 7500, "diveAngle_deg": 20, "offsetAngle_deg": 20, "offsetDirection": "right", "minAltitude_ft": 500 },
+    "procedure": [
+      "A/G, COMPUTER PILOT set before the IP",
+      "At the pop: pull, MAX power, check the apex altitude",
+      "Roll in, pipper on, pickle at release altitude"
+    ],
+    "source": "community practice",
+    "verified": false
+  },
+  {
+    "id": "f14.level.ccrp.lgb",
+    "aircraftId": "f14",
+    "name": "Level CCRP 18k (LGB)",
+    "summary": "Straight and level, RIO lases with LANTIRN, computer release",
+    "geometry": "level",
+    "deliveryMode": "CCRP",
+    "weaponClasses": ["lgb"],
+    "defaultFor": ["lgb"],
+    "params": { "releaseAltitude_ft": 18000, "releaseSpeed_ktas": 420 },
+    "procedure": [
+      "A/G, COMPUTER TARGET (CCRP); RIO designates the target in the LANTIRN pod, laser code set",
+      "Wings level, pickle and hold — release at the cue",
+      "RIO lases from 8–10 s before impact until impact"
+    ],
+    "source": "community practice (Heatblur F-14 manual)",
+    "verified": false
+  },
+  {
+    "id": "f14.level.laydown",
+    "aircraftId": "f14",
+    "name": "Laydown 500 ft (HD)",
+    "summary": "Fast and low, computer release of high-drag bombs",
+    "geometry": "level",
+    "deliveryMode": "CCRP",
+    "weaponClasses": ["bomb_hd", "cluster"],
+    "params": { "releaseAltitude_ft": 500, "releaseSpeed_ktas": 500 },
+    "procedure": [
+      "High-drag / retarded bombs only",
+      "A/G, COMPUTER TARGET with the target designated",
+      "Level at 500 ft, pickle and hold through release"
+    ],
+    "source": "community practice",
+    "verified": false
+  }
+]

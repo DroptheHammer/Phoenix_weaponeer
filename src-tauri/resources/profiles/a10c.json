@@ -1,0 +1,143 @@
+[
+  {
+    "id": "a10c.dive.ccip30",
+    "aircraftId": "a10c",
+    "name": "30° Dive CCIP",
+    "summary": "Roll in from 7,000 ft, 30° dive, pickle at 4,000 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb"],
+    "defaultFor": ["bomb_ld", "bomb_hd", "cluster"],
+    "params": { "ingressAltitude_ft": 7000, "rollInAltitude_ft": 7000, "diveAngle_deg": 30, "releaseAltitude_ft": 4000, "releaseSpeed_ktas": 300, "pulloutG": 3.5 },
+    "procedure": [
+      "DSMS: profile selected, CCIP, correct release settings",
+      "Roll in, pipper short of the target and let it walk up",
+      "Pickle at release altitude — 3.5 G recovery, jink on egress"
+    ],
+    "source": "community practice (Chuck's Guide A-10C II)",
+    "verified": false
+  },
+  {
+    "id": "a10c.dive.ccip45",
+    "aircraftId": "a10c",
+    "name": "45° Dive CCIP",
+    "summary": "Steep dive from 10,000 ft, pickle at 5,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb"],
+    "params": { "ingressAltitude_ft": 10000, "rollInAltitude_ft": 10000, "diveAngle_deg": 45, "releaseAltitude_ft": 5500, "releaseSpeed_ktas": 320, "pulloutG": 4 },
+    "procedure": [
+      "DSMS: profile selected, CCIP",
+      "Steep roll-in — watch speed, throttle back",
+      "Pickle at release altitude — 4 G recovery"
+    ],
+    "source": "community practice (Chuck's Guide A-10C II)",
+    "verified": false
+  },
+  {
+    "id": "a10c.dive.strafe",
+    "aircraftId": "a10c",
+    "name": "Gun 15°",
+    "summary": "Shallow gun pass: open fire around 1.5 nm, cease by 1,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["gun"],
+    "defaultFor": ["gun"],
+    "params": { "ingressAltitude_ft": 4000, "rollInAltitude_ft": 3500, "diveAngle_deg": 15, "releaseAltitude_ft": 1500, "releaseSpeed_ktas": 280, "pulloutG": 3 },
+    "procedure": [
+      "GUNS: PAC on, CCIP gun cross",
+      "Roll in, put the gun cross on the target, one-second bursts",
+      "Cease fire at 1,500 ft and pull — never press a gun pass"
+    ],
+    "source": "community practice (Chuck's Guide A-10C II)",
+    "verified": false
+  },
+  {
+    "id": "a10c.dive.rockets",
+    "aircraftId": "a10c",
+    "name": "Rockets 20°",
+    "summary": "Rocket pass from 4,000 ft, fire at 2,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["rocket"],
+    "defaultFor": ["rocket"],
+    "params": { "ingressAltitude_ft": 4000, "rollInAltitude_ft": 4000, "diveAngle_deg": 20, "releaseAltitude_ft": 2500, "releaseSpeed_ktas": 300, "pulloutG": 3 },
+    "procedure": [
+      "DSMS: rocket profile, CCIP",
+      "Roll in, pipper on the target",
+      "Fire at release altitude, pull — rockets need a steady pipper"
+    ],
+    "source": "community practice",
+    "verified": false
+  },
+  {
+    "id": "a10c.level.ccrp.lgb",
+    "aircraftId": "a10c",
+    "name": "Level CCRP 12k (LGB)",
+    "summary": "Straight and level, TGP lase, CCRP release",
+    "geometry": "level",
+    "deliveryMode": "CCRP",
+    "weaponClasses": ["lgb"],
+    "defaultFor": ["lgb"],
+    "params": { "releaseAltitude_ft": 12000, "releaseSpeed_ktas": 300 },
+    "procedure": [
+      "DSMS: LGB profile, CCRP; TGP SOI, point track the target, laser code set",
+      "Wings level, pickle and hold — release at the cue",
+      "Lase from 10 s before impact until impact"
+    ],
+    "source": "community practice (Chuck's Guide A-10C II)",
+    "verified": false
+  },
+  {
+    "id": "a10c.level.ccrp.jdam",
+    "aircraftId": "a10c",
+    "name": "Level CCRP 15k (JDAM)",
+    "summary": "Straight and level inside the range cue, CCRP release",
+    "geometry": "level",
+    "deliveryMode": "CCRP",
+    "weaponClasses": ["jdam"],
+    "defaultFor": ["jdam"],
+    "params": { "releaseAltitude_ft": 15000, "releaseSpeed_ktas": 300 },
+    "procedure": [
+      "DSMS: JDAM profile, CCRP; SPI on the target",
+      "Inside the range cue: wings level, pickle and hold until release"
+    ],
+    "source": "community practice (Chuck's Guide A-10C II)",
+    "verified": false
+  },
+  {
+    "id": "a10c.level.maverick",
+    "aircraftId": "a10c",
+    "name": "Maverick 8k level",
+    "summary": "Medium altitude, lock and fire inside range",
+    "geometry": "level",
+    "deliveryMode": "VIS",
+    "weaponClasses": ["agm"],
+    "defaultFor": ["agm"],
+    "params": { "releaseAltitude_ft": 8000, "releaseSpeed_ktas": 280 },
+    "procedure": [
+      "Maverick page SOI, seeker slaved to the SPI or slewed",
+      "Lock, confirm in range and a good track",
+      "Fire — keep the nose on until launch"
+    ],
+    "source": "community practice",
+    "verified": false
+  },
+  {
+    "id": "a10c.level.laydown",
+    "aircraftId": "a10c",
+    "name": "Laydown 500 ft (HD)",
+    "summary": "Fast and low, CCRP release of high-drag bombs",
+    "geometry": "level",
+    "deliveryMode": "CCRP",
+    "weaponClasses": ["bomb_hd", "cluster"],
+    "params": { "releaseAltitude_ft": 500, "releaseSpeed_ktas": 300 },
+    "procedure": [
+      "High-drag / retarded bombs only",
+      "DSMS: CCRP, SPI on the target",
+      "Level at 500 ft, pickle and hold through release"
+    ],
+    "source": "community practice",
+    "verified": false
+  }
+]

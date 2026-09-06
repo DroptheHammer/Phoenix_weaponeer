@@ -20,8 +20,8 @@ export interface KneeboardHeader {
   callsign: string;
   missionDate: string;
   targetName: string;
-  /** Drawn as an amber strip under the header, e.g. an unverified map projection */
-  caution?: string;
+  /** Each drawn as an amber strip under the header: unverified map, estimated profile… */
+  cautions?: string[];
 }
 
 export interface KneeboardTargetSection {
@@ -56,6 +56,10 @@ export interface KneeboardDiagramData {
   type: string; // 'popup_ccip' | 'dive_ccip' | 'level_ccrp' | ...
   egressDirection: string;
   egressHeading_deg: number;
+  /** Manual deliveries: drawn next to the roll-in point */
+  sightDepression_mils?: number;
+  /** What happens at the release point: "AUTO-RELEASE", "PICKLE", "FIRE" */
+  releaseLabel?: string;
 
   // Popup CCIP
   popupCCIP?: {

@@ -1,0 +1,75 @@
+[
+  {
+    "id": "f5e.dive.man30",
+    "aircraftId": "f5e",
+    "name": "30° Manual Dive",
+    "summary": "Fixed sight, 30° dive, 450 kt, release at 4,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "MAN",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
+    "defaultFor": ["bomb_ld", "bomb_hd", "rocket"],
+    "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4500, "releaseSpeed_ktas": 450, "pulloutG": 4 },
+    "sight": { "depression_mils": 110, "notes": "Mk-82 LD, 30° / 450 KIAS / 4,500 ft — check the F-5E manual depression tables for the actual load" },
+    "procedure": [
+      "Sight mode MSL (manual), depression set, station selected",
+      "Roll in, establish 30° and 450 kt — hold them",
+      "Pipper on the target at release altitude: pickle, 4 G recovery"
+    ],
+    "source": "community practice (Chuck's Guide F-5E depression tables, estimated)",
+    "verified": false
+  },
+  {
+    "id": "f5e.dive.man45",
+    "aircraftId": "f5e",
+    "name": "45° Manual Dive",
+    "summary": "Fixed sight, steep dive from 12,000 ft, release at 6,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "MAN",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
+    "params": { "ingressAltitude_ft": 12000, "rollInAltitude_ft": 12000, "diveAngle_deg": 45, "releaseAltitude_ft": 6500, "releaseSpeed_ktas": 450, "pulloutG": 5 },
+    "sight": { "depression_mils": 90, "notes": "Mk-82 LD, 45° / 450 KIAS / 6,500 ft — check the depression tables" },
+    "procedure": [
+      "Sight mode MSL, depression set",
+      "Steep roll-in; throttle back to hold 450 kt",
+      "Pipper on at release altitude: pickle, 5 G recovery — do not press"
+    ],
+    "source": "community practice (Chuck's Guide F-5E depression tables, estimated)",
+    "verified": false
+  },
+  {
+    "id": "f5e.level.laydown",
+    "aircraftId": "f5e",
+    "name": "Laydown 500 ft (HD)",
+    "summary": "Fast and low with Snakeyes or CBUs",
+    "geometry": "level",
+    "deliveryMode": "MAN",
+    "weaponClasses": ["bomb_hd", "cluster"],
+    "defaultFor": ["cluster"],
+    "params": { "releaseAltitude_ft": 500, "releaseSpeed_ktas": 480 },
+    "procedure": [
+      "High-drag bombs or CBUs only",
+      "Sight caged, station selected",
+      "Level at 500 ft, 480 kt — pickle as the target passes the reticle"
+    ],
+    "source": "community practice (estimated)",
+    "verified": false
+  },
+  {
+    "id": "f5e.dive.strafe",
+    "aircraftId": "f5e",
+    "name": "Gun 10°",
+    "summary": "Shallow gun pass, cease by 1,000 ft",
+    "geometry": "dive",
+    "deliveryMode": "MAN",
+    "weaponClasses": ["gun"],
+    "defaultFor": ["gun"],
+    "params": { "ingressAltitude_ft": 3000, "rollInAltitude_ft": 2500, "diveAngle_deg": 10, "releaseAltitude_ft": 1000, "releaseSpeed_ktas": 380, "pulloutG": 3 },
+    "procedure": [
+      "Guns selected, sight mode for guns",
+      "Roll in, pipper on, short bursts",
+      "Cease fire at 1,000 ft and pull — never press a gun pass"
+    ],
+    "source": "community practice (estimated)",
+    "verified": false
+  }
+]

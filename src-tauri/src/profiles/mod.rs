@@ -28,8 +28,19 @@ pub const WEAPON_CLASSES: &[&str] = &["bomb_ld", "bomb_hd", "lgb", "jdam", "rock
 /// Bundled profile files. Adding an aircraft means adding a line here and a
 /// file next to the others; the tests check every entry.
 pub const BUNDLED: &[(&str, &str)] = &[
+    // Modern
     ("f16c", include_str!("../../resources/profiles/f16c.json")),
+    ("f18c", include_str!("../../resources/profiles/f18c.json")),
+    ("a10c", include_str!("../../resources/profiles/a10c.json")),
+    ("f15e", include_str!("../../resources/profiles/f15e.json")),
+    // Vietnam era — manual sights, dive toss, LABS
     ("f4e", include_str!("../../resources/profiles/f4e.json")),
+    ("a4ec", include_str!("../../resources/profiles/a4ec.json")),
+    ("f5e", include_str!("../../resources/profiles/f5e.json")),
+    // 1980s
+    ("f14", include_str!("../../resources/profiles/f14.json")),
+    ("f1", include_str!("../../resources/profiles/f1.json")),
+    ("av8b", include_str!("../../resources/profiles/av8b.json")),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

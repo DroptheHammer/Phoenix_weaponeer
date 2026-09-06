@@ -94,7 +94,9 @@ function formatAttackParams(attack: Attack): Record<string, string> {
     params['Ingress HDG'] = `${p.ingressHeading_deg}°`;
     params['Release Alt'] = `${p.releaseAltitude_ft.toLocaleString()}' MSL`;
     params['Release Spd'] = `${p.releaseSpeed_ktas} KTAS`;
-    params['Egress HDG'] = `${p.egressHeading_deg}°`;
+    params['Egress HDG'] = `${Math.round(
+      resolveEgressHeading({ egressDirection: 'straight', egressHeading_deg: p.egressHeading_deg }, p.ingressHeading_deg),
+    )}°`;
   } else if (p.type === 'loft_ccrp') {
     params['Ingress HDG'] = `${p.ingressHeading_deg}°`;
     params['Ingress Alt'] = `${p.ingressAltitude_ft.toLocaleString()}' MSL`;
@@ -112,7 +114,13 @@ function formatAttackParams(attack: Attack): Record<string, string> {
   return params;
 }
 
-function getProfileLabel(type: string): string {
+function getProfileLabel(attack: Attack): string {
+  // Built from the library: say which profile, and what the jet is doing.
+  if (attack.sourceProfileName) {
+    const name = attack.sourceProfileName.toUpperCase();
+    return attack.deliveryMode ? `${name} · ${attack.deliveryMode}` : name;
+  }
+  const type = attack.profileType;
   const labels: Record<string, string> = {
     popup_ccip: 'POPUP CCIP',
     dive_ccip: 'DIVE CCIP',
@@ -145,7 +153,13 @@ function getEgressInfo(attack: Attack, attackHeading?: number): { direction: str
     };
   }
   if (p.type === 'level_ccrp') {
-    return { direction: 'STRAIGHT', heading: p.egressHeading_deg };
+    return {
+      direction: 'STRAIGHT',
+      heading: resolveEgressHeading(
+        { egressDirection: 'straight', egressHeading_deg: p.egressHeading_deg },
+        p.ingressHeading_deg,
+      ),
+    };
   }
   if (p.type === 'loft_ccrp') {
     return { direction: 'STRAIGHT', heading: p.egressHeading_deg };
@@ -154,6 +168,19 @@ function getEgressInfo(attack: Attack, attackHeading?: number): { direction: str
 }
 
 // ─── Step generation ──────────────────────────────────────────────────────────
+
+const fmtHeading = (h?: number) =>
+  h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---';
+
+const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+
+/** Number the steps in order, replacing any numeral a step already carries. */
+function numberSteps(steps: KneeboardStep[]): KneeboardStep[] {
+  return steps.map((step, i) => ({
+    ...step,
+    title: `${CIRCLED[i] ?? `${i + 1}.`} ${step.title.replace(/^[①-⑩]\s*/u, '')}`,
+  }));
+}
 
 function generateSteps(
   attack: Attack,
@@ -165,8 +192,6 @@ function generateSteps(
 ): KneeboardStep[] {
   const p = attack.profile;
   const qty = attack.releaseQuantity;
-  const fmtHeading = (h?: number) =>
-    h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---';
   const headingText = fmtHeading(runInHeading);
   // Without a run-in heading there is nothing to break away from.
   const egressText =
@@ -219,64 +244,119 @@ function generateSteps(
   }
 
   if (p.type === 'dive_ccip') {
-    return [
-      {
-        title: '① INGRESS',
-        lines: [
-          `Heading: ${p.ingressHeading_deg}°`,
-          'Acquire target visually — confirm master arm ON',
-        ],
-      },
-      {
-        title: '② ROLL IN',
+    // The geometry is one dive; what the pilot does in it depends on the jet.
+    const mode = attack.deliveryMode ?? 'CCIP';
+    const ingressAlt = p.ingressAltitude_ft ?? p.rollInAltitude_ft;
+    const egress = getEgressInfo(attack);
+    const egressText = `Egress ${egress.direction} — heading ${fmtHeading(egress.heading)}`;
+    const weaponLine = `${qty}× ${weaponName}  |  ${releaseMode}  |  ${fuze}`;
+    const minSafeLine = minSafeAlt ? [`⚠ DO NOT GO BELOW ${minSafeAlt.toLocaleString()}ft AGL`] : [];
+    const releaseNumbers = `${p.releaseAltitude_ft.toLocaleString()}ft AGL  |  ${p.releaseSpeed_ktas} KTAS`;
+
+    const ingress: KneeboardStep = {
+      title: 'INGRESS',
+      lines: [
+        `Heading: ${fmtHeading(p.ingressHeading_deg)}  |  ${ingressAlt.toLocaleString()}ft AGL`,
+        mode === 'MAN' && attack.sightDepression_mils != null
+          ? `Sight depression ${attack.sightDepression_mils} mils — set before the roll-in`
+          : 'Acquire target visually — confirm master arm ON',
+      ],
+    };
+
+    let rollIn: KneeboardStep;
+    let release: KneeboardStep;
+    if (mode === 'MAN') {
+      rollIn = {
+        title: 'ROLL IN',
         lines: [
           `At ${p.rollInAltitude_ft.toLocaleString()}ft AGL — roll to ${p.diveAngle_deg}° dive`,
-          `Maintain heading ${p.ingressHeading_deg}° — keep pipper on target`,
+          `Hold ${p.diveAngle_deg}° and ${p.releaseSpeed_ktas} KTAS — a steady dive is the whole trick`,
         ],
-      },
-      {
-        title: '③ WEAPONS RELEASE',
+      };
+      release = {
+        title: 'PICKLE',
         lines: [
-          `Release at ${p.releaseAltitude_ft.toLocaleString()}ft AGL  |  ${p.releaseSpeed_ktas} KTAS`,
-          `${qty}× ${weaponName}  |  ${releaseMode}  |  ${fuze}`,
-          ...(minSafeAlt ? [`⚠ DO NOT GO BELOW ${minSafeAlt.toLocaleString()}ft AGL`] : []),
+          `Pipper on the target passing ${releaseNumbers}`,
+          weaponLine,
+          ...minSafeLine,
         ],
         isWarning: !!minSafeAlt,
-      },
-      {
-        title: '④ EGRESS',
+      };
+    } else if (mode === 'DTOS') {
+      rollIn = {
+        title: 'ROLL IN — DESIGNATE',
         lines: [
-          `Egress ${p.egressDirection === 'straight' ? 'STRAIGHT' : p.egressDirection.toUpperCase()}`,
-          `Pull ${p.pulloutG}G to recover — safe arm`,
+          `At ${p.rollInAltitude_ft.toLocaleString()}ft AGL — roll to ${p.diveAngle_deg}° dive`,
+          'Pipper / TD box on the target — designate, pickle and HOLD',
         ],
+      };
+      release = {
+        title: 'PULL — SYSTEM RELEASES',
+        lines: [
+          `Pull through the cue — release about ${releaseNumbers}`,
+          weaponLine,
+          ...minSafeLine,
+        ],
+        isWarning: !!minSafeAlt,
+      };
+    } else {
+      rollIn = {
+        title: 'ROLL IN',
+        lines: [
+          `At ${p.rollInAltitude_ft.toLocaleString()}ft AGL — roll to ${p.diveAngle_deg}° dive`,
+          `Maintain heading ${fmtHeading(p.ingressHeading_deg)} — keep pipper on target`,
+        ],
+      };
+      release = {
+        title: 'WEAPONS RELEASE',
+        lines: [`Release at ${releaseNumbers}`, weaponLine, ...minSafeLine],
+        isWarning: !!minSafeAlt,
+      };
+    }
+
+    return [
+      ingress,
+      rollIn,
+      release,
+      {
+        title: 'EGRESS',
+        lines: [egressText, `Pull ${p.pulloutG}G to recover — safe arm`],
       },
     ];
   }
 
   if (p.type === 'level_ccrp') {
+    const mode = attack.deliveryMode ?? 'CCRP';
+    const egress = getEgressInfo(attack);
+    const computed = mode === 'CCRP' || mode === 'AUTO';
+    const ingressLines = [
+      `Heading: ${fmtHeading(p.ingressHeading_deg)}`,
+      `Altitude: ${p.releaseAltitude_ft.toLocaleString()}ft MSL  |  Speed: ${p.releaseSpeed_ktas} KTAS`,
+      computed
+        ? `${mode} mode — the jet computes the release point`
+        : mode === 'VIS'
+          ? 'Lock the target — confirm in range'
+          : 'Wings level — pickle on the target visually',
+    ];
+    const releaseStep: KneeboardStep = computed
+      ? {
+          title: 'AUTO-RELEASE',
+          lines: [
+            'Maintain heading and altitude — do NOT manoeuvre',
+            `Pickle and hold — jet releases ${qty}× ${weaponName}`,
+            `Fuze: ${fuze}`,
+          ],
+        }
+      : {
+          title: mode === 'VIS' ? 'FIRE' : 'PICKLE',
+          lines: [`${qty}× ${weaponName}  |  ${releaseMode}  |  ${fuze}`, 'Hold heading and altitude through release'],
+        };
     return [
+      { title: 'INGRESS', lines: ingressLines },
+      releaseStep,
       {
-        title: '① INGRESS',
-        lines: [
-          `Heading: ${p.ingressHeading_deg}°`,
-          `Altitude: ${p.releaseAltitude_ft.toLocaleString()}ft MSL  |  Speed: ${p.releaseSpeed_ktas} KTAS`,
-          'CCRP mode — system will compute release point',
-        ],
-      },
-      {
-        title: '② AUTO-RELEASE',
-        lines: [
-          'Maintain heading and altitude — do NOT maneuver',
-          `System auto-releases ${qty}× ${weaponName}`,
-          `Fuze: ${fuze}`,
-        ],
-      },
-      {
-        title: '③ EGRESS',
-        lines: [
-          `Heading: ${p.egressHeading_deg}°`,
-          'Safe arm — confirm weapons away',
-        ],
+        title: 'EGRESS',
+        lines: [`Heading: ${fmtHeading(egress.heading)}`, 'Safe arm — confirm weapons away'],
       },
     ];
   }
@@ -350,10 +430,13 @@ function buildDiagramData(attack: Attack, runInHeading?: number): KneeboardDiagr
   }
 
   if (p.type === 'dive_ccip') {
+    const mode = attack.deliveryMode ?? 'CCIP';
     return {
       type: 'dive_ccip',
       egressDirection: p.egressDirection,
       egressHeading_deg: resolveEgressHeading(p, p.ingressHeading_deg),
+      sightDepression_mils: mode === 'MAN' ? attack.sightDepression_mils : undefined,
+      releaseLabel: mode === 'DTOS' ? 'SYS REL' : mode === 'MAN' ? 'PICKLE' : 'REL',
       diveCCIP: {
         ingressHeading_deg: p.ingressHeading_deg,
         rollInAltitude_ft: p.rollInAltitude_ft,
@@ -366,15 +449,21 @@ function buildDiagramData(attack: Attack, runInHeading?: number): KneeboardDiagr
   }
 
   if (p.type === 'level_ccrp') {
+    const mode = attack.deliveryMode ?? 'CCRP';
+    const egressHeading = resolveEgressHeading(
+      { egressDirection: 'straight', egressHeading_deg: p.egressHeading_deg },
+      p.ingressHeading_deg,
+    );
     return {
       type: 'level_ccrp',
       egressDirection: 'STRAIGHT',
-      egressHeading_deg: p.egressHeading_deg,
+      egressHeading_deg: egressHeading,
+      releaseLabel: mode === 'CCRP' || mode === 'AUTO' ? 'AUTO-RELEASE' : mode === 'VIS' ? 'FIRE' : 'PICKLE',
       levelCCRP: {
         ingressHeading_deg: p.ingressHeading_deg,
         releaseAltitude_ft: p.releaseAltitude_ft,
         releaseSpeed_ktas: p.releaseSpeed_ktas,
-        egressHeading_deg: p.egressHeading_deg,
+        egressHeading_deg: egressHeading,
       },
     };
   }
@@ -465,13 +554,26 @@ export function buildKneeboardCard(
 
   const egress = getEgressInfo(attack, runInHeading);
 
-  // A card flown off a tablet must carry the same caveat the screen shows.
+  // A card flown off a tablet must carry the same caveats the screen shows.
   // Fail warn-open: an unknown or not-yet-loaded theater is treated as
   // unverified rather than silently trusted.
+  const cautions: string[] = [];
   const theater = getTheaterInfo(mission.theater);
-  const caution = theater?.verified
-    ? undefined
-    : `${theater?.display_name ?? mission.theater}: map projection unverified — confirm steerpoints on the F10 map`;
+  if (!theater?.verified) {
+    cautions.push(
+      `${theater?.display_name ?? mission.theater}: map projection unverified — confirm steerpoints on the F10 map`,
+    );
+  }
+  if (attack.estimated) {
+    cautions.push(
+      `ESTIMATED — ${attack.sourceProfileName ?? 'this profile'} has not been flown in DCS; verify the numbers before relying on them`,
+    );
+  }
+
+  // The profile's own setup lines come first; the geometry steps follow.
+  const profileStep: KneeboardStep[] = attack.procedure?.length
+    ? [{ title: `${attack.sourceProfileName ?? 'PROFILE'} — SETUP`.toUpperCase(), lines: attack.procedure }]
+    : [];
 
   // Sanity checks against the weapon's own limits. On a card these are
   // printed, not hidden — a pilot must see that the numbers disagree.
@@ -495,7 +597,7 @@ export function buildKneeboardCard(
       callsign: attacker.callsign,
       missionDate: mission.date,
       targetName: targetWp.name,
-      caution,
+      cautions: cautions.length ? cautions : undefined,
     },
     targetSection: {
       name: targetWp.name,
@@ -506,9 +608,12 @@ export function buildKneeboardCard(
     },
     threatSection: { threats: nearbyThreats },
     attackSection: {
-      profileType: getProfileLabel(attack.profileType),
+      profileType: getProfileLabel(attack),
       parameters: formatAttackParams(attack),
-      steps: generateSteps(attack, weaponName, releaseMode, fuzeName, minSafeAlt, runInHeading),
+      steps: numberSteps([
+        ...profileStep,
+        ...generateSteps(attack, weaponName, releaseMode, fuzeName, minSafeAlt, runInHeading),
+      ]),
       diagram: buildDiagramData(attack, runInHeading),
     },
     weaponSection: {

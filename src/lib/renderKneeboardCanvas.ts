@@ -469,13 +469,21 @@ function drawDiveCCIPDiagram(
   ctx.fillStyle = C.runIn; ctx.font = `10px ${MONO}`; ctx.textAlign = 'center';
   ctx.fillText(`${pd.rollInAltitude_ft.toLocaleString()}'AGL`, rollX, rollY - 20);
   ctx.fillText(`${pd.diveAngle_deg}° dive`, rollX, rollY - 9);
+  if (diagram.sightDepression_mils != null) {
+    // Manual delivery: the one number a legacy pilot needs at the roll-in.
+    ctx.fillStyle = C.accent; ctx.font = `bold 10px ${MONO}`;
+    ctx.fillText(`SIGHT ${Math.round(diagram.sightDepression_mils)} mils`, rollX, rollY - 32);
+  }
   dotLabel(tgtX, groundY, 'TGT', C.accent, 16);
 
   ctx.fillStyle = '#EE4422'; ctx.font = `9px ${MONO}`; ctx.textAlign = 'left';
-  ctx.fillText(`REL: ${pd.releaseAltitude_ft.toLocaleString()}'AGL`, rollX + 5, relY - 3);
+  ctx.fillText(`${diagram.releaseLabel ?? 'REL'}: ${pd.releaseAltitude_ft.toLocaleString()}'AGL @ ${pd.releaseSpeed_ktas} KTAS`, rollX + 5, relY - 3);
 
   ctx.fillStyle = C.sectionLabel; ctx.font = `bold 11px ${SANS}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText(`INGRESS HDG: ${pd.ingressHeading_deg}°  →  EGRESS ${diagram.egressDirection?.toUpperCase()}`, KNEEBOARD_WIDTH / 2, boxY + 4);
+  ctx.fillText(
+    `INGRESS HDG: ${fmtHdg(pd.ingressHeading_deg)}  →  EGRESS ${diagram.egressDirection?.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}`,
+    KNEEBOARD_WIDTH / 2, boxY + 4,
+  );
   ctx.textBaseline = 'alphabetic';
 }
 
@@ -506,8 +514,17 @@ function drawLevelCCRPDiagram(
   ctx.fillText('TGT', cx, cy); ctx.textBaseline = 'alphabetic';
 
   ctx.fillStyle = C.sectionLabel; ctx.font = `bold 11px ${SANS}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText(`INGRESS ${pd.ingressHeading_deg}°  →  AUTO-RELEASE  →  EGRESS ${pd.egressHeading_deg}°`, cx, boxY + 8);
+  ctx.fillText(
+    `INGRESS ${fmtHdg(pd.ingressHeading_deg)}  →  ${diagram.releaseLabel ?? 'RELEASE'}  →  EGRESS ${fmtHdg(diagram.egressHeading_deg)}`,
+    cx, boxY + 8,
+  );
   ctx.textBaseline = 'alphabetic';
+
+  // The two numbers the pilot flies: altitude and speed at release.
+  ctx.fillStyle = C.textPrimary; ctx.font = `bold 13px ${MONO}`; ctx.textAlign = 'center';
+  ctx.fillText(`${pd.releaseAltitude_ft.toLocaleString()} ft MSL  @  ${pd.releaseSpeed_ktas} KTAS`, cx, cy + 48);
+  ctx.fillStyle = C.textGray; ctx.font = `10px ${MONO}`;
+  ctx.fillText('wings level, no manoeuvre through release', cx, cy + 64);
 }
 
 // ─── Step-by-step procedure ───────────────────────────────────────────────────
@@ -587,8 +604,8 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
 
   // 1. Header (+ caution strip when the card's data carries a caveat)
   y = drawHeader(ctx, card);
-  if (card.header.caution) {
-    y = drawCautionStrip(ctx, card.header.caution, y);
+  for (const caution of card.header.cautions ?? []) {
+    y = drawCautionStrip(ctx, caution, y);
   }
 
   // 2. Target

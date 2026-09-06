@@ -373,13 +373,13 @@ export function MapView({
 
         {/* Attack profile overlays */}
         {attacks.map((attack) => {
-          const ipWaypoint = waypoints.find(wp =>
-            attack.profileType === 'popup_ccip' &&
-            (attack.profile as any).ipWaypointId === wp.id
-          );
+          // Any profile may name an IP; only popup cannot be drawn without one
+          // (the overlay itself decides that).
+          const ipWaypointId = (attack.profile as { ipWaypointId?: string }).ipWaypointId;
+          const ipWaypoint = ipWaypointId ? waypoints.find((wp) => wp.id === ipWaypointId) : undefined;
           const targetWaypoint = waypoints.find(wp => wp.id === attack.targetWaypointId);
 
-          if (!ipWaypoint || !targetWaypoint) return null;
+          if (!targetWaypoint) return null;
 
           return (
             <AttackProfileOverlay

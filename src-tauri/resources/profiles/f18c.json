@@ -1,0 +1,124 @@
+[
+  {
+    "id": "f18c.dive.ccip30",
+    "aircraftId": "f18c",
+    "name": "30° Dive CCIP",
+    "summary": "Roll in from 8,000 ft, 30° dive, pickle at 4,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb", "jdam"],
+    "defaultFor": ["bomb_ld", "bomb_hd", "cluster"],
+    "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4500, "releaseSpeed_ktas": 450, "pulloutG": 4 },
+    "procedure": [
+      "A/G master mode, CCIP on the stores page, correct station and program",
+      "Roll in, pipper short of the target and let it walk up",
+      "Pickle at release altitude — 4 G recovery, jink on egress"
+    ],
+    "source": "community practice (Chuck's Guide F/A-18C)",
+    "verified": false
+  },
+  {
+    "id": "f18c.dive.ccip45",
+    "aircraftId": "f18c",
+    "name": "45° Dive CCIP",
+    "summary": "Steep dive from 12,000 ft, pickle at 6,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb", "jdam"],
+    "params": { "ingressAltitude_ft": 12000, "rollInAltitude_ft": 12000, "diveAngle_deg": 45, "releaseAltitude_ft": 6500, "releaseSpeed_ktas": 450, "pulloutG": 5 },
+    "procedure": [
+      "A/G master mode, CCIP",
+      "Steep roll-in — expect rapid speed build, throttle back as needed",
+      "Pickle at release altitude — 5 G recovery, do not press"
+    ],
+    "source": "community practice (Chuck's Guide F/A-18C)",
+    "verified": false
+  },
+  {
+    "id": "f18c.popup.std",
+    "aircraftId": "f18c",
+    "name": "Pop-up 4 nm",
+    "summary": "Low run-in, pop at 4 nm to a 7,500 ft apex, 20° dive",
+    "geometry": "popup",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb", "jdam"],
+    "params": { "runInAltitude_ft": 500, "runInSpeed_ktas": 480, "popDistance_nm": 4, "apexAltitude_ft": 7500, "diveAngle_deg": 20, "offsetAngle_deg": 20, "offsetDirection": "right", "minAltitude_ft": 500 },
+    "procedure": [
+      "A/G master mode, CCIP set before the IP",
+      "At the pop: pull, MAX power, check the apex altitude",
+      "Roll in, pipper on, pickle at release altitude"
+    ],
+    "source": "community practice",
+    "verified": false
+  },
+  {
+    "id": "f18c.level.auto.lgb",
+    "aircraftId": "f18c",
+    "name": "Level AUTO 18k (LGB)",
+    "summary": "Straight and level, ATFLIR/LTD-R lase, AUTO release",
+    "geometry": "level",
+    "deliveryMode": "AUTO",
+    "weaponClasses": ["lgb"],
+    "defaultFor": ["lgb"],
+    "params": { "releaseAltitude_ft": 18000, "releaseSpeed_ktas": 420 },
+    "procedure": [
+      "A/G master mode, AUTO; TGP designate the target (TDC depress)",
+      "Wings level, pickle and hold — the jet releases at the cue",
+      "Lase (LTD/R ARM, trigger) from 8–10 s before impact until impact"
+    ],
+    "source": "community practice (Chuck's Guide F/A-18C)",
+    "verified": false
+  },
+  {
+    "id": "f18c.level.auto.jdam",
+    "aircraftId": "f18c",
+    "name": "Level AUTO 20k (JDAM)",
+    "summary": "Straight and level inside the LAR, AUTO release on the target's coordinates",
+    "geometry": "level",
+    "deliveryMode": "AUTO",
+    "weaponClasses": ["jdam"],
+    "defaultFor": ["jdam"],
+    "params": { "releaseAltitude_ft": 20000, "releaseSpeed_ktas": 420 },
+    "procedure": [
+      "A/G master mode, JDAM page: target coordinates loaded, PP or TOO",
+      "Inside the LAR (IN RNG): wings level, pickle and hold until release"
+    ],
+    "source": "community practice (Chuck's Guide F/A-18C)",
+    "verified": false
+  },
+  {
+    "id": "f18c.level.laydown",
+    "aircraftId": "f18c",
+    "name": "Laydown 500 ft (HD)",
+    "summary": "Fast and low, AUTO release of high-drag bombs",
+    "geometry": "level",
+    "deliveryMode": "AUTO",
+    "weaponClasses": ["bomb_hd", "cluster"],
+    "params": { "releaseAltitude_ft": 500, "releaseSpeed_ktas": 520 },
+    "procedure": [
+      "High-drag / retarded bombs only",
+      "A/G master mode, AUTO, target designated",
+      "Level at 500 ft, pickle and hold through release"
+    ],
+    "source": "community practice",
+    "verified": false
+  },
+  {
+    "id": "f18c.level.maverick",
+    "aircraftId": "f18c",
+    "name": "Maverick 8k level",
+    "summary": "Medium altitude, lock and fire inside range",
+    "geometry": "level",
+    "deliveryMode": "VIS",
+    "weaponClasses": ["agm"],
+    "defaultFor": ["agm"],
+    "params": { "releaseAltitude_ft": 8000, "releaseSpeed_ktas": 400 },
+    "procedure": [
+      "A/G master mode, Maverick selected and uncaged",
+      "Slew to the target, lock, confirm in range",
+      "Fire — keep the nose on until launch"
+    ],
+    "source": "community practice",
+    "verified": false
+  }
+]

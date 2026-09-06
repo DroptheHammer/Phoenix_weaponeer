@@ -23,9 +23,11 @@ interface AttackListProps {
   weapons: DbWeapon[];
   fuzeOptions: Map<string, FuzeOption[]>;
   aircraft: Aircraft[];
+  /** Threat ranges, so auto-build can pick an egress away from the nearest one */
+  threatSystems?: Array<{ id: string; max_range_nm: number }>;
 }
 
-export function AttackList({ weapons, fuzeOptions, aircraft }: AttackListProps) {
+export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems }: AttackListProps) {
   const { mission, removeAttack } = useMissionStore();
   const [showEditor, setShowEditor] = useState(false);
   const [editingAttack, setEditingAttack] = useState<Attack | undefined>(undefined);
@@ -96,7 +98,8 @@ export function AttackList({ weapons, fuzeOptions, aircraft }: AttackListProps) 
                     #{attack.sequenceNumber}
                   </div>
                   <div className="bg-dcs-blue px-2 py-1 rounded text-xs">
-                    {PROFILE_LABELS[attack.profileType]}
+                    {attack.sourceProfileName ?? PROFILE_LABELS[attack.profileType]}
+                    {attack.estimated && <span className="ml-1 text-amber-300" title="Profile not yet flown in DCS">~</span>}
                   </div>
                   <div>
                     <div className="font-medium">
@@ -137,6 +140,7 @@ export function AttackList({ weapons, fuzeOptions, aircraft }: AttackListProps) 
           weapons={weapons}
           fuzeOptions={fuzeOptions}
           aircraft={aircraft}
+          threatSystems={threatSystems}
         />
       )}
     </div>

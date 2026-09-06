@@ -1,0 +1,106 @@
+[
+  {
+    "id": "f15e.level.ccrp.lgb",
+    "aircraftId": "f15e",
+    "name": "Level CCRP 18k (LGB)",
+    "summary": "Straight and level, WSO lases from the pod, CCRP release",
+    "geometry": "level",
+    "deliveryMode": "CCRP",
+    "weaponClasses": ["lgb"],
+    "defaultFor": ["lgb"],
+    "params": { "releaseAltitude_ft": 18000, "releaseSpeed_ktas": 450 },
+    "procedure": [
+      "A/G master mode, CCRP; TGP designated on the target, laser code set",
+      "Wings level, pickle and hold — release at the cue",
+      "WSO lases from 8–10 s before impact until impact"
+    ],
+    "source": "community practice (Chuck's Guide F-15E)",
+    "verified": false
+  },
+  {
+    "id": "f15e.level.ccrp.jdam",
+    "aircraftId": "f15e",
+    "name": "Level CCRP 22k (JDAM)",
+    "summary": "Straight and level inside the LAR, CCRP release",
+    "geometry": "level",
+    "deliveryMode": "CCRP",
+    "weaponClasses": ["jdam"],
+    "defaultFor": ["jdam"],
+    "params": { "releaseAltitude_ft": 22000, "releaseSpeed_ktas": 450 },
+    "procedure": [
+      "A/G master mode, CCRP; JDAM target coordinates loaded",
+      "Inside the LAR: wings level, pickle and hold until release"
+    ],
+    "source": "community practice (Chuck's Guide F-15E)",
+    "verified": false
+  },
+  {
+    "id": "f15e.dive.ccip30",
+    "aircraftId": "f15e",
+    "name": "30° Dive CCIP",
+    "summary": "Roll in from 8,000 ft, 30° dive, pickle at 4,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb", "jdam"],
+    "defaultFor": ["bomb_ld", "bomb_hd", "cluster"],
+    "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4500, "releaseSpeed_ktas": 480, "pulloutG": 4 },
+    "procedure": [
+      "A/G master mode, CCIP",
+      "Roll in, pipper short of the target and let it walk up",
+      "Pickle at release altitude — 4 G recovery"
+    ],
+    "source": "community practice (Chuck's Guide F-15E)",
+    "verified": false
+  },
+  {
+    "id": "f15e.dive.ccip45",
+    "aircraftId": "f15e",
+    "name": "45° Dive CCIP",
+    "summary": "Steep dive from 12,000 ft, pickle at 6,500 ft",
+    "geometry": "dive",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb", "jdam"],
+    "params": { "ingressAltitude_ft": 12000, "rollInAltitude_ft": 12000, "diveAngle_deg": 45, "releaseAltitude_ft": 6500, "releaseSpeed_ktas": 480, "pulloutG": 5 },
+    "procedure": [
+      "A/G master mode, CCIP",
+      "Steep roll-in — the Eagle builds speed fast, throttle back",
+      "Pickle at release altitude — 5 G recovery, do not press"
+    ],
+    "source": "community practice (Chuck's Guide F-15E)",
+    "verified": false
+  },
+  {
+    "id": "f15e.popup.std",
+    "aircraftId": "f15e",
+    "name": "Pop-up 4 nm",
+    "summary": "Low run-in, pop at 4 nm to a 7,500 ft apex, 20° dive",
+    "geometry": "popup",
+    "deliveryMode": "CCIP",
+    "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb", "jdam"],
+    "params": { "runInAltitude_ft": 500, "runInSpeed_ktas": 500, "popDistance_nm": 4, "apexAltitude_ft": 7500, "diveAngle_deg": 20, "offsetAngle_deg": 20, "offsetDirection": "right", "minAltitude_ft": 500 },
+    "procedure": [
+      "A/G master mode, CCIP set before the IP",
+      "At the pop: pull, MAX power, check the apex altitude",
+      "Roll in, pipper on, pickle at release altitude"
+    ],
+    "source": "community practice",
+    "verified": false
+  },
+  {
+    "id": "f15e.level.laydown",
+    "aircraftId": "f15e",
+    "name": "Laydown 500 ft (HD)",
+    "summary": "Fast and low, CCRP release of high-drag bombs",
+    "geometry": "level",
+    "deliveryMode": "CCRP",
+    "weaponClasses": ["bomb_hd", "cluster"],
+    "params": { "releaseAltitude_ft": 500, "releaseSpeed_ktas": 540 },
+    "procedure": [
+      "High-drag / retarded bombs only",
+      "A/G master mode, CCRP, target designated",
+      "Level at 500 ft, pickle and hold through release"
+    ],
+    "source": "community practice",
+    "verified": false
+  }
+]

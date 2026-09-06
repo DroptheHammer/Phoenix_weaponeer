@@ -1,4 +1,5 @@
 import { Coordinates } from './waypoint.types';
+import type { DeliveryModeCode } from './profile.types';
 
 export interface Attack {
   id: string;
@@ -22,6 +23,21 @@ export interface Attack {
   sequenceNumber: number; // Order in attack flow
 
   notes?: string;
+
+  // Where the numbers came from. Snapshotted when the attack is built from a
+  // delivery profile, so a saved mission still renders correctly if the
+  // profile is later renamed, edited or removed.
+  sourceProfileId?: string;
+  sourceProfileName?: string;
+  deliveryMode?: DeliveryModeCode;
+  /** The profile had not been flown in DCS when this attack was built — the card says so */
+  estimated?: boolean;
+  /** Fixed-sight depression for manual deliveries (F-4E, A-4, F-5, Mirage F1) */
+  sightDepression_mils?: number;
+  /** Aircraft-specific setup lines from the profile, printed as the first step */
+  procedure?: string[];
+  /** The planner changed numbers after auto-build */
+  customized?: boolean;
 }
 
 export type AttackProfileType =
@@ -43,21 +59,25 @@ export type AttackProfile =
 
 export interface LevelCCRPProfile {
   type: 'level_ccrp';
+  ipWaypointId?: string; // Draws the run-in from a real IP when set
   ingressHeading_deg: number;
   releaseAltitude_ft: number; // MSL
   releaseSpeed_ktas: number;
-  egressHeading_deg: number;
+  egressHeading_deg?: number; // undefined = straight ahead (resolveEgressHeading)
 }
 
 export interface DiveCCIPProfile {
   type: 'dive_ccip';
+  ipWaypointId?: string; // Draws the run-in from a real IP when set
   ingressHeading_deg: number;
+  ingressAltitude_ft?: number; // AGL, before roll-in; defaults to roll-in altitude
   rollInAltitude_ft: number; // AGL
   diveAngle_deg: number;
   releaseAltitude_ft: number; // AGL
   releaseSpeed_ktas: number;
   pulloutG: number;
   egressDirection: 'left' | 'right' | 'straight';
+  egressHeading_deg?: number; // undefined = 90° break off the ingress heading (resolveEgressHeading)
 }
 
 export interface PopupCCIPProfile {

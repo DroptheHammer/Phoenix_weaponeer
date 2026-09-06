@@ -1,10 +1,19 @@
 import { Polyline, Marker, Tooltip } from 'react-leaflet';
 import { divIcon } from 'leaflet';
-import type { Attack, Waypoint, PopupCCIPProfile, PopupCCIPResult } from '../../types';
+import type {
+  Attack,
+  Waypoint,
+  PopupCCIPProfile,
+  DiveCCIPProfile,
+  LevelCCRPProfile,
+  PopupCCIPResult,
+} from '../../types';
 import type { ChucksGuideParams } from '../../lib/attackGeometry';
 import { MARKER_Z } from './mapLayers';
 import {
   calculatePopupGeometry,
+  calculateDiveGeometry,
+  calculateLevelGeometry,
   getRecommendedParams,
   calculatePointAtDistance,
   resolveEgressHeading,
@@ -12,12 +21,158 @@ import {
 
 interface AttackProfileOverlayProps {
   attack: Attack;
-  ipWaypoint: Waypoint;
+  /** Popup attacks need one; dive and level draw a schematic run-in without it. */
+  ipWaypoint?: Waypoint;
   targetWaypoint: Waypoint;
   calculatorResult?: PopupCCIPResult;
   isSelected?: boolean;
   /** While placing a threat, overlay markers must not swallow the map click. */
   isPlacementMode?: boolean;
+}
+
+/** Draws whichever geometry the attack uses. */
+export function AttackProfileOverlay(props: AttackProfileOverlayProps) {
+  switch (props.attack.profileType) {
+    case 'popup_ccip':
+      return props.ipWaypoint ? <PopupOverlay {...props} ipWaypoint={props.ipWaypoint} /> : null;
+    case 'dive_ccip':
+      return <DiveOverlay {...props} />;
+    case 'level_ccrp':
+      return <LevelOverlay {...props} />;
+    default:
+      return null;
+  }
+}
+
+const fmtHdg = (h: number) => Math.round(h).toString().padStart(3, '0');
+
+/** Straight-line delivery: run-in (dashed blue), attack leg (red), egress (dashed green). */
+function DiveOverlay({ attack, ipWaypoint, targetWaypoint, isSelected = false, isPlacementMode = false }: AttackProfileOverlayProps) {
+  const profile = attack.profile as DiveCCIPProfile;
+  const geometry = calculateDiveGeometry(targetWaypoint.coordinates, profile.ingressHeading_deg, {
+    rollInAltitude_ft: profile.rollInAltitude_ft,
+    releaseAltitude_ft: profile.releaseAltitude_ft,
+    diveAngle_deg: profile.diveAngle_deg,
+    egressDirection: profile.egressDirection,
+    egressHeading_deg: profile.egressHeading_deg,
+    ipPoint: ipWaypoint?.coordinates,
+  });
+  const style = lineStyle(isSelected);
+  const ll = (c: { lat: number; lon: number }): [number, number] => [c.lat, c.lon];
+  const releaseLabel = attack.deliveryMode === 'DTOS' ? 'System release' : attack.deliveryMode === 'MAN' ? 'Pickle' : 'Release';
+
+  return (
+    <>
+      <Polyline positions={[ll(geometry.ingressStart), ll(geometry.rollInPoint)]} pathOptions={{ ...style, dashArray: '10, 10' }} />
+      <Polyline positions={[ll(geometry.rollInPoint), ll(geometry.targetPoint)]} pathOptions={{ ...style, color: '#ef4444', weight: style.weight + 1 }} />
+      <Polyline positions={[ll(geometry.targetPoint), ll(geometry.egressPoint)]} pathOptions={{ ...style, color: '#22c55e', dashArray: '10, 10' }} />
+
+      <Marker interactive={!isPlacementMode} position={ll(geometry.rollInPoint)} icon={createLabelIcon('ROLL', 'orange')} zIndexOffset={MARKER_Z.attackPoint}>
+        <Tooltip permanent direction="top" offset={[0, -20]} className="attack-tooltip">
+          <div className="text-xs font-semibold">
+            <div>{geometry.rollInRange_nm.toFixed(1)}nm: roll in {profile.diveAngle_deg}°</div>
+            <div>{profile.rollInAltitude_ft.toLocaleString()}ft AGL</div>
+            {attack.sightDepression_mils != null && <div>Sight {attack.sightDepression_mils} mils</div>}
+          </div>
+        </Tooltip>
+      </Marker>
+
+      <Marker interactive={!isPlacementMode} position={ll(geometry.releasePoint)} icon={createLabelIcon('REL', 'yellow')} zIndexOffset={MARKER_Z.attackPoint}>
+        <Tooltip permanent direction="bottom" offset={[0, 20]} className="attack-tooltip">
+          <div className="text-xs font-semibold">
+            <div>{releaseLabel}: {profile.releaseAltitude_ft.toLocaleString()}ft AGL @ {profile.releaseSpeed_ktas} KTAS</div>
+          </div>
+        </Tooltip>
+      </Marker>
+
+      <Marker interactive={!isPlacementMode} position={ll(geometry.targetPoint)} icon={createLabelIcon('TGT', 'red')} zIndexOffset={MARKER_Z.attackPoint}>
+        <Tooltip permanent direction="bottom" offset={[0, 20]} className="attack-tooltip">
+          <div className="text-xs font-semibold">Attack hdg: {fmtHdg(geometry.attackHeading)}°</div>
+        </Tooltip>
+      </Marker>
+
+      <EgressLabel position={ll(geometry.egressPoint)} direction={profile.egressDirection} heading={geometry.egressHeading} isPlacementMode={isPlacementMode} />
+    </>
+  );
+}
+
+/** Level delivery: run-in (dashed blue) to a computed release point, then egress. */
+function LevelOverlay({ attack, ipWaypoint, targetWaypoint, isSelected = false, isPlacementMode = false }: AttackProfileOverlayProps) {
+  const profile = attack.profile as LevelCCRPProfile;
+  // Profile altitude is MSL; the release range wants height above the target.
+  const releaseAltitude_agl = Math.max(profile.releaseAltitude_ft - (targetWaypoint.elevation_ft ?? 0), 0);
+  const geometry = calculateLevelGeometry(targetWaypoint.coordinates, profile.ingressHeading_deg, {
+    releaseAltitude_agl,
+    releaseSpeed_ktas: profile.releaseSpeed_ktas,
+    egressDirection: 'straight',
+    egressHeading_deg: profile.egressHeading_deg,
+    ipPoint: ipWaypoint?.coordinates,
+  });
+  const style = lineStyle(isSelected);
+  const ll = (c: { lat: number; lon: number }): [number, number] => [c.lat, c.lon];
+  const mode = attack.deliveryMode ?? 'CCRP';
+  const releaseLabel = mode === 'CCRP' || mode === 'AUTO' ? 'Auto-release' : mode === 'VIS' ? 'Fire' : 'Pickle';
+
+  return (
+    <>
+      <Polyline positions={[ll(geometry.ingressStart), ll(geometry.releasePoint)]} pathOptions={{ ...style, dashArray: '10, 10' }} />
+      <Polyline positions={[ll(geometry.releasePoint), ll(geometry.targetPoint)]} pathOptions={{ ...style, color: '#ef4444', weight: style.weight + 1 }} />
+      <Polyline positions={[ll(geometry.targetPoint), ll(geometry.egressPoint)]} pathOptions={{ ...style, color: '#22c55e', dashArray: '10, 10' }} />
+
+      <Marker interactive={!isPlacementMode} position={ll(geometry.releasePoint)} icon={createLabelIcon('REL', 'yellow')} zIndexOffset={MARKER_Z.attackPoint}>
+        <Tooltip permanent direction="top" offset={[0, -20]} className="attack-tooltip">
+          <div className="text-xs font-semibold">
+            <div>{releaseLabel} ~{geometry.releaseRange_nm.toFixed(1)}nm out</div>
+            <div>{profile.releaseAltitude_ft.toLocaleString()}ft MSL @ {profile.releaseSpeed_ktas} KTAS</div>
+          </div>
+        </Tooltip>
+      </Marker>
+
+      <Marker interactive={!isPlacementMode} position={ll(geometry.targetPoint)} icon={createLabelIcon('TGT', 'red')} zIndexOffset={MARKER_Z.attackPoint}>
+        <Tooltip permanent direction="bottom" offset={[0, 20]} className="attack-tooltip">
+          <div className="text-xs font-semibold">Attack hdg: {fmtHdg(geometry.attackHeading)}°</div>
+        </Tooltip>
+      </Marker>
+
+      <EgressLabel position={ll(geometry.egressPoint)} direction="straight" heading={geometry.egressHeading} isPlacementMode={isPlacementMode} />
+    </>
+  );
+}
+
+function lineStyle(isSelected: boolean) {
+  return {
+    color: isSelected ? '#3b82f6' : '#60a5fa',
+    weight: isSelected ? 3 : 2,
+    opacity: isSelected ? 1.0 : 0.7,
+  };
+}
+
+function EgressLabel({
+  position,
+  direction,
+  heading,
+  isPlacementMode,
+}: {
+  position: [number, number];
+  direction: string;
+  heading: number;
+  isPlacementMode: boolean;
+}) {
+  return (
+    <Marker
+      interactive={!isPlacementMode}
+      position={position}
+      icon={divIcon({
+        html: `<div class="bg-green-900 bg-opacity-90 text-white px-2 py-1 rounded text-xs font-semibold whitespace-nowrap border border-green-400">
+          Egress ${direction}, ${fmtHdg(heading)}°
+        </div>`,
+        className: 'custom-info-label',
+        iconSize: [150, 20],
+        iconAnchor: [75, 10],
+      })}
+      zIndexOffset={MARKER_Z.label}
+    />
+  );
 }
 
 /**
@@ -46,19 +201,14 @@ function createLabelIcon(label: string, color: string = 'red') {
   });
 }
 
-export function AttackProfileOverlay({
+function PopupOverlay({
   attack,
   ipWaypoint,
   targetWaypoint,
   calculatorResult,
   isSelected = false,
   isPlacementMode = false,
-}: AttackProfileOverlayProps) {
-  // Only support popup CCIP for now
-  if (attack.profileType !== 'popup_ccip') {
-    return null;
-  }
-
+}: AttackProfileOverlayProps & { ipWaypoint: Waypoint }) {
   const profile = attack.profile as PopupCCIPProfile;
 
   // Get recommended parameters (from Chuck's Guides)
@@ -272,7 +422,7 @@ export function AttackProfileOverlay({
         position={[egressPoint.lat, egressPoint.lon]}
         icon={divIcon({
           html: `<div class="bg-green-900 bg-opacity-90 text-white px-2 py-1 rounded text-xs font-semibold whitespace-nowrap border border-green-400">
-            Defend ${profile.egressDirection ?? effective.offsetDirection}, Exit ${Math.round(egressBearing).toString().padStart(3, '0')}°
+            Egress ${profile.egressDirection ?? effective.offsetDirection}, ${Math.round(egressBearing).toString().padStart(3, '0')}°
           </div>`,
           className: 'custom-info-label',
           iconSize: [150, 20],

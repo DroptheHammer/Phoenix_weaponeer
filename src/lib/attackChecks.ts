@@ -1,5 +1,7 @@
 import type { AttackProfile } from '../types/attack.types';
 import type { DbWeapon } from '../types/weapon.types';
+import type { WeaponClass } from '../types/profile.types';
+import { WEAPON_CLASS_LABEL } from './weaponClass';
 
 /**
  * Sanity checks on an attack: does the profile the pilot is about to fly
@@ -28,10 +30,12 @@ export interface AttackCheckInput {
   weapon?: DbWeapon | null;
   /** Needed to compare a level (MSL) release against AGL weapon limits */
   targetElevation_ft?: number;
+  /** When built from a library profile: the weapon's class and what the profile was written for */
+  weaponClass?: WeaponClass;
+  allowedClasses?: WeaponClass[];
+  /** The profile's own delivery mode; without it (hand-built attack) CCIP is assumed for visual profiles */
+  sourceProfileName?: string;
 }
-
-/** Profiles where the pilot releases visually on a computed impact point. */
-const CCIP_PROFILES = new Set(['popup_ccip', 'dive_ccip', 'low_angle_low_drag', 'high_angle_strafe']);
 
 interface ReleasePoint {
   alt_agl?: number;
@@ -82,7 +86,7 @@ function releasePoint(profile: Partial<AttackProfile>, targetElevation_ft?: numb
 }
 
 export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
-  const { profileType, profile, weapon, targetElevation_ft } = input;
+  const { profile, weapon, targetElevation_ft, weaponClass, allowedClasses } = input;
   const checks: AttackCheck[] = [];
   const rp = releasePoint(profile, targetElevation_ft);
 
@@ -102,13 +106,14 @@ export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
 
   if (!weapon) return checks;
 
-  // Does the weapon suit the delivery? A guided weapon on a visual pass is
-  // legitimate (a JDAM off the top of a pop-up, CCRP at the roll-in), so this
-  // is a reminder to confirm the release mode, not a refusal.
-  if (CCIP_PROFILES.has(profileType) && weapon.guidance !== 'none') {
+  // Does the weapon suit the delivery? The profile says which weapon classes
+  // it was written for — that is the honest gate. A smart weapon on a visual
+  // pass is fine when the profile lists it (a JDAM off a pop-up, an LGB in a
+  // DTOS over a ridge); what is not fine is a low-drag bomb on a laydown.
+  if (weaponClass && allowedClasses && !allowedClasses.includes(weaponClass)) {
     checks.push({
       level: 'warn',
-      text: `${weapon.name} is ${weapon.guidance.toUpperCase()}-guided — confirm release mode (CCRP/AUTO) for this pass`,
+      text: `${input.sourceProfileName ?? 'This profile'} is not written for ${WEAPON_CLASS_LABEL[weaponClass].toLowerCase()} (${weapon.name})`,
     });
   }
 
