@@ -286,14 +286,22 @@ export function PopupCCIPForm({
             </div>
           </div>
 
+          {/*
+            Release altitude defaults to the calculator's value, which is
+            already clamped to the weapon's minimum and frag min-safe. A
+            planner can lower it deliberately; the checks below will say so.
+            (This input used to be labelled "Min Release Altitude" but was
+            bound to the hard-deck field — the same field as "Hard Deck" in
+            the Egress section.)
+          */}
           <div>
-            <label className="block text-sm font-medium mb-1">Min Release Altitude</label>
+            <label className="block text-sm font-medium mb-1">Release Altitude (ft AGL)</label>
             <input
               type="number"
-              value={profile.minAltitude_ft || ''}
-              onChange={(e) => onChange({ ...profile, minAltitude_ft: parseFloat(e.target.value) })}
+              value={profile.releaseAltitude_ft || ''}
+              onChange={(e) => onChange({ ...profile, releaseAltitude_ft: parseFloat(e.target.value) })}
               className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="3000"
+              placeholder={calculatorResult ? `${Math.round(calculatorResult.release_altitude_agl)}` : 'Calculate first'}
             />
           </div>
 
@@ -305,7 +313,7 @@ export function PopupCCIPForm({
               </div>
 
               <div className="bg-dcs-darker rounded p-2">
-                <label className="block text-xs text-gray-400 mb-1">Release Alt (calc)</label>
+                <label className="block text-xs text-gray-400 mb-1">Auto release alt (weapon floor applied)</label>
                 <div className="text-white font-medium">{Math.round(calculatorResult.release_altitude_agl)} ft AGL</div>
               </div>
 

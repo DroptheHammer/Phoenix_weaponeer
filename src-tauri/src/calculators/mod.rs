@@ -101,8 +101,14 @@ fn calculate_release_altitude(
     let speed_factor = speed_ktas / 450.0;
     let adjusted = base_altitude / speed_factor;
 
-    // Ensure above minimum
-    adjusted.max(weapon.min_release_alt_ft)
+    // Never default a release below what the weapon allows: its own minimum
+    // release altitude, and the frag min-safe altitude — the card should not
+    // print a release that its own MIN SAFE ALT line forbids. A planner who
+    // wants lower can type it, and the attack checks will say so.
+    let floor = weapon
+        .min_release_alt_ft
+        .max(weapon.frag_min_safe_alt_ft.unwrap_or(0.0));
+    adjusted.max(floor)
 }
 
 /// Estimate time from pop to release
@@ -193,6 +199,31 @@ mod tests {
 
         assert!(result.climb_angle_deg > 0.0);
         assert!(result.release_altitude_agl >= weapon.min_release_alt_ft);
+    }
+
+    /// A GBU-31 (min release 3,000, frag min-safe 4,500) in a 20° dive at
+    /// 450 kt computes a 3,500 ft release from the dive-angle bracket. That
+    /// is inside its own frag envelope; the floor must lift it to 4,500. This
+    /// is the exact contradiction an exported card was found printing.
+    #[test]
+    fn release_altitude_never_defaults_below_frag_min_safe() {
+        let gbu31 = WeaponParams {
+            weight_lbs: 2115.0,
+            drag_index: 0.024,
+            min_release_alt_ft: 3000.0,
+            frag_min_safe_alt_ft: Some(4500.0),
+        };
+        let result = calculate_popup_ccip(0.0, 100.0, 450.0, 4.0, 7500.0, 20.0, &gbu31);
+        assert_eq!(result.release_altitude_agl, 4500.0);
+        assert!(result.release_altitude_agl >= result.min_safe_altitude_agl);
+
+        // A weapon with no frag data keeps the plain minimum-release floor.
+        let no_frag = WeaponParams {
+            frag_min_safe_alt_ft: None,
+            ..gbu31.clone()
+        };
+        let result = calculate_popup_ccip(0.0, 100.0, 450.0, 4.0, 7500.0, 20.0, &no_frag);
+        assert_eq!(result.release_altitude_agl, 3500.0);
     }
 
     #[test]

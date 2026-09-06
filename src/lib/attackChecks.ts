@@ -102,14 +102,14 @@ export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
 
   if (!weapon) return checks;
 
-  // Does the weapon suit the delivery?
+  // Does the weapon suit the delivery? A guided weapon on a visual pass is
+  // legitimate (a JDAM off the top of a pop-up, CCRP at the roll-in), so this
+  // is a reminder to confirm the release mode, not a refusal.
   if (CCIP_PROFILES.has(profileType) && weapon.guidance !== 'none') {
-    const guided = `${weapon.name} is ${weapon.guidance.toUpperCase()}-guided`;
-    if (weapon.guidance === 'gps' || weapon.guidance === 'radar') {
-      checks.push({ level: 'error', text: `${guided} — not a CCIP weapon. Use a level CCRP/AUTO delivery.` });
-    } else {
-      checks.push({ level: 'warn', text: `${guided} — normally delivered CCRP/AUTO, not visually.` });
-    }
+    checks.push({
+      level: 'warn',
+      text: `${weapon.name} is ${weapon.guidance.toUpperCase()}-guided — confirm release mode (CCRP/AUTO) for this pass`,
+    });
   }
 
   // Does the release respect the weapon's own limits?
@@ -120,11 +120,10 @@ export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
         text: `Release ${ft(rp.alt_agl)} AGL is below ${weapon.name} minimum ${ft(weapon.min_release_alt_ft)}`,
       });
     }
-    if (
-      weapon.guidance === 'none' &&
-      isNum(weapon.frag_min_safe_alt_ft) &&
-      rp.alt_agl < weapon.frag_min_safe_alt_ft
-    ) {
+    // Frag min-safe applies to every weapon: it is about where the aircraft
+    // is at impact, not how the bomb got there. The calculator clamps the
+    // default release to this, so seeing it means someone lowered it by hand.
+    if (isNum(weapon.frag_min_safe_alt_ft) && rp.alt_agl < weapon.frag_min_safe_alt_ft) {
       checks.push({
         level: 'error',
         text: `Release ${ft(rp.alt_agl)} AGL is inside the frag envelope — min-safe ${ft(weapon.frag_min_safe_alt_ft)}`,

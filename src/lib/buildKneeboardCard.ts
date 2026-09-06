@@ -210,7 +210,7 @@ function generateSteps(
       {
         title: '⑤ EGRESS',
         lines: [
-          `Break ${p.egressDirection.toUpperCase()} — heading ${egressText}`,
+          `Egress ${p.egressDirection.toUpperCase()} — heading ${egressText}`,
           `Hard deck: ${p.minAltitude_ft.toLocaleString()}ft AGL  — jink vs AAA/MANPADs`,
           'Safe arm — confirm weapons away',
         ],
@@ -246,7 +246,7 @@ function generateSteps(
       {
         title: '④ EGRESS',
         lines: [
-          `Break ${p.egressDirection === 'straight' ? 'STRAIGHT' : p.egressDirection.toUpperCase()}`,
+          `Egress ${p.egressDirection === 'straight' ? 'STRAIGHT' : p.egressDirection.toUpperCase()}`,
           `Pull ${p.pulloutG}G to recover — safe arm`,
         ],
       },
