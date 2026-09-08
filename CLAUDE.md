@@ -135,7 +135,115 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-08 (afternoon, Opus 5, user at the screen). New way
+**Last session:** 2026-09-08 (evening, Opus 5, user at the screen). Same loop
+as the afternoon — **Opus specs, a Sonnet subagent builds, the user eyeballs,
+Opus commits only after a pass.** Plan still at
+`~/.claude/plans/so-let-s-plan-how-parsed-waffle.md`.
+
+**Everything below is committed and pushed** (`15218c9`). Gates: `npm run build`
+clean, **81 geometry checks** (was 72), **46 Rust tests**.
+
+### The afternoon's six changes are now ALL eyeballed
+
+Items 2-6 from the previous checklist passed: IP tag reads AGL on dive and MSL
+on level; it pins to the frame edge correctly on diagonals; it moves to the real
+IP when you zoom out to it; it prints on the exported card. One real defect
+found and fixed, plus one wording call:
+
+1. **Labels crowded again at extreme zoom-out** — at mission scale the whole
+   attack picture shrinks to a clump a few pixels across, so every callout
+   wanted the same spot. **Fixed:** below a legibility threshold each attack now
+   draws **one tag naming it** ("Viper 1-1 · TGT1", on the target) instead of its
+   callouts, egress tags and IP tag. Per attack, measured on `pictureFitPoints`,
+   so a large attack keeps full detail while a distant one collapses.
+   `labelsAreLegible` / `pixelSpan` / `LEGIBLE_SPAN_PX` in `labelLayout.ts`.
+2. **The "Action point set to 9 nm — needs room to roll out…" adjustment is
+   gone.** The user's call, and it was provably redundant: the hint under the
+   Ingress toggle (`AttackEditor.tsx:215`) already prints both the action range
+   and the join range. Every other adjustment was kept — they report an override
+   you cannot otherwise see.
+
+### The level offset-leg design is SETTLED — build it next
+
+This was the queued design conversation and it is done. **The user chose an
+offset leg of 1.5 × the run-in (join) range, check turn staying 30°.**
+
+The insight that unlocked it: the number that matters is **not** lateral
+displacement, it is the **azimuth split between two attackers as the defending
+SAM sees it**. A fire-control radar has roughly a 30-40° cone, so a 2-ship must
+arrive far enough apart that the defender is forced to choose one. Today's
+geometry gives a **12° split** — both jets inside one cone. The user's second
+reason: the higher the release, the earlier you want off the direct line,
+because time nose-on to the SAM is what gives it its best kinematic range.
+
+The cause: the solver takes the **action point range** as input and lets the leg
+fall out of the trigonometry, so a high JDAM's time-of-fall eats the whole leg.
+**Invert it** — specify the leg, derive the action point:
+
+```
+sin φ = L·sin θ / J          φ = axis displacement, J = join range, θ = check turn
+R     = J·sin(θ + φ) / sin θ                    R = action point range
+split = 2φ         angle-off = θ + φ            (BEM: >90° = "indirect")
+```
+
+Express the leg as a **multiple of J**, not fixed miles — it then scales itself
+and "higher = turn earlier" falls out for free. **Hard limit: leg = 2 × J puts
+you abeam, pair nose-to-nose over the target** — deconfliction problem, not a
+tactic. On the real NTTR STPT 7→8 leg (15.3 nm) the 1.5× action point at 13.9 nm
+only just fits, landing almost on the IP; a tighter route must pull it in and
+say so plainly.
+
+The BEM has no level-delivery or azimuth-split standard — checked. This is an
+invented tactic anchored on the manual's own angle-off ladder (2 × climb angle =
+40/60/80°, in `docs/DELIVERY_PLANNING.md`).
+
+**`Other Items/offset-leg-geometry.html`** is the scratch page this was settled
+on — real NTTR waypoints, the app's own proj4 string, live sliders. Git-ignored.
+**Do not delete it**; it is now the reference for the feature below.
+
+### TWO MAJOR FEATURES BANKED (user: not this session)
+
+1. **Rebuild Customize as live map + sliders**, exactly like that scratch page —
+   geometry redrawing as you drag, readouts and warnings underneath. User: *"Why
+   doesn't our customize menu look like this and update in real time like this?
+   It's way easier than the current customize menu."*
+2. **Multi-aircraft coordinated strike setup** — 1-4 aircraft planned against a
+   joint strike, adjusted **as a group or per aircraft**, watch it line up before
+   publishing.
+
+These two want building together: splitting a formation across a SAM's cone is
+inherently a formation-level decision. Likely M2, after a clean/compact.
+
+### Subagent lesson — THIRD session running
+
+The subagent's new geo-check could not fail. Its hand-made profile had no
+`aircraftId`/`geometry`/`weaponClasses` and its weapon no `category`, so
+`autoBuildAttack` bailed at its early return and never reached the geometry;
+the check passed whether the message existed or not. Rewritten against the
+**real `f16c.level.ccrp.jdam` profile** from `src-tauri/resources/profiles/`, a
+real-shaped GBU-31 row and the actual 15.3 nm leg, and it now asserts
+`actionRange` comes out **9 nm** — proof the branch ran. Verified to FAIL with
+the message restored.
+
+**Standing rule: a new test must be shown to fail against a broken
+implementation before it is believed.** And **user requirement: subagents doing
+key work run on Sonnet 5 or Opus 5, never Sonnet 4.5** — the Agent tool exposes
+only unversioned aliases, so pass `model` explicitly and have the agent report
+its own model ID.
+
+### START OF NEXT SESSION
+
+1. **Build the level offset leg** to the settled design above — the maths, the
+   limit, and the "route too short" message. `autoBuildAttack.ts` /
+   `attackGeometry.ts`.
+2. Then the remaining queue: map display filter, Reference DB v3 (rebuild
+   fresh, bumps `PRAGMA user_version` to 3), attack #1's egress preferring
+   attack #2's run-in, fuze-dependent release floors, dead-code removal.
+3. The two banked features above, after a clean/compact.
+
+---
+
+**Previous session:** 2026-09-08 (afternoon, Opus 5, user at the screen). New way
 of working this session, and it should continue: **Opus writes a spec, a Sonnet
 subagent implements it, the user eyeballs it in the running app, Opus commits
 only after the user passes it.** The plan lives at
