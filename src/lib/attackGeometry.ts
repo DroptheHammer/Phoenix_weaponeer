@@ -68,6 +68,15 @@ export const DEFAULT_ACTION_RANGE_NM = 4.5;
 /** Default check turn at the action point for dive and level deliveries. Pop-ups derive theirs. */
 export const DEFAULT_OFFSET_TURN_DEG = 20;
 
+/** Level CCRP offset leg as a multiple of the run-in (join) range. */
+export const DEFAULT_OFFSET_LEG_RATIO = 1.5;
+
+/** Level CCRP check turn defaults higher to fit the longer leg. */
+export const DEFAULT_LEVEL_CHECK_TURN_DEG = 30;
+
+/** Maximum offset leg ratio: past tangency the geometry breaks. */
+export const MAX_OFFSET_LEG_RATIO = 1.95;
+
 /** Kept for callers that still rotate a heading directly (legacy saves, tests). */
 export const DEFAULT_ANGLE_OFF_DEG = 30;
 
@@ -134,6 +143,8 @@ export interface ActionPointInput {
   offsetTurn_deg: number;
   /** Which flank the offset leg runs up. */
   side: Side;
+  /** Level CCRP only: the offset leg length in nm. When present, the leg is authoritative and actionRange_nm is ignored. */
+  legLength_nm?: number;
 }
 
 export interface ActionPointLeg {
@@ -143,6 +154,89 @@ export interface ActionPointLeg {
   offsetTurn: Turn;
   /** Perpendicular distance from the target to the offset leg. */
   abeam_nm: number;
+}
+
+/**
+ * Level CCRP offset leg geometry, solved from the ratio rather than the action point.
+ * Undefined when the geometry does not close (ratio · sin(checkTurn) > 1).
+ */
+export interface OffsetLegSolution {
+  legLength_nm: number;
+  actionRange_nm: number;
+  axisOffset_deg: number;
+  angleOff_deg: number;
+  split_deg: number;
+  abeam_nm: number;
+}
+
+/**
+ * The longest offset leg a given check turn can fly, as a multiple of the join
+ * range: cot(θ), where the leg runs tangent to the run-in ring and the angle-off
+ * is exactly 90°. A longer leg dips inside the ring and has to turn back
+ * outward — the BEM's "indirect" attack, not a strike run-in. Undefined for a
+ * check turn too small or too wide to mean anything.
+ */
+export function maxOffsetLegRatio(checkTurn_deg: number): number | undefined {
+  if (checkTurn_deg < 1 || checkTurn_deg >= 90) return undefined;
+  return 1 / Math.tan(rad(checkTurn_deg));
+}
+
+/**
+ * Solve offset leg geometry from the leg length as a multiple of the join range.
+ * Returns undefined when ratio · sin(checkTurn) > 1 — the leg never comes back within J.
+ */
+export function solveOffsetLeg(
+  joinRange_nm: number,
+  checkTurn_deg: number,
+  ratio: number,
+): OffsetLegSolution | undefined {
+  // Guard near-zero check turn (division by sin θ).
+  if (checkTurn_deg < 1) return undefined;
+
+  const theta = rad(checkTurn_deg);
+  const sinPhi = ratio * Math.sin(theta);
+
+  // Geometry doesn't close when the leg swings too far out.
+  if (sinPhi > 1) return undefined;
+
+  const phi = deg(Math.asin(sinPhi));
+  const angleOff = checkTurn_deg + phi;
+  const actionRange_nm = (joinRange_nm * Math.sin(rad(angleOff))) / Math.sin(theta);
+  const legLength_nm = ratio * joinRange_nm;
+  const abeam_nm = actionRange_nm * Math.sin(theta);
+
+  return {
+    legLength_nm,
+    actionRange_nm,
+    axisOffset_deg: phi,
+    angleOff_deg: angleOff,
+    split_deg: 2 * phi,
+    abeam_nm,
+  };
+}
+
+/**
+ * Inverse: given an action point range, recover the offset leg ratio.
+ * Undefined when no leg closes (abeam > joinRange or alongLeg < 0).
+ */
+export function offsetLegRatioFor(
+  joinRange_nm: number,
+  checkTurn_deg: number,
+  actionRange_nm: number,
+): number | undefined {
+  if (checkTurn_deg < 1) return undefined;
+
+  const theta = rad(checkTurn_deg);
+  const abeam = actionRange_nm * Math.sin(theta);
+
+  // The leg never reaches the join range.
+  if (abeam > joinRange_nm) return undefined;
+
+  // L = R·cos θ − √(J² − (R·sin θ)²)
+  const alongLeg = actionRange_nm * Math.cos(theta) - Math.sqrt(joinRange_nm ** 2 - abeam ** 2);
+  if (alongLeg < 0) return undefined;
+
+  return alongLeg / joinRange_nm;
 }
 
 /** The action point on the route and the offset leg leaving it. */
@@ -171,9 +265,30 @@ export function joinPointOnLeg(
   joinRange_nm: number,
 ): { point: Coordinates; attackHeading: number; joinTurn: Turn; alongLeg_nm: number; leg: ActionPointLeg } | undefined {
   const leg = actionPointLeg(targetPoint, input);
-  if (leg.abeam_nm > joinRange_nm) return undefined;
   const s = flankSign(input.side);
   const delta = rad(input.offsetTurn_deg);
+
+  // Level CCRP with explicit leg length: the leg is authoritative.
+  if (input.legLength_nm != null) {
+    const alongLeg_nm = input.legLength_nm;
+    const point = calculatePointAtDistance(leg.actionPoint, leg.approachHeading, alongLeg_nm);
+    // φ = asin(min(L·sin θ / J, 1))
+    const phi = deg(Math.asin(Math.min((alongLeg_nm * Math.sin(delta)) / joinRange_nm, 1)));
+    // Join turn = θ + φ
+    const joinTurnDeg = input.offsetTurn_deg + phi;
+    // Attack heading = direct bearing + s·φ
+    const attackHeading = normalizeHeading(input.directBearing_deg + s * phi);
+    return {
+      point,
+      attackHeading,
+      joinTurn: { deg: joinTurnDeg, direction: s > 0 ? 'right' : 'left' },
+      alongLeg_nm,
+      leg,
+    };
+  }
+
+  // Original logic: solve for the join point from the action range.
+  if (leg.abeam_nm > joinRange_nm) return undefined;
   // Triangle TGT–A–P: TGT–A = actionRange, angle at A = check turn, TGT–P = joinRange.
   const alongLeg_nm =
     input.actionRange_nm * Math.cos(delta) - Math.sqrt(Math.max(joinRange_nm ** 2 - leg.abeam_nm ** 2, 0));
@@ -194,10 +309,19 @@ export function joinPointOnLeg(
 
 /** The attack heading the action-point geometry produces, without positions. */
 export function attackHeadingFromActionPoint(input: ActionPointInput, joinRange_nm: number): number | undefined {
+  const s = flankSign(input.side);
+
+  // Level CCRP with explicit leg length: heading derived from φ.
+  if (input.legLength_nm != null) {
+    const theta = rad(input.offsetTurn_deg);
+    const phi = deg(Math.asin(Math.min((input.legLength_nm * Math.sin(theta)) / joinRange_nm, 1)));
+    return normalizeHeading(input.directBearing_deg + s * phi);
+  }
+
+  // Original logic: solve from the action range.
   const abeam = input.actionRange_nm * Math.sin(rad(input.offsetTurn_deg));
   if (abeam > joinRange_nm) return undefined;
   if (input.actionRange_nm * Math.cos(rad(input.offsetTurn_deg)) < Math.sqrt(joinRange_nm ** 2 - abeam ** 2)) return undefined;
-  const s = flankSign(input.side);
   const joinTurn = deg(Math.asin(abeam / joinRange_nm));
   return normalizeHeading(input.directBearing_deg - s * input.offsetTurn_deg + s * joinTurn);
 }

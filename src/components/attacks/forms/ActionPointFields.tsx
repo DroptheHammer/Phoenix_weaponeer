@@ -1,9 +1,10 @@
-import { DEFAULT_ACTION_RANGE_NM, type Side } from '../../../lib/attackGeometry';
+import { DEFAULT_ACTION_RANGE_NM, MAX_OFFSET_LEG_RATIO, solveOffsetLeg, offsetLegRatioFor, type Side } from '../../../lib/attackGeometry';
 
 export interface ActionPointValue {
   actionRange_nm?: number;
   offsetTurn_deg?: number;
   side?: Side;
+  offsetLegRatio?: number;
 }
 
 interface ActionPointFieldsProps {
@@ -17,6 +18,10 @@ interface ActionPointFieldsProps {
   directBearing_deg?: number;
   onChange: (value: ActionPointValue) => void;
   fieldClass?: string;
+  /** Level CCRP only: show the offset leg control instead of action point. */
+  showLeg?: boolean;
+  /** Level CCRP only: release speed for time calculation. */
+  speed_ktas?: number;
 }
 
 const defaultField = 'w-full bg-gray-700 text-white p-2 rounded border border-gray-600';
@@ -38,17 +43,83 @@ export function ActionPointFields({
   directBearing_deg,
   onChange,
   fieldClass = defaultField,
+  showLeg = false,
+  speed_ktas,
 }: ActionPointFieldsProps) {
   const enabled = directBearing_deg != null && Number.isFinite(directBearing_deg);
   const set = (patch: ActionPointValue) => onChange({ ...value, ...patch });
+  const checkTurn = value.offsetTurn_deg ?? 0;
+
+  // The two knobs are one number seen two ways. Typing the leg makes the leg
+  // authoritative (it then rescales with release altitude); typing the action
+  // point clears the ratio and pins the miles.
+  const setLeg = (ratio: number) => {
+    const solved = joinRange_nm != null ? solveOffsetLeg(joinRange_nm, checkTurn, ratio) : undefined;
+    set({ offsetLegRatio: ratio, actionRange_nm: solved ? Math.round(solved.actionRange_nm * 10) / 10 : value.actionRange_nm });
+  };
+  const setActionRange = (nm: number) => set({ actionRange_nm: nm, offsetLegRatio: undefined });
+
+  // Whatever is authoritative, both boxes show a live number.
+  const shownRatio =
+    value.offsetLegRatio ??
+    (joinRange_nm != null && value.actionRange_nm != null ? offsetLegRatioFor(joinRange_nm, checkTurn, value.actionRange_nm) : undefined);
+  const solution = showLeg && joinRange_nm != null && shownRatio != null ? solveOffsetLeg(joinRange_nm, checkTurn, shownRatio) : undefined;
+
   const hint = !enabled
     ? 'Needs a waypoint before the target in the route'
     : attackHeading == null
       ? `Too wide: the leg never comes within ${joinRange_nm?.toFixed(1) ?? '?'} nm — reduce the turn or move the point out`
       : `Route ${fmtHdg(directBearing_deg)} → turn ${value.side ?? 'right'} to ${fmtHdg(directBearing_deg + (value.side === 'left' ? -1 : 1) * (value.offsetTurn_deg ?? 0))}, ${joinLabel} at ${joinRange_nm?.toFixed(1) ?? '?'} nm onto ${fmtHdg(attackHeading)}`;
 
+  // What the defence sees. A fire-control radar has roughly a 40° cone, so the
+  // pair has to arrive far enough apart that it must choose one.
+  // How far off the direct line this attack arrives, and how long it spends
+  // getting there. The azimuth split between two attackers is what the leg is
+  // really buying, but it is obvious on the map once two attacks are plotted —
+  // printing it here just puzzles someone planning a single ship.
+  const legTime_s = solution && speed_ktas ? (solution.legLength_nm / speed_ktas) * 3600 : undefined;
+  const legLines = solution
+    ? [
+        `Leg ${solution.legLength_nm.toFixed(1)} nm (${(Math.round(shownRatio! * 100) / 100).toFixed(2)} × run-in${legTime_s ? `, ${Math.round(legTime_s)} s` : ''}) · axis ${Math.round(solution.axisOffset_deg)}° off the line`,
+      ]
+    : [];
+
+  // Warn, never block.
+  const warnings: string[] = [];
+  if (showLeg && joinRange_nm != null && shownRatio != null && !solution) {
+    warnings.push(
+      `Geometry does not close: the leg never comes back within ${joinRange_nm.toFixed(1)} nm of the target. Shorten the leg or reduce the check turn.`,
+    );
+  }
+  if (solution && solution.axisOffset_deg > 75) {
+    warnings.push(
+      `Past the beam: the axis has swung ${Math.round(solution.axisOffset_deg)}° off the line — you arrive nearly abeam the target, and a second attack mirrored on the far side would be nose-to-nose with this one.`,
+    );
+  }
+  if (solution && solution.angleOff_deg > 90) {
+    warnings.push(`Angle-off ${Math.round(solution.angleOff_deg)}° — past the BEM's indirect-attack threshold (>90°).`);
+  }
+
   return (
     <>
+      {showLeg && (
+        <div>
+          <label className={label}>Offset leg (× run-in)</label>
+          <input
+            type="number"
+            step="0.05"
+            min={0.2}
+            max={MAX_OFFSET_LEG_RATIO}
+            className={fieldClass}
+            disabled={!enabled}
+            value={shownRatio != null ? Math.round(shownRatio * 100) / 100 : ''}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              if (Number.isFinite(v)) setLeg(v);
+            }}
+          />
+        </div>
+      )}
       <div>
         <label className={label}>Action point (nm from target)</label>
         <input
@@ -60,7 +131,7 @@ export function ActionPointFields({
           value={value.actionRange_nm ?? DEFAULT_ACTION_RANGE_NM}
           onChange={(e) => {
             const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) set({ actionRange_nm: v });
+            if (Number.isFinite(v)) setActionRange(v);
           }}
         />
       </div>
@@ -93,7 +164,17 @@ export function ActionPointFields({
           <option value="right">Right — turn right, up the target's right flank, final turn left</option>
         </select>
       </div>
-      <div className="col-span-3 text-xs text-gray-400 -mt-2">{hint}</div>
+      <div className="col-span-3 text-xs text-gray-400 -mt-2">
+        <div>{hint}</div>
+        {legLines.map((line) => (
+          <div key={line}>{line}</div>
+        ))}
+        {warnings.map((line) => (
+          <div key={line} className="text-amber-400">
+            {line}
+          </div>
+        ))}
+      </div>
     </>
   );
 }

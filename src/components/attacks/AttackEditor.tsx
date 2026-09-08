@@ -68,8 +68,12 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   // A saved attack re-opens with the run-in it was built with — action point,
   // check turn, flank — so the toggle shows what its card says and auto-build
   // reproduces its heading.
-  const saved = attack && !attack.customized ? (attack.profile as { actionRange_nm?: number; offsetAngle_deg?: number; offsetDirection?: Side }) : undefined;
+  const saved =
+    attack && !attack.customized
+      ? (attack.profile as { actionRange_nm?: number; offsetAngle_deg?: number; offsetDirection?: Side; offsetLegRatio?: number })
+      : undefined;
   const [actionRangeOverride] = useState<number | undefined>(saved?.actionRange_nm);
+  const [offsetLegRatioOverride] = useState<number | undefined>(saved?.offsetLegRatio);
   const [offsetTurnOverride] = useState<number | undefined>(saved?.offsetAngle_deg);
   const [angleOffSide, setAngleOffSide] = useState<Side | undefined>(saved?.offsetDirection);
   const [egressOverride, setEgressOverride] = useState<'left' | 'right' | undefined>(undefined);
@@ -113,12 +117,13 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
         weaponId: weaponId || undefined,
         profileId,
         actionRange_nm: actionRangeOverride,
+        offsetLegRatio: offsetLegRatioOverride,
         offsetTurn_deg: offsetTurnOverride,
         angleOffSide,
         egressDirection: egressOverride,
       },
     });
-  }, [mission, targetWaypointId, attackerId, weapons, profiles, threatSystems, weaponId, profileId, actionRangeOverride, offsetTurnOverride, angleOffSide, egressOverride]);
+  }, [mission, targetWaypointId, attackerId, weapons, profiles, threatSystems, weaponId, profileId, actionRangeOverride, offsetLegRatioOverride, offsetTurnOverride, angleOffSide, egressOverride]);
 
   // Keep the pick lists honest as the picks change.
   useEffect(() => {
@@ -194,6 +199,7 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   };
 
   const fmtHdg = (h: number | undefined) => (h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---');
+  const round1 = (v: number) => Math.round(v * 10) / 10;
   const egress = (effectiveProfile as { egressDirection?: string } | undefined)?.egressDirection ?? 'right';
 
   // The run-in as it will be flown, read off whatever profile will be saved,
@@ -212,7 +218,16 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
         ? ''
         : !runIn.closes
           ? `Check turn ${Math.round(runIn.offsetTurn.deg)}° at ${runIn.actionRange_nm} nm is too wide — the picture does not close; fix it in Customize`
-          : `Route ${fmtHdg(runIn.directBearing)} to ${runIn.actionRange_nm} nm, turn ${runIn.offsetTurn.direction} ${Math.round(runIn.offsetTurn.deg)}° → ${fmtHdg(runIn.approachHeading)}; ${runIn.joinLabel} at ${runIn.joinRange_nm.toFixed(1)} nm ${runIn.joinTurn.direction} onto ${fmtHdg(runIn.attackHeading)}${autoNote}`;
+          : `Route ${fmtHdg(runIn.directBearing)} to ${round1(runIn.actionRange_nm)} nm, turn ${runIn.offsetTurn.direction} ${Math.round(runIn.offsetTurn.deg)}° → ${fmtHdg(runIn.approachHeading)}; ${runIn.joinLabel} at ${runIn.joinRange_nm.toFixed(1)} nm ${runIn.joinTurn.direction} onto ${fmtHdg(runIn.attackHeading)}${autoNote}`;
+
+  // How far off the direct line the attack arrives. The azimuth split between
+  // two attackers is what the leg is really buying, but it reads off the map
+  // once two attacks are plotted — naming it here only puzzles someone
+  // planning a single ship.
+  const legHint =
+    runIn?.legLength_nm != null
+      ? `Leg ${runIn.legLength_nm.toFixed(1)} nm${runIn.legTime_s ? ` (${Math.round(runIn.legTime_s)} s)` : ''} · axis ${Math.round(runIn.axisOffset_deg ?? 0)}° off the line`
+      : undefined;
 
   return (
     <Modal title={attack ? 'Edit Attack' : 'Add Attack'} onClose={onClose} widthClass="w-[860px]">
@@ -319,7 +334,10 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
                     </button>
                   ))}
                 </div>
-                <div className="text-xs text-gray-400 mt-1">{angleOffHint}</div>
+                <div className="text-xs text-gray-400 mt-1">
+                  <div>{angleOffHint}</div>
+                  {legHint && <div>{legHint}</div>}
+                </div>
               </div>
               <div>
                 <label className={label}>Egress</label>

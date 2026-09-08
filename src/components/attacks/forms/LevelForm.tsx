@@ -42,12 +42,29 @@ export function LevelForm({ profile, targetElevation_ft, onChange, directBearing
         <div className="text-xs text-gray-400 mt-1">Set by the geometry below; type to override</div>
       </div>
       <ActionPointFields
-        value={{ actionRange_nm: profile.actionRange_nm, offsetTurn_deg: profile.offsetAngle_deg, side: profile.offsetDirection }}
+        value={{
+          actionRange_nm: profile.actionRange_nm,
+          offsetTurn_deg: profile.offsetAngle_deg,
+          side: profile.offsetDirection,
+          offsetLegRatio: profile.offsetLegRatio,
+        }}
         joinLabel="run in"
         joinRange_nm={joinRange_nm}
         attackHeading={computedHeading}
         directBearing_deg={directBearing_deg}
-        onChange={(v) => onChange(withHeading({ ...profile, actionRange_nm: v.actionRange_nm, offsetAngle_deg: v.offsetTurn_deg, offsetDirection: v.side }))}
+        showLeg
+        speed_ktas={profile.releaseSpeed_ktas}
+        onChange={(v) =>
+          onChange(
+            withHeading({
+              ...profile,
+              actionRange_nm: v.actionRange_nm,
+              offsetAngle_deg: v.offsetTurn_deg,
+              offsetDirection: v.side,
+              offsetLegRatio: v.offsetLegRatio,
+            }),
+          )
+        }
       />
       <div>
         <label className={label}>Release altitude (ft MSL)</label>

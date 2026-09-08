@@ -17,6 +17,11 @@ import {
   LEVEL_RUN_IN_NM,
   DEFAULT_ACTION_RANGE_NM,
   DEFAULT_OFFSET_TURN_DEG,
+  DEFAULT_LEVEL_CHECK_TURN_DEG,
+  DEFAULT_OFFSET_LEG_RATIO,
+  solveOffsetLeg,
+  offsetLegRatioFor,
+  maxOffsetLegRatio,
   type Side,
 } from './attackGeometry';
 import { planPopup, doctrinalCheckTurn, solvePullDownTurn, applyPopupPlan, type PopupPlan } from './popupPlanning';
@@ -52,8 +57,10 @@ export interface AutoBuildOverrides {
   runInHeading_deg?: number;
   /** Range from the target for the check turn; undefined = the profile's, else DEFAULT_ACTION_RANGE_NM */
   actionRange_nm?: number;
-  /** The check turn at the action point; undefined = the profile's, else 20° (dive, level) or the handbook's (pop-up) */
+  /** The check turn at the action point; undefined = the profile's, else 20° (dive) or 30° (level) or the handbook's (pop-up) */
   offsetTurn_deg?: number;
+  /** Level only: the offset leg as a multiple of the run-in range; undefined = the profile's, else 1.5 */
+  offsetLegRatio?: number;
   /** Which flank to run in on; undefined = away from the nearest threat */
   angleOffSide?: Side;
   egressDirection?: 'left' | 'right';
@@ -162,6 +169,7 @@ export function egressAwayFromThreats(
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
+const round2 = (v: number) => Math.round(v * 100) / 100;
 
 export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   const { mission, weapons, profiles, threatSystems } = input;
@@ -300,20 +308,66 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     actionRange = pulledIn;
   }
 
+  let offsetLegRatio: number | undefined;
+
   if (popupNumbers) {
     checkTurn = overrides.offsetTurn_deg ?? popup?.offsetAngle_deg ?? doctrinalCheckTurn(popupNumbers.plan, actionRange);
     pullDown = solvePullDownTurn(popupNumbers.plan, actionRange, checkTurn);
     if (pullDown == null) {
       adjustments.push(`Check turn ${checkTurn}° at ${actionRange} nm is too wide for this pop-up — the pull-down cannot reach the target; reduce it or move the action point out`);
     }
+  } else if (level) {
+    // Level: the planner specifies the offset leg as a multiple of the run-in
+    // range and the action point falls out of it, so a long time-of-fall moves
+    // the check turn out instead of eating the leg.
+    checkTurn = overrides.offsetTurn_deg ?? level.offsetAngle_deg ?? DEFAULT_LEVEL_CHECK_TURN_DEG;
+    const asked = overrides.offsetLegRatio ?? level.offsetLegRatio ?? DEFAULT_OFFSET_LEG_RATIO;
+
+    // The leg goes tangent to the run-in ring at cot(check turn), where the
+    // angle-off is exactly 90°. Past that it flies inside the ring and turns
+    // back outward. cot θ < 1/sin θ, so this also covers "never closes".
+    const tangentRatio = maxOffsetLegRatio(checkTurn);
+    let ratio = asked;
+    if (tangentRatio != null && asked > tangentRatio) {
+      adjustments.push(
+        `Offset leg shortened ${round2(asked)} → ${round2(tangentRatio)} × the run-in: at a ${checkTurn}° check turn a longer leg swings the angle-off past 90°, which flies the leg inside the run-in ring`,
+      );
+      ratio = tangentRatio;
+    }
+
+    let solution = solveOffsetLeg(joinRange_nm, checkTurn, ratio);
+
+    // The action point has to fit on the route leg with room to roll out.
+    if (solution && legLength_nm != null && solution.actionRange_nm > legLength_nm - 0.5) {
+      const fitted = round1(Math.floor((legLength_nm - 0.5) * 2) / 2);
+      const achieved = offsetLegRatioFor(joinRange_nm, checkTurn, fitted);
+      const shortened = achieved != null ? solveOffsetLeg(joinRange_nm, checkTurn, achieved) : undefined;
+      if (shortened) {
+        adjustments.push(
+          `Offset leg shortened to ${round2(achieved!)} × the run-in — STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target, so the action point sits at ${fitted} nm and the azimuth split drops ${Math.round(solution.split_deg)}° → ${Math.round(shortened.split_deg)}°`,
+        );
+        ratio = achieved!;
+        solution = shortened;
+      } else {
+        problems.push(
+          `${profile.name} needs its run-in start ${joinRange_nm.toFixed(1)} nm out, but STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
+        );
+      }
+    }
+
+    if (solution) {
+      offsetLegRatio = ratio;
+      actionRange = round1(solution.actionRange_nm);
+    }
   } else {
-    checkTurn = overrides.offsetTurn_deg ?? dive?.offsetAngle_deg ?? level?.offsetAngle_deg ?? DEFAULT_OFFSET_TURN_DEG;
+    // Dive CCIP: original logic, 20° check turn.
+    checkTurn = overrides.offsetTurn_deg ?? dive?.offsetAngle_deg ?? DEFAULT_OFFSET_TURN_DEG;
     // The join point must be inside the action range, with room to settle.
     if (actionRange < joinRange_nm + 1) {
       const moved = round1(Math.ceil((joinRange_nm + 1.5) * 2) / 2);
       if (legLength_nm != null && moved > legLength_nm - 0.5) {
         problems.push(
-          `${profile.name} needs its ${dive ? 'roll-in' : 'run-in start'} ${joinRange_nm.toFixed(1)} nm out, but STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
+          `${profile.name} needs its roll-in ${joinRange_nm.toFixed(1)} nm out, but STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
         );
       }
       actionRange = moved;
@@ -339,9 +393,13 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   } else if (popupNumbers) {
     attackHeading = normalizeHeading(directBearing - s * checkTurn + s * (pullDown ?? 90));
   } else {
+    // Level uses the leg length; dive uses action range.
+    const legLengthForHeading = level && offsetLegRatio != null ? offsetLegRatio * joinRange_nm : undefined;
     attackHeading =
-      attackHeadingFromActionPoint({ directBearing_deg: directBearing, actionRange_nm: actionRange, offsetTurn_deg: checkTurn, side }, joinRange_nm) ??
-      noIp();
+      attackHeadingFromActionPoint(
+        { directBearing_deg: directBearing, actionRange_nm: actionRange, offsetTurn_deg: checkTurn, side, legLength_nm: legLengthForHeading },
+        joinRange_nm,
+      ) ?? noIp();
   }
   const egressDirection = overrides.egressDirection ?? egressAwayFromThreats(mission, target, attackHeading, threatSystems);
 
@@ -377,6 +435,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
       actionRange_nm: actionRange,
       offsetAngle_deg: checkTurn,
       offsetDirection: side,
+      offsetLegRatio,
     };
     attackProfile = p;
     profileType = 'level_ccrp';

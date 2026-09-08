@@ -69,6 +69,12 @@ export interface ActionPointFields {
   offsetAngle_deg?: number;
   /** Which flank the offset leg runs up: ingress from the target's left or right. */
   offsetDirection?: 'left' | 'right';
+  /**
+   * Level CCRP only: offset leg as a multiple of the run-in (join) range.
+   * When present, the leg is authoritative and actionRange_nm is derived from it.
+   * When absent, actionRange_nm is authoritative (dive, popup, and legacy level saves).
+   */
+  offsetLegRatio?: number;
 }
 
 export interface LevelCCRPProfile extends ActionPointFields {

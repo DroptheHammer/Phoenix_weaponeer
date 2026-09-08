@@ -30,6 +30,12 @@ export const SUPPORTED_GEOMETRIES: ProfileGeometry[] = ['level', 'dive', 'popup'
 export interface ActionPointParams {
   actionRange_nm?: number; // range from the target for the check turn; default 4.5
   offsetAngle_deg?: number; // the check turn; default 20° (dive, level) or the handbook's guide (pop-up)
+  /**
+   * Level CCRP only: offset leg as a multiple of the run-in (join) range.
+   * When present, the leg is authoritative and actionRange_nm is derived.
+   * Default 1.5 when absent on level profiles.
+   */
+  offsetLegRatio?: number;
 }
 
 export interface LevelParams extends ActionPointParams {

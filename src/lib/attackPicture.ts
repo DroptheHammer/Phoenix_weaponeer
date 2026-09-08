@@ -30,6 +30,7 @@ import {
   diveGroundRange_nm,
   levelReleaseRange_nm,
   LEVEL_RUN_IN_NM,
+  solveOffsetLeg,
   type ActionPointInput,
   type EgressPath,
   type Turn,
@@ -102,16 +103,28 @@ const ft = (v: number) => Math.round(v).toLocaleString();
 // ─── Pieces ───────────────────────────────────────────────────────────────────
 
 function actionOf(
-  profile: { actionRange_nm?: number; offsetAngle_deg?: number; offsetDirection?: 'left' | 'right' },
+  profile: { actionRange_nm?: number; offsetAngle_deg?: number; offsetDirection?: 'left' | 'right'; offsetLegRatio?: number },
   ipWaypoint: Waypoint | undefined,
   targetWaypoint: Waypoint,
+  joinRange_nm?: number,
 ): ActionPointInput | undefined {
   if (!ipWaypoint || profile.actionRange_nm == null || profile.offsetAngle_deg == null || !profile.offsetDirection) return undefined;
+
+  // A level profile that carries a leg ratio derives BOTH the leg and the action
+  // point from the live join range — the stored actionRange_nm goes stale as soon
+  // as the release altitude is edited, and a stale action point with a fresh leg
+  // draws a picture that does not close.
+  const solved =
+    profile.offsetLegRatio != null && joinRange_nm != null
+      ? solveOffsetLeg(joinRange_nm, profile.offsetAngle_deg, profile.offsetLegRatio)
+      : undefined;
+
   return {
     directBearing_deg: calculateBearing(ipWaypoint.coordinates, targetWaypoint.coordinates),
-    actionRange_nm: profile.actionRange_nm,
+    actionRange_nm: solved?.actionRange_nm ?? profile.actionRange_nm,
     offsetTurn_deg: profile.offsetAngle_deg,
     side: profile.offsetDirection,
+    legLength_nm: solved?.legLength_nm,
   };
 }
 
@@ -216,13 +229,15 @@ function divePicture(attack: Attack, profile: DiveCCIPProfile, ipWaypoint: Waypo
 
 function levelPicture(attack: Attack, profile: LevelCCRPProfile, ipWaypoint: Waypoint | undefined, targetWaypoint: Waypoint): AttackPicture {
   const releaseAltitude_agl = Math.max(profile.releaseAltitude_ft - (targetWaypoint.elevation_ft ?? 0), 0);
+  const joinRange_nm = levelReleaseRange_nm(releaseAltitude_agl, profile.releaseSpeed_ktas) + LEVEL_RUN_IN_NM;
+  const action = actionOf(profile, ipWaypoint, targetWaypoint, joinRange_nm);
   const g = calculateLevelGeometry(targetWaypoint.coordinates, profile.ingressHeading_deg, {
     releaseAltitude_agl,
     releaseSpeed_ktas: profile.releaseSpeed_ktas,
     egressDirection: profile.egressDirection ?? 'straight',
     egressHeading_deg: profile.egressHeading_deg,
     ipPoint: ipWaypoint?.coordinates,
-    action: actionOf(profile, ipWaypoint, targetWaypoint),
+    action,
   });
   const mode = attack.deliveryMode ?? 'CCRP';
   const releaseLabel = mode === 'CCRP' || mode === 'AUTO' ? 'Auto-release' : mode === 'VIS' ? 'Fire' : 'Pickle';
@@ -236,7 +251,9 @@ function levelPicture(attack: Attack, profile: LevelCCRPProfile, ipWaypoint: Way
   lines.push({ style: 'attack', points: [g.runInStart, g.releasePoint] }, { style: 'bomb', points: [g.releasePoint, g.targetPoint] }, ...egressLines(g.egress));
 
   const markers: PictureMarker[] = [];
-  if (g.actionPoint && g.offsetTurn) markers.push(actionMarker(g.actionPoint, profile.actionRange_nm ?? 0, g.offsetTurn, g.approachHeading));
+  // The label reads the range the geometry actually used — a level attack whose
+  // leg is a ratio derives it live, so the stored field can be stale.
+  if (g.actionPoint && g.offsetTurn) markers.push(actionMarker(g.actionPoint, action?.actionRange_nm ?? profile.actionRange_nm ?? 0, g.offsetTurn, g.approachHeading));
   markers.push(
     {
       kind: 'RUN',
@@ -376,12 +393,16 @@ export function buildSideProfile(attack: Attack, targetElevation_ft: number): Si
     const agl = Math.max(p.releaseAltitude_ft - targetElevation_ft, 0);
     const release = levelReleaseRange_nm(agl, p.releaseSpeed_ktas);
     const runIn = release + LEVEL_RUN_IN_NM;
-    const start = add({ kind: 'AP', dist_nm: p.actionRange_nm ?? runIn + 3, alt_ft: agl, label: p.actionRange_nm != null ? `${p.actionRange_nm}nm: ACTION` : undefined, side: 'top' });
+    // A leg ratio derives the action point from the live run-in range, so the
+    // side view must not print the stored field either.
+    const solvedAp = p.offsetLegRatio != null && p.offsetAngle_deg != null ? solveOffsetLeg(runIn, p.offsetAngle_deg, p.offsetLegRatio) : undefined;
+    const apRange = solvedAp ? Math.round(solvedAp.actionRange_nm * 10) / 10 : p.actionRange_nm;
+    const start = add({ kind: 'AP', dist_nm: apRange ?? runIn + 3, alt_ft: agl, label: apRange != null ? `${apRange}nm: ACTION` : undefined, side: 'top' });
     const run = add({ kind: 'RUN', dist_nm: runIn, alt_ft: agl, label: `${nm1(runIn)}nm: wings level`, side: 'top' });
     const rel = add({ kind: 'REL', dist_nm: release, alt_ft: agl, label: `Release ~${nm1(release)}nm · ${ft(p.releaseAltitude_ft)}ft MSL`, side: 'bottom' });
     const tgt = add({ kind: 'TGT', dist_nm: 0, alt_ft: 0 });
     const out = add({ kind: 'EGRESS', dist_nm: release - 1.2, alt_ft: agl + 800 });
-    seg({ style: p.actionRange_nm != null ? 'leg' : 'route', from: start, to: run });
+    seg({ style: apRange != null ? 'leg' : 'route', from: start, to: run });
     seg({ style: 'attack', from: run, to: rel });
     seg({ style: 'bomb', from: rel, to: tgt });
     seg({ style: 'egress', from: rel, to: out, curve: 'up' });

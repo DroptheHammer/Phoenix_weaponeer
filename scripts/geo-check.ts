@@ -6,6 +6,11 @@ import {
   actionPointLeg,
   joinPointOnLeg,
   attackHeadingFromActionPoint,
+  solveOffsetLeg,
+  offsetLegRatioFor,
+  maxOffsetLegRatio,
+  levelReleaseRange_nm,
+  LEVEL_RUN_IN_NM,
   calculatePopupGeometry,
   calculateDiveGeometry,
   calculateLevelGeometry,
@@ -333,3 +338,115 @@ ok('the action point really is pushed out past the run-in start (branch ran)',
 ok('no "Action point set to" adjustment is emitted',
    !levelBuild.adjustments.some((m: string) => m.includes('Action point set to')),
    levelBuild.adjustments.length ? levelBuild.adjustments.join('; ') : '(none)');
+
+// ─── The level offset leg ────────────────────────────────────────────────────
+// The leg is specified as a multiple of the run-in (join) range and the action
+// point falls out of it, so a long time-of-fall moves the check turn out
+// instead of eating the leg. Before this, the same NTTR case flew a 2.04 nm leg
+// (0.29 x J) with an 11.3 deg azimuth split — a pair inside one radar cone.
+
+// Library profiles store release altitude AGL; the level profile converts to MSL.
+const jdamAgl = 20000;
+const J = levelReleaseRange_nm(jdamAgl, 420) + LEVEL_RUN_IN_NM;
+ok('JDAM 20k/420kt run-in range is 7.1 nm', Math.abs(J - 7.11) < 0.02, r(J).toString());
+
+const sol = solveOffsetLeg(J, 30, 1.5)!;
+ok('1.5 x leg at a 30 deg check turn: axis 48.6 deg, split 97.2 deg, angle-off 78.6 deg',
+   Math.abs(sol.axisOffset_deg - 48.59) < 0.05 && Math.abs(sol.split_deg - 97.18) < 0.1 && Math.abs(sol.angleOff_deg - 78.59) < 0.05,
+   `axis ${r(sol.axisOffset_deg)} split ${r(sol.split_deg)} AO ${r(sol.angleOff_deg)}`);
+ok('...and derives a 13.9 nm action point for a 10.7 nm leg',
+   Math.abs(sol.actionRange_nm - 13.95) < 0.05 && Math.abs(sol.legLength_nm - 1.5 * J) < 0.001,
+   `AP ${r(sol.actionRange_nm)} leg ${r(sol.legLength_nm)}`);
+
+// The split depends only on the ratio and the check turn — J cancels out of
+// sin(phi). That is what makes the multiple the right knob to expose.
+const solHigh = solveOffsetLeg(J * 2.3, 30, 1.5)!;
+ok('the split is independent of the join range (J cancels)', Math.abs(solHigh.split_deg - sol.split_deg) < 1e-9,
+   `${r(solHigh.split_deg)} vs ${r(sol.split_deg)}`);
+
+// Tangency: at cot(theta) the leg just touches the run-in ring, angle-off 90.
+ok('the leg goes tangent at cot(check turn) — 1.732 x at 30 deg, angle-off 90',
+   Math.abs(maxOffsetLegRatio(30)! - 1.7320508) < 1e-6 &&
+   Math.abs(solveOffsetLeg(J, 30, maxOffsetLegRatio(30)!)!.angleOff_deg - 90) < 0.001);
+ok('a leg longer than 1/sin(check turn) does not close at all', solveOffsetLeg(J, 45, 1.5) === undefined);
+
+// Round trip: action point -> ratio -> action point.
+const backRatio = offsetLegRatioFor(J, 30, sol.actionRange_nm)!;
+ok('action point converts back to the 1.5 x ratio it came from', Math.abs(backRatio - 1.5) < 0.001, r(backRatio).toString());
+
+// Auto-build on the real NTTR leg.
+const lvlP = levelBuild.attack!.profile as { actionRange_nm?: number; offsetAngle_deg?: number; offsetLegRatio?: number };
+ok('auto-build picks a 30 deg check turn and a 1.5 x leg for a level attack',
+   lvlP.offsetAngle_deg === 30 && Math.abs((lvlP.offsetLegRatio ?? 0) - 1.5) < 1e-9,
+   `turn ${lvlP.offsetAngle_deg} ratio ${lvlP.offsetLegRatio}`);
+ok('the 13.9 nm action point still fits inside the 15.3 nm route leg, no adjustment',
+   Math.abs((lvlP.actionRange_nm ?? 0) - 13.9) < 0.06 && levelBuild.adjustments.length === 0,
+   `AP ${lvlP.actionRange_nm} · ${levelBuild.adjustments.join('; ') || 'no adjustments'}`);
+
+// THE ONE THAT PROVES THE FEATURE. Measured on the picture the map and the
+// kneeboard card both draw. Reads 2.04 nm (0.29 x J) without the change.
+const lvlPic = buildAttackPicture(levelBuild.attack as never, wpIp as never, wpTgt as never)!;
+const apPt = lvlPic.markers.find((m) => m.kind === 'AP')!.position;
+const runPt = lvlPic.markers.find((m) => m.kind === 'RUN')!.position;
+const drawnLeg = calculateDistance(apPt, runPt);
+ok('the drawn offset leg really is 1.5 x the run-in range (10.7 nm, was 2.0)',
+   Math.abs(drawnLeg - 1.5 * J) < 0.05, `${r(drawnLeg)} nm = ${r(drawnLeg / J)} x J`);
+ok('the run-in start still sits on the run-in ring',
+   Math.abs(calculateDistance(runPt, tgt) - J) < 0.1, r(calculateDistance(runPt, tgt)).toString());
+ok('the attack axis is swung ~49 deg off the direct line (was 5.6)',
+   Math.abs(Math.abs(signedHeadingDelta(calculateBearing(wpIp.coordinates, tgt), levelBuild.attack!.profile.ingressHeading_deg)) - 48.59) < 0.5,
+   r(signedHeadingDelta(calculateBearing(wpIp.coordinates, tgt), levelBuild.attack!.profile.ingressHeading_deg)).toString());
+
+// Past tangency the near-root solve returns the wrong point; the leg length has
+// to be threaded through. Fails if legLength_nm is ignored.
+const wide = { directBearing_deg: 248, actionRange_nm: solveOffsetLeg(J, 30, 1.95)!.actionRange_nm,
+               offsetTurn_deg: 30, side: 'right' as const, legLength_nm: 1.95 * J };
+const wideJoin = joinPointOnLeg(tgt, wide, J)!;
+ok('past tangency (1.95 x) the join point is still on the ring and the leg is still 1.95 x',
+   Math.abs(wideJoin.alongLeg_nm - 1.95 * J) < 0.001 && Math.abs(calculateDistance(wideJoin.point, tgt) - J) < 0.15,
+   `leg ${r(wideJoin.alongLeg_nm)} ring ${r(calculateDistance(wideJoin.point, tgt))}`);
+
+// Auto-build refuses to go past 90 deg angle-off on its own.
+const wideTurn = autoBuildAttack({
+  mission: { waypoints: [wpIp, wpTgt], flightMembers: [pilot], threats: [], attacks: [] },
+  targetWaypointId: wpTgt.id, attackerId: pilot.id, weapons: [gbu31], profiles: [jdamLevel],
+  threatSystems: [], overrides: { offsetTurn_deg: 40 },
+} as never);
+const wideP = wideTurn.attack!.profile as { offsetLegRatio?: number };
+ok('a 40 deg check turn caps the leg at cot(40) = 1.19 x, angle-off exactly 90',
+   Math.abs((wideP.offsetLegRatio ?? 0) - maxOffsetLegRatio(40)!) < 1e-9 &&
+   Math.abs(solveOffsetLeg(J, 40, wideP.offsetLegRatio!)!.angleOff_deg - 90) < 0.001,
+   `ratio ${wideP.offsetLegRatio?.toFixed(3)}`);
+ok('...and says so in an adjustment naming the 90 deg limit',
+   wideTurn.adjustments.some((m: string) => m.includes('angle-off past 90')),
+   wideTurn.adjustments.join('; ') || '(none)');
+
+// A short route leg pulls the action point in and reports the split it cost.
+const wpNear = { ...wpIp, coordinates: calculateDestination(tgt, 68, 11) };
+const shortLeg = autoBuildAttack({
+  mission: { waypoints: [wpNear, wpTgt], flightMembers: [pilot], threats: [], attacks: [] },
+  targetWaypointId: wpTgt.id, attackerId: pilot.id, weapons: [gbu31], profiles: [jdamLevel], threatSystems: [],
+} as never);
+const shortP = shortLeg.attack!.profile as { actionRange_nm?: number };
+ok('an 11 nm route leg pulls the action point in to fit',
+   (shortP.actionRange_nm ?? 99) <= 10.5, `AP ${shortP.actionRange_nm}`);
+ok('...and the adjustment names the split it cost',
+   shortLeg.adjustments.some((m: string) => m.includes('azimuth split drops')),
+   shortLeg.adjustments.join('; ') || '(none)');
+
+// Dive is untouched: still a 4.5 nm action point and a 20 deg check turn.
+const diveProfiles = f16cProfiles.filter((p: { id: string }) => p.id === 'f16c.dive.ccip30');
+if (diveProfiles.length) {
+  const mk82 = { id: 'mk82', name: 'Mk-82 LDGP', category: 'bomb_unguided', guidance: 'unguided',
+                 weight_lbs: 500, min_release_alt_ft: 3000, frag_min_safe_alt_ft: 1500 };
+  const divePilot = { ...pilot, loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 4 }] };
+  const diveBuild = autoBuildAttack({
+    mission: { waypoints: [wpIp, wpTgt], flightMembers: [divePilot], threats: [], attacks: [] },
+    targetWaypointId: wpTgt.id, attackerId: divePilot.id, weapons: [mk82],
+    profiles: diveProfiles, threatSystems: [],
+  } as never);
+  const dp = diveBuild.attack?.profile as { offsetAngle_deg?: number; offsetLegRatio?: number } | undefined;
+  ok('dive still uses the handbook 20 deg check turn and carries no leg ratio',
+     dp != null && dp.offsetAngle_deg === 20 && dp.offsetLegRatio === undefined,
+     `turn ${dp?.offsetAngle_deg} ratio ${dp?.offsetLegRatio}`);
+}
