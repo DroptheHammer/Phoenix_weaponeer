@@ -135,7 +135,125 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-08 (evening, Opus 5, user at the screen). Same loop
+**Last session:** 2026-09-08 (late, Opus 5, user at the screen). **The level
+offset leg is BUILT, eyeballed on all eight checks, committed and pushed**
+(`9d30046`). Gates: `npm run build` clean, **99 geo-checks** (was 81), **46
+Rust tests**. Plan at `~/.claude/plans/ok-let-s-plan-for-wise-lantern.md`.
+
+### READ THIS FIRST — the `sonnet` alias was silently Sonnet 4.5
+
+The subagent loop broke this session and it was not the agent's fault.
+`~/.zshrc` exported `ANTHROPIC_DEFAULT_OPUS_MODEL` and
+`ANTHROPIC_DEFAULT_SONNET_MODEL` (added for "opusplan"), pinning both
+unversioned aliases to 4.5-era builds. The Agent tool accepts **only**
+unversioned aliases, so `model: "sonnet"` — exactly what these notes told
+the agent to pass — resolved to `claude-sonnet-4-5-20250929`. `/model opus`
+would have done the same.
+
+**Both lines are now commented out** (backup `~/.zshrc.bak-20260908`), so the
+aliases resolve to current. **It only takes effect in a Claude Code started
+from a fresh shell** — if this session is a continuation, subagents are still
+on the old build. The user's rule, in his words: *"we plan on opus (whatever
+the latest version is at the time, I don't want us tied to some old default,
+if I say /model opus I mean it). And we execute with sub agents on /model
+sonnet where the sonnet needs to always be the latest version."*
+
+**Cheap proof, use it every time:** grep the agent's own transcript —
+`grep -o '"model":"[^"]*"' <task output file> | sort -u`. Do not read that
+file whole; it will blow up context. Also require the agent to state its model
+ID as the first line of its report.
+
+Because of this the Sonnet agent was killed part-way and **Opus finished the
+build directly**. That satisfies the rule (Opus 5 or Sonnet 5), and is the
+fallback whenever the alias cannot be trusted.
+
+### What shipped — the level offset leg
+
+Auto-build took the action point range as input and let the leg fall out of
+the trigonometry, so a high JDAM's time-of-fall ate it. Measured before the
+change on the real NTTR case: **leg 2.04 nm (0.29 × J), axis 5.6° off, an 11°
+azimuth split** — a pair inside one fire-control cone.
+
+**Inverted:** the leg is specified as a multiple of the run-in (join) range
+and the action point falls out of it.
+
+```
+sin φ = ratio · sin θ        AO = θ + φ        R = J · sin(AO) / sin θ
+```
+
+`J` cancels out of `sin φ`, so the split depends only on the ratio and the
+check turn — which is why the multiple is the right knob, and why the leg
+rescales itself when release altitude changes. Defaults **1.5 ×, 30° check
+turn** → leg 10.7 nm, axis 48.6° off, 97° split, angle-off 78.6°.
+
+**The 30° check turn is load-bearing, not cosmetic** — at 20° the 1.5 × leg
+wants a 16.1 nm action point, which does not fit the 15.3 nm STPT 7→8 leg.
+
+**Correction to the previous notes: the hard limit is NOT 2 ×.** The leg goes
+tangent to the run-in ring at **cot θ (1.732 × at 30°)**, where angle-off is
+exactly 90°. Past that it dips inside the ring and turns back outward — the
+BEM's "indirect" attack — and the old `asin(abeam / J)` returns the wrong
+root. 2 × is only where `sin φ` saturates; it is past tangency and not a
+flyable leg. Auto-build caps itself at cot θ; Customize reaches 1.95 × with
+warnings, which is why the leg length is **threaded through**
+`joinPointOnLeg` via `ActionPointInput.legLength_nm` rather than re-solved.
+
+### Decisions the user made this session
+
+- **Customize keeps both knobs, linked** (his call, against the tidier
+  single-knob option, to honour "never remove a knob"). Typing the **leg**
+  makes it authoritative and it rescales with altitude; typing the **action
+  point** clears the ratio and pins the miles.
+- **Auto-build caps at 90° angle-off; Customize can push past with warnings.**
+  Warn, do not block.
+- **The 2-ship split is NOT printed anywhere.** It was built, he saw it, and
+  had it removed: *"the 2 ship split would be obvious when eyeballed… they
+  will be confused if plotting a solo attack."* The hint now reads only
+  `Leg 10.7 nm (91 s) · axis 49° off the line`. **`split_deg` is still
+  computed and carried on `RunInSummary`** — keep it, the banked multi-ship
+  feature wants it.
+
+### Also fixed, found while reviewing (not in the spec)
+
+- **Stale action point.** The stored `actionRange_nm` goes stale the moment
+  release altitude is edited, so a fresh leg plus a stale action point drew a
+  picture that did not close. `actionOf`, the ACTION marker label and the
+  card's side view all derive it live now.
+- The Action point input never cleared the ratio — half of "linked" missing.
+- The non-closing fallback was convoluted; capping at `cot θ` up front
+  subsumes it, since `cot θ < 1/sin θ` always.
+
+**Known approximation:** the run-in start lands ~55 m inside J, because the
+triangle is solved with flat trig then plotted on a sphere. 0.4% of the
+run-in range, below the precision of the release model (already "schematic").
+The geo-checks use a 0.1 nm tolerance rather than pretending it is exact.
+
+### The gates were proven able to fail
+
+Per the standing rule. Ignoring the threaded leg length breaks 2 checks;
+reverting to the old action-point-driven behaviour breaks 7, the headline one
+reading `2.1 nm = 0.3 x J` — the exact pre-change baseline. **Keep doing
+this**; it is the third session running that it caught something.
+
+### START OF NEXT SESSION
+
+1. **Restart from a fresh shell** so the model aliases are current, and spot
+   check a subagent's model ID before trusting it with real work.
+2. The queue, in the user's order: map display filter; Reference DB v3
+   (rebuild fresh, bumps `PRAGMA user_version` to 3); attack #1's egress
+   preferring attack #2's run-in; fuze-dependent release floors; dead-code
+   removal (`src/hooks/useAttackCalculator.ts`, Rust `calculate_popup_ccip`,
+   unused `once_cell`).
+3. The two banked features **after a clean/compact** — live-geometry Customize
+   (sliders + map redrawing as you drag, like
+   `Other Items/offset-leg-geometry.html`) and multi-aircraft coordinated
+   strike. They want building together; splitting a formation across a SAM's
+   cone is a formation-level decision, and that is where the retained
+   `split_deg` earns its keep.
+
+---
+
+**Previous session:** 2026-09-08 (evening, Opus 5, user at the screen). Same loop
 as the afternoon — **Opus specs, a Sonnet subagent builds, the user eyeballs,
 Opus commits only after a pass.** Plan still at
 `~/.claude/plans/so-let-s-plan-how-parsed-waffle.md`.
