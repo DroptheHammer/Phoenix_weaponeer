@@ -3,8 +3,11 @@ import { divIcon, DragEndEvent } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../../types';
 import { useTheaterInfo } from '../../stores/theaterStore';
-import { Fragment, useMemo, useEffect } from 'react';
+import { Fragment, useMemo, useEffect, useState } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
+import { AttackLabelLayer } from './AttackLabelLayer';
+import { buildAttackPicture } from '../../lib/attackPicture';
+import type { PlacedLabel } from '../../lib/labelLayout';
 import { MARKER_Z } from './mapLayers';
 
 interface ThreatSystem {
@@ -24,6 +27,9 @@ interface MapViewProps {
   bullseye?: Coordinates;
   threatSystems?: Map<string, ThreatSystem>;
   selectedAttackId?: string;
+  /** Set right after an attack is added/edited; the map reframes on it once, then this should be cleared. */
+  focusAttackId?: string | null;
+  onAttackFocused?: () => void;
   onMoveThreat?: (threatId: string, position: Coordinates) => void;
   onRemoveThreat?: (threatId: string) => void;
   // Threat placement is driven by ThreatList via onRequestPlacement: it supplies
@@ -81,6 +87,57 @@ function MapController({
       map.setView([center.lat, center.lon], 8);
     }
   }, [fitKey, theater, theaterInfo, map]);
+
+  return null;
+}
+
+/**
+ * Reframes the map on one attack right after it's added or edited.
+ *
+ * Editing an attack from the panel doesn't move any waypoint or threat, so
+ * `MapController` never re-fits — a planner who had panned in to check the
+ * result was left staring at wherever they'd scrolled, with no way back to
+ * the attack short of manually re-finding it. `focusAttackId` is set once by
+ * the editor's Save and cleared here right after the fit, so it doesn't keep
+ * yanking the view back on every unrelated re-render.
+ */
+function FocusController({
+  attacks,
+  waypoints,
+  focusAttackId,
+  onFocused,
+}: {
+  attacks: Attack[];
+  waypoints: Waypoint[];
+  focusAttackId?: string | null;
+  onFocused: () => void;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!focusAttackId) return;
+    const attack = attacks.find((a) => a.id === focusAttackId);
+    const targetWaypoint = attack ? waypoints.find((wp) => wp.id === attack.targetWaypointId) : undefined;
+    if (!attack || !targetWaypoint) {
+      onFocused();
+      return;
+    }
+    const ipWaypointId = (attack.profile as { ipWaypointId?: string }).ipWaypointId;
+    const ipWaypoint = ipWaypointId ? waypoints.find((wp) => wp.id === ipWaypointId) : undefined;
+    const picture = buildAttackPicture(attack, ipWaypoint, targetWaypoint);
+
+    const points: [number, number][] = picture
+      ? [
+          ...picture.lines.flatMap((l) => l.points.map((p) => [p.lat, p.lon] as [number, number])),
+          ...picture.markers.map((m) => [m.position.lat, m.position.lon] as [number, number]),
+          ...picture.labels.map((l) => [l.position.lat, l.position.lon] as [number, number]),
+        ]
+      : [[targetWaypoint.coordinates.lat, targetWaypoint.coordinates.lon]];
+
+    map.fitBounds(points, { padding: [64, 64], maxZoom: 13 });
+    onFocused();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusAttackId]);
 
   return null;
 }
@@ -178,6 +235,8 @@ export function MapView({
   bullseye,
   threatSystems,
   selectedAttackId,
+  focusAttackId,
+  onAttackFocused,
   onMoveThreat,
   onRemoveThreat,
   isPlacementMode = false,
@@ -185,6 +244,7 @@ export function MapView({
 }: MapViewProps) {
   const theaterInfo = useTheaterInfo(theater);
   const center = theaterInfo?.default_center ?? { lat: 0, lon: 0 };
+  const [placedLabels, setPlacedLabels] = useState<PlacedLabel[]>([]);
 
   // Create waypoint route line
   const waypointPath = useMemo(() => {
@@ -213,6 +273,8 @@ export function MapView({
         />
         <ZoomControl position="bottomleft" />
         <MapController theater={theater} waypoints={waypoints} threats={threats} />
+        <FocusController attacks={attacks} waypoints={waypoints} focusAttackId={focusAttackId} onFocused={() => onAttackFocused?.()} />
+        <AttackLabelLayer attacks={attacks} waypoints={waypoints} onPlaced={setPlacedLabels} />
         <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={onPlacePosition} />
 
         {/* Bullseye marker */}
@@ -393,6 +455,37 @@ export function MapView({
           );
         })}
       </MapContainer>
+
+      {/* Attack-picture labels, laid out collision-aware over every visible attack. */}
+      <div className="absolute inset-0 z-[900] pointer-events-none">
+        <svg className="absolute inset-0 w-full h-full">
+          {placedLabels
+            .filter((l) => l.leader)
+            .map((l, i) => {
+              const [ax, ay] = l.anchor;
+              const nx = Math.min(Math.max(ax, l.rect.x), l.rect.x + l.rect.w);
+              const ny = Math.min(Math.max(ay, l.rect.y), l.rect.y + l.rect.h);
+              return <line key={i} x1={nx} y1={ny} x2={ax} y2={ay} stroke="#374151" strokeWidth={1} />;
+            })}
+        </svg>
+        {placedLabels.map((l, i) => (
+          <div
+            key={i}
+            className="absolute rounded text-xs font-semibold px-1.5 py-1 shadow-lg leading-tight whitespace-nowrap"
+            style={{
+              left: l.rect.x,
+              top: l.rect.y,
+              background: l.style?.bg ?? '#ffffff',
+              color: l.style?.fg ?? '#111827',
+              border: `1px solid ${l.style?.border ?? '#374151'}`,
+            }}
+          >
+            {l.lines.map((line, j) => (
+              <div key={j}>{line}</div>
+            ))}
+          </div>
+        ))}
+      </div>
 
       {/* Placement mode indicator */}
       {isPlacementMode && (

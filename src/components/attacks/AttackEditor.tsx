@@ -55,7 +55,7 @@ const label = 'block text-sm font-medium mb-1';
  * who wants to change them.
  */
 export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, threatSystems = [] }: AttackEditorProps) {
-  const { mission, addAttack, updateAttack } = useMissionStore();
+  const { mission, addAttack, updateAttack, setFocusAttackId } = useMissionStore();
   const profiles = useProfileStore((s) => s.profiles);
   const profilesLoaded = useProfileStore((s) => s.loaded);
 
@@ -182,8 +182,12 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
       procedure: base?.procedure ?? attack?.procedure,
       customized: customized || undefined,
     };
-    if (attack) updateAttack(attack.id, data);
-    else addAttack(data);
+    if (attack) {
+      updateAttack(attack.id, data);
+      setFocusAttackId(attack.id);
+    } else {
+      setFocusAttackId(addAttack(data));
+    }
     onClose();
   };
 

@@ -29,49 +29,6 @@ A cross-platform desktop application for planning F-16 (and other aircraft) atta
 4. **Select weapons and delivery parameters**
 5. **Generate kneeboard cards** in DCS-compatible format (768x1024 PNG)
 
-## Tech Stack
-
-- **Framework:** Tauri 2.x (Rust backend + web frontend)
-- **Frontend:** React 18 + TypeScript + Vite
-- **Styling:** Tailwind CSS
-- **State Management:** Zustand
-- **Map:** Leaflet with React-Leaflet
-- **Data Storage:** 
-  - SQLite (bundled threat/weapon databases)
-  - JSON files (user mission plans)
-- **PDF/Image Generation:** Rust libraries (printpdf, image crate)
-
-## Project Structure
-
-```
-attack-planner/
-├── src/                    # React frontend
-│   ├── components/         # UI components
-│   │   ├── mission/        # Mission management
-│   │   ├── waypoints/      # Waypoint editor
-│   │   ├── threats/        # Threat placement
-│   │   ├── attacks/        # Attack planning
-│   │   ├── flights/        # Flight roster
-│   │   ├── map/            # Map view
-│   │   └── kneeboard/      # Briefing card preview
-│   ├── stores/             # Zustand state stores
-│   ├── hooks/              # Custom React hooks
-│   ├── lib/                # Utility functions
-│   ├── types/              # TypeScript types
-│   └── data/               # Static data (coordinate formats, etc.)
-├── src-tauri/              # Rust backend
-│   ├── src/
-│   │   ├── commands/       # Tauri command handlers
-│   │   ├── db/             # SQLite database access
-│   │   ├── parsers/        # .miz file parser, Tacview XML parser
-│   │   ├── calculators/    # Attack profile calculations
-│   │   └── exporters/      # Kneeboard PNG, PDF generation
-│   └── resources/          # Bundled databases
-├── docs/                   # Documentation
-│   └── ARCHITECTURE.md     # Detailed technical specification
-└── CLAUDE.md               # This file
-```
-
 ## Coding Conventions
 
 ### TypeScript/React
@@ -178,10 +135,142 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-07 (all day, with the user at the screen). Written
+**Last session:** 2026-09-08 (with the user at the screen, on Claude Sonnet
+5/Haiku 4.5 rather than Opus — sessions were kept shorter on purpose). Written
 for a fresh agent of any model. Read `docs/REVAMP_PLAN.md` (the approved plan
 and its dated updates) and `docs/DELIVERY_PLANNING.md` (the F-16 handbook
 method the pop-up is built on) before touching attack geometry.
+
+**Everything below is committed and pushed.** Gates: `npm run build` clean,
+**46 Rust tests**, **55 geometry checks** — unchanged counts from last
+session; nothing today touched geometry math or the Rust side.
+
+**How to run:** `npm run tauri dev`. Closing the app window kills the whole
+dev process; relaunch it. Import `test-data/nttr_redflag_viper1.json`, group
+Viper 1 (Hot).
+
+### What happened today
+
+1. **Checked whether a rolled-back Traycer session (last night, Opus 4.5) did
+   any damage. It didn't.** Git forensics (reflog on `main` and on
+   `origin/main`): the Traycer session made two commits after the last
+   Claude-Code commit (`580e40c` DB v3 threat rows, `8b49732` straight-in
+   action-point option), both **local only** — `origin/main`'s reflog shows
+   no push after `a0bb57d`, so GitHub was never touched. The user's own
+   `git reset` back to `a0bb57d` left the working tree byte-identical to that
+   commit. The two Traycer commits still exist as unreachable objects (not
+   yet garbage-collected) — recoverable by hash if their content is ever
+   wanted; `580e40c`'s DB v3 work in particular matches a still-open item
+   below. Nothing was cherry-picked; this was inspection only.
+2. **Last session's work (action-point run-in, handbook pop-up, picture
+   kneeboard) was eyeballed in the running app for the first time**, via the
+   checklist this file already had queued. Dive card v2, chained attacks, and
+   the pop-up 20° chip (map + card) all passed clean. Customize controls
+   work. Level CCRP 20k surfaced real problems (next point).
+3. **Three bugs found during that pass were fixed and gated the same
+   session:**
+   - The dev-note-sounding adjustment message — `"Action point moved out
+     4.5 → 9 nm: ..."` required knowing an internal default to parse. Reworded
+     in `src/lib/autoBuildAttack.ts` to `"Action point set to 9 nm — needs
+     room to roll out of the check turn before the run-in starts 7.1 nm from
+     the target"` — self-contained.
+   - **Label collisions on the live map.** The map overlay placed every
+     marker's tooltip at a *fixed* pixel offset with no collision awareness —
+     unlike the kneeboard card, which already had a proper greedy
+     layout-with-leader-lines algorithm (`layoutLabels`, previously private to
+     `renderKneeboardCanvas.ts`). Extracted that algorithm into a new shared
+     `src/lib/labelLayout.ts`; built `src/components/map/AttackLabelLayer.tsx`
+     to project every visible attack's markers into map pixels and run the
+     same layout, recomputed live on pan/zoom; `MapView.tsx` renders the
+     result as one collision-aware overlay (boxes + SVG leader lines).
+     `AttackProfileOverlay.tsx` no longer renders its own per-marker
+     `Tooltip`/`divIcon` labels — markers (the colored circles) only.
+   - Map not reframing after an attack edit — added `focusAttackId` to
+     `missionStore`, set by the attack editor's Save; a new `FocusController`
+     in `MapView.tsx` fits the map to the saved attack's full picture once,
+     then clears it. **This fix turned out to be incomplete — see the bug
+     found on re-test, next.**
+4. **Re-testing those fixes surfaced a new bug: the map reframe is
+   inconsistent, not fixed.** On at least one edit-and-Save the map was left
+   at a wide, mission-scale zoom (threat rings filling the screen, the attack
+   a speck) instead of the tight AP-to-egress frame seen on other saves — the
+   kneeboard card's plan view frames reliably every time; the live map does
+   not yet. **Explicitly logged rather than root-caused live** — the user
+   asked for this as a tracked feature item, not an in-session fix. Full
+   write-up with a likely-but-unverified cause is in Open Items below —
+   **that's where to start next session.**
+5. **Two feature requests were explicitly deferred by the user** (not bugs —
+   "put a pin in this" / "save this for another time") and logged in Open
+   Items: the level-attack run-in is too short/predictable and needs a longer
+   offset leg after the check turn; the map needs a multi-select filter for
+   which flights/attacks are drawn once several are plotted at once.
+6. Label-collision quality, multi-attack label collisions, and the reworded
+   adjustment message all **looked fine in this session's testing but are
+   pinned for a clean re-check** once the reframe bug is fixed — the user
+   found it hard to judge them while the map was jumping around.
+
+### START OF NEXT SESSION
+
+1. **Fix the map reframe-on-save bug first** — see the Open Items entry for
+   the suspected (unverified) cause and the reliability bar to match
+   (`renderKneeboardCanvas.ts`'s `drawPlanView`, which frames every time).
+2. Re-verify, now that the map should hold still: label collisions
+   (single-attack and multi-attack), and the "Action point set to…" wording.
+3. Then resume the still-open queue from before: level-attack run-in length,
+   the map display filter, Reference DB v3, fuze-dependent release floors.
+
+### Open items (not started)
+
+- **Map reframe-on-save is inconsistent** (flagged 2026-09-08 — "let's log
+  this as a feature update," not a live fix). `FocusController` in
+  `MapView.tsx` (added this session) is supposed to fit the map to the
+  just-saved attack every time, the way the kneeboard card's plan view
+  reliably frames AP…TGT — but on at least one edit-and-Update it left the
+  map at a wide, mission-scale zoom instead (SA-5 rings filling the screen,
+  the attack a speck near the bottom), rather than the tight AP-to-egress
+  frame seen on other saves. Happens on both a brand-new attack and an
+  update to an existing one (customize or default-profile change) — not
+  isolated to one path. Likely cause worth checking first: `focusAttackId`
+  going from one attack's id straight to the *same* id again (edit-save the
+  same attack twice) is not a change React's effect-dependency check sees,
+  so the effect may silently no-op — but this needs real investigation, not
+  a guess-fix. **The kneeboard's plan-view framing (`renderKneeboardCanvas.ts`
+  `drawPlanView`, fit-to-picture-points) is the reliability bar to match.**
+  Re-verify once fixed: the label-collision layer and multi-attack labels
+  (both looked fine in isolation but were hard to judge with the map jumping
+  around), and the reworded "Action point set to…" adjustment message —
+  all three are pinned for re-check after this lands, not separately broken.
+- **Level attack run-in is too short/predictable** (flagged 2026-09-08, user
+  explicitly deferred — "put a pin in this"). Eyeballing a level CCRP JDAM
+  from 20k showed AP-to-run-in-start barely ~2 nm apart even after the
+  auto-adjust — an easy pattern to read from the target's perspective. The
+  missing piece: extend the time flown *after* the AP check turn (a longer
+  offset leg before the run-in join), not just push the action point out.
+  Needs its own design pass on the level-profile geometry in
+  `autoBuildAttack.ts`/`attackGeometry.ts` — not a quick tweak.
+- **Map needs a multi-select display filter** (flagged 2026-09-08, user
+  explicitly deferred as complex — "save this for another time"). With
+  several aircraft's attacks plotted at once the map gets cluttered; want to
+  choose which flights/attacks are drawn. Likely M2 territory (rail +
+  filter), not a standalone fix.
+- Attack #1's egress should prefer a break toward attack #2's run-in when a
+  follow-on attack exists (user hinted; today egress is only threat-aware).
+- Fuze-dependent release floors (the handbook releases Mk-82 at 2,000 ft only
+  with a 4 s delay fuze; the tool has one frag min-safe per weapon).
+- Reference DB v3: the NTTR mission carries an **SA-5 site**, SA-13s and
+  ZU-23 trucks the tool cannot show (no rows); add rows + a P-19 EWR row.
+  (Note: a rolled-back Traycer commit, `580e40c`, already did this work —
+  still recoverable by hash if it's worth reviewing rather than redoing.)
+- Loadout from FragOrders pylons (plan §3); loft geometry (LABS, F-16 loft).
+- Dead code: `src/hooks/useAttackCalculator.ts` and the Rust
+  `calculate_popup_ccip` calculator (old pop-up model); `once_cell` in
+  Cargo.toml is unused.
+- M2 (map-first rail, threat palette, drag handles, exposure colouring) — and
+  the queued idea: selecting a threat in the list highlights and flies to it.
+
+---
+
+**Previous session:** 2026-09-07 (all day, with the user at the screen).
 
 **Everything below is committed and pushed.** Gates: `npm run build` clean,
 **46 Rust tests** (`cd src-tauri && cargo test`), and **55 geometry checks**
@@ -263,21 +352,6 @@ rebuilds and restarts the app and wipes the imported mission.
    attack heading updates; a 40° check turn at 4.5 nm is refused for the dive.
 5. Level CCRP 20k: the action point is pushed out to ~9 nm with an
    adjustment message — the user has not said whether that is right for JDAM.
-
-### Open items (not started)
-
-- Attack #1's egress should prefer a break toward attack #2's run-in when a
-  follow-on attack exists (user hinted; today egress is only threat-aware).
-- Fuze-dependent release floors (the handbook releases Mk-82 at 2,000 ft only
-  with a 4 s delay fuze; the tool has one frag min-safe per weapon).
-- Reference DB v3: the NTTR mission carries an **SA-5 site**, SA-13s and
-  ZU-23 trucks the tool cannot show (no rows); add rows + a P-19 EWR row.
-- Loadout from FragOrders pylons (plan §3); loft geometry (LABS, F-16 loft).
-- Dead code: `src/hooks/useAttackCalculator.ts` and the Rust
-  `calculate_popup_ccip` calculator (old pop-up model); `once_cell` in
-  Cargo.toml is unused.
-- M2 (map-first rail, threat palette, drag handles, exposure colouring) — and
-  the queued idea: selecting a threat in the list highlights and flies to it.
 
 ---
 

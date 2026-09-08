@@ -35,7 +35,7 @@ const toolbarButton =
   'px-3 py-1.5 rounded-lg text-sm font-medium bg-dcs-blue hover:bg-blue-600 transition-colors';
 
 function App() {
-  const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat } =
+  const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat, focusAttackId, setFocusAttackId } =
     useMissionStore();
   const loadTheaters = useTheaterStore((state) => state.loadTheaters);
   const loadProfiles = useProfileStore((state) => state.loadProfiles);
@@ -274,6 +274,8 @@ function App() {
                 attacks={mission.attacks}
                 bullseye={mission.bullseye}
                 threatSystems={threatSystemMap}
+                focusAttackId={focusAttackId}
+                onAttackFocused={() => setFocusAttackId(null)}
                 onMoveThreat={handleMoveThreat}
                 onRemoveThreat={handleRemoveThreat}
                 isPlacementMode={!!threatPlacementCallback}

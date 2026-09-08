@@ -61,6 +61,9 @@ interface MissionState {
   mission: Mission | null;
   isDirty: boolean;
   filePath: string | null;
+  /** Set by the attack editor's Save so the map can reframe on it once. */
+  focusAttackId: string | null;
+  setFocusAttackId: (id: string | null) => void;
 
   // Mission actions
   createMission: (name: string, theater: Theater) => void;
@@ -87,7 +90,7 @@ interface MissionState {
   removeFlightMember: (id: string) => void;
 
   // Attack actions
-  addAttack: (attack: Omit<Attack, 'id'>) => void;
+  addAttack: (attack: Omit<Attack, 'id'>) => string;
   updateAttack: (id: string, attack: Partial<Attack>) => void;
   removeAttack: (id: string) => void;
 
@@ -100,6 +103,8 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   mission: null,
   isDirty: false,
   filePath: null,
+  focusAttackId: null,
+  setFocusAttackId: (id) => set({ focusAttackId: id }),
 
   createMission: (name: string, theater: Theater) => {
     const now = new Date().toISOString();
@@ -361,7 +366,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
 
   addAttack: (attackData) => {
     const { mission } = get();
-    if (!mission) return;
+    if (!mission) return '';
     const attack: Attack = { ...attackData, id: uuidv4() };
     set({
       mission: {
@@ -371,6 +376,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       },
       isDirty: true,
     });
+    return attack.id;
   },
 
   updateAttack: (id: string, attackUpdate: Partial<Attack>) => {

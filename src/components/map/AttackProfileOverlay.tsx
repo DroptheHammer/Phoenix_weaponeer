@@ -1,7 +1,7 @@
-import { Polyline, Marker, Tooltip } from 'react-leaflet';
+import { Polyline, Marker } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import type { Attack, Waypoint, PopupCCIPResult } from '../../types';
-import type { LabelSide, LineStyleKey, MarkerKind } from '../../types/attackPicture.types';
+import type { LineStyleKey, MarkerKind } from '../../types/attackPicture.types';
 import { MARKER_Z } from './mapLayers';
 import { buildAttackPicture, LINE_STYLE, MARKER_TAILWIND } from '../../lib/attackPicture';
 
@@ -23,17 +23,14 @@ interface AttackProfileOverlayProps {
 
 const ll = (c: { lat: number; lon: number }): [number, number] => [c.lat, c.lon];
 
-const TOOLTIP_OFFSET: Record<LabelSide, [number, number]> = {
-  top: [0, -20],
-  bottom: [0, 20],
-  left: [-20, 0],
-  right: [20, 0],
-};
-
 /**
- * Draws the attack picture — the same lines, markers and words the kneeboard
- * card prints. The picture itself comes from `buildAttackPicture`; this
- * component only hands it to Leaflet.
+ * Draws the attack picture — the same lines and markers the kneeboard card
+ * prints. The picture itself comes from `buildAttackPicture`; this component
+ * hands its lines and marker icons to Leaflet. The labels (the white/green/
+ * blue text boxes) are NOT drawn here — `AttackLabelLayer` lays out every
+ * visible attack's labels together, collision-aware, and `MapView` renders
+ * them as one overlay so two attacks' boxes (or two points on the same
+ * short leg) never stack on top of each other.
  */
 export function AttackProfileOverlay({ attack, ipWaypoint, targetWaypoint, isSelected = false, isPlacementMode = false }: AttackProfileOverlayProps) {
   const picture = buildAttackPicture(attack, ipWaypoint, targetWaypoint);
@@ -63,32 +60,6 @@ export function AttackProfileOverlay({ attack, ipWaypoint, targetWaypoint, isSel
           position={ll(marker.position)}
           icon={createLabelIcon(marker.kind)}
           zIndexOffset={MARKER_Z.attackPoint}
-        >
-          <Tooltip permanent={marker.permanent} direction={marker.side} offset={TOOLTIP_OFFSET[marker.side]} className="attack-tooltip">
-            <div className="text-xs font-semibold">
-              {marker.lines.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-            </div>
-          </Tooltip>
-        </Marker>
-      ))}
-
-      {picture.labels.map((label, i) => (
-        <Marker
-          key={`${label.kind}-${i}`}
-          interactive={!isPlacementMode}
-          position={ll(label.position)}
-          icon={divIcon({
-            html:
-              label.kind === 'egress'
-                ? `<div class="bg-green-900 bg-opacity-90 text-white px-2 py-1 rounded text-xs font-semibold whitespace-nowrap border border-green-400">${label.text}</div>`
-                : `<div class="bg-blue-900 bg-opacity-90 text-white px-2 py-1 rounded text-xs font-semibold whitespace-nowrap border border-blue-400">${label.text}</div>`,
-            className: 'custom-info-label',
-            iconSize: label.kind === 'egress' ? [150, 20] : [190, 20],
-            iconAnchor: label.kind === 'egress' ? [75, 10] : [95, -15],
-          })}
-          zIndexOffset={MARKER_Z.label}
         />
       ))}
     </>

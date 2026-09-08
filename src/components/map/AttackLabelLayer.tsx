@@ -1,0 +1,91 @@
+import { useEffect, useRef } from 'react';
+import { useMap } from 'react-leaflet';
+import type { Attack, Waypoint } from '../../types';
+import { buildAttackPicture, LABEL_STYLE } from '../../lib/attackPicture';
+import { layoutLabels, type LabelRequest, type PlacedLabel, type Rect } from '../../lib/labelLayout';
+
+interface AttackLabelLayerProps {
+  attacks: Attack[];
+  waypoints: Waypoint[];
+  onPlaced: (placed: PlacedLabel[]) => void;
+}
+
+// A detached canvas purely to measure text width — never drawn to.
+let measureCtx: CanvasRenderingContext2D | null = null;
+function getMeasureCtx(): CanvasRenderingContext2D {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')!;
+  return measureCtx;
+}
+
+const MARKER_HALF_PX = 21;
+
+/**
+ * Runs the same greedy label layout the kneeboard card uses (`labelLayout.ts`),
+ * projected into map pixels, so attack-picture labels on the live map stay
+ * legible instead of stacking on a fixed offset. Recomputes on pan/zoom and
+ * whenever the attacks change; hands the placed boxes up to `MapView`, which
+ * renders them as a plain overlay div (outside `MapContainer`, like the
+ * legend) since the placement math — not the DOM — is what needs `useMap()`.
+ */
+export function AttackLabelLayer({ attacks, waypoints, onPlaced }: AttackLabelLayerProps) {
+  const map = useMap();
+  const onPlacedRef = useRef(onPlaced);
+  onPlacedRef.current = onPlaced;
+
+  useEffect(() => {
+    const recompute = () => {
+      const size = map.getSize();
+      const bounds: Rect = { x: 0, y: 0, w: size.x, h: size.y };
+      const toPx = (c: { lat: number; lon: number }): [number, number] => {
+        const p = map.latLngToContainerPoint([c.lat, c.lon]);
+        return [p.x, p.y];
+      };
+
+      const obstacles: Rect[] = [];
+      const requests: LabelRequest[] = [];
+
+      for (const attack of attacks) {
+        const ipWaypointId = (attack.profile as { ipWaypointId?: string }).ipWaypointId;
+        const ipWaypoint = ipWaypointId ? waypoints.find((wp) => wp.id === ipWaypointId) : undefined;
+        const targetWaypoint = waypoints.find((wp) => wp.id === attack.targetWaypointId);
+        if (!targetWaypoint) continue;
+        const picture = buildAttackPicture(attack, ipWaypoint, targetWaypoint);
+        if (!picture) continue;
+
+        for (const marker of picture.markers) {
+          const [x, y] = toPx(marker.position);
+          obstacles.push({ x: x - MARKER_HALF_PX, y: y - MARKER_HALF_PX, w: MARKER_HALF_PX * 2, h: MARKER_HALF_PX * 2 });
+          if (marker.permanent) {
+            requests.push({ lines: marker.lines, anchor: [x, y], side: marker.side, size: 12 });
+          }
+        }
+        for (const label of picture.labels) {
+          requests.push({
+            lines: [label.text],
+            anchor: toPx(label.position),
+            side: label.kind === 'egress' ? 'top' : 'bottom',
+            size: 11,
+            style:
+              label.kind === 'egress'
+                ? { bg: LABEL_STYLE.egressBg, fg: '#ffffff', border: LABEL_STYLE.egressBorder }
+                : { bg: LABEL_STYLE.ipBg, fg: '#ffffff', border: LABEL_STYLE.ipBorder },
+          });
+        }
+      }
+
+      onPlacedRef.current(layoutLabels(getMeasureCtx(), requests, obstacles, bounds));
+    };
+
+    recompute();
+    map.on('move', recompute);
+    map.on('zoom', recompute);
+    map.on('resize', recompute);
+    return () => {
+      map.off('move', recompute);
+      map.off('zoom', recompute);
+      map.off('resize', recompute);
+    };
+  }, [map, attacks, waypoints]);
+
+  return null;
+}
