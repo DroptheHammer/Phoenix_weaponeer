@@ -315,10 +315,6 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
         problems.push(
           `${profile.name} needs its ${dive ? 'roll-in' : 'run-in start'} ${joinRange_nm.toFixed(1)} nm out, but STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
         );
-      } else {
-        adjustments.push(
-          `Action point set to ${moved} nm — needs room to roll out of the check turn before the ${dive ? 'roll-in' : 'run-in'} starts ${joinRange_nm.toFixed(1)} nm from the target`,
-        );
       }
       actionRange = moved;
     }

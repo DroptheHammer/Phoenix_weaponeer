@@ -274,6 +274,7 @@ function App() {
                 attacks={mission.attacks}
                 bullseye={mission.bullseye}
                 threatSystems={threatSystemMap}
+                flightMembers={mission.flightMembers}
                 focusAttackId={focusAttackId}
                 onAttackFocused={() => setFocusAttackId(null)}
                 onMoveThreat={handleMoveThreat}

@@ -19,10 +19,11 @@ import {
   applyPopupPlan,
 } from '../src/lib/popupPlanning';
 import { describeRunIn } from '../src/lib/runIn';
-import { inferIp } from '../src/lib/autoBuildAttack';
+import { inferIp, autoBuildAttack } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
-import { edgeCrossing } from '../src/lib/labelLayout';
+import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
+import { readFileSync } from 'node:fs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -271,3 +272,64 @@ ok('edgeCrossing: diagonal from the south-east enters through the bottom edge', 
 
 ok('edgeCrossing: undefined when the point is already in frame', edgeCrossing(inboardInside, inboardInside, bounds) === undefined);
 ok('edgeCrossing: undefined when both ends are off frame', edgeCrossing([50, 50], [900, 900], bounds) === undefined);
+
+// ─── pixelSpan and labelsAreLegible threshold ─────────────────────────────────
+ok('pixelSpan of an empty array is 0', pixelSpan([]) === 0);
+ok('pixelSpan of a single point is 0', pixelSpan([[100, 200]]) === 0);
+
+// A box spanning 300 × 400 px has a diagonal of 500
+const boxPoints: [number, number][] = [[100, 100], [400, 100], [400, 500], [100, 500]];
+const diagonal = pixelSpan(boxPoints);
+ok('pixelSpan of a 300×400 box is 500', Math.abs(diagonal - 500) < 0.01, r(diagonal).toString());
+
+// Spread-out attack (clearly above 150 px threshold)
+const spreadPoints: [number, number][] = [[100, 100], [400, 350]];
+ok('labelsAreLegible is true for spread-out attack (span > 150)', labelsAreLegible(spreadPoints));
+
+// Clumped attack at mission scale (span ~40 px, well below 150 px)
+const clumpedPoints: [number, number][] = [[200, 200], [220, 230]];
+ok('labelsAreLegible is false for clumped attack (span < 150)', !labelsAreLegible(clumpedPoints));
+
+ok('labelsAreLegible is false for empty point set', !labelsAreLegible([]));
+
+// ─── The redundant "Action point set to…" adjustment is gone ─────────────────
+// The run-in hint under the Ingress toggle already prints both the action range
+// and the join range, so the amber line below it only restated them (removed
+// 2026-09-08). Built on the REAL f16c profile library and a real-shaped weapon
+// row: the previous version of this check wired a hand-made profile with no
+// aircraftId/geometry/weaponClasses, so autoBuildAttack bailed at its early
+// return and the check passed whether the message existed or not. The
+// actionRange assertion below is what stops that happening again — it proves
+// the push-out branch actually ran.
+const f16cProfiles = JSON.parse(readFileSync('src-tauri/resources/profiles/f16c.json', 'utf8'));
+const jdamLevel = f16cProfiles.find((p: { id: string }) => p.id === 'f16c.level.ccrp.jdam');
+
+const gbu31 = {
+  id: 'gbu31', name: 'GBU-31(V)1/B', category: 'bomb_gps', guidance: 'gps',
+  weight_lbs: 2036, min_release_alt_ft: 5000, frag_min_safe_alt_ft: 1500,
+};
+const wpTgt = { id: 'w-tgt', steerpoint: 8, name: 'TGT1', type: 'target', coordinates: tgt, elevation_ft: 4000 };
+// STPT 7 sits 15.3 nm out on 068° — the real Viper 1 leg, long enough that the
+// action point can be pushed out without tripping the "route too short" problem.
+const wpIp = { id: 'w-ip', steerpoint: 7, name: 'STPT 7', type: 'turnpoint',
+               coordinates: calculateDestination(tgt, 68, 15.3), elevation_ft: 5000 };
+const pilot = { id: 'p1', callsign: 'Viper 1-1', aircraftId: 'f16c',
+                loadout: [{ weaponType: 'GBU-31(V)1/B', quantity: 2 }] };
+
+const levelBuild = autoBuildAttack({
+  mission: { waypoints: [wpIp, wpTgt], flightMembers: [pilot], threats: [], attacks: [] },
+  targetWaypointId: wpTgt.id,
+  attackerId: pilot.id,
+  weapons: [gbu31],
+  profiles: [jdamLevel],
+  threatSystems: [],
+} as never);
+
+const levelProfile = levelBuild.attack?.profile as { actionRange_nm?: number } | undefined;
+ok('level CCRP 20k JDAM builds against the real f16c profile library',
+   levelBuild.attack != null, levelBuild.problems.join('; '));
+ok('the action point really is pushed out past the run-in start (branch ran)',
+   (levelProfile?.actionRange_nm ?? 0) > 8, 'actionRange ' + (levelProfile?.actionRange_nm ?? 'none'));
+ok('no "Action point set to" adjustment is emitted',
+   !levelBuild.adjustments.some((m: string) => m.includes('Action point set to')),
+   levelBuild.adjustments.length ? levelBuild.adjustments.join('; ') : '(none)');

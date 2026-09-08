@@ -126,6 +126,43 @@ export function layoutLabels(ctx: CanvasRenderingContext2D, requests: LabelReque
 }
 
 /**
+ * How far apart, in screen pixels, a set of projected points is spread —
+ * the diagonal of their bounding box.
+ */
+export function pixelSpan(points: [number, number][]): number {
+  if (points.length === 0) return 0;
+  if (points.length === 1) return 0;
+
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+
+  for (const [x, y] of points) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+
+  const w = maxX - minX;
+  const h = maxY - minY;
+  return Math.sqrt(w * w + h * h);
+}
+
+/**
+ * Below this many pixels of span, an attack's markers are a clump and its
+ * step-by-step callouts cannot point at anything distinguishable.
+ */
+export const LEGIBLE_SPAN_PX = 150;
+
+/**
+ * Is this attack drawn large enough on screen for its callouts to be worth
+ * placing? Below the threshold the map shows one tag naming the attack instead.
+ */
+export function labelsAreLegible(points: [number, number][]): boolean {
+  return pixelSpan(points) >= LEGIBLE_SPAN_PX;
+}
+
+/**
  * Where a leader line runs: from the nearest edge of the label box to the edge
  * of the marker it points at, never to its centre — a line drawn to the centre
  * strikes through the letters printed on the marker.

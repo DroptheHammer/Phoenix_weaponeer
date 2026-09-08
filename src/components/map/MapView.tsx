@@ -2,6 +2,7 @@ import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, ZoomC
 import { divIcon, DragEndEvent } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../../types';
+import type { FlightMember } from '../../types/flight.types';
 import { useTheaterInfo } from '../../stores/theaterStore';
 import { Fragment, useMemo, useEffect, useState } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
@@ -36,6 +37,7 @@ interface MapViewProps {
   // the callback, App toggles isPlacementMode, and a map click reports the position.
   isPlacementMode?: boolean;
   onPlacePosition?: (position: Coordinates) => void;
+  flightMembers?: FlightMember[];
 }
 
 /**
@@ -239,6 +241,7 @@ export function MapView({
   onRemoveThreat,
   isPlacementMode = false,
   onPlacePosition,
+  flightMembers = [],
 }: MapViewProps) {
   const theaterInfo = useTheaterInfo(theater);
   const center = theaterInfo?.default_center ?? { lat: 0, lon: 0 };
@@ -272,7 +275,7 @@ export function MapView({
         <ZoomControl position="bottomleft" />
         <MapController theater={theater} waypoints={waypoints} threats={threats} />
         <FocusController attacks={attacks} waypoints={waypoints} focusAttackId={focusAttackId} onFocused={() => onAttackFocused?.()} />
-        <AttackLabelLayer attacks={attacks} waypoints={waypoints} onPlaced={setPlacedLabels} />
+        <AttackLabelLayer attacks={attacks} waypoints={waypoints} flightMembers={flightMembers} onPlaced={setPlacedLabels} />
         <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={onPlacePosition} />
 
         {/* Bullseye marker */}
