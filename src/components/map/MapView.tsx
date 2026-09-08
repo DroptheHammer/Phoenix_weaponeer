@@ -6,8 +6,8 @@ import { useTheaterInfo } from '../../stores/theaterStore';
 import { Fragment, useMemo, useEffect, useState } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
 import { AttackLabelLayer } from './AttackLabelLayer';
-import { buildAttackPicture } from '../../lib/attackPicture';
-import type { PlacedLabel } from '../../lib/labelLayout';
+import { buildAttackPicture, pictureFitPoints } from '../../lib/attackPicture';
+import { leaderLine, type PlacedLabel } from '../../lib/labelLayout';
 import { MARKER_Z } from './mapLayers';
 
 interface ThreatSystem {
@@ -126,13 +126,11 @@ function FocusController({
     const ipWaypoint = ipWaypointId ? waypoints.find((wp) => wp.id === ipWaypointId) : undefined;
     const picture = buildAttackPicture(attack, ipWaypoint, targetWaypoint);
 
-    const points: [number, number][] = picture
-      ? [
-          ...picture.lines.flatMap((l) => l.points.map((p) => [p.lat, p.lon] as [number, number])),
-          ...picture.markers.map((m) => [m.position.lat, m.position.lon] as [number, number]),
-          ...picture.labels.map((l) => [l.position.lat, l.position.lon] as [number, number]),
-        ]
-      : [[targetWaypoint.coordinates.lat, targetWaypoint.coordinates.lon]];
+    const fitPoints = picture ? pictureFitPoints(picture) : [];
+    const points: [number, number][] =
+      fitPoints.length > 0
+        ? fitPoints.map((p) => [p.lat, p.lon] as [number, number])
+        : [[targetWaypoint.coordinates.lat, targetWaypoint.coordinates.lon]];
 
     map.fitBounds(points, { padding: [64, 64], maxZoom: 13 });
     onFocused();
@@ -462,10 +460,10 @@ export function MapView({
           {placedLabels
             .filter((l) => l.leader)
             .map((l, i) => {
-              const [ax, ay] = l.anchor;
-              const nx = Math.min(Math.max(ax, l.rect.x), l.rect.x + l.rect.w);
-              const ny = Math.min(Math.max(ay, l.rect.y), l.rect.y + l.rect.h);
-              return <line key={i} x1={nx} y1={ny} x2={ax} y2={ay} stroke="#374151" strokeWidth={1} />;
+              const line = leaderLine(l);
+              if (!line) return null;
+              const [[x1, y1], [x2, y2]] = [line.from, line.to];
+              return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#374151" strokeWidth={1} />;
             })}
         </svg>
         {placedLabels.map((l, i) => (

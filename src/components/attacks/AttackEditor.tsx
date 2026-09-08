@@ -35,6 +35,7 @@ interface ThreatSystemLite {
 interface AttackEditorProps {
   attack?: Attack;
   onClose: () => void;
+  onSaved?: () => void;
   weapons: DbWeapon[];
   fuzeOptions: Map<string, FuzeOption[]>;
   aircraft: Aircraft[];
@@ -54,7 +55,7 @@ const label = 'block text-sm font-medium mb-1';
  * to egress — and the key numbers. Customize opens the full form for anyone
  * who wants to change them.
  */
-export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, threatSystems = [] }: AttackEditorProps) {
+export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, aircraft, threatSystems = [] }: AttackEditorProps) {
   const { mission, addAttack, updateAttack, setFocusAttackId } = useMissionStore();
   const profiles = useProfileStore((s) => s.profiles);
   const profilesLoaded = useProfileStore((s) => s.loaded);
@@ -188,6 +189,7 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
     } else {
       setFocusAttackId(addAttack(data));
     }
+    onSaved?.();
     onClose();
   };
 

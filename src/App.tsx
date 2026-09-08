@@ -394,7 +394,7 @@ function App() {
                   {activePanel === 'waypoints' && <WaypointList />}
                   {activePanel === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} onRequestPlacement={handleRequestThreatPlacement} />}
                   {activePanel === 'flight' && <FlightRoster aircraft={aircraft} />}
-                  {activePanel === 'attacks' && <AttackList weapons={weapons} fuzeOptions={fuzeOptions} aircraft={aircraft} threatSystems={threats} />}
+                  {activePanel === 'attacks' && <AttackList weapons={weapons} fuzeOptions={fuzeOptions} aircraft={aircraft} threatSystems={threats} onAttackSaved={() => setActivePanel(null)} />}
                   {activePanel === 'kneeboards' && (
                     <KneeboardPreview
                       weapons={weapons}

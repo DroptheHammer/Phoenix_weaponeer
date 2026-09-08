@@ -25,9 +25,10 @@ interface AttackListProps {
   aircraft: Aircraft[];
   /** Threat ranges, so auto-build can pick an egress away from the nearest one */
   threatSystems?: Array<{ id: string; max_range_nm: number }>;
+  onAttackSaved?: () => void;
 }
 
-export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems }: AttackListProps) {
+export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAttackSaved }: AttackListProps) {
   const { mission, removeAttack } = useMissionStore();
   const [showEditor, setShowEditor] = useState(false);
   const [editingAttack, setEditingAttack] = useState<Attack | undefined>(undefined);
@@ -137,6 +138,7 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems }: At
         <AttackEditor
           attack={editingAttack}
           onClose={handleCloseEditor}
+          onSaved={onAttackSaved}
           weapons={weapons}
           fuzeOptions={fuzeOptions}
           aircraft={aircraft}

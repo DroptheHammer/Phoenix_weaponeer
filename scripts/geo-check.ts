@@ -20,7 +20,9 @@ import {
 } from '../src/lib/popupPlanning';
 import { describeRunIn } from '../src/lib/runIn';
 import { inferIp } from '../src/lib/autoBuildAttack';
-import { calculateBearing, calculateDistance } from '../src/lib/coordinates';
+import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
+import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
+import { edgeCrossing } from '../src/lib/labelLayout';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -154,3 +156,118 @@ const chained = { waypoints: [wp('STPT7', 7, 'ip', 37.3, -116.6), wp('TGT1', 8, 
 ok('attack on STPT 8 flows in from STPT 7 (the IP)', inferIp(chained, chained.waypoints[1])?.id === 'STPT7');
 ok('attack on STPT 9 flows in from STPT 8 (the previous target), not the IP', inferIp(chained, chained.waypoints[2])?.id === 'TGT1');
 ok('first waypoint has nothing before it', inferIp(chained, chained.waypoints[0]) === undefined);
+
+// ─── pictureFitPoints excludes the route line but keeps the attack ─────────────
+// Build a dive attack where the IP sits far out (10+ nm), producing a long route line.
+const farIp = calculateDestination(tgt, (direct + 180) % 360, 12);
+const distantAttack = {
+  id: 'test',
+  targetWaypointId: 'tgt',
+  profileType: 'dive_ccip' as const,
+  profile: {
+    type: 'dive_ccip' as const,
+    ipWaypointId: 'ip',
+    rollInAltitude_ft: 8000,
+    diveAngle_deg: 30,
+    releaseAltitude_ft: 4500,
+    releaseSpeed_ktas: 450,
+    pulloutG: 4,
+    egressDirection: 'right' as const,
+    actionRange_nm: 4.5,
+    offsetAngle_deg: 20,
+    offsetDirection: 'right' as const,
+    ingressHeading_deg: dive.attackHeading,
+    fuzeMode: 'instant',
+    quantity: 1,
+    targetElevation_ft: 0,
+  },
+};
+const ipWp = { id: 'ip', steerpoint: 7, type: 'ip' as const, name: 'IP', coordinates: farIp, elevation_ft: 0 };
+const tgtWp = { id: 'tgt', steerpoint: 8, type: 'target' as const, name: 'TGT', coordinates: tgt, elevation_ft: 0 };
+const picture = buildAttackPicture(distantAttack, ipWp, tgtWp);
+if (!picture) throw new Error('buildAttackPicture failed');
+
+// The raw all-points set (what the map USED to fit) includes the route line.
+const allPoints = [
+  ...picture.lines.flatMap((l) => l.points),
+  ...picture.markers.map((m) => m.position),
+  ...picture.labels.map((l) => l.position),
+];
+const farthestFromTarget = Math.max(...allPoints.map((p) => calculateDistance(p, tgt)));
+ok('raw all-points includes a point >8 nm from target (the route line to the distant IP)', farthestFromTarget > 8, r(farthestFromTarget).toString());
+
+// pictureFitPoints excludes the route line, so nothing should be beyond ~1 nm past the action point.
+const fitPts = pictureFitPoints(picture);
+const farthestFit = Math.max(...fitPts.map((p) => calculateDistance(p, tgt)));
+ok('pictureFitPoints excludes the route line: nothing beyond ~5.5 nm (roughly 1 nm past the 4.5 nm action point)', farthestFit < 5.5, r(farthestFit).toString());
+
+// Non-finite coordinates are filtered out.
+const badPicture = { ...picture, markers: [...picture.markers, { kind: 'TGT' as const, position: { lat: NaN, lon: -116.83 }, lines: [], side: 'bottom' as const, permanent: true }] };
+const cleanedFit = pictureFitPoints(badPicture);
+ok('pictureFitPoints filters out non-finite coordinates', cleanedFit.every((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)));
+
+// Egress label and TGT marker ARE included.
+const hasEgressLabel = fitPts.some((p) => picture.labels.some((l) => l.kind === 'egress' && l.position.lat === p.lat && l.position.lon === p.lon));
+const hasTgtMarker = fitPts.some((p) => picture.markers.some((m) => m.kind === 'TGT' && m.position.lat === p.lat && m.position.lon === p.lon));
+ok('pictureFitPoints includes egress label position', hasEgressLabel);
+ok('pictureFitPoints includes TGT marker position', hasTgtMarker);
+
+// ─── IP labels: only when there is a real IP waypoint ─────────────────────────
+const diveWithIp = buildAttackPicture(distantAttack, ipWp, tgtWp);
+const diveNoIp = buildAttackPicture(distantAttack, undefined, tgtWp);
+ok('dive picture WITH ip waypoint has an ip label', diveWithIp && diveWithIp.labels.some((l) => l.kind === 'ip'));
+ok('dive picture WITHOUT ip waypoint has no ip label', diveNoIp && !diveNoIp.labels.some((l) => l.kind === 'ip'));
+
+const levelAttack = {
+  id: 'test-level',
+  targetWaypointId: 'tgt',
+  profileType: 'level_ccrp' as const,
+  profile: {
+    type: 'level_ccrp' as const,
+    ipWaypointId: 'ip',
+    releaseAltitude_ft: 20000,
+    releaseSpeed_ktas: 480,
+    egressDirection: 'right' as const,
+    ingressHeading_deg: lvl.attackHeading,
+    fuzeMode: 'instant',
+    quantity: 1,
+    targetElevation_ft: 0,
+  },
+};
+const levelWithIp = buildAttackPicture(levelAttack, ipWp, tgtWp);
+const levelNoIp = buildAttackPicture(levelAttack, undefined, tgtWp);
+ok('level picture WITH ip waypoint has an ip label', levelWithIp && levelWithIp.labels.some((l) => l.kind === 'ip'));
+ok('level picture WITHOUT ip waypoint has no ip label', levelNoIp && !levelNoIp.labels.some((l) => l.kind === 'ip'));
+
+// ─── edgeCrossing: segment/rectangle clip ─────────────────────────────────────
+// The IP is normally off-frame, so this decides where its tag gets pinned. A
+// weak test here hid a real bug: an implementation that only handled a level
+// approach passed, while every diagonal silently returned nothing at all.
+const bounds = { x: 100, y: 100, w: 400, h: 300 };
+const inboardInside: [number, number] = [250, 200];
+const inBox = (p: [number, number] | undefined) =>
+  !!p && p[0] >= bounds.x + 8 && p[0] <= bounds.x + bounds.w - 8 && p[1] >= bounds.y + 8 && p[1] <= bounds.y + bounds.h - 8;
+const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+
+const fromWest = edgeCrossing([50, 200], inboardInside, bounds);
+ok('edgeCrossing: run-in from the west pins to the left edge', inBox(fromWest) && near(fromWest![0], 108) && near(fromWest![1], 200), JSON.stringify(fromWest));
+
+const fromEast = edgeCrossing([600, 250], [300, 250], bounds);
+ok('edgeCrossing: run-in from the east pins to the right edge', inBox(fromEast) && near(fromEast![0], 492) && near(fromEast![1], 250), JSON.stringify(fromEast));
+
+const fromNorth = edgeCrossing([300, 20], [300, 250], bounds);
+ok('edgeCrossing: run-in from the north pins to the top edge', inBox(fromNorth) && near(fromNorth![0], 300) && near(fromNorth![1], 108), JSON.stringify(fromNorth));
+
+const fromSouth = edgeCrossing([300, 600], [300, 250], bounds);
+ok('edgeCrossing: run-in from the south pins to the bottom edge', inBox(fromSouth) && near(fromSouth![0], 300) && near(fromSouth![1], 392), JSON.stringify(fromSouth));
+
+// A 45° diagonal — dx === dy — is the case the first implementation got wrong.
+const fromNW = edgeCrossing([0, 0], [300, 300], bounds);
+ok('edgeCrossing: 45° diagonal from the north-west enters at the corner', inBox(fromNW) && near(fromNW![0], 108) && near(fromNW![1], 108), JSON.stringify(fromNW));
+
+// Enters through the bottom edge, not the right one, despite being further east.
+const fromSE = edgeCrossing([700, 600], inboardInside, bounds);
+ok('edgeCrossing: diagonal from the south-east enters through the bottom edge', inBox(fromSE) && near(fromSE![1], 392) && fromSE![0] > 300 && fromSE![0] < 492, JSON.stringify(fromSE));
+
+ok('edgeCrossing: undefined when the point is already in frame', edgeCrossing(inboardInside, inboardInside, bounds) === undefined);
+ok('edgeCrossing: undefined when both ends are off frame', edgeCrossing([50, 50], [900, 900], bounds) === undefined);

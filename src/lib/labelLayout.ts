@@ -15,6 +15,8 @@ export interface LabelRequest {
   side: LabelSide;
   style?: { bg?: string; fg?: string; border?: string };
   size?: number;
+  /** Radius of the circle this label points at, so a leader stops on the marker's edge rather than striking through its letters. Points on a line have no circle: leave it 0/undefined. */
+  anchorRadius?: number;
 }
 
 export interface PlacedLabel extends LabelRequest {
@@ -73,17 +75,43 @@ export function layoutLabels(ctx: CanvasRenderingContext2D, requests: LabelReque
   for (const req of requests) {
     const { w, h } = labelSize(ctx, req);
     let best: { rect: Rect; leader: boolean; score: number } | undefined;
+    // A clear spot always beats an overlapping one, however far out it sits —
+    // scoring the two against each other would trade legibility for closeness.
+    let clear = false;
     outer: for (const side of SIDE_ORDER[req.side]) {
-      for (const gap of [18, 30, 46, 66, 90, 120]) {
-        for (const shift of [0, -w * 0.35, w * 0.35, -w * 0.7, w * 0.7]) {
+      for (const gap of [18, 30, 46, 66, 90, 120, 155, 195]) {
+        for (const shift of [0, -w * 0.35, w * 0.35, -w * 0.7, w * 0.7, -w * 1.05, w * 1.05, -w * 1.4, w * 1.4]) {
           const rect = candidateRect(req.anchor, side, gap, shift, w, h);
           if (!inside(rect)) continue;
           const area = overlapArea(rect);
+          const leader = gap > 24 || Math.abs(shift) > 1;
+          if (area === 0) {
+            best = { rect, leader, score: 0 };
+            clear = true;
+            break outer;
+          }
           const score = area + gap * 2 + Math.abs(shift);
-          if (!best || score < best.score) best = { rect, leader: gap > 24 || Math.abs(shift) > 1, score };
-          if (area === 0) break outer;
+          if (!best || score < best.score) best = { rect, leader, score };
         }
       }
+    }
+    // Full-frame sweep when clustered attacks block the whole near field.
+    // A leader line makes even a distant box legible, better than an overlap.
+    if (!clear) {
+      const [ax, ay] = req.anchor;
+      const step = 28;
+      let sweepBest: { rect: Rect; distSq: number } | undefined;
+      for (let y = bounds.y + 2; y + h <= bounds.y + bounds.h - 2; y += step) {
+        for (let x = bounds.x + 2; x + w <= bounds.x + bounds.w - 2; x += step) {
+          const rect: Rect = { x, y, w, h };
+          if (overlapArea(rect) === 0) {
+            const cx = x + w / 2, cy = y + h / 2;
+            const distSq = (cx - ax) * (cx - ax) + (cy - ay) * (cy - ay);
+            if (!sweepBest || distSq < sweepBest.distSq) sweepBest = { rect, distSq };
+          }
+        }
+      }
+      if (sweepBest) best = { rect: sweepBest.rect, leader: true, score: 0 };
     }
     if (!best) {
       const rect = candidateRect(req.anchor, req.side, 18, 0, w, h);
@@ -95,4 +123,94 @@ export function layoutLabels(ctx: CanvasRenderingContext2D, requests: LabelReque
     blocked.push(best.rect);
   }
   return placed;
+}
+
+/**
+ * Where a leader line runs: from the nearest edge of the label box to the edge
+ * of the marker it points at, never to its centre — a line drawn to the centre
+ * strikes through the letters printed on the marker.
+ *
+ * Returns undefined when the box is already touching the marker, so there is
+ * nothing left to draw.
+ */
+export function leaderLine(label: PlacedLabel): { from: [number, number]; to: [number, number] } | undefined {
+  const [ax, ay] = label.anchor;
+  const { x, y, w, h } = label.rect;
+  const radius = label.anchorRadius ?? 0;
+
+  // Nearest point on the label box to the anchor
+  const nx = Math.min(Math.max(ax, x), x + w);
+  const ny = Math.min(Math.max(ay, y), y + h);
+
+  // Vector from nearest edge to anchor
+  const dx = ax - nx;
+  const dy = ay - ny;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  // Box already touching or inside the marker circle — nothing to draw
+  if (dist <= radius || dist < 0.01) return undefined;
+
+  // Pull the anchor back toward the box edge by the marker radius
+  const scale = (dist - radius) / dist;
+  const tx = nx + dx * scale;
+  const ty = ny + dy * scale;
+
+  return { from: [nx, ny], to: [tx, ty] };
+}
+
+/**
+ * Where an off-frame point enters the picture: the crossing of the segment
+ * from an off-screen point to an on-screen one with the frame edge.
+ *
+ * The IP is usually a dozen miles outside a frame drawn around the attack, but
+ * it is where the pilot starts flying the plan, so its tag is pinned to the
+ * edge the run-in comes in through instead of vanishing.
+ *
+ * Returns undefined when the outboard point is already inside, or when the
+ * inboard point is off-frame too and there is nothing sensible to point at.
+ */
+export function edgeCrossing(outboard: [number, number], inboard: [number, number], bounds: Rect, inset = 8): [number, number] | undefined {
+  const [ox, oy] = outboard;
+  const [ix, iy] = inboard;
+  const { x, y, w, h } = bounds;
+
+  const isInside = (px: number, py: number) => px >= x && px <= x + w && py >= y && py <= y + h;
+
+  // Outboard already inside — nothing to pin
+  if (isInside(ox, oy)) return undefined;
+
+  // Inboard also outside — no sensible crossing
+  if (!isInside(ix, iy)) return undefined;
+
+  // Liang–Barsky: clip the parametric segment outboard + t·(inboard − outboard)
+  // to the frame. Each edge contributes one (p, q) pair; t0 ends up at the
+  // point where the segment enters.
+  let t0 = 0, t1 = 1;
+  const dx = ix - ox, dy = iy - oy;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0; // parallel to this edge: only fails if outside it
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+    return true;
+  };
+  if (!clip(-dx, ox - x)) return undefined;
+  if (!clip(dx, x + w - ox)) return undefined;
+  if (!clip(-dy, oy - y)) return undefined;
+  if (!clip(dy, y + h - oy)) return undefined;
+
+  // The entry point is at t0 (outboard end of the clipped segment)
+  const cx = ox + t0 * dx;
+  const cy = oy + t0 * dy;
+
+  // Pull inset pixels inside the bounds
+  const nx = Math.max(x + inset, Math.min(cx, x + w - inset));
+  const ny = Math.max(y + inset, Math.min(cy, y + h - inset));
+
+  return [nx, ny];
 }

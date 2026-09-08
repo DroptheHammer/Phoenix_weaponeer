@@ -7,13 +7,14 @@
  */
 
 import type { Attack, DiveCCIPProfile, LevelCCRPProfile, PopupCCIPProfile } from '../types/attack.types';
-import type { Waypoint } from '../types/waypoint.types';
+import type { Waypoint, Coordinates } from '../types/waypoint.types';
 import type {
   AttackPicture,
   LineStyleKey,
   MarkerKind,
   PictureLine,
   PictureMarker,
+  PictureLabel,
   SideProfile,
   SidePoint,
   SideSegment,
@@ -198,10 +199,15 @@ function divePicture(attack: Attack, profile: DiveCCIPProfile, ipWaypoint: Waypo
     },
     targetMarker(g.targetPoint, g.attackHeading),
   );
+  const labels: PictureLabel[] = [{ kind: 'egress', position: g.egress.end, text: `Egress ${profile.egressDirection}, ${fmtHdg(g.egressHeading)}°` }];
+  if (ipWaypoint) {
+    const ingressAlt = profile.ingressAltitude_ft ?? profile.rollInAltitude_ft;
+    labels.push({ kind: 'ip', position: g.ingressStart, text: `IP: ${ft(ingressAlt)}ft AGL @ ${profile.releaseSpeed_ktas}kts → route ${fmtHdg(g.routeHeading)}°` });
+  }
   return {
     lines,
     markers,
-    labels: [{ kind: 'egress', position: g.egress.end, text: `Egress ${profile.egressDirection}, ${fmtHdg(g.egressHeading)}°` }],
+    labels,
     attackHeading: g.attackHeading,
     egressHeading: g.egressHeading,
     egressDirection: profile.egressDirection,
@@ -248,10 +254,14 @@ function levelPicture(attack: Attack, profile: LevelCCRPProfile, ipWaypoint: Way
     },
     targetMarker(g.targetPoint, g.attackHeading),
   );
+  const labels: PictureLabel[] = [{ kind: 'egress', position: g.egress.end, text: `Egress ${egressDirection}, ${fmtHdg(g.egressHeading)}°` }];
+  if (ipWaypoint) {
+    labels.push({ kind: 'ip', position: g.ingressStart, text: `IP: ${ft(profile.releaseAltitude_ft)}ft MSL @ ${profile.releaseSpeed_ktas}kts → route ${fmtHdg(g.routeHeading)}°` });
+  }
   return {
     lines,
     markers,
-    labels: [{ kind: 'egress', position: g.egress.end, text: `Egress ${egressDirection}, ${fmtHdg(g.egressHeading)}°` }],
+    labels,
     attackHeading: g.attackHeading,
     egressHeading: g.egressHeading,
     egressDirection,
@@ -403,4 +413,20 @@ export function buildSideProfile(attack: Attack, targetElevation_ft: number): Si
   }
 
   return undefined;
+}
+
+/**
+ * The points that must stay in frame: the attack, not the transit.
+ *
+ * The route line runs back to the previous steerpoint, which can be a dozen
+ * miles out — framing it squeezes the part that matters into a corner. The
+ * card has always excluded it; the map used to include it, which is why the
+ * live map sometimes sat at mission scale after a save.
+ */
+export function pictureFitPoints(picture: AttackPicture): Coordinates[] {
+  return [
+    ...picture.markers.map((m) => m.position),
+    ...picture.lines.filter((l) => l.style !== 'route').flatMap((l) => l.points),
+    ...picture.labels.filter((l) => l.kind === 'egress').map((l) => l.position),
+  ].filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
 }

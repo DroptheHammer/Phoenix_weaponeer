@@ -1,7 +1,7 @@
 import type { KneeboardCard, KneeboardThreatItem } from '../types/kneeboard.types';
 import type { AttackPicture, LabelSide, SideProfile } from '../types/attackPicture.types';
-import { LINE_STYLE, MARKER_COLOR, LABEL_STYLE } from './attackPicture';
-import { layoutLabels, type LabelRequest, type PlacedLabel, type Rect } from './labelLayout';
+import { LINE_STYLE, MARKER_COLOR, LABEL_STYLE, pictureFitPoints } from './attackPicture';
+import { layoutLabels, leaderLine, edgeCrossing, type LabelRequest, type PlacedLabel, type Rect } from './labelLayout';
 
 export const KNEEBOARD_WIDTH = 768;
 export const KNEEBOARD_HEIGHT = 1024;
@@ -209,19 +209,20 @@ function drawPlacedLabel(ctx: CanvasRenderingContext2D, label: PlacedLabel) {
   const border = label.style?.border ?? LABEL_STYLE.tooltipBorder;
   ctx.save();
 
-  // Leader from the nearest box edge to the point, when the box had to move.
-  const [ax, ay] = anchor;
-  const nx = Math.min(Math.max(ax, rect.x), rect.x + rect.w);
-  const ny = Math.min(Math.max(ay, rect.y), rect.y + rect.h);
-  if (label.leader) {
+  // Leader from the nearest box edge to the marker's edge, when the box had to move.
+  // A box sitting right beside its point gets the pointer nub below instead.
+  const line = label.leader ? leaderLine(label) : undefined;
+  if (line) {
     ctx.strokeStyle = C.leader;
     ctx.lineWidth = 1;
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.moveTo(nx, ny);
-    ctx.lineTo(ax, ay);
+    ctx.moveTo(line.from[0], line.from[1]);
+    ctx.lineTo(line.to[0], line.to[1]);
     ctx.stroke();
   }
+  // Anchor coordinates, used for the small pointer nub below.
+  const [ax, ay] = anchor;
 
   ctx.fillStyle = bg;
   ctx.strokeStyle = border;
@@ -273,11 +274,7 @@ function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, thr
 
   // Fit the attack, not the transit: the IP can be twelve miles out and would
   // squeeze the part that matters into a corner. Route lines run off the edge.
-  const fitPts = [
-    ...picture.markers.map((m) => m.position),
-    ...picture.lines.filter((l) => l.style !== 'route').flatMap((l) => l.points),
-    ...picture.labels.filter((l) => l.kind === 'egress').map((l) => l.position),
-  ].map(toNm);
+  const fitPts = pictureFitPoints(picture).map(toNm);
   const minX = Math.min(...fitPts.map((p) => p.x)), maxX = Math.max(...fitPts.map((p) => p.x));
   const minY = Math.min(...fitPts.map((p) => p.y)), maxY = Math.max(...fitPts.map((p) => p.y));
   // As much zoom as keeps AP and TGT (and the break) in frame: the card is
@@ -354,19 +351,35 @@ function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, thr
     // Markers first, then the boxes, so the numbers a pilot flies win the space.
     ...picture.markers
       .filter((m) => m.permanent)
-      .map((m) => ({ lines: m.lines, anchor: toPx(m.position), side: m.side, size: 12 })),
+      .map((m) => ({ lines: m.lines, anchor: toPx(m.position), side: m.side, size: 12, anchorRadius: markerR })),
     ...picture.labels
-      .filter((l) => l.kind === 'egress' || insideBox(toPx(l.position)))
-      .map((l) => ({
-        lines: [l.text],
-        anchor: toPx(l.position),
-        side: (l.kind === 'egress' ? 'top' : 'bottom') as LabelSide,
-        size: 11,
-        style:
-          l.kind === 'egress'
-            ? { bg: LABEL_STYLE.egressBg, fg: '#ffffff', border: LABEL_STYLE.egressBorder }
-            : { bg: LABEL_STYLE.ipBg, fg: '#ffffff', border: LABEL_STYLE.ipBorder },
-      })),
+      .map((l) => {
+        let anchor = toPx(l.position);
+        // Pin off-frame IP labels to the edge where the run-in enters
+        if (l.kind === 'ip' && !insideBox(anchor)) {
+          const routeLine = picture.lines.find((ln) => ln.style === 'route');
+          if (routeLine && routeLine.points.length >= 2) {
+            const actionPoint = routeLine.points[routeLine.points.length - 1];
+            const actionPx = toPx(actionPoint);
+            const crossing = edgeCrossing(anchor, actionPx, box);
+            if (crossing) anchor = crossing;
+            else return null;
+          } else return null;
+        } else if (l.kind !== 'egress' && !insideBox(anchor)) {
+          return null;
+        }
+        return {
+          lines: [l.text],
+          anchor,
+          side: (l.kind === 'egress' ? 'top' : 'bottom') as LabelSide,
+          size: 11,
+          style:
+            l.kind === 'egress'
+              ? { bg: LABEL_STYLE.egressBg, fg: '#ffffff', border: LABEL_STYLE.egressBorder }
+              : { bg: LABEL_STYLE.ipBg, fg: '#ffffff', border: LABEL_STYLE.ipBorder },
+        };
+      })
+      .filter((req) => req !== null) as LabelRequest[],
   ];
   for (const label of layoutLabels(ctx, requests, obstacles, box)) drawPlacedLabel(ctx, label);
 
@@ -506,7 +519,7 @@ function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile, box: 
   const requests: LabelRequest[] = side.points
     .map((p, i) => ({ p, i }))
     .filter(({ p }) => p.label)
-    .map(({ p, i }) => ({ lines: [p.label!], anchor: P(i), side: p.side ?? 'top', size: 11 }));
+    .map(({ p, i }) => ({ lines: [p.label!], anchor: P(i), side: p.side ?? 'top', size: 11, anchorRadius: p.kind !== 'APEX' && p.kind !== 'EGRESS' ? 12 : 0 }));
   for (const label of layoutLabels(ctx, requests, obstacles, box)) drawPlacedLabel(ctx, label);
 
   ctx.restore();

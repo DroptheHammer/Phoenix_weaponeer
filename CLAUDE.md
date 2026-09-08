@@ -135,7 +135,123 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-08 (with the user at the screen, on Claude Sonnet
+**Last session:** 2026-09-08 (afternoon, Opus 5, user at the screen). New way
+of working this session, and it should continue: **Opus writes a spec, a Sonnet
+subagent implements it, the user eyeballs it in the running app, Opus commits
+only after the user passes it.** The plan lives at
+`~/.claude/plans/so-let-s-plan-how-parsed-waffle.md`. Two things about that
+loop the user assumed otherwise: there is **no Sonnet chat window** (subagents
+are headless; all conversation stays in the main window, Opus relays the
+checklist), and **a subagent cannot be the eyeball** (it can't see the GUI —
+its job ends at green gates plus a written checklist).
+
+**Everything below is committed and pushed.** Gates all green at commit time:
+`npm run build` clean, **72 geometry checks** (was 55), **46 Rust tests**.
+
+### What was built — SIX changes, only the first is user-verified
+
+1. **Map reframe-on-save — FIXED and confirmed on screen by the user.** The
+   root cause in the old notes was WRONG (it blamed the React effect not
+   re-firing on the same attack id; `onFocused()` clears `focusAttackId` to
+   null after each fit, so that never happens). The real cause: the card's
+   `drawPlanView` deliberately excludes `route`-style lines from its fit —
+   "fit the attack, not the transit" — while the map's `FocusController` fitted
+   **every** picture point including the route line back to the IP. With an IP
+   12 nm out the map framed 12 nm instead of 4.5. Fixed by extracting the
+   card's rule into **`pictureFitPoints()` in `src/lib/attackPicture.ts`**, now
+   used by both. Same precedent as `labelLayout.ts` last session.
+2. **The Attacks side panel now closes itself after Save/Update** (not Cancel).
+   The user's own idea, after his screenshots proved the reframe was already
+   correct and the panel was simply covering the right third of it. Wired with
+   an explicit `onSaved` prop (App → AttackList → AttackEditor) — deliberately
+   NOT an effect on `focusAttackId`, whose clear/set ordering is fragile.
+3. **Labels whose point is off-screen are no longer drawn** — they used to be
+   clamped to the frame edge and rendered clipped mid-word.
+4. **Leader lines stop at the marker's edge, not its centre** — a line to the
+   centre struck through the letters on the disc. Shared `leaderLine()` in
+   `labelLayout.ts`; the kneeboard card had the identical bug.
+5. **Label collision fix for multiple attacks.** The near-field search (4 sides
+   x 6 gaps x 5 shifts) was fully blocked when two attacks cluster, so it gave
+   up and overlapped. Widened the ladder and added a full-frame sweep for the
+   nearest clear spot, reached by a leader line.
+6. **The IP tag now exists on dive and level attacks, not just pop-up** — the
+   user's point: every attack starts from an initial point, and that's where
+   the pilot opens the kneeboard and starts flying. Dive prints its ingress
+   altitude **AGL**, level prints its release altitude **MSL**. Only emitted
+   when a real IP waypoint exists. Because the IP is now almost always outside
+   the frame, its tag is **pinned to the frame edge the run-in enters through**
+   (`edgeCrossing()` in `labelLayout.ts`), on the map AND the card.
+
+### START OF NEXT SESSION — the eyeball checklist (items 2-6 are UNVERIFIED)
+
+Run `npm run tauri dev`, import `test-data/nttr_redflag_viper1.json`, group
+Viper 1 (Hot). Items 1-8 of the last checklist passed already (panel closes on
+save, stays open on cancel, Customize re-save reframes, second attack on TGT2,
+GBU-31 level, pan-away-and-save, map/card framing agree). Still to check:
+
+1. Three or four attacks plotted at once: **no label box on top of another.**
+2. A single attack alone: labels stay **snug** beside their markers, nothing
+   flung to the edge unnecessarily. (This is what the sweep-guard fix protects.)
+3. Dive attack shows an IP tag reading "...ft AGL"; level shows "...ft MSL".
+4. The IP tag sits against the frame edge where the dashed run-in enters, fully
+   readable. **Try run-ins from several different directions** — the first
+   implementation of this was broken on every diagonal.
+5. Zoom out until the IP steerpoint is on screen — the tag moves to the real IP.
+6. **Export a kneeboard card for a dive and a level attack — the IP tag must be
+   on the card.** That's the one that gets flown.
+7. Still pinned from earlier: does the level CCRP adjustment message read
+   sensibly on its own? "Action point set to 9 nm — needs room to roll out of
+   the check turn before the run-in starts 7.1 nm from the target."
+
+### Lessons about driving the Sonnet subagent (this cost real time — read it)
+
+**Review the subagent's work; do not trust its "all gates green" report.** Four
+separate defects got through green gates this session:
+- It hand-rolled great-circle math in `geo-check.ts` — CLAUDE.md explicitly
+  forbids a fifth copy. Replaced with `calculateDestination`.
+- It dropped the `label.leader` gate on the card's leader line, which would
+  have drawn a stray 2-6px stub alongside the pointer nub.
+- Its full-frame sweep guard read `best.score > 0`, but score always includes
+  `gap * 2` (min 36), so the sweep would have run for **every** label on the
+  normal path and scattered snug labels. Now guarded by a `clear` boolean.
+  While fixing it, found a **pre-existing** bug its widening made far worse: a
+  zero-overlap candidate found far out could lose on score to an overlapping
+  one close in, and `break outer` then locked in the overlap. A clear spot now
+  wins unconditionally.
+- **`edgeCrossing` was broken in ~78% of geometries** — 3,139 of 4,006
+  fuzz-tested cases returned `undefined` and 703 more returned the wrong point.
+  Its own test passed because it only tested a run-in from due west. Rewritten
+  as Liang-Barsky, verified against a brute-force reference (0 mismatches over
+  4,006 cases), and the weak test replaced with eight directional ones.
+
+**The generalisable lesson: check that a new test would actually FAIL against a
+broken implementation.** Two of the four defects above shipped green precisely
+because the test only exercised the easy case.
+
+### Open items (unchanged from this morning, still queued in this order)
+
+- **Level attack run-in is too short/predictable** — AP to run-in-start barely
+  ~2 nm on a 20k CCRP JDAM. Needs a longer offset leg flown *after* the check
+  turn, not just a further-out action point. Design pass on
+  `autoBuildAttack.ts` / `attackGeometry.ts`; the user will want to talk this
+  one through before code.
+- **Map needs a multi-select display filter** for which flights/attacks are
+  drawn. User deferred as complex; likely M2.
+- **Reference DB v3** — SA-5 site, SA-13s, ZU-23 trucks and a P-19 EWR row.
+  **User decided to REBUILD this fresh**, not recover the rolled-back Traycer
+  commit `580e40c`. Bumps `PRAGMA user_version` to 3.
+- Attack #1's egress should prefer a break toward attack #2's run-in.
+- Fuze-dependent release floors (Mk-82 at 2,000 ft only with a 4 s delay fuze).
+- Loadout from FragOrders pylons (plan §3); loft geometry (LABS, F-16 loft).
+- Dead code: `src/hooks/useAttackCalculator.ts`, the Rust
+  `calculate_popup_ccip`, and the unused `once_cell` in Cargo.toml.
+- M2 (map-first rail, threat palette, drag handles, exposure colouring), and
+  the queued idea: selecting a threat in the list highlights and flies to it.
+
+---
+
+
+**Previous session:** 2026-09-08 (with the user at the screen, on Claude Sonnet
 5/Haiku 4.5 rather than Opus — sessions were kept shorter on purpose). Written
 for a fresh agent of any model. Read `docs/REVAMP_PLAN.md` (the approved plan
 and its dated updates) and `docs/DELIVERY_PLANNING.md` (the F-16 handbook

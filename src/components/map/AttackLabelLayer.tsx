@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useMap } from 'react-leaflet';
 import type { Attack, Waypoint } from '../../types';
 import { buildAttackPicture, LABEL_STYLE } from '../../lib/attackPicture';
-import { layoutLabels, type LabelRequest, type PlacedLabel, type Rect } from '../../lib/labelLayout';
+import { layoutLabels, edgeCrossing, type LabelRequest, type PlacedLabel, type Rect } from '../../lib/labelLayout';
 
 interface AttackLabelLayerProps {
   attacks: Attack[];
@@ -40,6 +40,8 @@ export function AttackLabelLayer({ attacks, waypoints, onPlaced }: AttackLabelLa
         const p = map.latLngToContainerPoint([c.lat, c.lon]);
         return [p.x, p.y];
       };
+      const isVisible = ([x, y]: [number, number]) =>
+        x >= bounds.x && x <= bounds.x + bounds.w && y >= bounds.y && y <= bounds.y + bounds.h;
 
       const obstacles: Rect[] = [];
       const requests: LabelRequest[] = [];
@@ -55,14 +57,28 @@ export function AttackLabelLayer({ attacks, waypoints, onPlaced }: AttackLabelLa
         for (const marker of picture.markers) {
           const [x, y] = toPx(marker.position);
           obstacles.push({ x: x - MARKER_HALF_PX, y: y - MARKER_HALF_PX, w: MARKER_HALF_PX * 2, h: MARKER_HALF_PX * 2 });
-          if (marker.permanent) {
-            requests.push({ lines: marker.lines, anchor: [x, y], side: marker.side, size: 12 });
+          if (marker.permanent && isVisible([x, y])) {
+            requests.push({ lines: marker.lines, anchor: [x, y], side: marker.side, size: 12, anchorRadius: MARKER_HALF_PX });
           }
         }
         for (const label of picture.labels) {
+          let anchor = toPx(label.position);
+          // Pin off-frame IP labels to the edge where the run-in enters
+          if (label.kind === 'ip' && !isVisible(anchor)) {
+            const routeLine = picture.lines.find((l) => l.style === 'route');
+            if (routeLine && routeLine.points.length >= 2) {
+              const actionPoint = routeLine.points[routeLine.points.length - 1];
+              const actionPx = toPx(actionPoint);
+              const crossing = edgeCrossing(anchor, actionPx, bounds);
+              if (crossing) anchor = crossing;
+              else continue;
+            } else continue;
+          } else if (!isVisible(anchor)) {
+            continue;
+          }
           requests.push({
             lines: [label.text],
-            anchor: toPx(label.position),
+            anchor,
             side: label.kind === 'egress' ? 'top' : 'bottom',
             size: 11,
             style:
