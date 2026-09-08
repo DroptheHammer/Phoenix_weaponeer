@@ -1,3 +1,5 @@
+import type { AttackPicture, SideProfile } from './attackPicture.types';
+
 export interface KneeboardCard {
   id: string;
 
@@ -18,8 +20,11 @@ export interface KneeboardCard {
 
 export interface KneeboardHeader {
   callsign: string;
+  /** "Viper 1-1 — 30° Dive CCIP, Mk-84 attack on STPT 8 (TGT1)" */
+  title?: string;
   missionDate: string;
   targetName: string;
+  targetSteerpoint?: number;
   /** Each drawn as an amber strip under the header: unverified map, estimated profile… */
   cautions?: string[];
 }
@@ -44,62 +49,28 @@ export interface KneeboardThreatItem {
   notes?: string;
 }
 
-/** One step in the numbered procedure */
-export interface KneeboardStep {
-  title: string;      // e.g. "② ROLL IN"
-  lines: string[];    // Bullet lines (short, readable)
-  isWarning?: boolean; // Draw with red accent (e.g. weapons release step)
-}
-
-/** Raw attack geometry used to draw the diagram */
+/**
+ * The two pictures the card draws: the attack north-up, exactly as the planner's
+ * map shows it, and the same attack as altitude against distance. No text
+ * procedure — the labels on the pictures are the procedure.
+ */
 export interface KneeboardDiagramData {
   type: string; // 'popup_ccip' | 'dive_ccip' | 'level_ccrp' | ...
+  /** North-up plan view, in lat/lon; the renderer projects it. */
+  picture?: AttackPicture;
+  /** Side view. */
+  side?: SideProfile;
+  attackHeading_deg?: number;
   egressDirection: string;
   egressHeading_deg: number;
-  /** Manual deliveries: drawn next to the roll-in point */
+  /** Manual deliveries: the one number a legacy pilot needs at the roll-in. */
   sightDepression_mils?: number;
-  /** What happens at the release point: "AUTO-RELEASE", "PICKLE", "FIRE" */
-  releaseLabel?: string;
-
-  // Popup CCIP
-  popupCCIP?: {
-    runInHeading_deg?: number; // undefined = no IP set, heading indeterminate
-    runInAltitude_ft: number;
-    runInSpeed_ktas: number;
-    popDistance_nm: number;
-    climbAngle_deg: number;
-    apexAltitude_ft: number;
-    rollInAltitude_ft: number;
-    diveAngle_deg: number;
-    releaseAltitude_ft: number;
-    releaseSpeed_ktas: number;
-    minAltitude_ft: number;
-  };
-
-  // Dive CCIP
-  diveCCIP?: {
-    ingressHeading_deg: number;
-    rollInAltitude_ft: number;
-    diveAngle_deg: number;
-    releaseAltitude_ft: number;
-    releaseSpeed_ktas: number;
-    pulloutG: number;
-  };
-
-  // Level CCRP
-  levelCCRP?: {
-    ingressHeading_deg: number;
-    releaseAltitude_ft: number;
-    releaseSpeed_ktas: number;
-    egressHeading_deg: number;
-  };
 }
 
 export interface KneeboardAttackSection {
   profileType: string; // Human readable
-  parameters: Record<string, string>; // Key-value summary (still kept for reference)
-  steps?: KneeboardStep[];           // NEW: numbered procedure
-  diagram?: KneeboardDiagramData;    // NEW: raw data for diagram drawing
+  parameters: Record<string, string>; // Key-value summary (kept for reference)
+  diagram?: KneeboardDiagramData;
 }
 
 export interface KneeboardWeaponSection {

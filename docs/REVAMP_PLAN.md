@@ -169,6 +169,56 @@ but are hidden until the geometry lands (M1b).
 
 ### 4. Auto-build — `src/lib/autoBuildAttack.ts`
 
+**Update 2026-09-07 — angle off (user direction, from the pop-up diagram).**
+The attack heading is never the IP→target bearing by default: the defence has
+watched that vector since the IP. Auto-build rotates the axis 30° off it
+(`DEFAULT_ANGLE_OFF_DEG`), running in on the flank *away* from the nearest
+threat. **Convention (user's words):** "Ingress from the left" = turn left off
+the direct line, come up the target's left flank, final turn *right* onto it;
+so a left ingress rotates the attack heading right. Egress is away from the
+threat too, so the two toggles usually agree ("Ingress right · Egress right").
+The basic path shows **Ingress from ◀ Left / Right ▶** and **Egress ◀ Left /
+Right ▶** as two equal halves; Angle off (°), Ingress from, and Attack heading
+live in every Customize form (`AngleOffFields.tsx`), so 10°, 45°, 60° are all a
+planner's call.
+
+**Update 2026-09-07 (evening) — pop-up on the handbook.** The pop-up profile
+now stores the handbook's inputs (dive angle, release floor, speed, tracking
+time, G) and derives apex, pull-down altitude, climb angle, angle-off
+(2 × climb by default), pop distance, MAP and aim-off from them —
+`src/lib/popupPlanning.ts`, formulas and sources in
+`docs/DELIVERY_PLANNING.md`. The attack heading is solved so the approach
+track runs straight from the IP and passes the target abeam on the chosen
+flank; the map draws PUP → PDP → pull-down arc → TRK → TGT ·· AOD. The seed
+"Pop-up 4 nm" (whose numbers did not close) is now "Pop-up 20°" on all five
+aircraft that carry one.
+
+**Update 2026-09-07 (late) — the action point.** The user's correction: a
+straight leg from the IP to the roll-in is just another predictable line. The
+run-in is now anchored on the *route*: fly the IP→target leg to the **action
+point** (4.5 nm, the handbook's choice), make a round check turn left/right
+(the Ingress toggle), run up the offset leg, roll in / pull down / run in.
+`src/lib/runIn.ts` describes it once for the editor hint, the card and
+auto-build; `ActionPointFields.tsx` is the Customize control (action range,
+check turn, ingress side) on all three forms. Egress is drawn from the release
+point as a turn onto the egress heading — never through the target. Terms:
+action point (handbook), roll-in (dive bomb), pull-down point (pop-up).
+
+**Update 2026-09-07 (late) — the card is the map.** No switchology or text
+procedure on the kneeboard. `src/lib/attackPicture.ts` builds the attack
+picture once (lines by stage, markers by point, the white labels' words); the
+map overlay renders it with Leaflet and the card renders it north-up on canvas
+with threat rings, plus a side view from `buildSideProfile`. Same colours,
+same words, everywhere. The library's `procedure` lines are no longer printed. `attackChecks` warns — never blocks — when the heading is
+within ±5° of the IP→target line ("Predictable straight-in attack…"), in the
+editor and on the card. Geometry (`attackGeometry.ts`): dive = transit IP →
+roll-in point, roll in onto the axis; level = transit → run-in start 3 nm
+before release, wings level on the axis; pop-up = run in from the IP on the
+offset track, PUP at pop distance, climb, pull down onto the axis at the apex
+(law of cosines puts PUP on the IP→ATK line). The old pop-up "20° jink after
+POP" model is gone; `offsetAngle_deg`/`offsetDirection` on a popup profile
+are now descriptive only.
+
 Pure function: `(mission, targetWaypointId, attackerId, profiles, weapons,
 threatSystems, overrides?) → { attack, adjustments[], warnings[] }`.
 
@@ -259,6 +309,10 @@ profile; edit a bundled number in the override folder and see it win.
   drag → `map.containerPointToLatLng` on drop). Two motions instead of four
   clicks; click a placed marker to change type or remove. Reuses the existing
   drag-end → store pattern (`MapView.tsx:194`).
+- **List ↔ map linking** (user request, 2026-09-07, not scheduled): selecting
+  a threat in the Threats list highlights its ring on the map and flies the
+  map to it. Same motion should later apply to targets and attacks in the
+  rail, so one selected-item concept serves all three.
 - **Attack handles** on the overlay: run-in end (rotates heading = bearing
   from target), roll-in/pop point (distance along the axis), egress arrow
   (click to flip). Local state during drag, commit on `dragend`; card updates

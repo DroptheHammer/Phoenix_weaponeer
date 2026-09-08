@@ -7,16 +7,39 @@ import { SUPPORTED_GEOMETRIES, diveParams, levelParams, popupParams } from '../t
 import { weaponClassOf, WEAPON_CLASS_LABEL } from './weaponClass';
 import { calculateBearing, calculateDistance } from './coordinates';
 import { runAttackChecks, type AttackCheck } from './attackChecks';
+import {
+  opposite,
+  flankSign,
+  normalizeHeading,
+  attackHeadingFromActionPoint,
+  diveGroundRange_nm,
+  levelReleaseRange_nm,
+  LEVEL_RUN_IN_NM,
+  DEFAULT_ACTION_RANGE_NM,
+  DEFAULT_OFFSET_TURN_DEG,
+  type Side,
+} from './attackGeometry';
+import { planPopup, doctrinalCheckTurn, solvePullDownTurn, applyPopupPlan, type PopupPlan } from './popupPlanning';
+import { describeRunIn, type RunInSummary } from './runIn';
 
 /**
  * Auto-build: from a target, an attacker and a weapon, produce a complete,
  * alert-free attack using the aircraft's delivery profile library.
  *
- * The pilot's decisions are the big ones — which profile, which heading,
- * which way to egress. Everything else is filled from the profile and then
- * pushed up to whatever the weapon demands (minimum release altitude, frag
- * min-safe), with each adjustment reported. Customize exposes the numbers
- * afterwards; this function never asks for them.
+ * The pilot's decisions are the big ones — which profile, which flank to
+ * come from, which way to egress. Everything else is filled from the profile
+ * and then pushed up to whatever the weapon demands (minimum release
+ * altitude, frag min-safe), with each adjustment reported. Customize exposes
+ * the numbers afterwards; this function never asks for them.
+ *
+ * The run-in is anchored on the route. The aircraft flies the IP→target leg
+ * to the **action point** (4.5 nm by default, the handbook's choice), makes a
+ * round **check turn** left or right, runs up the offset leg, and turns onto
+ * the target at the roll-in (dive), pull-down (pop-up) or run-in start
+ * (level). The flank defaults to the side *away* from the nearest threat, and
+ * so does the egress, so the two toggles usually read the same way. The
+ * attack heading is whatever that geometry produces; nothing about it is a
+ * straight line at the target.
  *
  * Pure: takes the profile library and weapons as arguments so it can be run
  * anywhere (and tested) without touching the stores.
@@ -25,8 +48,14 @@ import { runAttackChecks, type AttackCheck } from './attackChecks';
 export interface AutoBuildOverrides {
   weaponId?: string;
   profileId?: string;
-  /** Attack heading; undefined = from the IP */
+  /** A hand-typed attack heading. Wins over the action-point geometry. */
   runInHeading_deg?: number;
+  /** Range from the target for the check turn; undefined = the profile's, else DEFAULT_ACTION_RANGE_NM */
+  actionRange_nm?: number;
+  /** The check turn at the action point; undefined = the profile's, else 20° (dive, level) or the handbook's (pop-up) */
+  offsetTurn_deg?: number;
+  /** Which flank to run in on; undefined = away from the nearest threat */
+  angleOffSide?: Side;
   egressDirection?: 'left' | 'right';
 }
 
@@ -50,6 +79,12 @@ export interface AutoBuildResult {
   candidates: DeliveryProfile[];
   ipWaypoint?: Waypoint;
   attackHeading?: number;
+  /** Bearing IP → target: the route leg */
+  directBearing?: number;
+  /** How the run-in was built: action point, check turn, join turn */
+  runIn?: RunInSummary;
+  /** Pop-up only: the handbook chain behind the numbers */
+  popupPlan?: PopupPlan;
   /** Things auto-build changed from the profile to keep the attack legal */
   adjustments: string[];
   /** Things auto-build could not decide for the pilot */
@@ -58,25 +93,10 @@ export interface AutoBuildResult {
   checks: AttackCheck[];
 }
 
-const FT_PER_NM = 6076.12;
-
 /** The lowest release altitude the weapon allows: its own minimum, and frag min-safe. */
 export function weaponFloor_ft(weapon: DbWeapon | undefined): number {
   if (!weapon) return 0;
   return Math.max(weapon.min_release_alt_ft ?? 0, weapon.frag_min_safe_alt_ft ?? 0);
-}
-
-/**
- * Mirrors `calculate_release_altitude` in src-tauri/src/calculators/mod.rs —
- * a dive-angle bracket with a speed adjustment, floored at the weapon. Kept
- * in TS so auto-build stays synchronous and pure; the Rust command remains
- * for the popup Customize form. If one changes, change the other.
- */
-export function popupReleaseAltitude_ft(diveAngle_deg: number, speed_ktas: number, weapon: DbWeapon | undefined): number {
-  const angle = Math.trunc(diveAngle_deg);
-  const base = angle <= 15 ? 1500 : angle <= 30 ? 3500 : angle <= 45 ? 4500 : 6000;
-  const adjusted = base / (speed_ktas / 450);
-  return Math.max(adjusted, weaponFloor_ft(weapon));
 }
 
 /** Weapons the attacker is actually carrying, in loadout order, when a loadout exists. */
@@ -88,14 +108,42 @@ export function loadoutWeapons(attacker: Mission['flightMembers'][number] | unde
 }
 
 /**
- * The IP for this target: the closest `ip` waypoint that precedes it in the
- * route, else whatever waypoint comes just before it.
+ * The waypoint the aircraft is flying from when it attacks this target: the
+ * one immediately before it in the route. That is the IP when the route puts
+ * one there, and the *previous target* when attacks are chained — a second
+ * bomb on STPT 9 flows in from STPT 8, not from the IP two legs back. (It
+ * used to prefer the nearest IP-typed waypoint, which planned every attack
+ * off the same steerpoint.)
  */
 export function inferIp(mission: Mission, target: Waypoint): Waypoint | undefined {
-  const before = mission.waypoints
+  return mission.waypoints
     .filter((wp) => wp.id !== target.id && wp.steerpoint < target.steerpoint)
-    .sort((a, b) => b.steerpoint - a.steerpoint);
-  return before.find((wp) => wp.type === 'ip') ?? before[0];
+    .sort((a, b) => b.steerpoint - a.steerpoint)[0];
+}
+
+/**
+ * Which side of a heading through the target the nearest live threat sits
+ * on, or undefined when nothing that can reach the target area is placed.
+ */
+export function nearestThreatSide(
+  mission: Mission,
+  target: Waypoint,
+  heading: number,
+  threatSystems: Array<{ id: string; max_range_nm: number }>,
+): Side | undefined {
+  let nearest: { distance: number; side: Side } | undefined;
+  for (const threat of mission.threats) {
+    if (threat.status === 'destroyed') continue;
+    const distance = calculateDistance(target.coordinates, threat.position);
+    const system = threatSystems.find((s) => s.id === threat.systemId);
+    // Only threats that could reach the target area matter.
+    if (distance > Math.max(system?.max_range_nm ?? 0, 5) + 5) continue;
+    const bearing = calculateBearing(target.coordinates, threat.position);
+    const relative = (bearing - heading + 360) % 360;
+    const side: Side = relative > 0 && relative < 180 ? 'right' : 'left';
+    if (!nearest || distance < nearest.distance) nearest = { distance, side };
+  }
+  return nearest?.side;
 }
 
 /**
@@ -108,21 +156,12 @@ export function egressAwayFromThreats(
   attackHeading: number,
   threatSystems: Array<{ id: string; max_range_nm: number }>,
 ): 'left' | 'right' {
-  let nearest: { distance: number; side: 'left' | 'right' } | undefined;
-  for (const threat of mission.threats) {
-    if (threat.status === 'destroyed') continue;
-    const distance = calculateDistance(target.coordinates, threat.position);
-    const system = threatSystems.find((s) => s.id === threat.systemId);
-    // Only threats that could reach the target area matter.
-    if (distance > Math.max(system?.max_range_nm ?? 0, 5) + 5) continue;
-    const bearing = calculateBearing(target.coordinates, threat.position);
-    const relative = (bearing - attackHeading + 360) % 360;
-    const side: 'left' | 'right' = relative > 0 && relative < 180 ? 'right' : 'left';
-    if (!nearest || distance < nearest.distance) nearest = { distance, side };
-  }
-  if (!nearest) return 'right';
-  return nearest.side === 'right' ? 'left' : 'right';
+  const threatSide = nearestThreatSide(mission, target, attackHeading, threatSystems);
+  if (!threatSide) return 'right';
+  return threatSide === 'right' ? 'left' : 'right';
 }
+
+const round1 = (v: number) => Math.round(v * 10) / 10;
 
 export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   const { mission, weapons, profiles, threatSystems } = input;
@@ -172,18 +211,13 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     return { attack: null, profile, weapon, weaponClass, candidates, adjustments, problems, checks: [] };
   }
 
-  // Heading: the override, else IP → target.
-  const ipWaypoint = inferIp(mission, target);
-  let attackHeading = overrides.runInHeading_deg;
-  if (attackHeading == null || !Number.isFinite(attackHeading)) {
-    if (ipWaypoint) {
-      attackHeading = calculateBearing(ipWaypoint.coordinates, target.coordinates);
-    } else {
-      attackHeading = 360;
-      adjustments.push('No IP in the route — attack heading defaulted to north; set one');
-    }
+  const dive = diveParams(profile);
+  const level = levelParams(profile);
+  const popup = popupParams(profile);
+  if (!dive && !level && !popup) {
+    problems.push(`${profile.name} uses a ${profile.geometry} geometry the tool cannot draw yet`);
+    return { attack: null, profile, weapon, weaponClass, candidates, adjustments, problems, checks: [] };
   }
-  const egressDirection = overrides.egressDirection ?? egressAwayFromThreats(mission, target, attackHeading, threatSystems);
 
   // Floors from the weapon. Profiles are written for a class; the specific
   // store may demand more altitude than the profile assumes.
@@ -197,83 +231,192 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     }
     return clamped;
   };
+  const raiseToFloor = (value: number, what: string, unit = 'ft'): number => {
+    if (value >= floor) return value;
+    adjustments.push(`${what} raised ${value.toLocaleString()} → ${floor.toLocaleString()} ${unit}: ${weapon.name} minimum / frag min-safe`);
+    return floor;
+  };
 
-  let attackProfile: Attack['profile'];
-  let profileType: Attack['profileType'];
-
-  const dive = diveParams(profile);
-  const level = levelParams(profile);
-  const popup = popupParams(profile);
+  // The numbers, per profile type, floored to the weapon.
+  let diveNumbers: { rollIn: number; release: number; speed: number; ingress: number; g: number } | undefined;
+  let levelNumbers: { releaseAgl: number; releaseMsl: number; speed: number } | undefined;
+  let popupNumbers: { release: number; speed: number; plan: PopupPlan } | undefined;
+  let joinRange_nm = 0;
 
   if (dive) {
-    let release = dive.releaseAltitude_ft;
-    if (release < floor) {
-      adjustments.push(`Release raised ${release.toLocaleString()} → ${floor.toLocaleString()} ft: ${weapon.name} minimum / frag min-safe`);
-      release = floor;
-    }
+    const release = raiseToFloor(dive.releaseAltitude_ft, 'Release');
     let rollIn = dive.rollInAltitude_ft;
     if (rollIn <= release) {
       const raised = release + 2000;
       adjustments.push(`Roll-in raised ${rollIn.toLocaleString()} → ${raised.toLocaleString()} ft to stay above the release`);
       rollIn = raised;
     }
+    diveNumbers = {
+      rollIn,
+      release,
+      speed: speedClamp(dive.releaseSpeed_ktas),
+      ingress: Math.max(dive.ingressAltitude_ft ?? rollIn, rollIn),
+      g: dive.pulloutG ?? 4,
+    };
+    joinRange_nm = diveGroundRange_nm(rollIn, dive.diveAngle_deg);
+  } else if (level) {
+    const releaseAgl = raiseToFloor(level.releaseAltitude_ft, 'Release', 'ft AGL');
+    const speed = speedClamp(level.releaseSpeed_ktas);
+    // Profiles are AGL; the level profile stores MSL for the jet's altimeter.
+    levelNumbers = { releaseAgl, releaseMsl: Math.round(releaseAgl + (target.elevation_ft ?? 0)), speed };
+    joinRange_nm = levelReleaseRange_nm(releaseAgl, speed) + LEVEL_RUN_IN_NM;
+  } else if (popup) {
+    const release = raiseToFloor(popup.releaseAltitude_ft, 'Release');
+    const speed = speedClamp(popup.runInSpeed_ktas);
+    const plan = planPopup({
+      diveAngle_deg: popup.diveAngle_deg,
+      releaseAltitude_ft: release,
+      speed_ktas: speed,
+      trackingTime_s: popup.trackingTime_s,
+      pullG: popup.pullG,
+    });
+    popupNumbers = { release, speed, plan };
+  }
+
+  // The run-in: route to the action point, check turn, offset leg, join.
+  const ipWaypoint = inferIp(mission, target);
+  const directBearing = ipWaypoint ? calculateBearing(ipWaypoint.coordinates, target.coordinates) : undefined;
+  const threatSide = directBearing != null ? nearestThreatSide(mission, target, directBearing, threatSystems) : undefined;
+  const side: Side = overrides.angleOffSide ?? (threatSide ? opposite(threatSide) : 'right');
+  const s = flankSign(side);
+  const typedHeading =
+    overrides.runInHeading_deg != null && Number.isFinite(overrides.runInHeading_deg) ? overrides.runInHeading_deg : undefined;
+
+  let actionRange = overrides.actionRange_nm ?? dive?.actionRange_nm ?? level?.actionRange_nm ?? popup?.actionRange_nm ?? DEFAULT_ACTION_RANGE_NM;
+  let checkTurn: number;
+  let pullDown: number | undefined;
+
+  // Chained attacks: the previous steerpoint may be closer than the action
+  // range. The check turn cannot come before the leg starts, so pull it in.
+  const legLength_nm = ipWaypoint ? calculateDistance(ipWaypoint.coordinates, target.coordinates) : undefined;
+  if (legLength_nm != null && actionRange > legLength_nm - 0.5) {
+    const pulledIn = Math.max(1, Math.floor((legLength_nm - 0.5) * 2) / 2);
+    adjustments.push(`Action point pulled in ${actionRange} → ${pulledIn} nm: STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target`);
+    actionRange = pulledIn;
+  }
+
+  if (popupNumbers) {
+    checkTurn = overrides.offsetTurn_deg ?? popup?.offsetAngle_deg ?? doctrinalCheckTurn(popupNumbers.plan, actionRange);
+    pullDown = solvePullDownTurn(popupNumbers.plan, actionRange, checkTurn);
+    if (pullDown == null) {
+      adjustments.push(`Check turn ${checkTurn}° at ${actionRange} nm is too wide for this pop-up — the pull-down cannot reach the target; reduce it or move the action point out`);
+    }
+  } else {
+    checkTurn = overrides.offsetTurn_deg ?? dive?.offsetAngle_deg ?? level?.offsetAngle_deg ?? DEFAULT_OFFSET_TURN_DEG;
+    // The join point must be inside the action range, with room to settle.
+    if (actionRange < joinRange_nm + 1) {
+      const moved = round1(Math.ceil((joinRange_nm + 1.5) * 2) / 2);
+      if (legLength_nm != null && moved > legLength_nm - 0.5) {
+        problems.push(
+          `${profile.name} needs its ${dive ? 'roll-in' : 'run-in start'} ${joinRange_nm.toFixed(1)} nm out, but STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
+        );
+      } else {
+        adjustments.push(`Action point moved out ${actionRange} → ${moved} nm: the ${dive ? 'roll-in' : 'run-in start'} is ${joinRange_nm.toFixed(1)} nm from the target`);
+      }
+      actionRange = moved;
+    }
+    // A check turn too wide never brings the leg within the join range.
+    const maxTurn = (Math.asin(Math.min(joinRange_nm / actionRange, 1)) * 180) / Math.PI;
+    if (checkTurn >= maxTurn) {
+      const reduced = Math.max(5, Math.floor((maxTurn - 5) / 5) * 5);
+      adjustments.push(`Check turn reduced ${checkTurn}° → ${reduced}°: a wider turn at ${actionRange} nm never comes within ${joinRange_nm.toFixed(1)} nm of the target`);
+      checkTurn = reduced;
+    }
+  }
+
+  const noIp = () => {
+    adjustments.push('No IP in the route — attack heading defaulted to north; set one');
+    return 360;
+  };
+  let attackHeading: number;
+  if (typedHeading != null) {
+    attackHeading = typedHeading;
+  } else if (directBearing == null) {
+    attackHeading = noIp();
+  } else if (popupNumbers) {
+    attackHeading = normalizeHeading(directBearing - s * checkTurn + s * (pullDown ?? 90));
+  } else {
+    attackHeading =
+      attackHeadingFromActionPoint({ directBearing_deg: directBearing, actionRange_nm: actionRange, offsetTurn_deg: checkTurn, side }, joinRange_nm) ??
+      noIp();
+  }
+  const egressDirection = overrides.egressDirection ?? egressAwayFromThreats(mission, target, attackHeading, threatSystems);
+
+  let attackProfile: Attack['profile'];
+  let profileType: Attack['profileType'];
+
+  if (dive && diveNumbers) {
     const p: DiveCCIPProfile = {
       type: 'dive_ccip',
       ipWaypointId: ipWaypoint?.id,
       ingressHeading_deg: attackHeading,
-      ingressAltitude_ft: Math.max(dive.ingressAltitude_ft ?? rollIn, rollIn),
-      rollInAltitude_ft: rollIn,
+      ingressAltitude_ft: diveNumbers.ingress,
+      rollInAltitude_ft: diveNumbers.rollIn,
       diveAngle_deg: dive.diveAngle_deg,
-      releaseAltitude_ft: release,
-      releaseSpeed_ktas: speedClamp(dive.releaseSpeed_ktas),
-      pulloutG: dive.pulloutG ?? 4,
+      releaseAltitude_ft: diveNumbers.release,
+      releaseSpeed_ktas: diveNumbers.speed,
+      pulloutG: diveNumbers.g,
       egressDirection,
+      actionRange_nm: actionRange,
+      offsetAngle_deg: checkTurn,
+      offsetDirection: side,
     };
     attackProfile = p;
     profileType = 'dive_ccip';
-  } else if (level) {
-    let releaseAgl = level.releaseAltitude_ft;
-    if (releaseAgl < floor) {
-      adjustments.push(`Release raised ${releaseAgl.toLocaleString()} → ${floor.toLocaleString()} ft AGL: ${weapon.name} minimum / frag min-safe`);
-      releaseAgl = floor;
-    }
+  } else if (level && levelNumbers) {
     const p: LevelCCRPProfile = {
       type: 'level_ccrp',
       ipWaypointId: ipWaypoint?.id,
       ingressHeading_deg: attackHeading,
-      // Profiles are AGL; the level profile stores MSL for the jet's altimeter.
-      releaseAltitude_ft: Math.round(releaseAgl + (target.elevation_ft ?? 0)),
-      releaseSpeed_ktas: speedClamp(level.releaseSpeed_ktas),
+      releaseAltitude_ft: levelNumbers.releaseMsl,
+      releaseSpeed_ktas: levelNumbers.speed,
+      egressDirection,
+      actionRange_nm: actionRange,
+      offsetAngle_deg: checkTurn,
+      offsetDirection: side,
     };
     attackProfile = p;
     profileType = 'level_ccrp';
-  } else if (popup) {
+  } else if (popup && popupNumbers) {
     if (!ipWaypoint) problems.push('A pop-up needs an IP in the route');
-    const release = popupReleaseAltitude_ft(popup.diveAngle_deg, popup.runInSpeed_ktas, weapon);
-    const climbAngle = (Math.atan((popup.apexAltitude_ft - popup.runInAltitude_ft) / (popup.popDistance_nm * FT_PER_NM)) * 180) / Math.PI;
-    const p: PopupCCIPProfile = {
-      type: 'popup_ccip',
-      ipWaypointId: ipWaypoint?.id ?? '',
-      runInHeading_deg: overrides.runInHeading_deg,
-      runInAltitude_ft: popup.runInAltitude_ft,
-      runInSpeed_ktas: popup.runInSpeed_ktas,
-      popDistance_nm: popup.popDistance_nm,
-      climbAngle_deg: climbAngle,
-      apexAltitude_ft: popup.apexAltitude_ft,
-      offsetDirection: popup.offsetDirection ?? egressDirection,
-      offsetAngle_deg: popup.offsetAngle_deg ?? 20,
-      rollInAltitude_ft: popup.apexAltitude_ft * 0.85,
-      diveAngle_deg: popup.diveAngle_deg,
-      releaseAltitude_ft: release,
-      releaseSpeed_ktas: speedClamp(popup.runInSpeed_ktas + 30),
-      minAltitude_ft: popup.minAltitude_ft,
-      egressDirection,
-    };
+    const built = applyPopupPlan(
+      {
+        type: 'popup_ccip',
+        ipWaypointId: ipWaypoint?.id ?? '',
+        runInHeading_deg: attackHeading,
+        runInAltitude_ft: popup.runInAltitude_ft,
+        runInSpeed_ktas: popupNumbers.speed,
+        diveAngle_deg: popup.diveAngle_deg,
+        releaseAltitude_ft: popupNumbers.release,
+        releaseSpeed_ktas: popupNumbers.speed,
+        trackingTime_s: popupNumbers.plan.trackingTime_s,
+        pullG: popupNumbers.plan.pullG,
+        minAltitude_ft: popup.minAltitude_ft,
+        actionRange_nm: actionRange,
+        offsetAngle_deg: checkTurn,
+        offsetDirection: side,
+        climbAngle_deg: popupNumbers.plan.climbAngle_deg,
+        apexAltitude_ft: popupNumbers.plan.apexAltitude_ft,
+        rollInAltitude_ft: popupNumbers.plan.pullDownAltitude_ft,
+        popDistance_nm: 0,
+        egressDirection,
+      },
+      // A typed heading wins: derive the approach from it rather than the route.
+      typedHeading != null ? undefined : directBearing,
+    );
+    const p: PopupCCIPProfile =
+      typedHeading != null
+        ? { ...built, runInHeading_deg: typedHeading, approachHeading_deg: normalizeHeading(typedHeading - s * (pullDown ?? 90)) }
+        : built;
     attackProfile = p;
     profileType = 'popup_ccip';
   } else {
-    problems.push(`${profile.name} uses a ${profile.geometry} geometry the tool cannot draw yet`);
-    return { attack: null, profile, weapon, weaponClass, candidates, ipWaypoint, attackHeading, adjustments, problems, checks: [] };
+    return { attack: null, profile, weapon, weaponClass, candidates, ipWaypoint, attackHeading, directBearing, adjustments, problems, checks: [] };
   }
 
   const attack: Omit<Attack, 'id'> = {
@@ -300,6 +443,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     targetElevation_ft: target.elevation_ft,
     weaponClass,
     allowedClasses: profile.weaponClasses,
+    directBearing_deg: directBearing,
   });
 
   return {
@@ -310,6 +454,9 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     candidates,
     ipWaypoint,
     attackHeading,
+    directBearing,
+    runIn: directBearing != null ? describeRunIn(attackProfile, directBearing, target.elevation_ft ?? 0) : undefined,
+    popupPlan: popupNumbers?.plan,
     adjustments,
     problems,
     checks,

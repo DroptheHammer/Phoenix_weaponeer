@@ -1,411 +1,171 @@
-import { useEffect, useRef, useState } from 'react';
-import type { PopupCCIPProfile, Waypoint, DbWeapon, PopupCCIPResult } from '../../../types';
+import type { PopupCCIPProfile, Waypoint, DbWeapon } from '../../../types';
 import { resolveEgressHeading } from '../../../lib/attackGeometry';
-import { runAttackChecks } from '../../../lib/attackChecks';
+import { applyPopupPlan, popupPlanOf, DEFAULT_TRACKING_TIME_S, DEFAULT_PULL_G, FT_PER_NM } from '../../../lib/popupPlanning';
+import { weaponFloor_ft } from '../../../lib/autoBuildAttack';
+import { ActionPointFields } from './ActionPointFields';
 
 interface PopupCCIPFormProps {
-  profile: Partial<PopupCCIPProfile>;
+  profile: PopupCCIPProfile;
   ipWaypoints: Waypoint[];
   targetElevation: number;
   selectedWeapon: DbWeapon | null;
-  onChange: (profile: Partial<PopupCCIPProfile>) => void;
-  calculatorResult: PopupCCIPResult | null;
-  onCalculate: () => void;
-  calculatedAttackHeading: number | null;
+  onChange: (profile: PopupCCIPProfile) => void;
+  /** Bearing IP → target: the route leg the action point sits on. */
+  directBearing_deg?: number;
 }
 
-interface PresetProfile {
-  name: string;
-  popDistance_nm: number;
-  apexAltitude_ft: number;
-  diveAngle_deg: number;
-  runInAltitude_ft: number;
-  runInSpeed_ktas: number;
-}
+const field = 'w-full bg-gray-700 text-white p-2 rounded border border-gray-600';
+const label = 'block text-sm font-medium mb-1';
+const fmtHdg = (h: number | undefined) =>
+  h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---';
+const ft = (v: number) => `${Math.round(v).toLocaleString()} ft`;
 
-const PRESETS: PresetProfile[] = [
-  {
-    name: 'Standard',
-    popDistance_nm: 4.0,        // 4nm POP, 20° turn
-    apexAltitude_ft: 7500,      // ATK at 2.14nm from target, 7500ft apex
-    diveAngle_deg: 20,          // 20° dive
-    runInAltitude_ft: 100,      // Low run-in at 100ft
-    runInSpeed_ktas: 450,       // 450 KTAS
-  },
-];
-
-export function PopupCCIPForm({
-  profile,
-  ipWaypoints,
-  targetElevation,
-  selectedWeapon,
-  onChange,
-  calculatorResult,
-  onCalculate,
-  calculatedAttackHeading,
-}: PopupCCIPFormProps) {
-  // Track whether egress direction is auto-set or manually overridden
-  const [egressIsAuto, setEgressIsAuto] = useState(true);
-  const prevOffsetDirection = useRef(profile.offsetDirection);
-
-  // Auto-update egress direction when offset direction changes
-  useEffect(() => {
-    // Check if offset direction changed
-    if (profile.offsetDirection && profile.offsetDirection !== prevOffsetDirection.current) {
-      // Auto-update egress to match offset
-      onChange({ ...profile, egressDirection: profile.offsetDirection });
-      setEgressIsAuto(true);
-      prevOffsetDirection.current = profile.offsetDirection;
-    }
-  }, [profile.offsetDirection]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Apply preset and trigger calculation
-  const applyPreset = (preset: PresetProfile) => {
-    onChange({
-      ...profile,
-      popDistance_nm: preset.popDistance_nm,
-      apexAltitude_ft: preset.apexAltitude_ft,
-      diveAngle_deg: preset.diveAngle_deg,
-      runInAltitude_ft: preset.runInAltitude_ft,
-      runInSpeed_ktas: preset.runInSpeed_ktas,
-    });
-    // Calculate after preset is applied
-    setTimeout(() => onCalculate(), 100);
+/**
+ * The numbers behind a pop-up, for planners who want to change them.
+ *
+ * The inputs are the handbook's: dive angle, release altitude (a floor),
+ * speed, tracking time, G — plus the action point and check turn that anchor
+ * the run-in on the route. Everything in the grey panel is derived from them
+ * and is what the card prints and the map draws. See docs/DELIVERY_PLANNING.md.
+ */
+export function PopupCCIPForm({ profile, ipWaypoints, targetElevation, selectedWeapon, onChange, directBearing_deg }: PopupCCIPFormProps) {
+  const set = (patch: Partial<PopupCCIPProfile>) => onChange(applyPopupPlan({ ...profile, ...patch }, directBearing_deg));
+  const num = (key: keyof PopupCCIPProfile) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseFloat(e.target.value);
+    if (Number.isFinite(v)) set({ [key]: v } as Partial<PopupCCIPProfile>);
   };
 
-  // The heading the attack will actually fly: planner override, else IP→target.
-  const effectiveAttackHeading =
-    profile.runInHeading_deg != null && Number.isFinite(profile.runInHeading_deg)
-      ? profile.runInHeading_deg
-      : calculatedAttackHeading;
-
-  const checks = runAttackChecks({
-    profileType: 'popup_ccip',
-    profile,
-    weapon: selectedWeapon,
-    targetElevation_ft: targetElevation,
-  });
-
-  // Update calculated values when calculator returns results
-  useEffect(() => {
-    if (calculatorResult) {
-      onChange({
-        ...profile,
-        climbAngle_deg: calculatorResult.climb_angle_deg,
-        rollInAltitude_ft: calculatorResult.roll_in_altitude_agl,
-        releaseAltitude_ft: calculatorResult.release_altitude_agl,
-        releaseSpeed_ktas: calculatorResult.release_speed_ktas,
-      });
-    }
-  }, [calculatorResult]); // eslint-disable-line react-hooks/exhaustive-deps
+  const plan = popupPlanOf(profile);
+  const floor = weaponFloor_ft(selectedWeapon ?? undefined);
+  const closes = profile.geometryCloses ?? true;
 
   return (
-    <div className="space-y-6">
-      {/* Preset Buttons */}
-      <div>
-        <label className="block text-sm font-medium mb-2">Profile Presets</label>
-        <div className="flex gap-2">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.name}
-              onClick={() => applyPreset(preset)}
-              className="bg-dcs-blue hover:bg-blue-600 text-white px-4 py-2 rounded transition-colors"
-            >
-              {preset.name}
-            </button>
-          ))}
+    <div className="space-y-4">
+      {/* The run-in on the route */}
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className={label}>Run in from</label>
+          <select
+            className={field}
+            style={{ colorScheme: 'dark' }}
+            value={profile.ipWaypointId || ''}
+            onChange={(e) => set({ ipWaypointId: e.target.value })}
+          >
+            <option value="">Select waypoint…</option>
+            {ipWaypoints.map((wp) => (
+              <option key={wp.id} value={wp.id}>STPT {wp.steerpoint} — {wp.name} ({wp.type})</option>
+            ))}
+          </select>
         </div>
-        <p className="text-xs text-gray-400 mt-2">
-          Presets overwrite pop distance, apex and dive angle. To keep your own
-          numbers, edit the fields below and press Calculate.
-        </p>
-      </div>
-
-      {/* Calculate — saving requires a calculation result, and applying a preset
-          used to be the only way to produce one, which overwrote manual edits. */}
-      <div>
-        <button
-          onClick={onCalculate}
-          className="w-full bg-dcs-accent hover:bg-blue-500 text-white font-semibold px-4 py-3 rounded transition-colors"
-        >
-          Calculate Profile
-        </button>
-        {!calculatorResult && (
-          <p className="text-xs text-yellow-400 mt-2">
-            Run a calculation to enable Save.
-          </p>
-        )}
-      </div>
-
-      {/* Run-in Section */}
-      <div className="border border-gray-700 rounded-lg p-4">
-        <h4 className="font-semibold mb-3 text-blue-400">Run-in</h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">IP Waypoint</label>
-            <select
-              value={profile.ipWaypointId || ''}
-              onChange={(e) => onChange({ ...profile, ipWaypointId: e.target.value })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              style={{ colorScheme: 'dark' }}
-            >
-              <option value="">Select IP...</option>
-              {ipWaypoints.map((wp) => (
-                <option key={wp.id} value={wp.id}>
-                  {wp.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Heading (deg)</label>
-            <input
-              type="number"
-              value={profile.runInHeading_deg ?? ''}
-              onChange={(e) => onChange({
-                ...profile,
-                runInHeading_deg: e.target.value === '' ? undefined : parseFloat(e.target.value),
-              })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="Auto from IP→Target"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Altitude (ft AGL)</label>
-            <input
-              type="number"
-              value={profile.runInAltitude_ft || ''}
-              onChange={(e) => onChange({ ...profile, runInAltitude_ft: parseFloat(e.target.value) })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="200"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Speed (KTAS)</label>
-            <input
-              type="number"
-              value={profile.runInSpeed_ktas || ''}
-              onChange={(e) => onChange({ ...profile, runInSpeed_ktas: parseFloat(e.target.value) })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="450"
-            />
+        <div>
+          <label className={label}>Attack heading (°)</label>
+          <input
+            type="number"
+            className={field}
+            value={profile.runInHeading_deg != null ? Math.round(profile.runInHeading_deg) : ''}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              if (Number.isFinite(v)) onChange({ ...profile, runInHeading_deg: v });
+            }}
+          />
+          <div className="text-xs text-gray-400 mt-1">
+            Set by the geometry — approach {fmtHdg(profile.approachHeading_deg)}, pull down {profile.offsetDirection === 'left' ? 'right' : 'left'}{' '}
+            {profile.pullDownTurn_deg != null ? `${Math.round(profile.pullDownTurn_deg)}°` : ''}
           </div>
         </div>
+        <div>
+          <label className={label}>Hard deck (ft AGL)</label>
+          <input type="number" className={field} value={profile.minAltitude_ft ?? ''} onChange={num('minAltitude_ft')} />
+        </div>
+        <ActionPointFields
+          value={{ actionRange_nm: profile.actionRange_nm, offsetTurn_deg: profile.offsetAngle_deg, side: profile.offsetDirection }}
+          joinLabel="pull down"
+          joinRange_nm={profile.turnInRange_nm}
+          attackHeading={closes ? profile.runInHeading_deg : undefined}
+          directBearing_deg={directBearing_deg}
+          onChange={(v) => set({ actionRange_nm: v.actionRange_nm, offsetAngle_deg: v.offsetTurn_deg, offsetDirection: v.side })}
+        />
       </div>
 
-      {/* Pop Section */}
-      <div className="border border-gray-700 rounded-lg p-4">
-        <h4 className="font-semibold mb-3 text-yellow-400">Pop Maneuver</h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Pop Distance (nm)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={profile.popDistance_nm || ''}
-              onChange={(e) => onChange({ ...profile, popDistance_nm: parseFloat(e.target.value) })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="4.0"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Apex Altitude (ft AGL)</label>
-            <input
-              type="number"
-              value={profile.apexAltitude_ft || ''}
-              onChange={(e) => onChange({ ...profile, apexAltitude_ft: parseFloat(e.target.value) })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="7500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Offset Direction</label>
-            <select
-              value={profile.offsetDirection || 'right'}
-              onChange={(e) => onChange({ ...profile, offsetDirection: e.target.value as 'left' | 'right' })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              style={{ colorScheme: 'dark' }}
-            >
-              <option value="left">Left</option>
-              <option value="right">Right</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Offset Angle (deg)
-              <span className="text-xs text-gray-400 ml-1">(rec: 20°)</span>
-            </label>
-            <input
-              type="number"
-              value={profile.offsetAngle_deg || ''}
-              onChange={(e) => onChange({ ...profile, offsetAngle_deg: parseFloat(e.target.value) })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="20"
-            />
-          </div>
-
-          {calculatorResult && (
-            <div className="col-span-2 bg-dcs-darker rounded p-2 text-sm">
-              <span className="text-gray-400">Climb Angle: </span>
-              <span className="text-white font-medium">{calculatorResult.climb_angle_deg.toFixed(1)}°</span>
+      {/* The handbook's inputs */}
+      <div className="grid grid-cols-4 gap-4">
+        <div>
+          <label className={label}>Dive angle (°)</label>
+          <input type="number" className={field} value={profile.diveAngle_deg ?? ''} onChange={num('diveAngle_deg')} />
+        </div>
+        <div>
+          <label className={label}>Release by (ft AGL)</label>
+          <input type="number" className={field} value={profile.releaseAltitude_ft ?? ''} onChange={num('releaseAltitude_ft')} />
+          {floor > 0 && (
+            <div className={`text-xs mt-1 ${profile.releaseAltitude_ft < floor ? 'text-red-400' : 'text-gray-400'}`}>
+              Weapon floor {ft(floor)}
             </div>
           )}
         </div>
-      </div>
-
-      {/* Attack Section */}
-      <div className="border border-gray-700 rounded-lg p-4">
-        <h4 className="font-semibold mb-3 text-red-400">Attack</h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-dcs-darker rounded p-2">
-            <label className="block text-xs text-gray-400 mb-1">Final Attack Dive Angle</label>
-            <div className="text-white font-medium">{profile.diveAngle_deg || 20}°</div>
-          </div>
-
-          {calculatorResult && (
-            <div className="bg-dcs-darker rounded p-2">
-              <label className="block text-xs text-gray-400 mb-1">Final Attack Speed</label>
-              <div className="text-white font-medium">{Math.round(calculatorResult.release_speed_ktas)} KTAS</div>
-            </div>
-          )}
-
-          <div className="bg-dcs-darker rounded p-2">
-            <label className="block text-xs text-gray-400 mb-1">Final Attack Heading</label>
-            <div className="text-white font-medium">
-              {profile.runInHeading_deg != null
-                ? `${Math.round(profile.runInHeading_deg).toString().padStart(3, '0')}°`
-                : calculatedAttackHeading !== null
-                  ? `${Math.round(calculatedAttackHeading).toString().padStart(3, '0')}°`
-                  : '---'}
-            </div>
-          </div>
-
-          {/*
-            Release altitude defaults to the calculator's value, which is
-            already clamped to the weapon's minimum and frag min-safe. A
-            planner can lower it deliberately; the checks below will say so.
-            (This input used to be labelled "Min Release Altitude" but was
-            bound to the hard-deck field — the same field as "Hard Deck" in
-            the Egress section.)
-          */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Release Altitude (ft AGL)</label>
-            <input
-              type="number"
-              value={profile.releaseAltitude_ft || ''}
-              onChange={(e) => onChange({ ...profile, releaseAltitude_ft: parseFloat(e.target.value) })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder={calculatorResult ? `${Math.round(calculatorResult.release_altitude_agl)}` : 'Calculate first'}
-            />
-          </div>
-
-          {calculatorResult && (
-            <>
-              <div className="bg-dcs-darker rounded p-2">
-                <label className="block text-xs text-gray-400 mb-1">Roll-in Alt (calc)</label>
-                <div className="text-white font-medium">{Math.round(calculatorResult.roll_in_altitude_agl)} ft AGL</div>
-              </div>
-
-              <div className="bg-dcs-darker rounded p-2">
-                <label className="block text-xs text-gray-400 mb-1">Auto release alt (weapon floor applied)</label>
-                <div className="text-white font-medium">{Math.round(calculatorResult.release_altitude_agl)} ft AGL</div>
-              </div>
-
-              <div className="col-span-2 bg-yellow-900 bg-opacity-30 rounded p-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-yellow-400">⚠</span>
-                  <div>
-                    <div className="text-white">Min Safe: {Math.round(calculatorResult.min_safe_altitude_agl)} ft AGL</div>
-                    <div className="text-xs text-gray-400">Time to release: {calculatorResult.time_to_release_sec.toFixed(1)}s</div>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
+        <div>
+          <label className={label}>Speed (KTAS)</label>
+          <input type="number" className={field} value={profile.runInSpeed_ktas ?? ''} onChange={num('runInSpeed_ktas')} />
+        </div>
+        <div>
+          <label className={label}>Run-in altitude (ft AGL)</label>
+          <input type="number" className={field} value={profile.runInAltitude_ft ?? ''} onChange={num('runInAltitude_ft')} />
+        </div>
+        <div>
+          <label className={label}>Tracking time (s)</label>
+          <input type="number" step="0.5" className={field} value={profile.trackingTime_s ?? DEFAULT_TRACKING_TIME_S} onChange={num('trackingTime_s')} />
+        </div>
+        <div>
+          <label className={label}>Pull (G)</label>
+          <input type="number" step="0.5" className={field} value={profile.pullG ?? DEFAULT_PULL_G} onChange={num('pullG')} />
+          <div className="text-xs text-gray-400 mt-1">Pull-up and pull-down</div>
         </div>
       </div>
 
-      {/* Egress Section */}
-      <div className="border border-gray-700 rounded-lg p-4">
-        <h4 className="font-semibold mb-3 text-green-400">Egress</h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Direction
-              {egressIsAuto && <span className="text-xs text-gray-400 ml-1">[Auto]</span>}
-            </label>
-            <select
-              value={profile.egressDirection || 'left'}
-              onChange={(e) => {
-                onChange({ ...profile, egressDirection: e.target.value as 'left' | 'right' });
-                setEgressIsAuto(false);
-              }}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              style={{ colorScheme: 'dark' }}
-            >
-              <option value="left">Left</option>
-              <option value="right">Right</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Heading (deg)</label>
-            <input
-              type="number"
-              value={profile.egressHeading_deg || ''}
-              onChange={(e) => onChange({ ...profile, egressHeading_deg: parseFloat(e.target.value) })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder={
-                // Show the heading the card and map will use if this is left blank.
-                effectiveAttackHeading != null
-                  ? `Auto: ${Math.round(resolveEgressHeading(profile, effectiveAttackHeading))}°`
-                  : 'Auto'
-              }
-            />
-          </div>
-
-          <div>
-            {/* AGL, like every other altitude on this form — the card prints it as AGL. */}
-            <label className="block text-sm font-medium mb-1">Hard Deck (ft AGL)</label>
-            <input
-              type="number"
-              value={profile.minAltitude_ft || ''}
-              onChange={(e) => onChange({ ...profile, minAltitude_ft: parseFloat(e.target.value) })}
-              className="w-full bg-gray-700 text-white p-2 rounded border border-gray-600"
-              placeholder="500"
-            />
-          </div>
+      {/* What follows from them */}
+      <div className={`rounded p-3 text-sm font-mono text-gray-200 grid grid-cols-2 gap-x-6 gap-y-1 ${closes ? 'bg-dcs-dark' : 'bg-red-950'}`}>
+        <div>Action point {profile.actionRange_nm ?? '?'} nm · turn {profile.offsetDirection} {profile.offsetAngle_deg ?? '?'}° → {fmtHdg(profile.approachHeading_deg)}</div>
+        <div>Pop {profile.popDistance_nm.toFixed(1)} nm · climb {plan.climbAngle_deg}° at {plan.pullG} G</div>
+        <div>Pull down {ft(plan.pullDownAltitude_ft)} at {profile.turnInRange_nm?.toFixed(1) ?? '?'} nm · apex {ft(plan.apexAltitude_ft)}</div>
+        <div>Pull-down turn {profile.pullDownTurn_deg != null ? `${Math.round(profile.pullDownTurn_deg)}°` : '?'} onto {fmtHdg(profile.runInHeading_deg)} (handbook guide {plan.doctrinalAngleOff_deg}°)</div>
+        <div>Wings level {ft(plan.trackAltitude_ft)} at {(plan.mapDistance_ft / FT_PER_NM).toFixed(2)} nm (MAP)</div>
+        <div>Aim-off {ft(plan.aimOff_ft)} beyond target</div>
+        <div>Track {plan.trackingTime_s} s → release by {ft(plan.releaseAltitude_ft)} AGL at {(plan.bombRange_ft / FT_PER_NM).toFixed(2)} nm</div>
+        <div>Turn radius {(plan.turnRadius_ft / FT_PER_NM).toFixed(2)} nm</div>
+        <div className="col-span-2 text-xs text-gray-400">
+          {closes
+            ? `Target elevation ${Math.round(targetElevation).toLocaleString()} ft MSL — all altitudes above are AGL. Formulas: docs/DELIVERY_PLANNING.md.`
+            : 'The check turn is too wide for this action range: even a 90° pull-down cannot reach the target. Reduce the turn or move the action point out.'}
         </div>
       </div>
 
-      {/*
-        Weapon constraints. The previous version of this block read camelCase
-        fields (`minReleaseAlt_ft`, `fragPattern`) that the database never
-        returns, so it showed a green tick for every release altitude — which
-        is how a card came to print a release 1,000 ft under min-safe.
-      */}
-      {selectedWeapon && calculatorResult && (
-        <div className="bg-dcs-darker rounded-lg p-4">
-          <h4 className="font-semibold mb-2">Weapon Constraints</h4>
-          <div className="text-sm space-y-1">
-            {checks.length === 0 ? (
-              <div className="text-green-400">✓ Within {selectedWeapon.name} limits</div>
-            ) : (
-              checks.map((check) => (
-                <div key={check.text} className={check.level === 'error' ? 'text-red-400' : 'text-yellow-400'}>
-                  ⚠ {check.text}
-                </div>
-              ))
-            )}
-          </div>
+      {/* Leaving */}
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className={label}>Egress</label>
+          <select
+            className={field}
+            style={{ colorScheme: 'dark' }}
+            value={profile.egressDirection}
+            onChange={(e) => set({ egressDirection: e.target.value as 'left' | 'right' })}
+          >
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
         </div>
-      )}
+        <div>
+          <label className={label}>Egress heading (°)</label>
+          <input
+            type="number"
+            className={field}
+            value={profile.egressHeading_deg ?? ''}
+            placeholder={profile.runInHeading_deg != null ? `Auto: ${fmtHdg(resolveEgressHeading(profile, profile.runInHeading_deg))}` : 'Auto'}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              set({ egressHeading_deg: Number.isFinite(v) ? v : undefined });
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

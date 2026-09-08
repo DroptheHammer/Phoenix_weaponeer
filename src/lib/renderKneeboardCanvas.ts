@@ -1,9 +1,11 @@
-import type { KneeboardCard, KneeboardDiagramData, KneeboardStep } from '../types/kneeboard.types';
+import type { KneeboardCard, KneeboardThreatItem } from '../types/kneeboard.types';
+import type { AttackPicture, LabelSide, SideProfile } from '../types/attackPicture.types';
+import { LINE_STYLE, MARKER_COLOR, LABEL_STYLE } from './attackPicture';
 
 export const KNEEBOARD_WIDTH = 768;
 export const KNEEBOARD_HEIGHT = 1024;
 
-// ─── Colour palette ───────────────────────────────────────────────────────────
+// ─── Colour palette (card furniture; the attack itself uses attackPicture's) ──
 const C = {
   bg: '#FFFDF5',
   headerBg: '#1C2B3A',
@@ -19,19 +21,18 @@ const C = {
   // Amber for cautions (unverified data). Red on this card means danger.
   caution: '#8A5A00',
   cautionBg: '#FFF1CC',
-  stepTitleBg: '#2C3E50',
-  stepTitleText: '#FFFFFF',
-  stepBg: '#FAFAF4',
   threatClose: '#8B0000',
-  diagramBg: '#F0F0E8',
-  runIn: '#3366CC',
-  popClimb: '#CC8800',
-  attackDive: '#CC2200',
-  egress: '#228833',
+  diagramBg: '#F4F4EC',
+  ground: '#888888',
+  threatRing: 'rgba(239, 68, 68, 0.55)',
+  threatFill: 'rgba(239, 68, 68, 0.08)',
+  leader: '#374151',
 };
 
 const MONO = "'Courier New', Courier, monospace";
 const SANS = "'Arial Narrow', Arial, sans-serif";
+
+type Rect = { x: number; y: number; w: number; h: number };
 
 // ─── Drawing primitives ───────────────────────────────────────────────────────
 
@@ -56,11 +57,9 @@ function txt(
   ctx.fillStyle = color;
   ctx.font = `${bold ? 'bold ' : ''}${size}px ${family}`;
   ctx.textAlign = align;
-  if (maxW !== undefined) {
-    ctx.fillText(str, x, y, maxW);
-  } else {
-    ctx.fillText(str, x, y);
-  }
+  ctx.textBaseline = 'alphabetic';
+  if (maxW !== undefined) ctx.fillText(str, x, y, maxW);
+  else ctx.fillText(str, x, y);
 }
 
 /** "042°" for a heading, "---" when there is none (no IP, cleared field). */
@@ -75,23 +74,28 @@ function sectionStrip(ctx: CanvasRenderingContext2D, label: string, y: number, r
   return y + 20;
 }
 
-// ─── Header (64px) ────────────────────────────────────────────────────────────
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// ─── Header ───────────────────────────────────────────────────────────────────
 
 function drawHeader(ctx: CanvasRenderingContext2D, card: KneeboardCard): number {
   fillRect(ctx, 0, 0, KNEEBOARD_WIDTH, 58, C.headerBg);
-
-  // Callsign (left)
-  txt(ctx, card.header.callsign, 10, 30, { color: C.headerText, size: 22, bold: true, family: SANS });
-
-  // Target name (right)
-  txt(ctx, card.header.targetName, KNEEBOARD_WIDTH - 10, 30, {
-    color: C.headerText, size: 18, bold: true, family: SANS, align: 'right', maxW: 340,
-  });
-
-  // Profile type (left-bottom) + date (right-bottom)
+  // "Viper 1-1 — 30° Dive CCIP, Mk-84 attack on STPT 8 (TGT1)"
+  txt(ctx, card.header.title ?? card.header.callsign, 10, 30, { color: C.headerText, size: 19, bold: true, family: SANS, maxW: KNEEBOARD_WIDTH - 20 });
   txt(ctx, card.attackSection.profileType, 10, 50, { color: '#88AACC', size: 12, bold: true, family: MONO });
   txt(ctx, card.header.missionDate, KNEEBOARD_WIDTH - 10, 50, { color: '#667788', size: 11, family: MONO, align: 'right' });
-
   hLine(ctx, 58, '#334455', 2);
   return 60;
 }
@@ -99,57 +103,37 @@ function drawHeader(ctx: CanvasRenderingContext2D, card: KneeboardCard): number 
 /** Amber strip directly under the header, e.g. "coordinates unverified". */
 function drawCautionStrip(ctx: CanvasRenderingContext2D, caution: string, y: number): number {
   fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, C.cautionBg);
-  txt(ctx, `⚠ ${caution}`, 10, y + 14, {
-    size: 12, bold: true, family: SANS, color: C.caution, maxW: KNEEBOARD_WIDTH - 20,
-  });
+  txt(ctx, `⚠ ${caution}`, 10, y + 14, { size: 12, bold: true, family: SANS, color: C.caution, maxW: KNEEBOARD_WIDTH - 20 });
   return y + 20;
 }
 
-// ─── Target section (compact, ~80px) ─────────────────────────────────────────
+// ─── Target + weapon (one compact line each) ─────────────────────────────────
 
 function drawTargetSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y: number): number {
   y = sectionStrip(ctx, 'TARGET', y);
-
-  txt(ctx, card.targetSection.name, 10, y + 18, { size: 16, bold: true, family: SANS, color: C.textPrimary });
+  const stpt = card.header.targetSteerpoint != null ? `STPT ${card.header.targetSteerpoint}  ` : '';
+  txt(ctx, `${stpt}${card.targetSection.name}`, 10, y + 17, { size: 15, bold: true, family: SANS });
+  txt(ctx, card.targetSection.coordinates, 250, y + 17, { size: 13, family: MONO });
+  txt(ctx, `Elev ${card.targetSection.elevation_ft.toLocaleString()}ft MSL`, KNEEBOARD_WIDTH - 10, y + 17, { size: 12, family: MONO, color: C.textGray, align: 'right' });
   y += 22;
-  txt(ctx, card.targetSection.coordinates, 10, y + 15, { size: 13, family: MONO, color: C.textPrimary });
-  y += 18;
-  txt(ctx, `Elev: ${card.targetSection.elevation_ft.toLocaleString()}ft MSL`, 10, y + 14, { size: 12, family: MONO, color: C.textGray });
-  y += 16;
-
   hLine(ctx, y, C.divider);
   return y + 1;
 }
 
-// ─── Weapon section (compact, ~48px) ─────────────────────────────────────────
-
 function drawWeaponSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y: number): number {
   y = sectionStrip(ctx, 'WEAPON', y);
-
   const w = card.weaponSection;
-  // Main weapon line
-  const mainLine = `${w.quantity}× ${w.weaponName}   ${w.releaseMode}   ${w.fuze}`;
-  txt(ctx, mainLine, 10, y + 17, { size: 13, bold: true, family: MONO, color: C.textPrimary, maxW: KNEEBOARD_WIDTH - 20 });
-  y += 20;
-
-  // Min safe alt (red, on separate line if present)
+  txt(ctx, `${w.quantity}× ${w.weaponName}   ${w.releaseMode}   ${w.fuze}`, 10, y + 17, { size: 13, bold: true, family: MONO, maxW: 480 });
   if (w.minSafeAlt_ft != null) {
-    fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, C.accentLight);
-    txt(ctx, `⚠ MIN SAFE ALT: ${w.minSafeAlt_ft.toLocaleString()}ft AGL`, 10, y + 14, {
-      size: 12, bold: true, family: SANS, color: C.accent,
-    });
-    y += 20;
+    txt(ctx, `⚠ MIN SAFE ${w.minSafeAlt_ft.toLocaleString()}ft AGL`, KNEEBOARD_WIDTH - 10, y + 17, { size: 12, bold: true, family: SANS, color: C.accent, align: 'right' });
   }
-
+  y += 22;
   // Sanity-check failures: the numbers on this card contradict the weapon.
   for (const warning of w.warnings ?? []) {
     fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, C.accentLight);
-    txt(ctx, `⚠ ${warning}`, 10, y + 14, {
-      size: 12, bold: true, family: SANS, color: C.accent, maxW: KNEEBOARD_WIDTH - 20,
-    });
+    txt(ctx, `⚠ ${warning}`, 10, y + 14, { size: 12, bold: true, family: SANS, color: C.accent, maxW: KNEEBOARD_WIDTH - 20 });
     y += 20;
   }
-
   hLine(ctx, y, C.divider);
   return y + 1;
 }
@@ -157,490 +141,507 @@ function drawWeaponSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y
 // ─── Threats section (compact rows) ──────────────────────────────────────────
 
 function drawThreatsSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y: number): number {
-  const threats = card.threatSection.threats.slice(0, 5);
-  y = sectionStrip(ctx, 'THREATS IN AREA', y, 'BRG / DIST / MAX RNG');
-
+  const threats = card.threatSection.threats.slice(0, 4);
+  y = sectionStrip(ctx, 'THREATS IN AREA', y, 'BRG / DIST FROM TGT / MAX RNG');
   if (threats.length === 0) {
     txt(ctx, 'No threats within 60nm', 10, y + 14, { size: 12, family: MONO, color: C.textGray });
     y += 18;
   } else {
     for (const threat of threats) {
       const isInRange = threat.distance_nm <= threat.maxRange_nm;
-      const rowColor = isInRange ? C.accentBg : C.bg;
-      fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 19, rowColor);
-
-      txt(ctx, threat.name, 8, y + 13, {
-        size: 12, bold: isInRange, family: MONO,
-        color: isInRange ? C.threatClose : C.textPrimary, maxW: 340,
-      });
-      const brgStr = `${String(threat.bearing_deg).padStart(3, '0')}°`;
-      const distStr = `${threat.distance_nm.toFixed(1)}nm`;
-      const rngStr = `max ${threat.maxRange_nm.toFixed(0)}nm`;
-      txt(ctx, brgStr, 430, y + 13, { size: 12, bold: true, family: MONO, color: isInRange ? C.accent : C.textPrimary, align: 'right' });
-      txt(ctx, distStr, 550, y + 13, { size: 12, family: MONO, color: isInRange ? C.accent : C.textPrimary, align: 'right' });
-      txt(ctx, rngStr, 720, y + 13, { size: 11, family: MONO, color: C.textGray, align: 'right' });
-      y += 19;
+      fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 18, isInRange ? C.accentBg : C.bg);
+      txt(ctx, threat.name, 8, y + 13, { size: 12, bold: isInRange, family: MONO, color: isInRange ? C.threatClose : C.textPrimary, maxW: 340 });
+      txt(ctx, `${String(threat.bearing_deg).padStart(3, '0')}°`, 430, y + 13, { size: 12, bold: true, family: MONO, color: isInRange ? C.accent : C.textPrimary, align: 'right' });
+      txt(ctx, `${threat.distance_nm.toFixed(1)}nm`, 550, y + 13, { size: 12, family: MONO, color: isInRange ? C.accent : C.textPrimary, align: 'right' });
+      txt(ctx, `max ${threat.maxRange_nm.toFixed(0)}nm`, 720, y + 13, { size: 11, family: MONO, color: C.textGray, align: 'right' });
+      y += 18;
     }
   }
-
   hLine(ctx, y, C.divider);
   return y + 1;
 }
 
-// ─── Attack diagram ───────────────────────────────────────────────────────────
+// ─── Shared picture furniture ─────────────────────────────────────────────────
 
-function drawAttackDiagram(ctx: CanvasRenderingContext2D, diagram: KneeboardDiagramData, y: number): number {
-  const H = 230;
-  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, H, C.diagramBg);
-
-  if (diagram.type === 'popup_ccip' && diagram.popupCCIP) {
-    drawPopupCCIPDiagram(ctx, diagram, y, H);
-  } else if (diagram.type === 'dive_ccip' && diagram.diveCCIP) {
-    drawDiveCCIPDiagram(ctx, diagram, y, H);
-  } else if (diagram.type === 'level_ccrp' && diagram.levelCCRP) {
-    drawLevelCCRPDiagram(ctx, diagram, y, H);
-  } else {
-    txt(ctx, `[${diagram.type.toUpperCase()} DIAGRAM]`, KNEEBOARD_WIDTH / 2, y + H / 2, {
-      size: 14, family: SANS, color: C.textGray, align: 'center',
-    });
-  }
-
-  hLine(ctx, y + H, C.divider);
-  return y + H + 1;
+function strokePath(ctx: CanvasRenderingContext2D, pts: Array<[number, number]>, style: { color: string; width: number; dash?: number[] }, scale = 1) {
+  if (pts.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = style.color;
+  ctx.lineWidth = Math.max(1, style.width * scale);
+  ctx.setLineDash(style.dash ?? []);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
+  ctx.restore();
 }
 
-/** Side-profile altitude diagram for popup CCIP */
-function drawPopupCCIPDiagram(
-  ctx: CanvasRenderingContext2D,
-  diagram: KneeboardDiagramData,
-  boxY: number,
-  boxH: number,
-) {
-  const pd = diagram.popupCCIP!;
-  const padX = 30, padTop = 22, padBottom = 38;
-  const drawW = KNEEBOARD_WIDTH - padX * 2;
-  const drawH = boxH - padTop - padBottom;
-
-  // Altitude and distance scales
-  const maxAlt = pd.apexAltitude_ft * 1.25;
-  const pxPerFt = drawH / maxAlt;
-
-  // Total schematic distance: IP(3nm before POP) → POP → TGT → egress(2nm)
-  const ipExtraNm = 3.5;
-  const egressNm = 2;
-  const totalNm = pd.popDistance_nm + ipExtraNm + egressNm;
-  const pxPerNm = drawW / totalNm;
-
-  const groundY = boxY + padTop + drawH;
-
-  // X positions (origin = TGT)
-  const tgtX = padX + (pd.popDistance_nm + ipExtraNm) * pxPerNm;
-  const popX = tgtX - pd.popDistance_nm * pxPerNm;
-  const ipX = popX - ipExtraNm * pxPerNm;
-  const egressX = tgtX + egressNm * pxPerNm;
-
-  // ATK point (roll-in): calculate distance from TGT via dive geometry
-  const diveRad = pd.diveAngle_deg * Math.PI / 180;
-  const atkDistNm = Math.min((pd.rollInAltitude_ft / Math.tan(diveRad)) / 6076, pd.popDistance_nm * 0.8);
-  const atkX = tgtX - atkDistNm * pxPerNm;
-  const atkY = groundY - pd.rollInAltitude_ft * pxPerFt;
-
-  // Y positions (altitude)
-  const ipY = groundY - pd.runInAltitude_ft * pxPerFt;
-  const popY = ipY;
-  const apexY = groundY - pd.apexAltitude_ft * pxPerFt;
-  const apexX = popX + (atkX - popX) * 0.45; // apex slightly before ATK
-  const relY = groundY - pd.releaseAltitude_ft * pxPerFt;
-  const deckY = groundY - pd.minAltitude_ft * pxPerFt;
-  const tgtY = groundY;
-  const egressEndY = groundY - 55;
-
-  // ── Altitude reference lines ────────────────────────────────────────────
-  // Hard deck (red dashed)
+/** A map marker as the planner draws it: coloured disc, white ring, bold label. */
+function drawMarker(ctx: CanvasRenderingContext2D, x: number, y: number, label: string, color: string, r = 13) {
   ctx.save();
-  ctx.strokeStyle = C.accent;
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 3]);
-  ctx.beginPath(); ctx.moveTo(padX, deckY); ctx.lineTo(tgtX + 20, deckY); ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${label.length > 3 ? 9 : 10}px ${SANS}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, x, y + 0.5);
   ctx.restore();
+}
 
-  // Release altitude marker (light red dashed, between ATK and TGT)
+// ─── Labels: the planner's white tooltips, laid out so they do not collide ────
+
+interface LabelRequest {
+  lines: string[];
+  anchor: [number, number];
+  side: LabelSide;
+  style?: { bg?: string; fg?: string; border?: string };
+  size?: number;
+}
+
+interface PlacedLabel extends LabelRequest {
+  rect: Rect;
+  /** True when the box sits away from its point and needs a leader line. */
+  leader: boolean;
+}
+
+const SIDE_ORDER: Record<LabelSide, LabelSide[]> = {
+  top: ['top', 'right', 'left', 'bottom'],
+  bottom: ['bottom', 'right', 'left', 'top'],
+  left: ['left', 'top', 'bottom', 'right'],
+  right: ['right', 'top', 'bottom', 'left'],
+};
+
+function labelSize(ctx: CanvasRenderingContext2D, req: LabelRequest): { w: number; h: number; lineH: number } {
+  const size = req.size ?? 11;
+  ctx.font = `bold ${size}px ${SANS}`;
+  const lineH = size + 4;
+  const textW = Math.max(...req.lines.map((l) => ctx.measureText(l).width));
+  return { w: textW + 12, h: req.lines.length * lineH + 6, lineH };
+}
+
+function candidateRect(anchor: [number, number], side: LabelSide, gap: number, shift: number, w: number, h: number): Rect {
+  const [ax, ay] = anchor;
+  switch (side) {
+    case 'top':
+      return { x: ax - w / 2 + shift, y: ay - gap - h, w, h };
+    case 'bottom':
+      return { x: ax - w / 2 + shift, y: ay + gap, w, h };
+    case 'left':
+      return { x: ax - gap - w, y: ay - h / 2 + shift, w, h };
+    default:
+      return { x: ax + gap, y: ay - h / 2 + shift, w, h };
+  }
+}
+
+/**
+ * Greedy placement: each label tries its own side close in, then further out,
+ * then shifted sideways, then the other sides. Anything already placed and
+ * every marker is an obstacle. If nothing is clear it takes the least-bad spot.
+ */
+function layoutLabels(ctx: CanvasRenderingContext2D, requests: LabelRequest[], obstacles: Rect[], bounds: Rect): PlacedLabel[] {
+  const placed: PlacedLabel[] = [];
+  const blocked = [...obstacles];
+  const inside = (r: Rect) => r.x >= bounds.x + 2 && r.y >= bounds.y + 2 && r.x + r.w <= bounds.x + bounds.w - 2 && r.y + r.h <= bounds.y + bounds.h - 2;
+  const overlapArea = (r: Rect) =>
+    blocked.reduce((sum, b) => {
+      const w = Math.min(r.x + r.w, b.x + b.w) - Math.max(r.x, b.x);
+      const h = Math.min(r.y + r.h, b.y + b.h) - Math.max(r.y, b.y);
+      return sum + (w > 0 && h > 0 ? w * h : 0);
+    }, 0);
+
+  for (const req of requests) {
+    const { w, h } = labelSize(ctx, req);
+    let best: { rect: Rect; leader: boolean; score: number } | undefined;
+    outer: for (const side of SIDE_ORDER[req.side]) {
+      for (const gap of [18, 30, 46, 66, 90, 120]) {
+        for (const shift of [0, -w * 0.35, w * 0.35, -w * 0.7, w * 0.7]) {
+          const rect = candidateRect(req.anchor, side, gap, shift, w, h);
+          if (!inside(rect)) continue;
+          const area = overlapArea(rect);
+          const score = area + gap * 2 + Math.abs(shift);
+          if (!best || score < best.score) best = { rect, leader: gap > 24 || Math.abs(shift) > 1, score };
+          if (area === 0) break outer;
+        }
+      }
+    }
+    if (!best) {
+      const rect = candidateRect(req.anchor, req.side, 18, 0, w, h);
+      rect.x = Math.min(Math.max(rect.x, bounds.x + 2), bounds.x + bounds.w - w - 2);
+      rect.y = Math.min(Math.max(rect.y, bounds.y + 2), bounds.y + bounds.h - h - 2);
+      best = { rect, leader: true, score: 0 };
+    }
+    placed.push({ ...req, rect: best.rect, leader: best.leader });
+    blocked.push(best.rect);
+  }
+  return placed;
+}
+
+function drawPlacedLabel(ctx: CanvasRenderingContext2D, label: PlacedLabel) {
+  const { rect, anchor, lines } = label;
+  const size = label.size ?? 11;
+  const lineH = size + 4;
+  const bg = label.style?.bg ?? LABEL_STYLE.tooltipBg;
+  const fg = label.style?.fg ?? LABEL_STYLE.tooltipText;
+  const border = label.style?.border ?? LABEL_STYLE.tooltipBorder;
   ctx.save();
-  ctx.strokeStyle = '#EE6644';
+
+  // Leader from the nearest box edge to the point, when the box had to move.
+  const [ax, ay] = anchor;
+  const nx = Math.min(Math.max(ax, rect.x), rect.x + rect.w);
+  const ny = Math.min(Math.max(ay, rect.y), rect.y + rect.h);
+  if (label.leader) {
+    ctx.strokeStyle = C.leader;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(nx, ny);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = bg;
+  ctx.strokeStyle = border;
   ctx.lineWidth = 1;
-  ctx.setLineDash([3, 2]);
-  ctx.beginPath(); ctx.moveTo(atkX, relY); ctx.lineTo(tgtX + 2, relY); ctx.stroke();
-  ctx.restore();
+  roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 3);
+  ctx.fill();
+  ctx.stroke();
 
-  // ── Ground line + hatching ──────────────────────────────────────────────
+  // A small pointer toward the point when the box sits right beside it.
+  if (!label.leader) {
+    ctx.beginPath();
+    if (ay < rect.y) {
+      ctx.moveTo(ax - 4, rect.y);
+      ctx.lineTo(ax + 4, rect.y);
+      ctx.lineTo(ax, rect.y - 5);
+    } else if (ay > rect.y + rect.h) {
+      ctx.moveTo(ax - 4, rect.y + rect.h);
+      ctx.lineTo(ax + 4, rect.y + rect.h);
+      ctx.lineTo(ax, rect.y + rect.h + 5);
+    } else if (ax < rect.x) {
+      ctx.moveTo(rect.x, ay - 4);
+      ctx.lineTo(rect.x, ay + 4);
+      ctx.lineTo(rect.x - 5, ay);
+    } else {
+      ctx.moveTo(rect.x + rect.w, ay - 4);
+      ctx.lineTo(rect.x + rect.w, ay + 4);
+      ctx.lineTo(rect.x + rect.w + 5, ay);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.fillStyle = fg;
+  ctx.font = `bold ${size}px ${SANS}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  lines.forEach((line, i) => ctx.fillText(line, rect.x + 6, rect.y + 3 + i * lineH));
+  ctx.restore();
+}
+
+// ─── Plan view, north up ──────────────────────────────────────────────────────
+
+function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, threats: KneeboardThreatItem[], box: Rect) {
+  fillRect(ctx, box.x, box.y, box.w, box.h, C.diagramBg);
+  const target = picture.markers.find((m) => m.kind === 'TGT')?.position ?? picture.lines[0]?.points[0];
+  if (!target) return;
+  const cosLat = Math.cos((target.lat * Math.PI) / 180);
+  const toNm = (c: { lat: number; lon: number }) => ({ x: (c.lon - target.lon) * 60 * cosLat, y: (c.lat - target.lat) * 60 });
+
+  // Fit the attack, not the transit: the IP can be twelve miles out and would
+  // squeeze the part that matters into a corner. Route lines run off the edge.
+  const fitPts = [
+    ...picture.markers.map((m) => m.position),
+    ...picture.lines.filter((l) => l.style !== 'route').flatMap((l) => l.points),
+    ...picture.labels.filter((l) => l.kind === 'egress').map((l) => l.position),
+  ].map(toNm);
+  const minX = Math.min(...fitPts.map((p) => p.x)), maxX = Math.max(...fitPts.map((p) => p.x));
+  const minY = Math.min(...fitPts.map((p) => p.y)), maxY = Math.max(...fitPts.map((p) => p.y));
+  // As much zoom as keeps AP and TGT (and the break) in frame: the card is
+  // small on a DCS kneeboard, so the picture, not the margin, gets the pixels.
+  const padPx = 44;
+  const scale = Math.min((box.w - 2 * padPx) / Math.max(maxX - minX, 0.5), (box.h - 2 * padPx) / Math.max(maxY - minY, 0.5));
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  const mx = (minX + maxX) / 2, my = (minY + maxY) / 2;
+  const toPx = (c: { lat: number; lon: number }): [number, number] => {
+    const n = toNm(c);
+    return [cx + (n.x - mx) * scale, cy - (n.y - my) * scale];
+  };
+  const insideBox = (p: [number, number]) => p[0] >= box.x && p[0] <= box.x + box.w && p[1] >= box.y && p[1] <= box.y + box.h;
+
   ctx.save();
-  ctx.strokeStyle = '#888';
+  ctx.beginPath();
+  ctx.rect(box.x, box.y, box.w, box.h);
+  ctx.clip();
+
+  // Threat rings, as on the map: centre from bearing and distance off the target.
+  for (const t of threats) {
+    if (!t.maxRange_nm) continue;
+    const b = (t.bearing_deg * Math.PI) / 180;
+    const c = { x: Math.sin(b) * t.distance_nm, y: Math.cos(b) * t.distance_nm };
+    const px = cx + (c.x - mx) * scale, py = cy - (c.y - my) * scale;
+    const r = t.maxRange_nm * scale;
+    if (px + r < box.x || px - r > box.x + box.w || py + r < box.y || py - r > box.y + box.h) continue;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = C.threatFill;
+    ctx.fill();
+    ctx.strokeStyle = C.threatRing;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.stroke();
+  }
+
+  for (const line of picture.lines) strokePath(ctx, line.points.map(toPx), LINE_STYLE[line.style], 1.1);
+
+  // Where the route leaves the frame toward the IP, say so.
+  const route = picture.lines.find((l) => l.style === 'route');
+  if (route && route.points.length >= 2) {
+    const far = toPx(route.points[0]);
+    const near = toPx(route.points[route.points.length - 1]);
+    if (!insideBox(far)) {
+      // Walk back from the in-frame end toward the far end until the edge.
+      let t = 0;
+      let edge: [number, number] = near;
+      for (let k = 1; k <= 200; k++) {
+        const p: [number, number] = [near[0] + (far[0] - near[0]) * (k / 200), near[1] + (far[1] - near[1]) * (k / 200)];
+        if (!insideBox(p)) break;
+        edge = p;
+        t = k;
+      }
+      if (t > 0) {
+        const tx = Math.min(Math.max(edge[0], box.x + 14), box.x + box.w - 14);
+        const ty = Math.min(Math.max(edge[1], box.y + 14), box.y + box.h - 8);
+        txt(ctx, '→ IP', tx, ty, { size: 10, bold: true, family: SANS, color: '#2563eb', align: 'center' });
+      }
+    }
+  }
+
+  const markerR = 16;
+  const obstacles: Rect[] = [];
+  for (const marker of picture.markers) {
+    const [x, y] = toPx(marker.position);
+    drawMarker(ctx, x, y, marker.kind, MARKER_COLOR[marker.kind], markerR);
+    obstacles.push({ x: x - markerR - 1, y: y - markerR - 1, w: 2 * markerR + 2, h: 2 * markerR + 2 });
+  }
+  // North arrow and scale bar are obstacles too.
+  obstacles.push({ x: box.x + box.w - 40, y: box.y + 6, w: 36, h: 62 }, { x: box.x + 6, y: box.y + box.h - 30, w: scale + 20, h: 26 });
+
+  const requests: LabelRequest[] = [
+    // Markers first, then the boxes, so the numbers a pilot flies win the space.
+    ...picture.markers
+      .filter((m) => m.permanent)
+      .map((m) => ({ lines: m.lines, anchor: toPx(m.position), side: m.side, size: 12 })),
+    ...picture.labels
+      .filter((l) => l.kind === 'egress' || insideBox(toPx(l.position)))
+      .map((l) => ({
+        lines: [l.text],
+        anchor: toPx(l.position),
+        side: (l.kind === 'egress' ? 'top' : 'bottom') as LabelSide,
+        size: 11,
+        style:
+          l.kind === 'egress'
+            ? { bg: LABEL_STYLE.egressBg, fg: '#ffffff', border: LABEL_STYLE.egressBorder }
+            : { bg: LABEL_STYLE.ipBg, fg: '#ffffff', border: LABEL_STYLE.ipBorder },
+      })),
+  ];
+  for (const label of layoutLabels(ctx, requests, obstacles, box)) drawPlacedLabel(ctx, label);
+
+  // North arrow and a one-mile bar.
+  const nx = box.x + box.w - 22, ny = box.y + 30;
+  ctx.strokeStyle = C.sectionLabel;
+  ctx.fillStyle = C.sectionLabel;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(nx, ny + 18);
+  ctx.lineTo(nx, ny - 8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(nx, ny - 14);
+  ctx.lineTo(nx - 5, ny - 4);
+  ctx.lineTo(nx + 5, ny - 4);
+  ctx.closePath();
+  ctx.fill();
+  txt(ctx, 'N', nx, ny + 32, { size: 11, bold: true, family: SANS, color: C.sectionLabel, align: 'center' });
+  const bx = box.x + 14, by = box.y + box.h - 14;
+  ctx.beginPath();
+  ctx.moveTo(bx, by);
+  ctx.lineTo(bx + scale, by);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(bx, by - 4);
+  ctx.lineTo(bx, by + 4);
+  ctx.moveTo(bx + scale, by - 4);
+  ctx.lineTo(bx + scale, by + 4);
+  ctx.stroke();
+  txt(ctx, '1 nm', bx + scale / 2, by - 6, { size: 10, family: SANS, color: C.sectionLabel, align: 'center' });
+  ctx.restore();
+}
+
+// ─── Side view ────────────────────────────────────────────────────────────────
+
+function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile, box: Rect) {
+  fillRect(ctx, box.x, box.y, box.w, box.h, C.diagramBg);
+  const padL = 28, padR = 28, padTop = 44, padBottom = 44;
+  const dists = side.points.map((p) => p.dist_nm);
+  const maxD = Math.max(...dists) + 0.4;
+  const minD = Math.min(...dists) - 0.3;
+  const xScale = (box.w - padL - padR) / (maxD - minD);
+  const yScale = (box.h - padTop - padBottom) / Math.max(side.maxAlt_ft * 1.15, 1000);
+  const groundY = box.y + box.h - padBottom;
+  const X = (d: number) => box.x + padL + (maxD - d) * xScale;
+  const Y = (a: number) => groundY - a * yScale;
+  const P = (i: number): [number, number] => [X(side.points[i].dist_nm), Y(side.points[i].alt_ft)];
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(box.x, box.y, box.w, box.h);
+  ctx.clip();
+
+  // Ground with hatching, out to the target.
+  ctx.strokeStyle = C.ground;
   ctx.lineWidth = 1.5;
   ctx.setLineDash([]);
   ctx.beginPath();
-  ctx.moveTo(padX, groundY);
-  ctx.lineTo(tgtX + 4, groundY);
+  ctx.moveTo(box.x + 4, groundY);
+  ctx.lineTo(X(0) + 6, groundY);
   ctx.stroke();
-  // hatching
-  ctx.strokeStyle = '#AAA';
+  ctx.strokeStyle = '#AAAAAA';
   ctx.lineWidth = 0.8;
-  for (let x = padX + 6; x < tgtX + 5; x += 14) {
-    ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x - 9, groundY + 11); ctx.stroke();
+  for (let x = box.x + 10; x < X(0) + 6; x += 14) {
+    ctx.beginPath();
+    ctx.moveTo(x, groundY);
+    ctx.lineTo(x - 8, groundY + 10);
+    ctx.stroke();
   }
-  ctx.restore();
 
-  // ── Flight path lines ───────────────────────────────────────────────────
-  ctx.save();
-  ctx.lineWidth = 2.5;
-
-  // Run-in: IP → POP (dashed blue, low level)
-  ctx.strokeStyle = C.runIn;
-  ctx.setLineDash([10, 6]);
-  ctx.beginPath(); ctx.moveTo(ipX, ipY); ctx.lineTo(popX, popY); ctx.stroke();
-
-  // Pop/climb: POP → apex → ATK (solid orange, bezier)
-  ctx.strokeStyle = C.popClimb;
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.moveTo(popX, popY);
-  ctx.bezierCurveTo(
-    popX + (atkX - popX) * 0.2, popY,
-    apexX - 20, apexY,
-    atkX, atkY,
-  );
-  ctx.stroke();
-
-  // Attack dive: ATK → TGT (solid red)
-  ctx.strokeStyle = C.attackDive;
-  ctx.beginPath(); ctx.moveTo(atkX, atkY); ctx.lineTo(tgtX, tgtY); ctx.stroke();
-
-  // Egress arrow (dashed green)
-  ctx.strokeStyle = C.egress;
-  ctx.setLineDash([7, 5]);
-  ctx.lineWidth = 2;
-  const dir = diagram.egressDirection?.toLowerCase();
-  const egressEndYFinal = dir === 'right' ? egressEndY : egressEndY + 30;
-  ctx.beginPath(); ctx.moveTo(tgtX, tgtY); ctx.lineTo(egressX, egressEndYFinal); ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Arrowhead
-  const ang = Math.atan2(egressEndYFinal - tgtY, egressX - tgtX);
-  ctx.fillStyle = C.egress;
-  ctx.beginPath();
-  ctx.moveTo(egressX, egressEndYFinal);
-  ctx.lineTo(egressX - 12 * Math.cos(ang - 0.45), egressEndYFinal - 12 * Math.sin(ang - 0.45));
-  ctx.lineTo(egressX - 12 * Math.cos(ang + 0.45), egressEndYFinal - 12 * Math.sin(ang + 0.45));
-  ctx.closePath(); ctx.fill();
-  ctx.restore();
-
-  // ── Point markers ───────────────────────────────────────────────────────
-  const dotLabel = (x: number, cy: number, label: string, fill: string, r = 15, textColor = '#FFF') => {
-    ctx.fillStyle = fill;
-    ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = textColor;
-    ctx.font = `bold 10px ${SANS}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, x, cy);
-    ctx.textBaseline = 'alphabetic';
-  };
-  const note = (x: number, ny: number, str: string, color: string, align: CanvasTextAlign = 'center') => {
-    ctx.fillStyle = color;
-    ctx.font = `10px ${MONO}`;
-    ctx.textAlign = align;
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(str, x, ny);
-  };
-
-  dotLabel(ipX, ipY, 'IP', '#4466AA');
-  note(ipX, ipY + 22, `${pd.runInAltitude_ft}'AGL`, C.runIn);
-  note(ipX, ipY + 33, `${pd.runInSpeed_ktas}kts`, C.runIn);
-
-  dotLabel(popX, popY, 'POP', '#CC8800');
-  note(popX, popY + 22, `${pd.popDistance_nm}nm out`, C.popClimb);
-
-  // Apex star
-  ctx.fillStyle = C.popClimb;
-  ctx.font = `bold 18px ${SANS}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('★', apexX, apexY);
-  ctx.textBaseline = 'alphabetic';
-  note(apexX + 30, apexY - 3, `${pd.apexAltitude_ft.toLocaleString()}'`, C.popClimb, 'left');
-
-  dotLabel(atkX, atkY, 'ATK', '#CC5500');
-  note(atkX, atkY - 20, `${pd.rollInAltitude_ft.toLocaleString()}'AGL`, C.attackDive);
-  note(atkX, atkY - 9, `${pd.diveAngle_deg}° dive`, C.attackDive);
-
-  dotLabel(tgtX, tgtY, 'TGT', C.accent, 16);
-
-  // Release alt label
-  ctx.fillStyle = '#EE4422';
-  ctx.font = `9px ${MONO}`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText(`REL: ${pd.releaseAltitude_ft.toLocaleString()}'`, atkX + 5, relY - 2);
-  ctx.textBaseline = 'alphabetic';
-
-  // Hard deck label
-  ctx.fillStyle = C.accent;
-  ctx.font = `9px ${MONO}`;
-  ctx.textAlign = 'left';
-  ctx.fillText(`HARD DECK: ${pd.minAltitude_ft.toLocaleString()}'AGL`, padX + 2, deckY - 3);
-
-  // Title strip
-  ctx.fillStyle = C.sectionLabel;
-  ctx.font = `bold 11px ${SANS}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText(
-    `ATTACK HDG: ${fmtHdg(pd.runInHeading_deg)}  ←  EGRESS ${diagram.egressDirection?.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}  →`,
-    KNEEBOARD_WIDTH / 2, boxY + 3,
-  );
-  ctx.textBaseline = 'alphabetic';
-}
-
-/** Simplified side-profile for dive CCIP */
-function drawDiveCCIPDiagram(
-  ctx: CanvasRenderingContext2D,
-  diagram: KneeboardDiagramData,
-  boxY: number,
-  boxH: number,
-) {
-  const pd = diagram.diveCCIP!;
-  const padX = 30, padTop = 22, padBottom = 30;
-  const drawW = KNEEBOARD_WIDTH - padX * 2;
-  const drawH = boxH - padTop - padBottom;
-
-  const maxAlt = pd.rollInAltitude_ft * 1.3;
-  const pxPerFt = drawH / maxAlt;
-  const groundY = boxY + padTop + drawH;
-
-  const egressNm = 2;
-  const totalNm = 6 + egressNm;
-  const pxPerNm = drawW / totalNm;
-  const tgtX = padX + 5 * pxPerNm;
-
-  const diveRad = pd.diveAngle_deg * Math.PI / 180;
-  const rollDistNm = Math.min((pd.rollInAltitude_ft / Math.tan(diveRad)) / 6076, 4);
-  const rollX = tgtX - rollDistNm * pxPerNm;
-  const rollY = groundY - pd.rollInAltitude_ft * pxPerFt;
-  const relY = groundY - pd.releaseAltitude_ft * pxPerFt;
-  const egressX = tgtX + egressNm * pxPerNm;
-  const egressEndY = groundY - 50;
-
-  // Ground
-  ctx.save();
-  ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
-  ctx.beginPath(); ctx.moveTo(padX, groundY); ctx.lineTo(tgtX + 4, groundY); ctx.stroke();
-  ctx.strokeStyle = '#AAA'; ctx.lineWidth = 0.8;
-  for (let x = padX + 6; x < tgtX + 5; x += 14) {
-    ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x - 9, groundY + 11); ctx.stroke();
+  // Hard deck.
+  if (side.hardDeck_ft != null && side.hardDeck_ft > 0) {
+    ctx.strokeStyle = C.accent;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(box.x + 4, Y(side.hardDeck_ft));
+    ctx.lineTo(X(0) + 6, Y(side.hardDeck_ft));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    txt(ctx, `HARD DECK ${side.hardDeck_ft.toLocaleString()}ft AGL`, box.x + 8, Y(side.hardDeck_ft) - 3, { size: 9, family: MONO, color: C.accent });
   }
-  ctx.restore();
 
-  // Ingress line (flat, dashed blue)
-  ctx.save();
-  ctx.strokeStyle = C.runIn; ctx.lineWidth = 2.5; ctx.setLineDash([10, 6]);
-  ctx.beginPath(); ctx.moveTo(padX, rollY); ctx.lineTo(rollX, rollY); ctx.stroke();
-
-  // Dive (red)
-  ctx.strokeStyle = C.attackDive; ctx.setLineDash([]); ctx.lineWidth = 2.5;
-  ctx.beginPath(); ctx.moveTo(rollX, rollY); ctx.lineTo(tgtX, groundY); ctx.stroke();
-
-  // Release marker
-  ctx.strokeStyle = '#EE6644'; ctx.lineWidth = 1; ctx.setLineDash([3, 2]);
-  ctx.beginPath(); ctx.moveTo(rollX, relY); ctx.lineTo(tgtX + 2, relY); ctx.stroke();
-
-  // Egress
-  ctx.strokeStyle = C.egress; ctx.lineWidth = 2; ctx.setLineDash([7, 5]);
-  ctx.beginPath(); ctx.moveTo(tgtX, groundY); ctx.lineTo(egressX, egressEndY); ctx.stroke();
-  ctx.setLineDash([]); ctx.restore();
-
-  // Labels
-  const dotLabel = (x: number, cy: number, label: string, fill: string, r = 15) => {
-    ctx.fillStyle = fill;
-    ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#FFF'; ctx.font = `bold 10px ${SANS}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(label, x, cy); ctx.textBaseline = 'alphabetic';
-  };
-
-  dotLabel(rollX, rollY, 'ROLL\nIN', '#4466AA');
-  ctx.fillStyle = C.runIn; ctx.font = `10px ${MONO}`; ctx.textAlign = 'center';
-  ctx.fillText(`${pd.rollInAltitude_ft.toLocaleString()}'AGL`, rollX, rollY - 20);
-  ctx.fillText(`${pd.diveAngle_deg}° dive`, rollX, rollY - 9);
-  if (diagram.sightDepression_mils != null) {
-    // Manual delivery: the one number a legacy pilot needs at the roll-in.
-    ctx.fillStyle = C.accent; ctx.font = `bold 10px ${MONO}`;
-    ctx.fillText(`SIGHT ${Math.round(diagram.sightDepression_mils)} mils`, rollX, rollY - 32);
-  }
-  dotLabel(tgtX, groundY, 'TGT', C.accent, 16);
-
-  ctx.fillStyle = '#EE4422'; ctx.font = `9px ${MONO}`; ctx.textAlign = 'left';
-  ctx.fillText(`${diagram.releaseLabel ?? 'REL'}: ${pd.releaseAltitude_ft.toLocaleString()}'AGL @ ${pd.releaseSpeed_ktas} KTAS`, rollX + 5, relY - 3);
-
-  ctx.fillStyle = C.sectionLabel; ctx.font = `bold 11px ${SANS}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText(
-    `INGRESS HDG: ${fmtHdg(pd.ingressHeading_deg)}  →  EGRESS ${diagram.egressDirection?.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}`,
-    KNEEBOARD_WIDTH / 2, boxY + 4,
-  );
-  ctx.textBaseline = 'alphabetic';
-}
-
-/** Top-down schematic for level CCRP */
-function drawLevelCCRPDiagram(
-  ctx: CanvasRenderingContext2D,
-  diagram: KneeboardDiagramData,
-  boxY: number,
-  boxH: number,
-) {
-  const pd = diagram.levelCCRP!;
-  const cx = KNEEBOARD_WIDTH / 2;
-  const cy = boxY + boxH / 2;
-
-  // Simple top-down: arrow → TGT → egress arrow
-  ctx.save();
-  ctx.strokeStyle = C.runIn; ctx.lineWidth = 3; ctx.setLineDash([12, 8]);
-  ctx.beginPath(); ctx.moveTo(cx - 260, cy); ctx.lineTo(cx - 40, cy); ctx.stroke();
-  ctx.strokeStyle = C.attackDive; ctx.setLineDash([]); ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(cx - 40, cy); ctx.lineTo(cx, cy); ctx.stroke();
-  ctx.strokeStyle = C.egress; ctx.setLineDash([8, 5]);
-  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + 220, cy); ctx.stroke();
-  ctx.restore();
-
-  // TGT dot
-  ctx.fillStyle = C.accent; ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#FFF'; ctx.font = `bold 11px ${SANS}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('TGT', cx, cy); ctx.textBaseline = 'alphabetic';
-
-  ctx.fillStyle = C.sectionLabel; ctx.font = `bold 11px ${SANS}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText(
-    `INGRESS ${fmtHdg(pd.ingressHeading_deg)}  →  ${diagram.releaseLabel ?? 'RELEASE'}  →  EGRESS ${fmtHdg(diagram.egressHeading_deg)}`,
-    cx, boxY + 8,
-  );
-  ctx.textBaseline = 'alphabetic';
-
-  // The two numbers the pilot flies: altitude and speed at release.
-  ctx.fillStyle = C.textPrimary; ctx.font = `bold 13px ${MONO}`; ctx.textAlign = 'center';
-  ctx.fillText(`${pd.releaseAltitude_ft.toLocaleString()} ft MSL  @  ${pd.releaseSpeed_ktas} KTAS`, cx, cy + 48);
-  ctx.fillStyle = C.textGray; ctx.font = `10px ${MONO}`;
-  ctx.fillText('wings level, no manoeuvre through release', cx, cy + 64);
-}
-
-// ─── Step-by-step procedure ───────────────────────────────────────────────────
-
-/** Vertical rhythm of the step list. Compact is used only when the normal one would run under the footer. */
-interface StepSpacing {
-  lineH: number;
-  gap: number;
-}
-const STEP_SPACING_NORMAL: StepSpacing = { lineH: 19, gap: 6 };
-const STEP_SPACING_COMPACT: StepSpacing = { lineH: 17, gap: 2 };
-
-/** Height `drawSteps` will consume, so the caller can pick a spacing that fits. */
-function measureSteps(steps: KneeboardStep[], spacing: StepSpacing): number {
-  let h = 20 + 4; // section strip + top pad
-  for (const step of steps) {
-    h += 22 + 4 + step.lines.length * spacing.lineH + spacing.gap;
-  }
-  return h;
-}
-
-function drawSteps(
-  ctx: CanvasRenderingContext2D,
-  steps: KneeboardStep[],
-  y: number,
-  spacing: StepSpacing = STEP_SPACING_NORMAL,
-): number {
-  y = sectionStrip(ctx, 'STEP-BY-STEP PROCEDURE', y, 'Follow in order');
-  y += 4;
-
-  for (const step of steps) {
-    // Title bar
-    const titleBg = step.isWarning ? '#7A1500' : C.stepTitleBg;
-    fillRect(ctx, 6, y, KNEEBOARD_WIDTH - 12, 22, titleBg);
-    txt(ctx, step.title, 14, y + 15, { color: C.stepTitleText, size: 12, bold: true, family: SANS });
-    y += 22;
-
-    // Content lines
-    const contentBg = step.isWarning ? '#FFF5F3' : C.stepBg;
-    const { lineH } = spacing;
-    fillRect(ctx, 6, y, KNEEBOARD_WIDTH - 12, step.lines.length * lineH + 6, contentBg);
-    y += 4;
-    for (const line of step.lines) {
-      const isWarningLine = line.startsWith('⚠');
-      txt(ctx, `  ${line}`, 14, y + 13, {
-        size: 12,
-        family: MONO,
-        color: isWarningLine ? C.accent : C.textPrimary,
-        bold: isWarningLine,
-        maxW: KNEEBOARD_WIDTH - 30,
-      });
-      y += lineH;
+  // Segments, in the picture's colours.
+  for (const s of side.segments) {
+    const style = LINE_STYLE[s.style];
+    const [x1, y1] = P(s.from);
+    const [x2, y2] = P(s.to);
+    ctx.save();
+    ctx.strokeStyle = style.color;
+    ctx.lineWidth = Math.max(1, style.width * 0.85);
+    ctx.setLineDash(style.dash ?? []);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    if (s.via != null) {
+      const [vx, vy] = P(s.via);
+      ctx.quadraticCurveTo(vx, vy - 10, x2, y2);
+    } else if (s.curve === 'up') {
+      ctx.quadraticCurveTo(x1 + (x2 - x1) * 0.55, y1, x2, y2);
+    } else {
+      ctx.lineTo(x2, y2);
     }
-    y += spacing.gap;
+    ctx.stroke();
+    if (s.style === 'egress') {
+      const ang = Math.atan2(y2 - (y1 + (y2 - y1) * 0.6), x2 - (x1 + (x2 - x1) * 0.9));
+      ctx.setLineDash([]);
+      ctx.fillStyle = style.color;
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - 10 * Math.cos(ang - 0.45), y2 - 10 * Math.sin(ang - 0.45));
+      ctx.lineTo(x2 - 10 * Math.cos(ang + 0.45), y2 - 10 * Math.sin(ang + 0.45));
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
-  return y;
-}
+  // Markers, then their labels laid out around them.
+  const obstacles: Rect[] = [];
+  side.points.forEach((p, i) => {
+    const [x, y] = P(i);
+    if (p.kind === 'APEX') {
+      ctx.fillStyle = LINE_STYLE.pullDown.color;
+      ctx.font = `bold 16px ${SANS}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('★', x, y);
+      obstacles.push({ x: x - 9, y: y - 9, w: 18, h: 18 });
+    } else if (p.kind !== 'EGRESS') {
+      drawMarker(ctx, x, y, p.kind, MARKER_COLOR[p.kind], 12);
+      obstacles.push({ x: x - 13, y: y - 13, w: 26, h: 26 });
+    }
+  });
+  const requests: LabelRequest[] = side.points
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.label)
+    .map(({ p, i }) => ({ lines: [p.label!], anchor: P(i), side: p.side ?? 'top', size: 11 }));
+  for (const label of layoutLabels(ctx, requests, obstacles, box)) drawPlacedLabel(ctx, label);
 
-const FOOTER_HEIGHT = 26;
+  ctx.restore();
+}
 
 // ─── Main render function ─────────────────────────────────────────────────────
+
+const FOOTER_HEIGHT = 26;
 
 export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCard): void {
   canvas.width = KNEEBOARD_WIDTH;
   canvas.height = KNEEBOARD_HEIGHT;
-
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  ctx.textBaseline = 'alphabetic';
-
-  // Background
   fillRect(ctx, 0, 0, KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, C.bg);
 
-  let y = 0;
-
-  // 1. Header (+ caution strip when the card's data carries a caveat)
-  y = drawHeader(ctx, card);
-  for (const caution of card.header.cautions ?? []) {
-    y = drawCautionStrip(ctx, caution, y);
-  }
-
-  // 2. Target
+  let y = drawHeader(ctx, card);
+  for (const caution of card.header.cautions ?? []) y = drawCautionStrip(ctx, caution, y);
   y = drawTargetSection(ctx, card, y);
-
-  // 3. Weapon (compact)
   y = drawWeaponSection(ctx, card, y);
-
-  // 4. Threats
   y = drawThreatsSection(ctx, card, y);
 
-  // 5. Attack diagram (if we have geometry)
-  if (card.attackSection.diagram) {
-    y = drawAttackDiagram(ctx, card.attackSection.diagram, y);
+  // The two pictures share what is left above the footer: the plan view gets
+  // the larger share, the side view the rest.
+  const footerTop = KNEEBOARD_HEIGHT - FOOTER_HEIGHT;
+  const diagram = card.attackSection.diagram;
+  if (diagram?.picture || diagram?.side) {
+    const strips = (diagram.picture ? 20 : 0) + (diagram.side ? 20 : 0);
+    const remaining = footerTop - y - strips - 2;
+    const planH = diagram.picture && diagram.side ? Math.round(remaining * 0.66) : remaining;
+    const sideH = remaining - (diagram.picture ? planH : 0);
+    const headingText = `ATTACK HDG ${fmtHdg(diagram.attackHeading_deg)}   ·   EGRESS ${diagram.egressDirection.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}`;
+    if (diagram.picture) {
+      y = sectionStrip(ctx, 'ATTACK — NORTH UP', y, headingText);
+      drawPlanView(ctx, diagram.picture, card.threatSection.threats, { x: 0, y, w: KNEEBOARD_WIDTH, h: planH });
+      y += planH;
+      hLine(ctx, y, C.divider);
+      y += 1;
+    }
+    if (diagram.side) {
+      const right = diagram.sightDepression_mils != null ? `SIGHT ${Math.round(diagram.sightDepression_mils)} mils   ·   altitudes AGL · release by = no lower` : 'altitudes AGL · release by = no lower';
+      y = sectionStrip(ctx, 'PROFILE — SIDE VIEW', y, diagram.picture ? right : `${headingText}   ·   ${right}`);
+      drawSideProfile(ctx, diagram.side, { x: 0, y, w: KNEEBOARD_WIDTH, h: sideH });
+      y += sideH;
+    }
   }
 
-  // 6. Step-by-step. The footer is drawn last and paints over anything under
-  //    it, so a long procedure (popup: 5 steps × 3 lines) used to lose its
-  //    last lines silently. Tighten the spacing only when that would happen.
-  if (card.attackSection.steps?.length) {
-    const steps = card.attackSection.steps;
-    const footerTop = KNEEBOARD_HEIGHT - FOOTER_HEIGHT;
-    const spacing =
-      y + measureSteps(steps, STEP_SPACING_NORMAL) <= footerTop
-        ? STEP_SPACING_NORMAL
-        : STEP_SPACING_COMPACT;
-    y = drawSteps(ctx, steps, y, spacing);
-  }
-
-  // 7. Footer
   fillRect(ctx, 0, KNEEBOARD_HEIGHT - FOOTER_HEIGHT, KNEEBOARD_WIDTH, FOOTER_HEIGHT, C.headerBg);
   txt(ctx, 'PHOENIX WEAPONEER', 10, KNEEBOARD_HEIGHT - 10, { size: 10, bold: true, family: MONO, color: '#667788' });
-  txt(ctx, 'UNCLASSIFIED // TRAINING USE ONLY', KNEEBOARD_WIDTH / 2, KNEEBOARD_HEIGHT - 10, {
-    size: 9, family: MONO, color: '#445566', align: 'center',
-  });
+  txt(ctx, 'UNCLASSIFIED // TRAINING USE ONLY', KNEEBOARD_WIDTH / 2, KNEEBOARD_HEIGHT - 10, { size: 9, family: MONO, color: '#445566', align: 'center' });
 }
 
 /** Export canvas to base64 PNG string (strip the data URL prefix) */

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMissionStore } from '../../stores/missionStore';
 import { useProfileStore } from '../../stores/profileStore';
-import { useAttackCalculator } from '../../hooks/useAttackCalculator';
 import { Modal } from '../common/Modal';
 import { PopupCCIPForm } from './forms/PopupCCIPForm';
 import { DiveForm } from './forms/DiveForm';
 import { LevelForm } from './forms/LevelForm';
 import { autoBuildAttack, loadoutWeapons } from '../../lib/autoBuildAttack';
 import { runAttackChecks, hasErrors } from '../../lib/attackChecks';
+import { type Side } from '../../lib/attackGeometry';
+import { describeRunIn, type RunInSummary } from '../../lib/runIn';
 import { weaponClassOf } from '../../lib/weaponClass';
 import { formatCallsign } from '../../lib/callsign';
 import type {
@@ -49,24 +50,27 @@ const label = 'block text-sm font-medium mb-1';
  * Target, attacker and weapon are the pilot's picks; the aircraft's delivery
  * profile library supplies everything else and the result is complete with
  * no alerts. What the pilot sees on the basic path is the big decisions —
- * profile, heading, which way to egress — and the key numbers. Customize
- * opens the full form for anyone who wants to change them.
+ * profile, which way and how far to angle off the IP→target line, which way
+ * to egress — and the key numbers. Customize opens the full form for anyone
+ * who wants to change them.
  */
 export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, threatSystems = [] }: AttackEditorProps) {
   const { mission, addAttack, updateAttack } = useMissionStore();
   const profiles = useProfileStore((s) => s.profiles);
   const profilesLoaded = useProfileStore((s) => s.loaded);
-  const { calculatePopupCCIP, result: calcResult, error: calcError } = useAttackCalculator();
 
   // The pilot's picks
   const [targetWaypointId, setTargetWaypointId] = useState(attack?.targetWaypointId ?? '');
   const [attackerId, setAttackerId] = useState(attack?.attackerId ?? '');
   const [weaponId, setWeaponId] = useState(attack?.weaponId ?? '');
   const [profileId, setProfileId] = useState<string | undefined>(attack?.sourceProfileId);
-  const [headingOverride, setHeadingOverride] = useState<number | undefined>(() => {
-    const p = attack?.profile as { runInHeading_deg?: number; ingressHeading_deg?: number } | undefined;
-    return attack?.customized ? undefined : (p?.runInHeading_deg ?? undefined);
-  });
+  // A saved attack re-opens with the run-in it was built with — action point,
+  // check turn, flank — so the toggle shows what its card says and auto-build
+  // reproduces its heading.
+  const saved = attack && !attack.customized ? (attack.profile as { actionRange_nm?: number; offsetAngle_deg?: number; offsetDirection?: Side }) : undefined;
+  const [actionRangeOverride] = useState<number | undefined>(saved?.actionRange_nm);
+  const [offsetTurnOverride] = useState<number | undefined>(saved?.offsetAngle_deg);
+  const [angleOffSide, setAngleOffSide] = useState<Side | undefined>(saved?.offsetDirection);
   const [egressOverride, setEgressOverride] = useState<'left' | 'right' | undefined>(undefined);
 
   // Weapon details
@@ -81,9 +85,14 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
 
   const flightMembers = mission?.flightMembers ?? [];
   const targetWaypoints = mission?.waypoints.filter((wp) => wp.type === 'target') ?? [];
-  const ipWaypoints = mission?.waypoints.filter((wp) => wp.type === 'ip') ?? [];
   const attacker = flightMembers.find((fm) => fm.id === attackerId);
   const selectedTarget = mission?.waypoints.find((wp) => wp.id === targetWaypointId);
+  // Any waypoint before the target can be the one the jet flies in from —
+  // the previous target, for a chained attack — not only IP-typed ones.
+  const ipWaypoints =
+    mission?.waypoints
+      .filter((wp) => selectedTarget && wp.id !== selectedTarget.id && wp.steerpoint < selectedTarget.steerpoint)
+      .sort((a, b) => b.steerpoint - a.steerpoint) ?? [];
 
   // Weapon choices: what the attacker carries, else every A/G store.
   const carried = loadoutWeapons(attacker, weapons);
@@ -102,11 +111,13 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
       overrides: {
         weaponId: weaponId || undefined,
         profileId,
-        runInHeading_deg: headingOverride,
+        actionRange_nm: actionRangeOverride,
+        offsetTurn_deg: offsetTurnOverride,
+        angleOffSide,
         egressDirection: egressOverride,
       },
     });
-  }, [mission, targetWaypointId, attackerId, weapons, profiles, threatSystems, weaponId, profileId, headingOverride, egressOverride]);
+  }, [mission, targetWaypointId, attackerId, weapons, profiles, threatSystems, weaponId, profileId, actionRangeOverride, offsetTurnOverride, angleOffSide, egressOverride]);
 
   // Keep the pick lists honest as the picks change.
   useEffect(() => {
@@ -122,22 +133,6 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
   const effectiveProfile: AttackProfile | undefined = customized ? customProfile : build?.attack?.profile;
   const profileType = effectiveProfile?.type ?? build?.attack?.profileType;
 
-  // Popup Customize still leans on the Rust calculator for its derived numbers.
-  const triggerCalculation = () => {
-    const p = customProfile as Partial<PopupCCIPProfile> | undefined;
-    if (!selectedTarget || !selectedWeapon || !p || p.type !== 'popup_ccip') return;
-    if (!p.runInAltitude_ft || !p.runInSpeed_ktas || !p.popDistance_nm || !p.apexAltitude_ft || !p.diveAngle_deg) return;
-    calculatePopupCCIP({
-      target_elevation_ft: selectedTarget.elevation_ft || 0,
-      run_in_altitude_agl: p.runInAltitude_ft,
-      run_in_speed_ktas: p.runInSpeed_ktas,
-      pop_distance_nm: p.popDistance_nm,
-      apex_altitude_agl: p.apexAltitude_ft,
-      dive_angle_deg: p.diveAngle_deg,
-      weapon_id: weaponId,
-    });
-  };
-
   const checks = effectiveProfile
     ? runAttackChecks({
         profileType: profileType ?? 'popup_ccip',
@@ -147,6 +142,7 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
         weaponClass: selectedWeapon ? weaponClassOf(selectedWeapon) : undefined,
         allowedClasses: build?.profile?.weaponClasses,
         sourceProfileName: build?.profile?.name,
+        directBearing_deg: build?.directBearing,
       })
     : [];
 
@@ -191,8 +187,26 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
     onClose();
   };
 
-  const headingText = build?.attackHeading != null ? `${Math.round(build.attackHeading).toString().padStart(3, '0')}°` : '---';
+  const fmtHdg = (h: number | undefined) => (h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---');
   const egress = (effectiveProfile as { egressDirection?: string } | undefined)?.egressDirection ?? 'right';
+
+  // The run-in as it will be flown, read off whatever profile will be saved,
+  // so a customized attack shows its own story and the toggle stays honest.
+  const runIn: RunInSummary | undefined =
+    effectiveProfile && build?.directBearing != null
+      ? describeRunIn(effectiveProfile, build.directBearing, selectedTarget?.elevation_ft ?? 0)
+      : build?.runIn;
+  const ingressSideShown: Side | undefined = runIn?.offsetTurn.direction;
+  const angleOffIsAuto = angleOffSide == null && !customized;
+  const autoNote = angleOffIsAuto ? ' · auto: away from the nearest threat' : '';
+  const angleOffHint =
+    !build?.ipWaypoint || build.directBearing == null
+      ? 'Needs a waypoint before the target in the route'
+      : !runIn
+        ? ''
+        : !runIn.closes
+          ? `Check turn ${Math.round(runIn.offsetTurn.deg)}° at ${runIn.actionRange_nm} nm is too wide — the picture does not close; fix it in Customize`
+          : `Route ${fmtHdg(runIn.directBearing)} to ${runIn.actionRange_nm} nm, turn ${runIn.offsetTurn.direction} ${Math.round(runIn.offsetTurn.deg)}° → ${fmtHdg(runIn.approachHeading)}; ${runIn.joinLabel} at ${runIn.joinRange_nm.toFixed(1)} nm ${runIn.joinTurn.direction} onto ${fmtHdg(runIn.attackHeading)}${autoNote}`;
 
   return (
     <Modal title={attack ? 'Edit Attack' : 'Add Attack'} onClose={onClose} widthClass="w-[860px]">
@@ -278,16 +292,28 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
 
             {build?.profile?.summary && <p className="text-sm text-gray-400 mb-3">{build.profile.summary}</p>}
 
+            {/* The two big calls, side by side: which way to come in, which way to leave.
+                The degrees and the raw heading are in Customize. */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={label}>Attack heading</label>
-                <input
-                  type="number"
-                  className={select}
-                  value={headingOverride ?? ''}
-                  placeholder={build?.ipWaypoint ? `Auto ${headingText} from ${build.ipWaypoint.name}` : `Auto ${headingText}`}
-                  onChange={(e) => { const v = parseFloat(e.target.value); setHeadingOverride(Number.isFinite(v) ? v : undefined); resetToProfile(); }}
-                />
+                <label className={label}>Ingress from</label>
+                <div className="flex gap-2">
+                  {(['left', 'right'] as const).map((side) => (
+                    <button
+                      key={side}
+                      type="button"
+                      onClick={() => { setAngleOffSide(side); resetToProfile(); }}
+                      className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                        ingressSideShown === side
+                          ? 'bg-dcs-blue border-blue-400 text-white'
+                          : 'bg-dcs-dark border-gray-600 text-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {side === 'left' ? '◀ Left' : 'Right ▶'}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">{angleOffHint}</div>
               </div>
               <div>
                 <label className={label}>Egress</label>
@@ -359,24 +385,21 @@ export function AttackEditor({ attack, onClose, weapons, fuzeOptions, aircraft, 
               </div>
 
               {customized && customProfile?.type === 'dive_ccip' && (
-                <DiveForm profile={customProfile as DiveCCIPProfile} onChange={setCustomProfile} />
+                <DiveForm profile={customProfile as DiveCCIPProfile} onChange={setCustomProfile} directBearing_deg={build?.directBearing} />
               )}
               {customized && customProfile?.type === 'level_ccrp' && (
-                <LevelForm profile={customProfile as LevelCCRPProfile} targetElevation_ft={selectedTarget?.elevation_ft ?? 0} onChange={setCustomProfile} />
+                <LevelForm profile={customProfile as LevelCCRPProfile} targetElevation_ft={selectedTarget?.elevation_ft ?? 0} onChange={setCustomProfile} directBearing_deg={build?.directBearing} />
               )}
               {customized && customProfile?.type === 'popup_ccip' && (
                 <PopupCCIPForm
-                  profile={customProfile as Partial<PopupCCIPProfile>}
+                  profile={customProfile as PopupCCIPProfile}
                   ipWaypoints={ipWaypoints}
                   targetElevation={selectedTarget?.elevation_ft || 0}
                   selectedWeapon={selectedWeapon ?? null}
-                  onChange={(p) => setCustomProfile(p as PopupCCIPProfile)}
-                  calculatorResult={calcResult}
-                  onCalculate={triggerCalculation}
-                  calculatedAttackHeading={build?.attackHeading ?? null}
+                  onChange={setCustomProfile}
+                  directBearing_deg={build?.directBearing}
                 />
               )}
-              {calcError && <div className="text-sm text-red-400">Calculation failed: {calcError}</div>}
             </div>
           )}
         </div>
@@ -417,13 +440,13 @@ function KeyNumbers({ profile }: { profile: AttackProfile }) {
   let text: string;
   switch (profile.type) {
     case 'dive_ccip':
-      text = `Roll in ${ft(profile.rollInAltitude_ft)} AGL · ${profile.diveAngle_deg}° dive · Release ${ft(profile.releaseAltitude_ft)} AGL @ ${Math.round(profile.releaseSpeed_ktas)} kt · ${profile.pulloutG} G`;
+      text = `Roll in ${ft(profile.rollInAltitude_ft)} AGL · ${profile.diveAngle_deg}° dive · Release by ${ft(profile.releaseAltitude_ft)} AGL @ ${Math.round(profile.releaseSpeed_ktas)} kt · ${profile.pulloutG} G`;
       break;
     case 'level_ccrp':
       text = `Level ${ft(profile.releaseAltitude_ft)} MSL @ ${Math.round(profile.releaseSpeed_ktas)} kt`;
       break;
     case 'popup_ccip':
-      text = `Run-in ${ft(profile.runInAltitude_ft)} AGL @ ${profile.runInSpeed_ktas} kt · Pop ${profile.popDistance_nm} nm · Apex ${ft(profile.apexAltitude_ft)} · ${profile.diveAngle_deg}° · Release ${ft(profile.releaseAltitude_ft)} AGL`;
+      text = `Run-in ${ft(profile.runInAltitude_ft)} AGL @ ${profile.runInSpeed_ktas} kt · Pop ${profile.popDistance_nm.toFixed(1)} nm · Climb ${Math.round(profile.climbAngle_deg)}° to ${ft(profile.apexAltitude_ft)} · Pull down ${ft(profile.rollInAltitude_ft)} · ${profile.diveAngle_deg}° dive · Release by ${ft(profile.releaseAltitude_ft)} AGL`;
       break;
     default:
       text = '';

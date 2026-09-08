@@ -178,7 +178,110 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-05 → 06 (late night)
+**Last session:** 2026-09-07 (all day, with the user at the screen). Written
+for a fresh agent of any model. Read `docs/REVAMP_PLAN.md` (the approved plan
+and its dated updates) and `docs/DELIVERY_PLANNING.md` (the F-16 handbook
+method the pop-up is built on) before touching attack geometry.
+
+**Everything below is committed and pushed.** Gates: `npm run build` clean,
+**46 Rust tests** (`cd src-tauri && cargo test`), and **55 geometry checks**
+(`npm run geo-check` — a plain esbuild+node script, no test framework; it
+reproduces the handbook's worked example and the action-point geometry).
+
+**How to run:** `npm run tauri dev`. Closing the app window kills the whole
+dev process (Vite + cargo watcher); relaunch it. Import
+`test-data/nttr_redflag_viper1.json`, group Viper 1 (Hot). Any edit under
+`src-tauri/` (including `resources/profiles/*.json`, which are compiled in)
+rebuilds and restarts the app and wipes the imported mission.
+
+### What was built today
+
+1. **Import fixes** (`src-tauri/src/parsers/threat_mapping.rs`, `commands/mod.rs`):
+   DCS unit names are matched on whole tokens, most-specific rule wins (a
+   Tor 9A331 was importing as an SA-8 because "9A33" is a substring). Threat
+   dedup is per system per site (a Tor with a ZSU-57-2 and Iglas inside 150 m
+   used to collapse to one). The P-19 search radar no longer claims a site as
+   SA-3, so the two SA-2 sites read S-75. **Seen on screen by the user** (13
+   threats, Tor card).
+2. **Run-in anchored on the route — the action point.** Every visual attack
+   flies the previous-steerpoint→target leg to the **action point** (4.5 nm,
+   the handbook's number), makes a round **check turn** left/right (the
+   *Ingress* toggle picks the flank, default away from the nearest threat),
+   runs up the offset leg, and joins the attack: **roll-in** (dive),
+   **pull-down point / PDP** (pop-up), run-in start (level). The attack
+   heading is whatever closes that geometry. Egress is drawn from the
+   *release* point as a turn onto the egress heading, never through the
+   target. A straight-in heading (±5° of the leg) only *warns*. Code:
+   `src/lib/attackGeometry.ts`, `src/lib/runIn.ts` (one description for the
+   editor hint, card and auto-build), `src/lib/autoBuildAttack.ts`,
+   `src/components/attacks/forms/ActionPointFields.tsx` (Customize control on
+   all three forms). **Seen on screen** for the dive; not yet for pop-up/level.
+3. **Pop-up on the handbook.** Library pop-up profiles store dive angle,
+   release floor, speed, tracking time, G (`resources/profiles/*.json`,
+   "Pop-up 20°" on five aircraft); apex, pull-down altitude, climb angle,
+   pop distance, MAP and aim-off are derived (`src/lib/popupPlanning.ts`).
+   The check turn defaults to what the handbook's angle-off guide implies,
+   rounded to 5°; the pull-down turn is solved so the arc lands at the MAP.
+   **Not yet seen on screen.**
+4. **The card is the map.** No text procedure or switchology on the kneeboard.
+   `src/lib/attackPicture.ts` builds the attack picture once (lines by stage,
+   markers by point, the white labels' words); the map overlay
+   (`AttackProfileOverlay.tsx`) and the card (`renderKneeboardCanvas.ts`) both
+   draw it — north-up plan view with threat rings plus a side view. Labels are
+   laid out with collision avoidance and leader lines; zoom fits AP…TGT. The
+   header reads "Viper 1-1 — 30° Dive CCIP, Mk-84 attack on STPT 8 (TGT1)".
+   The user saw v1 (labels overlapped); **v2 layout not yet seen.**
+5. **Chained attacks** flow in from the previous steerpoint (a second bomb on
+   STPT 9 runs in from STPT 8), not from the route's IP. `inferIp` in
+   `autoBuildAttack.ts` is now "the waypoint before the target", full stop.
+   **Not yet seen on screen.**
+6. Wording: release altitude is a floor everywhere — "pickle before",
+   "release by", never "at". Basic path shows two equal toggles, Ingress and
+   Egress; degrees and headings live in Customize.
+
+### Design rules the user has stated (keep them)
+
+- **Never remove a knob from Customize.** Defaults hide complexity; they do
+  not remove control. Warn, do not block.
+- **Kneeboard = pictures**, same visual language as the planner map, no
+  cockpit switchology, max zoom with AP and TGT in frame (cards are small in
+  DCS).
+- **"Ingress from the left"** = turn left off the direct line at the action
+  point, run up the target's left flank, final turn *right* onto it.
+- The user is an aviation geek, not a developer: explain in aviation terms.
+- `Other Items/` at the repo root is a git-ignored drop zone for screenshots
+  and exports the user wants read.
+
+### START OF NEXT SESSION — eyeball, in this order
+
+1. Kneeboards → the dive card (v2): AP and TGT in frame, no label collisions.
+2. Add a second attack on the next target for the same pilot: the AP must
+   sit on the leg from the *previous target*.
+3. Pop-up 20° chip: map shows AP, POP, PDP, TRK, REL, TGT with the orange
+   pull-down arc; card side view shows climb, apex star, pull-down, hard deck.
+4. Customize on each form: Action point / Check turn / Ingress from; the
+   attack heading updates; a 40° check turn at 4.5 nm is refused for the dive.
+5. Level CCRP 20k: the action point is pushed out to ~9 nm with an
+   adjustment message — the user has not said whether that is right for JDAM.
+
+### Open items (not started)
+
+- Attack #1's egress should prefer a break toward attack #2's run-in when a
+  follow-on attack exists (user hinted; today egress is only threat-aware).
+- Fuze-dependent release floors (the handbook releases Mk-82 at 2,000 ft only
+  with a 4 s delay fuze; the tool has one frag min-safe per weapon).
+- Reference DB v3: the NTTR mission carries an **SA-5 site**, SA-13s and
+  ZU-23 trucks the tool cannot show (no rows); add rows + a P-19 EWR row.
+- Loadout from FragOrders pylons (plan §3); loft geometry (LABS, F-16 loft).
+- Dead code: `src/hooks/useAttackCalculator.ts` and the Rust
+  `calculate_popup_ccip` calculator (old pop-up model); `once_cell` in
+  Cargo.toml is unused.
+- M2 (map-first rail, threat palette, drag handles, exposure colouring) — and
+  the queued idea: selecting a threat in the list highlights and flies to it.
+
+---
+
+**Previous session:** 2026-09-05 → 06 (late night)
 
 **The revamp has started. Read `docs/REVAMP_PLAN.md` first — it is the
 approved plan and the order of work (M0 → M1 → M2 → M3).**

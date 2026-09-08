@@ -3,7 +3,7 @@
     "id": "f14.dive.ccip30",
     "aircraftId": "f14",
     "name": "30° Dive CCIP",
-    "summary": "Computer Pilot mode, 30° dive from 8,000 ft, pickle at 4,500 ft",
+    "summary": "Computer Pilot mode, 30° dive from 8,000 ft, pickle before 4,500 ft",
     "geometry": "dive",
     "deliveryMode": "CCIP",
     "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb"],
@@ -12,7 +12,7 @@
     "procedure": [
       "A/G, delivery mode COMPUTER PILOT (CCIP), station and quantity set",
       "Roll in, pipper short of the target and let it walk up",
-      "Pickle at release altitude — 4 G recovery"
+      "Pickle by release altitude, no lower — 4 G recovery"
     ],
     "source": "community practice (Heatblur F-14 manual)",
     "verified": false
@@ -21,7 +21,7 @@
     "id": "f14.dive.ccip45",
     "aircraftId": "f14",
     "name": "45° Dive CCIP",
-    "summary": "Steep dive from 12,000 ft, pickle at 6,500 ft",
+    "summary": "Steep dive from 12,000 ft, pickle before 6,500 ft",
     "geometry": "dive",
     "deliveryMode": "CCIP",
     "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb"],
@@ -29,7 +29,7 @@
     "procedure": [
       "A/G, COMPUTER PILOT (CCIP)",
       "Steep roll-in — the Tomcat builds speed fast, throttle back",
-      "Pickle at release altitude — 5 G recovery, do not press"
+      "Pickle by release altitude, no lower — 5 G recovery, do not press"
     ],
     "source": "community practice (Heatblur F-14 manual)",
     "verified": false
@@ -37,16 +37,16 @@
   {
     "id": "f14.popup.std",
     "aircraftId": "f14",
-    "name": "Pop-up 4 nm",
-    "summary": "Low run-in, pop at 4 nm to a 7,500 ft apex, 20° dive",
+    "name": "Pop-up 20°",
+    "summary": "500 ft run-in, pop to a 30° climb, pull down onto a 20° dive, release by 3,500 ft",
     "geometry": "popup",
     "deliveryMode": "CCIP",
     "weaponClasses": ["bomb_ld", "bomb_hd", "cluster"],
-    "params": { "runInAltitude_ft": 500, "runInSpeed_ktas": 480, "popDistance_nm": 4, "apexAltitude_ft": 7500, "diveAngle_deg": 20, "offsetAngle_deg": 20, "offsetDirection": "right", "minAltitude_ft": 500 },
+    "params": { "runInAltitude_ft": 500, "runInSpeed_ktas": 480, "diveAngle_deg": 20, "releaseAltitude_ft": 3500, "trackingTime_s": 5, "pullG": 3.5, "minAltitude_ft": 500 },
     "procedure": [
       "A/G, COMPUTER PILOT set before the IP",
       "At the pop: pull, MAX power, check the apex altitude",
-      "Roll in, pipper on, pickle at release altitude"
+      "Roll in, pipper on, pickle by release altitude, no lower"
     ],
     "source": "community practice",
     "verified": false

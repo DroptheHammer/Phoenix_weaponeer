@@ -2,6 +2,7 @@ import type { AttackProfile } from '../types/attack.types';
 import type { DbWeapon } from '../types/weapon.types';
 import type { WeaponClass } from '../types/profile.types';
 import { WEAPON_CLASS_LABEL } from './weaponClass';
+import { isStraightIn, STRAIGHT_IN_TOLERANCE_DEG } from './attackGeometry';
 
 /**
  * Sanity checks on an attack: does the profile the pilot is about to fly
@@ -12,6 +13,10 @@ import { WEAPON_CLASS_LABEL } from './weaponClass';
  * editor's old constraint block read camelCase fields that the DB never
  * returns, so it always showed a green tick — which is how a card came to
  * print a 3,500 ft release under a 4,500 ft min-safe.
+ *
+ * Geometry is checked too: an attack heading within a few degrees of the
+ * IP→target line is the predictable straight-in run the defence is waiting
+ * for. That is a warning, not a stop — the planner may have a reason.
  *
  * `error` means the attack as written should not be flown; `warn` means a
  * pilot should look twice. The kneeboard prints both as ⚠ lines.
@@ -35,6 +40,8 @@ export interface AttackCheckInput {
   allowedClasses?: WeaponClass[];
   /** The profile's own delivery mode; without it (hand-built attack) CCIP is assumed for visual profiles */
   sourceProfileName?: string;
+  /** Bearing IP → target, when the route has an IP. Enables the straight-in check. */
+  directBearing_deg?: number;
 }
 
 interface ReleasePoint {
@@ -50,6 +57,28 @@ function isNum(v: unknown): v is number {
 
 function ft(v: number): string {
   return `${Math.round(v).toLocaleString()} ft`;
+}
+
+function hdg(v: number): string {
+  return `${Math.round(v).toString().padStart(3, '0')}°`;
+}
+
+/** The heading the attack axis is flown on, by profile type. */
+function attackHeadingOf(profile: Partial<AttackProfile>): number | undefined {
+  const p = profile as Record<string, unknown>;
+  switch (profile.type) {
+    case 'popup_ccip':
+      // For a pop-up the predictable line is the approach, not the attack axis.
+      return isNum(p.approachHeading_deg) ? p.approachHeading_deg : isNum(p.runInHeading_deg) ? p.runInHeading_deg : undefined;
+    case 'dive_ccip':
+    case 'level_ccrp':
+    case 'loft_ccrp':
+      return isNum(p.ingressHeading_deg) ? p.ingressHeading_deg : undefined;
+    case 'standoff':
+      return isNum(p.releaseHeading_deg) ? p.releaseHeading_deg : undefined;
+    default:
+      return undefined;
+  }
 }
 
 /** The altitude and speed the pilot will actually release at, by profile type. */
@@ -101,6 +130,25 @@ export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
     checks.push({
       level: 'warn',
       text: `Hard deck ${ft(rp.hardDeck_agl)} AGL is above the ${ft(rp.alt_agl)} release`,
+    });
+  }
+
+  // A pop-up whose check turn is too wide for its action range never gets its
+  // pull-down onto the target.
+  if (profile.type === 'popup_ccip' && (profile as { geometryCloses?: boolean }).geometryCloses === false) {
+    checks.push({
+      level: 'warn',
+      text: 'Pop-up geometry does not close: the check turn is too wide for the action range — reduce it or move the action point out',
+    });
+  }
+
+  // Running in along the IP→target line tells the defence where the jet will
+  // be. Auto-build never does this; a planner typing a heading can.
+  const heading = attackHeadingOf(profile);
+  if (isNum(heading) && isNum(input.directBearing_deg) && isStraightIn(heading, input.directBearing_deg)) {
+    checks.push({
+      level: 'warn',
+      text: `Predictable straight-in attack: ${profile.type === 'popup_ccip' ? 'approach' : 'heading'} ${hdg(heading)} is within ${STRAIGHT_IN_TOLERANCE_DEG}° of the IP→target line (${hdg(input.directBearing_deg)}). Advise against — make the angle off greater`,
     });
   }
 

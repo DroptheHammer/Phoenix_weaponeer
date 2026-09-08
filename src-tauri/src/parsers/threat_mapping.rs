@@ -1,114 +1,116 @@
 //! DCS threat unit mapping
 //!
-//! Maps DCS unit type names to normalized threat system identifiers
-//! for database lookup.
+//! Maps a DCS unit type name (the `type` field of a unit in a mission file,
+//! e.g. "SA-11 Buk LN 9A310M1" or "Tor 9A331") to the `dcs_unit_name` key of
+//! a row in the bundled threat database.
+//!
+//! Matching is done on whole tokens, never on raw substrings. A unit name and
+//! every rule pattern are reduced to the same canonical form first: lower-case,
+//! split on anything that is not a letter or digit. A rule matches when its
+//! tokens appear as a contiguous run inside the unit's tokens. So the SA-8
+//! rule `9A33` matches "Osa 9A33 ln" but can never match the SA-15's
+//! "Tor 9A331", and the rule `ZSU-57-2` matches DCS's "ZSU_57_2" even though
+//! the separators differ.
+//!
+//! When several rules match, the most specific wins: more tokens first, then
+//! more characters, then position in the table. The table is a plain ordered
+//! slice, so the answer is the same on every launch.
+//!
+//! History: the first implementation walked a `HashMap` with `str::contains`.
+//! Hash-map iteration order is randomised per process, and `9A33` is a
+//! substring of `9A331`, so the NTTR mission's Tor imported as an SA-8 on some
+//! launches and an SA-15 on others. The token rule and the fixed order are
+//! both deliberate; keep them.
 
-use std::collections::HashMap;
-use once_cell::sync::Lazy;
-
-/// Mapping from DCS unit type patterns to normalized threat names
-/// The key is a pattern that appears in the DCS unit type string
-/// The value is the normalized name used in the database (dcs_unit_name field)
-static DCS_THREAT_MAPPINGS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
-    let mut m = HashMap::new();
-
-    // S-300 variants
-    m.insert("S-300PS", "S-300PS");
-    m.insert("S-300", "S-300PS");
-
-    // SA-11 Buk variants
-    m.insert("Buk", "Buk");
-    m.insert("SA-11", "Buk");
-    m.insert("9A310M1", "Buk");
-
+/// (pattern, normalized) rules. `normalized` is the `dcs_unit_name` of a
+/// threat_systems row in the reference database.
+///
+/// Patterns are written the way DCS spells them where a DCS name is known;
+/// separators do not matter for matching (see module docs) but keeping the
+/// DCS spelling makes the table greppable against a mission file.
+static DCS_THREAT_RULES: &[(&str, &str)] = &[
+    // SA-10 / S-300PS. Every S-300 unit name in DCS starts with "S-300PS".
+    ("S-300PS", "S-300PS"),
+    ("S-300", "S-300PS"),
+    ("5P85C", "S-300PS"), // launcher
+    ("5P85D", "S-300PS"), // launcher
+    // SA-11 Buk
+    ("Buk", "Buk"),
+    ("SA-11", "Buk"),
+    ("9A310M1", "Buk"), // launcher
+    ("9S18M1", "Buk"),  // search radar
+    ("9S470M1", "Buk"), // command post
     // SA-6 Kub
-    m.insert("Kub", "Kub");
-    m.insert("SA-6", "Kub");
-    m.insert("2P25", "Kub");
+    ("Kub", "Kub"),
+    ("SA-6", "Kub"),
+    ("2P25", "Kub"), // launcher
+    ("1S91", "Kub"), // Straight Flush radar
+    // SA-2 Guideline. DCS spells the launcher "S_75M_Volhov" and the Fan Song
+    // "SNR_75V"; neither contains "S-75" as a token.
+    ("S-75", "S-75"),
+    ("SA-2", "S-75"),
+    ("S_75M_Volhov", "S-75"),
+    ("Volhov", "S-75"),
+    ("SNR_75V", "S-75"),
+    // SA-3 Goa. DCS: "5p73 s-125 ln", "snr s-125 tr".
+    ("S-125", "S-125"),
+    ("SA-3", "S-125"),
+    ("5P73", "S-125"),
+    // P-19 Flat Face search radar. DCS names it "p-19 s-125 sr", but the SA-2
+    // template uses the same radar, so on its own it must not claim an SA-3
+    // site: the NTTR mission's two SA-2 sites imported as SA-3 because of it.
+    // The five-token DCS name outranks the two-token "S-125" rule above. There
+    // is no P-19 database row yet, so it imports as Unknown and the frontend
+    // drops it; an EWR row for it is the right follow-up.
+    ("p-19 s-125 sr", "P-19"),
+    // SA-8 Osa / Gecko. DCS: "Osa 9A33 ln".
+    ("Osa", "Osa"),
+    ("SA-8", "Osa"),
+    ("9A33", "Osa"),
+    // SA-15 Tor / Gauntlet. DCS: "Tor 9A331".
+    ("Tor", "Tor"),
+    ("SA-15", "Tor"),
+    ("9A331", "Tor"),
+    // SA-19 Tunguska. DCS: "2S6 Tunguska".
+    ("Tunguska", "Tunguska"),
+    ("SA-19", "Tunguska"),
+    ("2S6", "Tunguska"),
+    // AAA
+    ("ZSU-23-4", "ZSU-23-4"),
+    ("Shilka", "ZSU-23-4"),
+    ("ZSU_57_2", "ZSU-57-2"), // DCS spelling
+    ("ZSU-57-2", "ZSU-57-2"),
+    ("S-60", "S-60"), // DCS: "S-60_Type59_Artillery"
+    // MANPADS. DCS: "SA-18 Igla manpad", "SA-18 Igla-S manpad", "... comm".
+    ("Igla", "SA-18 Igla"),
+    ("SA-18", "SA-18 Igla"),
+    ("9K38", "SA-18 Igla"),
+    ("Stinger", "Stinger"),
+    ("FIM-92", "Stinger"),
+    // EWR. DCS: "1L13 EWR", "55G6 EWR".
+    ("1L13", "1L13"),
+    ("55G6", "55G6"),
+    ("Nebo", "55G6"),
+    // Western and other systems. Recognised so the import can name them; the
+    // reference database has no rows for these yet, so they import as Unknown.
+    ("Gepard", "Gepard"),
+    ("Flakpanzer", "Gepard"),
+    ("Roland", "Roland"),
+    ("Hawk", "Hawk"),
+    ("MIM-23", "Hawk"),
+    ("Patriot", "Patriot"),
+    ("MIM-104", "Patriot"),
+    ("NASAMS", "NASAMS"),
+    ("Rapier", "Rapier"),
+    ("Strela-10", "Strela-10"),
+    ("Strela-10M3", "Strela-10"), // DCS spelling
+    ("SA-13", "Strela-10"),
+    ("9A35", "Strela-10"),
+];
 
-    // SA-10 (S-300) components
-    m.insert("5P85", "S-300PS"); // Launcher
-
-    // SA-2 Guideline
-    m.insert("S-75", "S-75");
-    m.insert("SA-2", "S-75");
-    m.insert("5P73", "S-75");
-
-    // SA-3 Goa
-    m.insert("S-125", "S-125");
-    m.insert("SA-3", "S-125");
-    m.insert("5P73", "S-125");
-
-    // SA-8 Osa/Gecko
-    m.insert("Osa", "Osa");
-    m.insert("SA-8", "Osa");
-    m.insert("9A33", "Osa");
-
-    // SA-15 Tor
-    m.insert("Tor", "Tor");
-    m.insert("SA-15", "Tor");
-    m.insert("9A331", "Tor");
-
-    // SA-19 Tunguska
-    m.insert("Tunguska", "Tunguska");
-    m.insert("SA-19", "Tunguska");
-    m.insert("2S6", "Tunguska");
-
-    // AAA - ZSU-23-4 Shilka
-    m.insert("ZSU-23-4", "ZSU-23-4");
-    m.insert("Shilka", "ZSU-23-4");
-
-    // AAA - ZSU-57-2
-    m.insert("ZSU-57-2", "ZSU-57-2");
-
-    // AAA - S-60
-    m.insert("S-60", "S-60");
-    m.insert("S_60", "S-60");
-
-    // MANPADS - Igla
-    m.insert("Igla", "SA-18 Igla");
-    m.insert("SA-18", "SA-18 Igla");
-    m.insert("9K38", "SA-18 Igla");
-
-    // MANPADS - Stinger
-    m.insert("Stinger", "Stinger");
-    m.insert("FIM-92", "Stinger");
-
-    // EWR systems
-    m.insert("1L13", "1L13");
-    m.insert("55G6", "55G6");
-    m.insert("Nebo", "55G6");
-
-    // Gepard
-    m.insert("Gepard", "Gepard");
-    m.insert("Flakpanzer", "Gepard");
-
-    // Roland
-    m.insert("Roland", "Roland");
-
-    // Hawk
-    m.insert("Hawk", "Hawk");
-    m.insert("MIM-23", "Hawk");
-
-    // Patriot
-    m.insert("Patriot", "Patriot");
-    m.insert("MIM-104", "Patriot");
-
-    // NASAMS
-    m.insert("NASAMS", "NASAMS");
-
-    // Rapier
-    m.insert("Rapier", "Rapier");
-
-    // SA-13 Strela (Gopher)
-    m.insert("Strela-10", "Strela-10");
-    m.insert("SA-13", "Strela-10");
-    m.insert("9A35", "Strela-10");
-
-    m
-});
-
-/// Categories of DCS units that are considered threats
+/// Coarse pre-filter: unit type names that might be a threat at all. Anything
+/// passing this but failing `get_threat_info` is imported with Unknown
+/// confidence so the planner can see it and decide.
 static THREAT_CATEGORIES: &[&str] = &[
     // SAM systems (vehicle category)
     "SAM",
@@ -150,21 +152,60 @@ static THREAT_CATEGORIES: &[&str] = &[
     "Radar",
 ];
 
+/// Canonical token form: lower-case, split on anything that is not a letter or
+/// a digit. "SA-11 Buk LN 9A310M1", "SA-11_Buk_LN_9A310M1" and
+/// "sa-11 buk ln 9a310m1" all reduce to the same list.
+fn tokens(name: &str) -> Vec<String> {
+    name.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_lowercase())
+        .collect()
+}
+
+/// True when `needle` appears as a contiguous run of whole tokens in `hay`.
+fn contains_run(hay: &[String], needle: &[String]) -> bool {
+    !needle.is_empty() && hay.windows(needle.len()).any(|window| window == needle)
+}
+
+/// The rule that best describes a unit type, if any.
+///
+/// Returns `(pattern, normalized, exact)` where `exact` means the unit name is
+/// the pattern and nothing else.
+fn best_rule(dcs_unit_type: &str) -> Option<(&'static str, &'static str, bool)> {
+    let unit = tokens(dcs_unit_type);
+    if unit.is_empty() {
+        return None;
+    }
+
+    let mut best: Option<((usize, usize), &'static str, &'static str)> = None;
+    for (pattern, normalized) in DCS_THREAT_RULES {
+        let needle = tokens(pattern);
+        if !contains_run(&unit, &needle) {
+            continue;
+        }
+        // Specificity: token count, then character count. Strict `>` keeps the
+        // earlier table entry on a tie, so the order is fully determined.
+        let key = (needle.len(), pattern.len());
+        if best.map_or(true, |(best_key, _, _)| key > best_key) {
+            best = Some((key, pattern, normalized));
+        }
+    }
+
+    best.map(|(_, pattern, normalized)| {
+        let exact = tokens(pattern) == unit;
+        (pattern, normalized, exact)
+    })
+}
+
 /// Normalize a DCS unit type name to our database format
 ///
 /// # Arguments
-/// * `dcs_unit_type` - The DCS unit type string (e.g., "SA-11_Buk_LN_9A310M1")
+/// * `dcs_unit_type` - The DCS unit type string (e.g., "SA-11 Buk LN 9A310M1")
 ///
 /// # Returns
 /// The normalized name for database lookup, or None if not a recognized threat
 pub fn normalize_dcs_unit_name(dcs_unit_type: &str) -> Option<&'static str> {
-    // Try exact mapping first
-    for (pattern, normalized) in DCS_THREAT_MAPPINGS.iter() {
-        if dcs_unit_type.contains(pattern) {
-            return Some(normalized);
-        }
-    }
-    None
+    best_rule(dcs_unit_type).map(|(_, normalized, _)| normalized)
 }
 
 /// Check if a DCS unit type is a threat system
@@ -175,6 +216,13 @@ pub fn normalize_dcs_unit_name(dcs_unit_type: &str) -> Option<&'static str> {
 /// # Returns
 /// true if this unit is potentially a threat
 pub fn is_threat_unit(dcs_unit_type: &str) -> bool {
+    // Anything the rule table knows is a threat by definition. The category
+    // list is a coarse widening for units we recognise as air defence but have
+    // no rule for; it used to be the only gate, which is why "SNR_75V" and
+    // "S_75M_Volhov" (no "S-75" substring) never reached the rules at all.
+    if best_rule(dcs_unit_type).is_some() {
+        return true;
+    }
     let upper = dcs_unit_type.to_uppercase();
     THREAT_CATEGORIES.iter().any(|cat| upper.contains(&cat.to_uppercase()))
 }
@@ -183,31 +231,18 @@ pub fn is_threat_unit(dcs_unit_type: &str) -> bool {
 ///
 /// # Returns
 /// Tuple of (normalized_name, confidence_score)
-/// confidence_score: 1.0 = exact match, 0.7 = pattern match, 0.4 = category match
+/// confidence_score: 1.0 = the name is exactly a known pattern,
+/// 0.9 = matched a specific (long) pattern, 0.7 = matched a short pattern
 pub fn get_threat_info(dcs_unit_type: &str) -> Option<(&'static str, f32)> {
-    // Check for exact pattern match
-    for (pattern, normalized) in DCS_THREAT_MAPPINGS.iter() {
-        if dcs_unit_type.contains(pattern) {
-            // Higher confidence for longer pattern matches
-            let confidence = if dcs_unit_type.eq_ignore_ascii_case(pattern) {
-                1.0
-            } else if pattern.len() > 5 {
-                0.9
-            } else {
-                0.7
-            };
-            return Some((normalized, confidence));
-        }
-    }
-
-    // Check if it's at least in a threat category
-    if is_threat_unit(dcs_unit_type) {
-        // Try to extract a reasonable name
-        // This is a fallback when we don't have an exact mapping
-        return None; // Return None so caller knows we don't have a mapping
-    }
-
-    None
+    let (pattern, normalized, exact) = best_rule(dcs_unit_type)?;
+    let confidence = if exact {
+        1.0
+    } else if pattern.len() > 5 {
+        0.9
+    } else {
+        0.7
+    };
+    Some((normalized, confidence))
 }
 
 /// Extract all threat units from a list of unit types
@@ -248,6 +283,114 @@ mod tests {
         assert_eq!(normalize_dcs_unit_name("S-300"), Some("S-300PS"));
     }
 
+    /// The bug that prompted the rewrite: "9A33" (SA-8 launcher) is a
+    /// substring of "9A331" (SA-15), and a substring match picked whichever
+    /// the hash map yielded first.
+    #[test]
+    fn tor_9a331_is_an_sa15_never_an_sa8() {
+        assert_eq!(normalize_dcs_unit_name("Tor 9A331"), Some("Tor"));
+        assert_eq!(normalize_dcs_unit_name("Osa 9A33 ln"), Some("Osa"));
+        // A bare designation that is a prefix of a longer one must not match.
+        assert_eq!(normalize_dcs_unit_name("9A3310"), None);
+    }
+
+    /// Feeding each pattern to the matcher must yield its own rule. This
+    /// catches a future entry whose pattern is swallowed by another rule, and
+    /// a duplicate pattern that points at a different system.
+    #[test]
+    fn no_rule_hijacks_another_rules_pattern() {
+        for (pattern, expected) in DCS_THREAT_RULES {
+            assert_eq!(
+                normalize_dcs_unit_name(pattern),
+                Some(*expected),
+                "pattern {pattern:?} did not resolve to its own rule"
+            );
+        }
+    }
+
+    /// Every SAM and AAA unit type name in test-data/nttr_redflag_viper1.json,
+    /// spelled exactly as DCS writes it.
+    #[test]
+    fn real_nttr_unit_names_resolve() {
+        let cases = [
+            ("SA-11 Buk CC 9S470M1", "Buk"),
+            ("SA-11 Buk LN 9A310M1", "Buk"),
+            ("SA-11 Buk SR 9S18M1", "Buk"),
+            ("Kub 1S91 str", "Kub"),
+            ("Kub 2P25 ln", "Kub"),
+            ("S-300PS 40B6M tr", "S-300PS"),
+            ("S-300PS 40B6MD sr", "S-300PS"),
+            ("S-300PS 54K6 cp", "S-300PS"),
+            ("S-300PS 5P85C ln", "S-300PS"),
+            ("S-300PS 5P85D ln", "S-300PS"),
+            ("S-300PS 64H6E sr", "S-300PS"),
+            ("SA-18 Igla-S comm", "SA-18 Igla"),
+            ("SA-18 Igla-S manpad", "SA-18 Igla"),
+            ("Tor 9A331", "Tor"),
+            ("ZSU-23-4 Shilka", "ZSU-23-4"),
+            ("ZSU_57_2", "ZSU-57-2"),
+            ("SNR_75V", "S-75"),
+            ("S_75M_Volhov", "S-75"),
+            ("snr s-125 tr", "S-125"),
+            ("5p73 s-125 ln", "S-125"),
+            // Shared search radar: identifies neither SA-2 nor SA-3 on its own.
+            ("p-19 s-125 sr", "P-19"),
+        ];
+        for (unit, expected) in cases {
+            assert_eq!(normalize_dcs_unit_name(unit), Some(expected), "unit {unit:?}");
+        }
+    }
+
+    #[test]
+    fn matching_ignores_case_and_separators() {
+        assert_eq!(normalize_dcs_unit_name("tor 9a331"), Some("Tor"));
+        assert_eq!(normalize_dcs_unit_name("TOR_9A331"), Some("Tor"));
+        assert_eq!(normalize_dcs_unit_name("5p73 s-125 ln"), Some("S-125"));
+        assert_eq!(normalize_dcs_unit_name("S_75M_Volhov"), Some("S-75"));
+        assert_eq!(normalize_dcs_unit_name("S-60_Type59_Artillery"), Some("S-60"));
+    }
+
+    #[test]
+    fn a_pattern_inside_a_longer_word_does_not_match() {
+        // "tor" inside "Predator", "osa" inside "Rosario"
+        assert_eq!(normalize_dcs_unit_name("Predator TrojanSpirit"), None);
+        assert_eq!(normalize_dcs_unit_name("Rosario"), None);
+        assert_eq!(normalize_dcs_unit_name("T-72B"), None);
+    }
+
+    /// The pre-filter must accept every unit the rule table can name. Before
+    /// this, the SA-2's Fan Song and Volhov launchers failed the category
+    /// substring test and the whole site was identified off its P-19 as SA-3.
+    #[test]
+    fn pre_filter_accepts_every_rule_pattern() {
+        for (pattern, _) in DCS_THREAT_RULES {
+            assert!(is_threat_unit(pattern), "pre-filter rejected {pattern:?}");
+        }
+        assert!(is_threat_unit("SNR_75V"));
+        assert!(is_threat_unit("S_75M_Volhov"));
+        assert!(is_threat_unit("ZSU_57_2"));
+    }
+
+    /// The real "Interdiction SA2" group from the NTTR mission, in file order.
+    #[test]
+    fn an_sa2_site_is_identified_as_s75_not_by_its_p19() {
+        let group = [
+            ("SA3-3-1", "SNR_75V"),
+            ("SA3-3-2", "S_75M_Volhov"),
+            ("SA3-3-3", "S_75M_Volhov"),
+            ("SA3-3-8", "SKP-11"),
+            ("SA3-3-9", "p-19 s-125 sr"),
+            ("SA3-3-10", "ATZ-10"),
+            ("SA3-3-11", "Ural-375"),
+        ];
+        let threats = extract_threats(group.into_iter());
+        let systems: Vec<Option<&str>> = threats.iter().map(|(_, _, n, _)| *n).collect();
+        assert!(systems.contains(&Some("S-75")), "got {systems:?}");
+        assert!(!systems.contains(&Some("S-125")), "P-19 claimed an SA-3: {systems:?}");
+        // Support trucks are not threats.
+        assert!(!threats.iter().any(|(_, t, _, _)| t == "ATZ-10" || t == "Ural-375" || t == "SKP-11"));
+    }
+
     #[test]
     fn test_is_threat_unit() {
         assert!(is_threat_unit("SA-11_Buk_LN_9A310M1"));
@@ -263,8 +406,9 @@ mod tests {
         assert_eq!(name, "Buk");
         assert!(confidence > 0.5);
 
-        let (name, _) = get_threat_info("ZSU-23-4").unwrap();
+        let (name, confidence) = get_threat_info("ZSU-23-4").unwrap();
         assert_eq!(name, "ZSU-23-4");
+        assert_eq!(confidence, 1.0, "an exact name is full confidence");
     }
 
     #[test]

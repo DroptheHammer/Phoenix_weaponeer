@@ -3,7 +3,7 @@
     "id": "f16c.dive.ccip30",
     "aircraftId": "f16c",
     "name": "30° Dive CCIP",
-    "summary": "Roll in from 8,000 ft, 30° dive, pickle at 4,500 ft",
+    "summary": "Roll in from 8,000 ft, 30° dive, pickle before 4,500 ft",
     "geometry": "dive",
     "deliveryMode": "CCIP",
     "weaponClasses": [
@@ -29,7 +29,7 @@
     "procedure": [
       "A-G master mode, CCIP selected, correct station and ripple settings",
       "Roll in, put the pipper short of the target and let it walk up",
-      "Pickle at release altitude — 4 G recovery, jink on egress"
+      "Pickle by release altitude, no lower — 4 G recovery, jink on egress"
     ],
     "source": "community practice (Chuck's Guide F-16C, 476th vFG battle book pattern)",
     "verified": false
@@ -59,7 +59,7 @@
     "procedure": [
       "A-G master mode, CCIP selected",
       "Steep roll-in — expect rapid speed build, throttle back as needed",
-      "Pickle at release altitude — 5 G recovery, do not press"
+      "Pickle by release altitude, no lower — 5 G recovery, do not press"
     ],
     "source": "community practice (Chuck's Guide F-16C)",
     "verified": false
@@ -116,7 +116,7 @@
     "procedure": [
       "High-drag / retarded bombs only — low-drag bombs will frag you",
       "A-G master mode, CCIP selected",
-      "Pipper on, pickle at release altitude, stay low on egress"
+      "Pipper on, pickle by release altitude, no lower, stay low on egress"
     ],
     "source": "476th vFG battle book pattern (LALD)",
     "verified": false
@@ -124,8 +124,8 @@
   {
     "id": "f16c.popup.std",
     "aircraftId": "f16c",
-    "name": "Pop-up 4 nm",
-    "summary": "Low run-in, pop at 4 nm to a 7,500 ft apex, 20° dive",
+    "name": "Pop-up 20°",
+    "summary": "500 ft run-in, pop to a 30° climb, pull down onto a 20° dive, release by 3,500 ft",
     "geometry": "popup",
     "deliveryMode": "CCIP",
     "weaponClasses": [
@@ -138,17 +138,16 @@
     "params": {
       "runInAltitude_ft": 500,
       "runInSpeed_ktas": 480,
-      "popDistance_nm": 4,
-      "apexAltitude_ft": 7500,
       "diveAngle_deg": 20,
-      "offsetAngle_deg": 20,
-      "offsetDirection": "right",
+      "releaseAltitude_ft": 3500,
+      "trackingTime_s": 5,
+      "pullG": 3.5,
       "minAltitude_ft": 500
     },
     "procedure": [
       "A-G master mode, CCIP selected before the IP",
       "At the pop: pull, MAX power, check the apex altitude",
-      "Roll in, pipper on, pickle at release altitude"
+      "Roll in, pipper on, pickle by release altitude, no lower"
     ],
     "source": "validated in-app test profile (4 nm / 7,500 ft apex / 20°), release numbers estimated",
     "verified": false

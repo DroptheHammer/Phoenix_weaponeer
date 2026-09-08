@@ -26,12 +26,18 @@ export type WeaponClass = 'bomb_ld' | 'bomb_hd' | 'lgb' | 'jdam' | 'rocket' | 'g
 
 export const SUPPORTED_GEOMETRIES: ProfileGeometry[] = ['level', 'dive', 'popup'];
 
-export interface LevelParams {
+/** Optional run-in anchors any visual profile may carry; defaults apply when absent. */
+export interface ActionPointParams {
+  actionRange_nm?: number; // range from the target for the check turn; default 4.5
+  offsetAngle_deg?: number; // the check turn; default 20° (dive, level) or the handbook's guide (pop-up)
+}
+
+export interface LevelParams extends ActionPointParams {
   releaseAltitude_ft: number; // AGL
   releaseSpeed_ktas: number;
 }
 
-export interface DiveParams {
+export interface DiveParams extends ActionPointParams {
   rollInAltitude_ft: number; // AGL
   diveAngle_deg: number;
   releaseAltitude_ft: number; // AGL — floored to the weapon at auto-build time
@@ -40,14 +46,18 @@ export interface DiveParams {
   ingressAltitude_ft?: number; // AGL, before roll-in; defaults to roll-in altitude
 }
 
-export interface PopupParams {
+/**
+ * Pop-up inputs, the handbook's way (docs/DELIVERY_PLANNING.md): the pilot
+ * states dive angle and release floor; apex, pull-down altitude, climb angle,
+ * angle-off and pop distance are derived at auto-build time.
+ */
+export interface PopupParams extends ActionPointParams {
   runInAltitude_ft: number; // AGL
-  runInSpeed_ktas: number;
-  popDistance_nm: number;
-  apexAltitude_ft: number; // AGL
+  runInSpeed_ktas: number; // TAS through the profile
   diveAngle_deg: number;
-  offsetAngle_deg?: number;
-  offsetDirection?: 'left' | 'right';
+  releaseAltitude_ft: number; // AGL floor — raised to the weapon at auto-build time
+  trackingTime_s?: number; // wings-level tracking before release; default 5
+  pullG?: number; // pull-up and pull-down; default 3.5
   minAltitude_ft: number; // hard deck, AGL
 }
 

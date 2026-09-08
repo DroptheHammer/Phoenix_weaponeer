@@ -3,7 +3,7 @@
     "id": "a10c.dive.ccip30",
     "aircraftId": "a10c",
     "name": "30° Dive CCIP",
-    "summary": "Roll in from 7,000 ft, 30° dive, pickle at 4,000 ft",
+    "summary": "Roll in from 7,000 ft, 30° dive, pickle before 4,000 ft",
     "geometry": "dive",
     "deliveryMode": "CCIP",
     "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb"],
@@ -12,7 +12,7 @@
     "procedure": [
       "DSMS: profile selected, CCIP, correct release settings",
       "Roll in, pipper short of the target and let it walk up",
-      "Pickle at release altitude — 3.5 G recovery, jink on egress"
+      "Pickle by release altitude, no lower — 3.5 G recovery, jink on egress"
     ],
     "source": "community practice (Chuck's Guide A-10C II)",
     "verified": false
@@ -21,7 +21,7 @@
     "id": "a10c.dive.ccip45",
     "aircraftId": "a10c",
     "name": "45° Dive CCIP",
-    "summary": "Steep dive from 10,000 ft, pickle at 5,500 ft",
+    "summary": "Steep dive from 10,000 ft, pickle before 5,500 ft",
     "geometry": "dive",
     "deliveryMode": "CCIP",
     "weaponClasses": ["bomb_ld", "bomb_hd", "cluster", "lgb"],
@@ -29,7 +29,7 @@
     "procedure": [
       "DSMS: profile selected, CCIP",
       "Steep roll-in — watch speed, throttle back",
-      "Pickle at release altitude — 4 G recovery"
+      "Pickle by release altitude, no lower — 4 G recovery"
     ],
     "source": "community practice (Chuck's Guide A-10C II)",
     "verified": false

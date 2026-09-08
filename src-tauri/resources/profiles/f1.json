@@ -3,7 +3,7 @@
     "id": "f1.dive.man30",
     "aircraftId": "f1",
     "name": "30° Manual Dive",
-    "summary": "Fixed reticle, 30° dive, 450 kt, release at 4,500 ft",
+    "summary": "Fixed reticle, 30° dive, 450 kt, release by 4,500 ft",
     "geometry": "dive",
     "deliveryMode": "MAN",
     "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
@@ -22,7 +22,7 @@
     "id": "f1.dive.man45",
     "aircraftId": "f1",
     "name": "45° Manual Dive",
-    "summary": "Fixed reticle, steep dive from 12,000 ft, release at 6,500 ft",
+    "summary": "Fixed reticle, steep dive from 12,000 ft, release by 6,500 ft",
     "geometry": "dive",
     "deliveryMode": "MAN",
     "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
@@ -48,7 +48,7 @@
     "procedure": [
       "Sight in CCIP bombing mode, station selected",
       "Roll in, put the pipper short of the target and let it walk up",
-      "Pickle at release altitude — 4 G recovery"
+      "Pickle by release altitude, no lower — 4 G recovery"
     ],
     "source": "community practice (Aerges Mirage F1 manual)",
     "verified": false

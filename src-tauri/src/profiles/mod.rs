@@ -170,6 +170,17 @@ impl DeliveryProfile {
         };
 
         let result: Result<(), String> = (|| {
+            // Any visual profile may anchor its run-in: a round action range and check turn.
+            if let Some(range) = opt_num(p, "actionRange_nm")? {
+                if !(1.0..=20.0).contains(&range) {
+                    return Err(format!("params.actionRange_nm {range} is outside 1–20 nm"));
+                }
+            }
+            if let Some(turn) = opt_num(p, "offsetAngle_deg")? {
+                if !(0.0..=90.0).contains(&turn) {
+                    return Err(format!("params.offsetAngle_deg {turn}° is outside 0–90°"));
+                }
+            }
             match self.geometry.as_str() {
                 "level" => {
                     positive("releaseAltitude_ft")?;
@@ -189,18 +200,30 @@ impl DeliveryProfile {
                         }
                     }
                 }
+                // The handbook's inputs (docs/DELIVERY_PLANNING.md): dive angle
+                // and release floor; apex, pull-down and pop distance are derived
+                // in the frontend at auto-build time, so they are not stored here.
                 "popup" => {
                     let run_in = num(p, "runInAltitude_ft")?;
-                    let apex = positive("apexAltitude_ft")?;
                     positive("runInSpeed_ktas")?;
-                    positive("popDistance_nm")?;
                     dive_angle("diveAngle_deg")?;
+                    let release = positive("releaseAltitude_ft")?;
                     let hard_deck = num(p, "minAltitude_ft")?;
                     if run_in < 0.0 || hard_deck < 0.0 {
                         return Err("run-in and hard deck must not be negative".into());
                     }
-                    if apex <= run_in {
-                        return Err(format!("apex {apex} ft is not above run-in {run_in} ft"));
+                    if release <= run_in {
+                        return Err(format!("release {release} ft is not above run-in {run_in} ft"));
+                    }
+                    if let Some(t) = opt_num(p, "trackingTime_s")? {
+                        if !(1.0..=15.0).contains(&t) {
+                            return Err(format!("params.trackingTime_s {t} is outside 1–15 s"));
+                        }
+                    }
+                    if let Some(g) = opt_num(p, "pullG")? {
+                        if !(1.0..=9.0).contains(&g) {
+                            return Err(format!("params.pullG {g} is outside 1–9"));
+                        }
                     }
                 }
                 "loft" => {

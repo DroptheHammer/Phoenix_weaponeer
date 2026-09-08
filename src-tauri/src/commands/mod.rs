@@ -646,16 +646,27 @@ fn infer_waypoint_type(name: Option<&str>, point_type: Option<&str>, action: Opt
     "nav".to_string()
 }
 
-/// Deduplicate threats by approximate position (within ~500m)
+/// Collapse a site's many units into one marker per weapon system.
+///
+/// A Buk battery is one search radar, one command post and four launchers
+/// spread over a few hundred metres; the planner wants one Buk, not six. So
+/// units of the *same* system within ~500 m of one already kept are dropped.
+///
+/// Units of a *different* system at the same spot are kept. Sites routinely
+/// mix systems: the NTTR mission's SA15 compound is a Tor with a ZSU-57-2 and
+/// three Igla teams inside 150 m of it, and each is a different envelope a
+/// low-level attacker has to respect. Position-only dedup used to drop all of
+/// them because the Tor happened to be listed first.
 fn deduplicate_threats(threats: Vec<ProcessedThreat>) -> Vec<ProcessedThreat> {
     let mut result: Vec<ProcessedThreat> = Vec::new();
     let threshold = 0.005; // ~500m in degrees
 
     for threat in threats {
         let dominated = result.iter().any(|existing| {
+            let same_system = existing.system_id == threat.system_id;
             let lat_diff = (existing.position.lat - threat.position.lat).abs();
             let lon_diff = (existing.position.lon - threat.position.lon).abs();
-            lat_diff < threshold && lon_diff < threshold
+            same_system && lat_diff < threshold && lon_diff < threshold
         });
 
         if !dominated {
@@ -831,6 +842,42 @@ fn chrono_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn threat(system_id: Option<&str>, unit_type: &str, lat: f64, lon: f64) -> ProcessedThreat {
+        ProcessedThreat {
+            unit_type: unit_type.to_string(),
+            group_name: "SA15".to_string(),
+            position: ProcessedCoordinates { lat, lon },
+            system_id: system_id.map(str::to_string),
+            system_name: system_id.map(str::to_string),
+            confidence: ThreatMatchConfidence::High,
+        }
+    }
+
+    #[test]
+    fn dedup_collapses_one_systems_units_but_keeps_colocated_different_systems() {
+        // 0.001 deg is ~100 m: the SA15 compound's spacing.
+        let site = vec![
+            threat(Some("sa15"), "Tor 9A331", 37.149, -116.797),
+            threat(Some("zsu57"), "ZSU_57_2", 37.150, -116.797),
+            threat(Some("sa18"), "SA-18 Igla-S manpad", 37.150, -116.798),
+            threat(Some("sa18"), "SA-18 Igla-S manpad", 37.151, -116.798),
+            threat(Some("sa18"), "SA-18 Igla-S comm", 37.150, -116.797),
+        ];
+        let kept = deduplicate_threats(site);
+        let ids: Vec<Option<&str>> = kept.iter().map(|t| t.system_id.as_deref()).collect();
+        assert_eq!(ids, vec![Some("sa15"), Some("zsu57"), Some("sa18")]);
+    }
+
+    #[test]
+    fn dedup_keeps_the_same_system_when_sites_are_far_apart() {
+        let two_sites = vec![
+            threat(Some("sa11"), "SA-11 Buk SR 9S18M1", 37.45, -117.20),
+            threat(Some("sa11"), "SA-11 Buk LN 9A310M1", 37.452, -117.201), // same site
+            threat(Some("sa11"), "SA-11 Buk SR 9S18M1", 37.15, -116.81),   // 20 nm away
+        ];
+        assert_eq!(deduplicate_threats(two_sites).len(), 2);
+    }
 
     fn infer(name: &str) -> String {
         infer_waypoint_type(Some(name), Some("Turning Point"), Some("Turning Point"))
