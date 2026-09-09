@@ -2,6 +2,8 @@ import type { KneeboardCard, KneeboardThreatItem } from '../types/kneeboard.type
 import type { AttackPicture, LabelSide, SideProfile } from '../types/attackPicture.types';
 import { LINE_STYLE, MARKER_COLOR, LABEL_STYLE, pictureFitPoints } from './attackPicture';
 import { layoutLabels, leaderLine, edgeCrossing, type LabelRequest, type PlacedLabel, type Rect } from './labelLayout';
+import { visibleArcSpans } from './arcClip';
+import { CARD_THREAT_ROWS } from './cardThreats';
 
 export const KNEEBOARD_WIDTH = 768;
 export const KNEEBOARD_HEIGHT = 1024;
@@ -139,7 +141,7 @@ function drawWeaponSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y
 // ─── Threats section (compact rows) ──────────────────────────────────────────
 
 function drawThreatsSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y: number): number {
-  const threats = card.threatSection.threats.slice(0, 4);
+  const threats = card.threatSection.threats.slice(0, CARD_THREAT_ROWS);
   y = sectionStrip(ctx, 'THREATS IN AREA', y, 'BRG / DIST FROM TGT / MAX RNG');
   if (threats.length === 0) {
     txt(ctx, 'No threats within 60nm', 10, y + 14, { size: 12, family: MONO, color: C.textGray });
@@ -300,19 +302,27 @@ function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, thr
     const c = { x: Math.sin(b) * t.distance_nm, y: Math.cos(b) * t.distance_nm };
     const px = cx + (c.x - mx) * scale, py = cy - (c.y - my) * scale;
     const r = t.maxRange_nm * scale;
-    if (px + r < box.x || px - r > box.x + box.w || py + r < box.y || py - r > box.y + box.h) continue;
     // Outline only, no fill. A target sitting inside four engagement envelopes
     // used to wash the whole picture pink and hide the attack under it. The
     // edge is the part a pilot can fly to -- it says where the run-in crosses
-    // into the ring -- and a ring large enough to swallow the frame now draws
+    // into the ring -- and a ring large enough to swallow the frame draws
     // nothing at all rather than tinting everything. That you are inside it is
     // already said, in bold red, by the THREATS IN AREA table above.
-    ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
+    //
+    // Only the spans genuinely inside the box are stroked. Handing the canvas
+    // a whole circle and trusting ctx.clip() did not hold: a ring centred far
+    // below the diagram was stroked in full, across the threat table and the
+    // header. See visibleArcSpans.
+    const spans = visibleArcSpans(px, py, r, box);
+    if (!spans.length) continue;
     ctx.strokeStyle = C.threatRing;
     ctx.lineWidth = 1.5;
     ctx.setLineDash([]);
-    ctx.stroke();
+    for (const [a0, a1] of spans) {
+      ctx.beginPath();
+      ctx.arc(px, py, r, a0, a1);
+      ctx.stroke();
+    }
   }
 
   for (const line of picture.lines) strokePath(ctx, line.points.map(toPx), LINE_STYLE[line.style], 1.1);
@@ -558,7 +568,7 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
     const headingText = `ATTACK HDG ${fmtHdg(diagram.attackHeading_deg)}   ·   EGRESS ${diagram.egressDirection.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}`;
     if (diagram.picture) {
       y = sectionStrip(ctx, 'ATTACK — NORTH UP', y, headingText);
-      drawPlanView(ctx, diagram.picture, card.threatSection.threats, { x: 0, y, w: KNEEBOARD_WIDTH, h: planH });
+      drawPlanView(ctx, diagram.picture, card.threatSection.threats.slice(0, CARD_THREAT_ROWS), { x: 0, y, w: KNEEBOARD_WIDTH, h: planH });
       y += planH;
       hLine(ctx, y, C.divider);
       y += 1;

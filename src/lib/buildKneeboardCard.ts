@@ -9,6 +9,7 @@ import { describeRunIn } from './runIn';
 import { buildAttackPicture, buildSideProfile } from './attackPicture';
 import { runAttackChecks } from './attackChecks';
 import { getTheaterInfo } from '../stores/theaterStore';
+import { compareThreatsForCard, CARD_THREAT_POOL } from './cardThreats';
 
 // Minimal threat system shape (matches what App.tsx gets from the DB)
 export interface ThreatSystemInfo {
@@ -289,7 +290,7 @@ export function buildKneeboardCard(
   // Min safe alt from the weapon's frag data
   const minSafeAlt: number | undefined = weapon?.frag_min_safe_alt_ft ?? undefined;
 
-  // Threats within 60nm of target, sorted by distance (max 6)
+  // Threats within 60nm of target: what can reach it first, then nearest.
   const targetPos = targetWp.coordinates;
   const nearbyThreats: KneeboardThreatItem[] = mission.threats
     .filter((t) => {
@@ -311,8 +312,8 @@ export function buildKneeboardCard(
         notes: t.status !== 'active' ? t.status.toUpperCase() : undefined,
       };
     })
-    .sort((a, b) => a.distance_nm - b.distance_nm)
-    .slice(0, 6);
+    .sort(compareThreatsForCard)
+    .slice(0, CARD_THREAT_POOL);
 
   // IP waypoint name for egress section (popup CCIP only)
   let fenceOutWaypoint: string | undefined;

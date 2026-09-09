@@ -30,6 +30,8 @@ import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
 import { flightGroupOf } from '../src/lib/callsign';
 import { applyDisplayFilter } from '../src/lib/displayFilter';
+import { visibleArcSpans } from '../src/lib/arcClip';
+import { compareThreatsForCard } from '../src/lib/cardThreats';
 import { useUiStore } from '../src/stores/uiStore';
 import { readFileSync } from 'node:fs';
 
@@ -533,3 +535,71 @@ const afterPartial = useUiStore.getState().hiddenAttackerIds;
 ok('toggling a partly hidden flight restores the whole flight, it does not hide the rest',
    afterPartial.length === 0, `hidden: ${afterPartial.join(',') || '(none)'}`);
 useUiStore.getState().resetFilter();
+
+// ─── Threat rings on the kneeboard card ──────────────────────────────────────
+// The card used to stroke each whole circle and lean on ctx.clip() to trim it
+// to the diagram box. Measured off a real exported card, the SA-11 ring came
+// out r=1009 px centred 454 px BELOW the box, and the canvas drew the whole
+// circle: a red arc across the threat table and the header. Only the spans
+// genuinely inside the box are handed to the canvas now.
+const ringBox = { x: 0, y: 270, w: 768, h: 468 };
+const TWO_PI = Math.PI * 2;
+const spanLen = (sp: Array<[number, number]>) => sp.reduce((t, [a0, a1]) => t + (a1 - a0), 0);
+const onCircle = (cx: number, cy: number, rr: number, ang: number) => ({ x: cx + rr * Math.cos(ang), y: cy + rr * Math.sin(ang) });
+const inRingBox = (p: { x: number; y: number }, b: typeof ringBox) =>
+  p.x >= b.x - 1e-6 && p.x <= b.x + b.w + 1e-6 && p.y >= b.y - 1e-6 && p.y <= b.y + b.h + 1e-6;
+
+// The real measured case: centre well below the box, radius large enough that
+// the circle's top edge reaches up into the header.
+const sa11 = visibleArcSpans(238, 1192, 1009, ringBox);
+ok('a ring centred below the card yields only spans inside the diagram box',
+   sa11.length > 0 && sa11.every(([a0, a1]) => {
+     for (let k = 0; k <= 24; k++) {
+       if (!inRingBox(onCircle(238, 1192, 1009, a0 + ((a1 - a0) * k) / 24), ringBox)) return false;
+     }
+     return true;
+   }),
+   `${sa11.length} span(s)`);
+// The part that was actually escaping: the top of that circle sits at y=183,
+// which is up in the THREATS IN AREA table. No span may cover it.
+ok('the arc that used to cross the header is not drawn',
+   sa11.every(([a0, a1]) => {
+     const topAngle = -Math.PI / 2 + TWO_PI; // straight up from the centre
+     return !(a0 <= topAngle && topAngle <= a1) && !(a0 <= -Math.PI / 2 && -Math.PI / 2 <= a1);
+   }),
+   `spans ${sa11.map(([a, b2]) => `${r(a)}..${r(b2)}`).join(' ')}`);
+
+// A box sitting entirely inside a huge engagement ring: the edge is nowhere in
+// frame, so nothing draws. The table says you are inside it, in bold red.
+ok('a ring that swallows the whole frame draws nothing',
+   visibleArcSpans(384, 504, 20000, ringBox).length === 0);
+// A ring nowhere near the frame draws nothing either.
+ok('a ring entirely outside the frame draws nothing',
+   visibleArcSpans(-5000, -5000, 100, ringBox).length === 0);
+// A ring wholly inside the frame is drawn whole.
+const wholeRing = visibleArcSpans(384, 504, 80, ringBox);
+ok('a ring wholly inside the frame is drawn as one full circle',
+   wholeRing.length === 1 && Math.abs(spanLen(wholeRing) - TWO_PI) < 1e-9,
+   `${wholeRing.length} span(s), ${r(spanLen(wholeRing))} rad`);
+// A ring straddling one edge is drawn as a single partial arc, not a circle.
+const straddle = visibleArcSpans(384, ringBox.y, 120, ringBox);
+ok('a ring straddling the top edge draws a partial arc, not a full circle',
+   straddle.length === 1 && spanLen(straddle) > 0.1 && spanLen(straddle) < TWO_PI - 0.1,
+   `${r(spanLen(straddle))} rad`);
+
+// ─── Which threats the card leads with ───────────────────────────────────────
+// Sorting on distance alone lets a 1.3 nm gun truck parked on the target push a
+// live SA-11 off a card that only prints four rows.
+const zu23 = { name: 'ZU-23-2', bearing_deg: 90, distance_nm: 0.4, maxRange_nm: 1.35 };
+const buk = { name: '9K37 Buk (SA-11)', bearing_deg: 200, distance_nm: 12.0, maxRange_nm: 19 };
+const farSam = { name: 'S-75 (SA-2)', bearing_deg: 250, distance_nm: 31.7, maxRange_nm: 24 };
+const nearHarmless = { name: 'ZSU-57-2', bearing_deg: 10, distance_nm: 3.0, maxRange_nm: 2.2 };
+const ranked = [farSam, nearHarmless, zu23, buk].sort(compareThreatsForCard);
+ok('the card leads with threats that can reach the target, nearest first',
+   ranked[0].name === 'ZU-23-2' && ranked[1].name.startsWith('9K37 Buk'),
+   ranked.map((t) => t.name).join(' | '));
+ok('a live SA-11 outranks a closer gun that cannot reach the target',
+   ranked.indexOf(buk) < ranked.indexOf(nearHarmless),
+   `Buk at ${ranked.indexOf(buk)}, ZSU-57-2 at ${ranked.indexOf(nearHarmless)}`);
+ok('out-of-range threats keep their own nearest-first order behind the shooters',
+   ranked.indexOf(nearHarmless) < ranked.indexOf(farSam));
