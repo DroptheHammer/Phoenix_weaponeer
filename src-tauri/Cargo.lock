@@ -3080,7 +3080,6 @@ dependencies = [
  "base64 0.22.1",
  "image",
  "mlua",
- "once_cell",
  "proj",
  "rusqlite",
  "rusttype",

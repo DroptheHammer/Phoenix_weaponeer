@@ -78,12 +78,6 @@ export {
   loftParams,
 } from './profile.types';
 
-// Calculator
-export type {
-  PopupCCIPInput,
-  PopupCCIPResult,
-} from './calculator.types';
-
 // Kneeboard
 export type {
   KneeboardCard,

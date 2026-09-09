@@ -183,7 +183,7 @@ Items 1, 2 and 4 below are implemented: `src/lib/popupPlanning.ts` carries
 the formulas, `applyPopupPlan` fills every derived field of a saved pop-up,
 `calculatePopupGeometry` places PUP / PDP / TRK / AOD and the pull-down arc on
 the ground, and the card and map read the same plan. Item 3 (fuze-dependent
-release floors) is still open.
+release floors) was considered and deliberately closed — see the note there.
 
 ## What the tool should take from this
 
@@ -197,8 +197,15 @@ release floors) is still open.
    Both stay adjustable; the straight-in warning fires inside ±5° either way.
 3. **Release floors drive everything upward.** The BEM example releases
    Mk-82s at 2,000 ft only because of a 4 s fuze delay. The tool's single
-   frag min-safe per weapon (4,500 ft for Mk-82) pushes a "low-angle" 15°
-   pop to a 6,300 ft apex. Fuze-dependent safe-escape floors are the next
-   step if low pops are to be planned honestly.
+   frag min-safe per weapon (3,000 ft for Mk-82, 4,500 for Mk-84) pushes a
+   "low-angle" 15° pop to a 6,300 ft apex.
+
+   **DECIDED 2026-09-09, and closed: the tool assumes the bomb detonates on
+   impact.** Fuze-dependent safe-escape floors were considered and dropped —
+   the user's call. The conservative frag min-safe per weapon is therefore
+   always the floor, `fuze_options.arming_delay_sec` is carried for the card
+   but never changes a release altitude, and the tool will not plan a true
+   low-angle LALD the way the manual does. That is the safe direction and it
+   is deliberate. **Do not reopen this without asking.**
 4. The map should mark **PUP, pull-down point, track point (MAP) and AOD**;
    the card should print tracking time and AOD.

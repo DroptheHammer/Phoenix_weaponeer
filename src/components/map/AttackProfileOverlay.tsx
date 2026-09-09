@@ -1,6 +1,6 @@
 import { Polyline, Marker } from 'react-leaflet';
 import { divIcon } from 'leaflet';
-import type { Attack, Waypoint, PopupCCIPResult } from '../../types';
+import type { Attack, Waypoint } from '../../types';
 import type { LineStyleKey, MarkerKind } from '../../types/attackPicture.types';
 import { MARKER_Z } from './mapLayers';
 import { buildAttackPicture, LINE_STYLE, MARKER_TAILWIND } from '../../lib/attackPicture';
@@ -10,8 +10,6 @@ interface AttackProfileOverlayProps {
   /** Popup attacks need one; dive and level draw a schematic run-in without it. */
   ipWaypoint?: Waypoint;
   targetWaypoint: Waypoint;
-  /** Legacy prop from the Rust pop-up calculator; no longer read. */
-  calculatorResult?: PopupCCIPResult;
   isSelected?: boolean;
   /** While placing a threat, overlay markers must not swallow the map click. */
   isPlacementMode?: boolean;

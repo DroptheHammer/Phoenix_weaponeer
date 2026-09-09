@@ -962,9 +962,9 @@ anything else next session**: import NTTR, Attacks → Add, pick TGT1 + Viper
 1-1 + Mk-82 → expect "30° Dive CCIP" selected, heading from the IP, egress
 away from the SA-11, and a card with the ESTIMATED strip.
 
-**Rust replica to keep in sync:** `popupReleaseAltitude_ft` in
-`autoBuildAttack.ts` mirrors `calculate_release_altitude` in
-`src-tauri/src/calculators/mod.rs`. If one changes, change the other.
+**~~Rust replica to keep in sync~~ — RETIRED 2026-09-09.** The whole
+`src-tauri/src/calculators/` module is deleted; `popupReleaseAltitude_ft` in
+`autoBuildAttack.ts` is now the only implementation. Nothing to mirror.
 
 **Pending commit message (Phases B + C + seeds):** "M1: level and dive on
 map and card; auto-build editor; 62-profile library for ten aircraft" — the
