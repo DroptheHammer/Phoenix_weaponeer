@@ -46,6 +46,10 @@ export interface KneeboardThreatItem {
   bearing_deg: number; // From target
   distance_nm: number; // From target
   maxRange_nm: number;
+  /** 'SAM' | 'SHORAD' | 'AAA' | 'MANPADS' | 'EWR'. An EWR's maxRange_nm is
+   *  DETECTION range, not an engagement envelope, so it must not be ranked or
+   *  drawn as though it could shoot. */
+  threatType?: string;
   notes?: string;
 }
 

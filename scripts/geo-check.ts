@@ -603,3 +603,16 @@ ok('a live SA-11 outranks a closer gun that cannot reach the target',
    `Buk at ${ranked.indexOf(buk)}, ZSU-57-2 at ${ranked.indexOf(nearHarmless)}`);
 ok('out-of-range threats keep their own nearest-first order behind the shooters',
    ranked.indexOf(nearHarmless) < ranked.indexOf(farSam));
+
+// A search radar is not a shooter, however far it can see. DB v3 adds a P-19
+// with an 86 nm DETECTION range that sits on the SAM site it serves — treat
+// that as an engagement envelope and it tops every card and eats one of the
+// four rows a pilot gets.
+const p19 = { name: 'P-19 Danube (Flat Face)', bearing_deg: 201, distance_nm: 9.2, maxRange_nm: 86, threatType: 'EWR' };
+const withEwr = [p19, buk, zu23].sort(compareThreatsForCard);
+ok('a search radar ranks behind anything that can shoot, however far it sees',
+   withEwr[withEwr.length - 1].name.startsWith('P-19'),
+   withEwr.map((t) => t.name).join(' | '));
+ok('the P-19 does not displace a live SA-11 it happens to sit closer than',
+   withEwr.indexOf(buk) < withEwr.indexOf(p19),
+   `Buk at ${withEwr.indexOf(buk)}, P-19 at ${withEwr.indexOf(p19)}`);

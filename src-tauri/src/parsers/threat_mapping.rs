@@ -28,12 +28,22 @@
 /// Patterns are written the way DCS spells them where a DCS name is known;
 /// separators do not matter for matching (see module docs) but keeping the
 /// DCS spelling makes the table greppable against a mission file.
-static DCS_THREAT_RULES: &[(&str, &str)] = &[
+pub(crate) static DCS_THREAT_RULES: &[(&str, &str)] = &[
     // SA-10 / S-300PS. Every S-300 unit name in DCS starts with "S-300PS".
     ("S-300PS", "S-300PS"),
     ("S-300", "S-300PS"),
     ("5P85C", "S-300PS"), // launcher
     ("5P85D", "S-300PS"), // launcher
+    // SA-5 / S-200. DCS spells the launcher "S-200_Launcher"; the two radars
+    // are "RPC_5N62V" (Square Pair, the fire-control set) and "RLS_19J6".
+    // Neither radar contained any rule pattern OR any THREAT_CATEGORIES
+    // substring, so the piece of an S-200 site that actually shoots was
+    // invisible to the importer -- not even reported as Unknown.
+    ("S-200", "S-200"),
+    ("SA-5", "S-200"),
+    ("5V28", "S-200"),   // missile
+    ("5N62V", "S-200"), // Square Pair fire-control radar (DCS "RPC_5N62V")
+    ("19J6", "S-200"),   // acquisition radar
     // SA-11 Buk
     ("Buk", "Buk"),
     ("SA-11", "Buk"),
@@ -59,9 +69,9 @@ static DCS_THREAT_RULES: &[(&str, &str)] = &[
     // P-19 Flat Face search radar. DCS names it "p-19 s-125 sr", but the SA-2
     // template uses the same radar, so on its own it must not claim an SA-3
     // site: the NTTR mission's two SA-2 sites imported as SA-3 because of it.
-    // The five-token DCS name outranks the two-token "S-125" rule above. There
-    // is no P-19 database row yet, so it imports as Unknown and the frontend
-    // drops it; an EWR row for it is the right follow-up.
+    // The five-token DCS name outranks the two-token "S-125" rule above. It has
+    // had an EWR row since DB v3, so it now imports named -- which means an SA-2
+    // or SA-3 site reports its acquisition radar as well as the SAM.
     ("p-19 s-125 sr", "P-19"),
     // SA-8 Osa / Gecko. DCS: "Osa 9A33 ln".
     ("Osa", "Osa"),
@@ -81,6 +91,13 @@ static DCS_THREAT_RULES: &[(&str, &str)] = &[
     ("ZSU_57_2", "ZSU-57-2"), // DCS spelling
     ("ZSU-57-2", "ZSU-57-2"),
     ("S-60", "S-60"), // DCS: "S-60_Type59_Artillery"
+    // ZU-23, towed or on a truck bed. DCS: "Ural-375 ZU-23", and the
+    // "Ural-375 ZU-23 Insurgent" variant. Whole-token matching picks the gun
+    // out of the truck's name; the truck alone is not a threat.
+    ("ZU-23", "ZU-23"),
+    // Western guns
+    ("Vulcan", "Vulcan"),
+    ("M163", "Vulcan"),
     // MANPADS. DCS: "SA-18 Igla manpad", "SA-18 Igla-S manpad", "... comm".
     ("Igla", "SA-18 Igla"),
     ("SA-18", "SA-18 Igla"),
@@ -91,8 +108,9 @@ static DCS_THREAT_RULES: &[(&str, &str)] = &[
     ("1L13", "1L13"),
     ("55G6", "55G6"),
     ("Nebo", "55G6"),
-    // Western and other systems. Recognised so the import can name them; the
-    // reference database has no rows for these yet, so they import as Unknown.
+    // Western and other systems. Every one of these has a reference-database
+    // row as of DB v3; `every_mapping_rule_resolves_to_a_database_row` keeps
+    // it that way.
     ("Gepard", "Gepard"),
     ("Flakpanzer", "Gepard"),
     ("Roland", "Roland"),
@@ -102,6 +120,8 @@ static DCS_THREAT_RULES: &[(&str, &str)] = &[
     ("MIM-104", "Patriot"),
     ("NASAMS", "NASAMS"),
     ("Rapier", "Rapier"),
+    ("Chaparral", "Chaparral"),
+    ("M48 Chaparral", "Chaparral"),
     ("Strela-10", "Strela-10"),
     ("Strela-10M3", "Strela-10"), // DCS spelling
     ("SA-13", "Strela-10"),
@@ -124,6 +144,9 @@ static THREAT_CATEGORIES: &[&str] = &[
     "Osa",
     "Tunguska",
     "Strela",
+    "5V28",
+    "5N62",
+    "19J6",
     "Igla",
 
     // Western SAMs
@@ -133,6 +156,7 @@ static THREAT_CATEGORIES: &[&str] = &[
     "Rapier",
     "NASAMS",
     "Chaparral",
+    "M48",
 
     // AAA
     "ZSU",
@@ -141,6 +165,7 @@ static THREAT_CATEGORIES: &[&str] = &[
     "ZU-23",
     "Gepard",
     "Vulcan",
+    "M163",
     "Flak",
 
     // EWR
@@ -361,6 +386,42 @@ mod tests {
     /// The pre-filter must accept every unit the rule table can name. Before
     /// this, the SA-2's Fan Song and Volhov launchers failed the category
     /// substring test and the whole site was identified off its P-19 as SA-3.
+    /// The exact DCS unit-type spellings the real NTTR mission carries, for the
+    /// systems the tool could not represent before DB v3. `RPC_5N62V` and
+    /// `RLS_19J6` are the ones that mattered most: they matched neither a rule
+    /// nor any THREAT_CATEGORIES substring, so `is_threat_unit` returned false
+    /// and the fire-control radar of an S-200 site -- the part that shoots --
+    /// never reached the planner at all, not even as Unknown.
+    #[test]
+    fn real_nttr_threat_units_resolve_to_a_named_system() {
+        let cases: &[(&str, &str)] = &[
+            ("S-200_Launcher", "S-200"),
+            ("RPC_5N62V", "S-200"),
+            ("RLS_19J6", "S-200"),
+            ("Ural-375 ZU-23", "ZU-23"),
+            ("Ural-375 ZU-23 Insurgent", "ZU-23"),
+            ("Strela-10M3", "Strela-10"),
+            ("p-19 s-125 sr", "P-19"),
+        ];
+        for (unit, expected) in cases {
+            assert!(is_threat_unit(unit), "{unit} is not even flagged as a threat");
+            assert_eq!(
+                normalize_dcs_unit_name(unit),
+                Some(*expected),
+                "{unit} should resolve to {expected}"
+            );
+        }
+    }
+
+    /// A ZU-23 rule that matched the truck rather than the gun would claim every
+    /// Ural-375 in the mission, most of which are cargo trucks and not threats.
+    #[test]
+    fn a_plain_cargo_truck_is_not_a_zu_23() {
+        assert_eq!(normalize_dcs_unit_name("Ural-375"), None);
+        assert_eq!(normalize_dcs_unit_name("Ural-4320-31"), None);
+        assert_eq!(normalize_dcs_unit_name("Ural-375 PBU"), None);
+    }
+
     #[test]
     fn pre_filter_accepts_every_rule_pattern() {
         for (pattern, _) in DCS_THREAT_RULES {

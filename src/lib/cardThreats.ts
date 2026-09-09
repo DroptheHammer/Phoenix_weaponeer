@@ -23,8 +23,19 @@ export const CARD_THREAT_POOL = 6;
  * needs at the top is what can actually shoot at the target.
  */
 export function compareThreatsForCard(a: KneeboardThreatItem, b: KneeboardThreatItem): number {
-  const aReaches = a.maxRange_nm > 0 && a.distance_nm <= a.maxRange_nm;
-  const bReaches = b.maxRange_nm > 0 && b.distance_nm <= b.maxRange_nm;
-  if (aReaches !== bReaches) return aReaches ? -1 : 1;
+  const aShoots = canShoot(a);
+  const bShoots = canShoot(b);
+  if (aShoots !== bShoots) return aShoots ? -1 : 1;
   return a.distance_nm - b.distance_nm;
+}
+
+/**
+ * A search radar is not a shooter, however far it can see. A P-19 sits on the
+ * SAM site it serves and its 86 nm figure is DETECTION range, so treating it
+ * like an engagement envelope would put it top of every card and cost one of
+ * the four rows a pilot actually gets.
+ */
+function canShoot(t: KneeboardThreatItem): boolean {
+  if (t.threatType === 'EWR') return false;
+  return t.maxRange_nm > 0 && t.distance_nm <= t.maxRange_nm;
 }

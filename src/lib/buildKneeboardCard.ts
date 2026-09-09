@@ -16,6 +16,7 @@ export interface ThreatSystemInfo {
   id: string;
   name: string;
   nato_designation?: string | null;
+  threat_type?: string;
   max_range_nm: number;
 }
 
@@ -309,6 +310,7 @@ export function buildKneeboardCard(
         bearing_deg: Math.round(brg),
         distance_nm: dist,
         maxRange_nm: system?.max_range_nm ?? 0,
+        threatType: system?.threat_type,
         notes: t.status !== 'active' ? t.status.toUpperCase() : undefined,
       };
     })

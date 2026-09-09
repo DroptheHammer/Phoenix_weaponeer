@@ -85,7 +85,7 @@ pub struct Aircraft {
 /// and rebuilt from the seed; there is nothing in it to migrate. Without this,
 /// new seed rows (say, an aircraft) never reach a database that already
 /// exists, because seeding only runs on empty tables.
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 impl Database {
     /// Open or create the database at the given path
@@ -252,6 +252,37 @@ impl Database {
                 INSERT INTO threat_systems (id, name, nato_designation, type, max_range_nm, min_range_nm, max_altitude_ft, min_altitude_ft, radar_info, dcs_unit_name) VALUES
                 ('ewr1l13', '1L13 Nebo-SV', 'Tall Rack', 'EWR', 200, 0, 100000, 0, '{"type":"PD","trackWhileScan":true}', '1L13'),
                 ('ewr55g6', '55G6 Nebo', 'Tall Rack', 'EWR', 220, 0, 100000, 0, '{"type":"PD","trackWhileScan":true}', '55G6');
+
+                -- ── Reference DB v3 ────────────────────────────────────────
+                -- Two kinds of gap. Some of these are in the NTTR mission and
+                -- the tool could not name them; the rest were already named by
+                -- DCS_THREAT_RULES but had no row here, so they imported as
+                -- Unknown and the frontend dropped them. A test now asserts
+                -- every rule resolves to a row, so the two cannot drift again.
+                --
+                -- Only the five fields anything reads are filled: name, NATO
+                -- designation, type, max range, max altitude. Speculative
+                -- columns are left NULL rather than invented -- no number here
+                -- should read as fact when it is a guess. Ranges are DCS
+                -- in-game performance, which is what a DCS planner needs;
+                -- real-world figures differ by variant and source.
+                INSERT INTO threat_systems (id, name, nato_designation, type, max_range_nm, min_range_nm, max_altitude_ft, min_altitude_ft, radar_info, dcs_unit_name, notes) VALUES
+                ('sa5', 'S-200 Vega', 'SA-5 Gammon', 'SAM', 130, 9, 130000, 1000, '{"type":"CW","trackWhileScan":false}', 'S-200', 'DCS site: S-200_Launcher + RPC_5N62V (Square Pair FCR) + RLS_19J6. Range/altitude from DCS in-game performance. min_range_nm is stored but nothing draws it yet.'),
+                ('sa13', '9K35 Strela-10', 'SA-13 Gopher', 'SHORAD', 2.7, 0.4, 11500, 30, '{"type":"IR","trackWhileScan":false}', 'Strela-10', 'DCS Strela-10M3. IR-guided, no engagement radar -- it can shoot without warning you.'),
+                ('hawk', 'MIM-23 Hawk', NULL, 'SAM', 22, 1, 59000, 100, '{"type":"CW","trackWhileScan":false}', 'Hawk', 'DCS Hawk battery (launcher + PCP + TR/SR). Envelope from DCS in-game performance.'),
+                ('patriot', 'MIM-104 Patriot', NULL, 'SAM', 86, 2, 78000, 200, '{"type":"PD","trackWhileScan":true}', 'Patriot', 'DCS Patriot battery. Envelope from DCS in-game performance.'),
+                ('nasams', 'NASAMS', NULL, 'SHORAD', 13, 0.5, 49000, 100, '{"type":"PD","trackWhileScan":true}', 'NASAMS', 'DCS NASAMS with AIM-120B/C. Envelope from DCS in-game performance.'),
+                ('roland', 'Roland ADS', NULL, 'SHORAD', 3.4, 0.3, 18000, 60, '{"type":"PD","trackWhileScan":true}', 'Roland', 'DCS Roland ADS. Envelope from DCS in-game performance.'),
+                ('rapier', 'Rapier FSA', NULL, 'SHORAD', 3.8, 0.3, 10000, 50, '{"type":"PD","trackWhileScan":false}', 'Rapier', 'DCS Rapier FSA (launcher + blindfire/optical tracker). Envelope from DCS in-game performance.'),
+                ('chaparral', 'MIM-72 Chaparral', NULL, 'SHORAD', 4.3, 0.3, 9800, 50, '{"type":"IR","trackWhileScan":false}', 'Chaparral', 'DCS M48 Chaparral. IR-guided, no engagement radar.');
+
+                INSERT INTO threat_systems (id, name, nato_designation, type, max_range_nm, min_range_nm, max_altitude_ft, min_altitude_ft, gun_info, dcs_unit_name, notes) VALUES
+                ('zu23', 'ZU-23-2', NULL, 'AAA', 1.35, 0, 5000, 0, '{"caliber_mm":23,"rateOfFire_rpm":2000,"muzzleVelocity_mps":970,"effectiveRange_m":2500,"radarGuided":false}', 'ZU-23', 'Towed and truck-mounted (DCS Ural-375 ZU-23, and the Insurgent variant). Optically aimed.'),
+                ('gepard', 'Flakpanzer Gepard', NULL, 'AAA', 1.9, 0, 9800, 0, '{"caliber_mm":35,"rateOfFire_rpm":1100,"muzzleVelocity_mps":1175,"effectiveRange_m":3500,"radarGuided":true}', 'Gepard', 'DCS Gepard. Radar-directed twin 35 mm.'),
+                ('vulcan', 'M163 VADS', NULL, 'AAA', 1.1, 0, 4000, 0, '{"caliber_mm":20,"rateOfFire_rpm":3000,"muzzleVelocity_mps":1030,"effectiveRange_m":2000,"radarGuided":true}', 'Vulcan', 'DCS M163 Vulcan. Radar-ranged M61.');
+
+                INSERT INTO threat_systems (id, name, nato_designation, type, max_range_nm, min_range_nm, max_altitude_ft, min_altitude_ft, radar_info, dcs_unit_name, notes) VALUES
+                ('p19', 'P-19 Danube', 'Flat Face', 'EWR', 86, 0, 100000, 0, '{"type":"pulse","trackWhileScan":false}', 'P-19', 'Acquisition radar for S-75 and S-125 sites, so it usually sits ON a SAM site rather than alone. max_range_nm is DETECTION range, not an engagement envelope -- it cannot shoot at you, and the card ranks it behind anything that can.');
             "#)?;
 
             // Seed weapons
@@ -747,6 +778,107 @@ mod tests {
         // Test case insensitivity
         let threat = db.get_threat_by_dcs_name("buk").expect("Query failed");
         assert!(threat.is_some(), "Should find buk case-insensitively");
+    }
+
+    /// The reference database and the DCS unit-name rules are two tables that
+    /// have to agree, and they had silently drifted: eight systems (Gepard,
+    /// Roland, Hawk, Patriot, NASAMS, Rapier, Strela-10, P-19) were named by
+    /// the rules with no row here, so they imported as Unknown and the frontend
+    /// dropped them. Discipline did not prevent that. This does.
+    #[test]
+    fn every_mapping_rule_resolves_to_a_database_row() {
+        let db = Database::open_in_memory().expect("Failed to create database");
+        let mut missing: Vec<&str> = Vec::new();
+        for (pattern, normalized) in crate::parsers::threat_mapping::DCS_THREAT_RULES {
+            match db.get_threat_by_dcs_name(normalized) {
+                Ok(Some(_)) => {}
+                _ => missing.push(pattern),
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "these DCS_THREAT_RULES patterns name a system with no threat_systems row: {missing:?}"
+        );
+    }
+
+    /// What the "Reference database is v2, rebuilding as v3" console line is
+    /// really claiming: that new seed rows actually reach a database that
+    /// already exists. Seeding only runs on empty tables, so without the
+    /// version bump an existing install would keep its old 15 threats forever.
+    #[test]
+    fn a_stale_database_is_rebuilt_with_the_v3_threat_rows() {
+        let path = std::env::temp_dir().join(format!("pw_v3_upgrade_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        // Stand up a database that looks like an existing v2 install: the new
+        // rows absent, and user_version pinned back to 2.
+        {
+            let db = Database::open(&path).expect("create");
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "DELETE FROM threat_systems WHERE id IN ('sa5','sa13','zu23','p19','hawk','patriot','nasams','roland','rapier','gepard','chaparral','vulcan');
+                 PRAGMA user_version = 2;",
+            )
+            .unwrap();
+            assert!(
+                conn.query_row("SELECT COUNT(*) FROM threat_systems WHERE id = 'sa5'", [], |r| r.get::<_, i32>(0)).unwrap() == 0,
+                "test setup: the v2 database must not already have the SA-5"
+            );
+        }
+
+        // Reopening must notice the stale version, drop and reseed.
+        let db = Database::open(&path).expect("reopen");
+        let version: i32 = db
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION, "user_version was not bumped");
+        for name in ["S-200", "Strela-10", "ZU-23", "P-19"] {
+            assert!(
+                db.get_threat_by_dcs_name(name).unwrap().is_some(),
+                "{name} did not reach the rebuilt database"
+            );
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Every ground unit the real NTTR Red Flag mission carries that is a
+    /// threat, in DCS's exact spelling, must reach a named row. Before DB v3
+    /// the S-200 site, the Strela-10s, the ZU-23 trucks and the P-19s all fell
+    /// out here -- and `RPC_5N62V`, the Square Pair that does the shooting, was
+    /// not even flagged as a threat.
+    #[test]
+    fn every_threat_unit_in_the_nttr_mission_resolves_to_a_row() {
+        use crate::parsers::threat_mapping::normalize_dcs_unit_name;
+        let db = Database::open_in_memory().expect("Failed to create database");
+        let units = [
+            "S_75M_Volhov", "SNR_75V",
+            "5p73 s-125 ln", "snr s-125 tr", "p-19 s-125 sr",
+            "Kub 2P25 ln", "Kub 1S91 str",
+            "S-300PS 5P85D ln", "S-300PS 5P85C ln", "S-300PS 40B6M tr",
+            "S-300PS 40B6MD sr", "S-300PS 64H6E sr", "S-300PS 54K6 cp",
+            "SA-11 Buk LN 9A310M1", "SA-11 Buk SR 9S18M1", "SA-11 Buk CC 9S470M1",
+            "Tor 9A331",
+            "S-200_Launcher", "RPC_5N62V", "RLS_19J6",
+            "Strela-10M3",
+            "Ural-375 ZU-23", "Ural-375 ZU-23 Insurgent",
+            "ZSU-23-4 Shilka", "ZSU_57_2",
+            "SA-18 Igla-S manpad", "SA-18 Igla-S comm",
+        ];
+        let mut unresolved: Vec<&str> = Vec::new();
+        for unit in units {
+            let row = normalize_dcs_unit_name(unit)
+                .and_then(|n| db.get_threat_by_dcs_name(n).ok().flatten());
+            if row.is_none() {
+                unresolved.push(unit);
+            }
+        }
+        assert!(
+            unresolved.is_empty(),
+            "these real NTTR threat units do not reach a database row: {unresolved:?}"
+        );
     }
 
     #[test]
