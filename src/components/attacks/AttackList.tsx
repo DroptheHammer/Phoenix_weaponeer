@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMissionStore } from '../../stores/missionStore';
+import { useUiStore } from '../../stores/uiStore';
 import { AttackEditor } from './AttackEditor';
 import type { AttackProfileType, DbWeapon, FuzeOption, Attack } from '../../types';
 
@@ -30,6 +31,7 @@ interface AttackListProps {
 
 export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAttackSaved }: AttackListProps) {
   const { mission, removeAttack } = useMissionStore();
+  const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
   const [showEditor, setShowEditor] = useState(false);
   const [editingAttack, setEditingAttack] = useState<Attack | undefined>(undefined);
 
@@ -103,8 +105,13 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                     {attack.estimated && <span className="ml-1 text-amber-300" title="Profile not yet flown in DCS">~</span>}
                   </div>
                   <div>
-                    <div className="font-medium">
-                      {attacker?.callsign ?? 'Unknown'} → {target?.name ?? 'Unknown'}
+                    <div className="font-medium flex items-center gap-2">
+                      <span>{attacker?.callsign ?? 'Unknown'} → {target?.name ?? 'Unknown'}</span>
+                      {hiddenAttackerIds.includes(attack.attackerId) && (
+                        <span className="text-gray-500 text-xs italic" title="Hidden by the map display filter">
+                          hidden on map
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm text-gray-400">
                       {weapon?.name || attack.weaponId} × {attack.releaseQuantity} ({attack.releaseMode})

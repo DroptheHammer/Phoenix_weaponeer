@@ -7,9 +7,12 @@ import { useTheaterInfo } from '../../stores/theaterStore';
 import { Fragment, useMemo, useEffect, useState } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
 import { AttackLabelLayer } from './AttackLabelLayer';
+import { MapLegend } from './MapLegend';
 import { buildAttackPicture, pictureFitPoints } from '../../lib/attackPicture';
 import { leaderLine, type PlacedLabel } from '../../lib/labelLayout';
 import { MARKER_Z } from './mapLayers';
+import { applyDisplayFilter } from '../../lib/displayFilter';
+import { useUiStore } from '../../stores/uiStore';
 
 interface ThreatSystem {
   id: string;
@@ -247,10 +250,31 @@ export function MapView({
   const center = theaterInfo?.default_center ?? { lat: 0, lon: 0 };
   const [placedLabels, setPlacedLabels] = useState<PlacedLabel[]>([]);
 
-  // Create waypoint route line
+  // Map display filter — a view-time control only. Applied here, at the draw
+  // sites, and NOT fed into MapController/FocusController below: those two
+  // re-fit the camera off the FULL waypoint/threat arrays so hiding the route
+  // or a pilot's attack never yanks the view. See src/lib/displayFilter.ts.
+  const hiddenAttackerIds = useUiStore((s) => s.hiddenAttackerIds);
+  const hiddenThreatSources = useUiStore((s) => s.hiddenThreatSources);
+  const routeHidden = useUiStore((s) => s.routeHidden);
+  const filtered = useMemo(
+    () =>
+      applyDisplayFilter(
+        { attacks, threats, waypoints },
+        { hiddenAttackerIds, hiddenThreatSources, routeHidden },
+      ),
+    [attacks, threats, waypoints, hiddenAttackerIds, hiddenThreatSources, routeHidden],
+  );
+  const visibleWaypoints = filtered.waypoints;
+  const visibleThreats = filtered.threats;
+  const visibleAttacks = filtered.attacks;
+
+  // Create waypoint route line — from the filtered (possibly hidden) set, so
+  // hiding the route also removes this line. The camera fit above stays on
+  // the full `waypoints` array regardless.
   const waypointPath = useMemo(() => {
-    return waypoints.map((wp) => [wp.coordinates.lat, wp.coordinates.lon] as [number, number]);
-  }, [waypoints]);
+    return visibleWaypoints.map((wp) => [wp.coordinates.lat, wp.coordinates.lon] as [number, number]);
+  }, [visibleWaypoints]);
 
   const handleThreatDragEnd = (threatId: string, e: DragEndEvent) => {
     const latlng = e.target.getLatLng();
@@ -275,7 +299,7 @@ export function MapView({
         <ZoomControl position="bottomleft" />
         <MapController theater={theater} waypoints={waypoints} threats={threats} />
         <FocusController attacks={attacks} waypoints={waypoints} focusAttackId={focusAttackId} onFocused={() => onAttackFocused?.()} />
-        <AttackLabelLayer attacks={attacks} waypoints={waypoints} flightMembers={flightMembers} onPlaced={setPlacedLabels} />
+        <AttackLabelLayer attacks={visibleAttacks} waypoints={waypoints} flightMembers={flightMembers} onPlaced={setPlacedLabels} />
         <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={onPlacePosition} />
 
         {/* Bullseye marker */}
@@ -299,7 +323,7 @@ export function MapView({
         )}
 
         {/* Waypoint markers */}
-        {waypoints.map((waypoint) => (
+        {visibleWaypoints.map((waypoint) => (
           <Marker
             key={`${waypoint.id}-${isPlacementMode}`}
             position={[waypoint.coordinates.lat, waypoint.coordinates.lon]}
@@ -343,7 +367,7 @@ export function MapView({
         )}
 
         {/* Threat circles and center markers */}
-        {threats.map((threat) => {
+        {visibleThreats.map((threat) => {
           const system = threatSystems?.get(threat.systemId);
           if (!system) return null;
 
@@ -435,7 +459,7 @@ export function MapView({
         })}
 
         {/* Attack profile overlays */}
-        {attacks.map((attack) => {
+        {visibleAttacks.map((attack) => {
           // Any profile may name an IP; only popup cannot be drawn without one
           // (the overlay itself decides that).
           const ipWaypointId = (attack.profile as { ipWaypointId?: string }).ipWaypointId;
@@ -495,36 +519,8 @@ export function MapView({
         </div>
       )}
 
-      {/* Map legend */}
-      <div className="absolute bottom-4 right-4 bg-white rounded-lg shadow-lg p-3 text-xs z-[1000]">
-        <div className="font-semibold mb-2 text-gray-800">Legend</div>
-        <div className="space-y-1 text-gray-700">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-red-500"></div>
-            <span>Target</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-yellow-500"></div>
-            <span>IP</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-blue-500"></div>
-            <span>Navigation</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-orange-500"></div>
-            <span>Bullseye</span>
-          </div>
-          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-200">
-            <div className="w-4 h-4 rounded-full border-2 border-red-500 bg-red-100"></div>
-            <span>Mission Threat</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full border-2 border-red-500 border-dashed bg-red-50"></div>
-            <span>Planning Threat</span>
-          </div>
-        </div>
-      </div>
+      {/* Map legend — doubles as the display filter control */}
+      <MapLegend attacks={attacks} flightMembers={flightMembers} threats={threats} />
     </div>
   );
 }

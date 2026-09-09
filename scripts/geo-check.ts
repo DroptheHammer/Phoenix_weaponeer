@@ -28,6 +28,9 @@ import { inferIp, autoBuildAttack } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
+import { flightGroupOf } from '../src/lib/callsign';
+import { applyDisplayFilter } from '../src/lib/displayFilter';
+import { useUiStore } from '../src/stores/uiStore';
 import { readFileSync } from 'node:fs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -450,3 +453,83 @@ if (diveProfiles.length) {
      dp != null && dp.offsetAngle_deg === 20 && dp.offsetLegRatio === undefined,
      `turn ${dp?.offsetAngle_deg} ratio ${dp?.offsetLegRatio}`);
 }
+
+// ─── Map display filter ──────────────────────────────────────────────────────
+// Store what is HIDDEN, not what is visible — applyDisplayFilter and
+// flightGroupOf are the pure logic behind the map's Legend/filter panel.
+// MapController/FocusController deliberately never see a filtered array; that
+// invariant lives in MapView.tsx and isn't checkable from a flat script, but
+// the filter math itself is.
+
+ok('flightGroupOf drops the element suffix: Viper 1-1 -> Viper 1',
+   flightGroupOf('Viper 1-1') === 'Viper 1', flightGroupOf('Viper 1-1'));
+ok('flightGroupOf drops the element suffix: Hawg 2-4 -> Hawg 2',
+   flightGroupOf('Hawg 2-4') === 'Hawg 2', flightGroupOf('Hawg 2-4'));
+ok('flightGroupOf returns a callsign with no element suffix unchanged',
+   flightGroupOf('Enfield') === 'Enfield', flightGroupOf('Enfield'));
+ok('flightGroupOf does not mis-group a bare "-N" suffix with no flight number before it',
+   flightGroupOf('Renegade-2') === 'Renegade-2', flightGroupOf('Renegade-2'));
+
+// Fixtures for applyDisplayFilter — two attackers, two attacks, one threat of
+// each source, a two-waypoint route. Values are irrelevant; only identity and
+// counts matter here.
+const dfWaypoints = [
+  { id: 'wp1', steerpoint: 1, name: 'IP', type: 'ip', coordinates: { lat: 1, lon: 1 }, elevation_ft: 0 },
+  { id: 'wp2', steerpoint: 2, name: 'TGT', type: 'target', coordinates: { lat: 2, lon: 2 }, elevation_ft: 0 },
+] as never[];
+const dfThreats = [
+  { id: 't1', systemId: 's1', position: { lat: 1, lon: 1 }, status: 'active', source: 'mission' },
+  { id: 't2', systemId: 's2', position: { lat: 2, lon: 2 }, status: 'active', source: 'planning' },
+] as never[];
+const dfAttacks = [
+  { id: 'a1', targetWaypointId: 'wp2', attackerId: 'pilot1', profileType: 'dive_ccip', profile: {}, weaponId: 'w1', releaseQuantity: 1, releaseMode: 'single', sequenceNumber: 1 },
+  { id: 'a2', targetWaypointId: 'wp2', attackerId: 'pilot2', profileType: 'dive_ccip', profile: {}, weaponId: 'w1', releaseQuantity: 1, releaseMode: 'single', sequenceNumber: 2 },
+] as never[];
+const emptyFilter = { hiddenAttackerIds: [], hiddenThreatSources: [], routeHidden: false } as never;
+
+const dfIdentity = applyDisplayFilter({ attacks: dfAttacks, threats: dfThreats, waypoints: dfWaypoints } as never, emptyFilter);
+ok('an empty filter returns every attack, threat and waypoint (visible by default)',
+   dfIdentity.attacks.length === 2 && dfIdentity.threats.length === 2 && dfIdentity.waypoints.length === 2,
+   `attacks ${dfIdentity.attacks.length} threats ${dfIdentity.threats.length} waypoints ${dfIdentity.waypoints.length}`);
+
+const dfOneHidden = applyDisplayFilter(
+  { attacks: dfAttacks, threats: dfThreats, waypoints: dfWaypoints } as never,
+  { hiddenAttackerIds: ['pilot1'], hiddenThreatSources: [], routeHidden: false } as never,
+);
+ok('hiding one flight member leaves the other members\' attacks drawn',
+   dfOneHidden.attacks.length === 1 && (dfOneHidden.attacks[0] as { attackerId: string }).attackerId === 'pilot2',
+   `remaining: ${dfOneHidden.attacks.map((a: { attackerId: string }) => a.attackerId).join(',')}`);
+
+const dfRouteHidden = applyDisplayFilter(
+  { attacks: dfAttacks, threats: dfThreats, waypoints: dfWaypoints } as never,
+  { hiddenAttackerIds: [], hiddenThreatSources: [], routeHidden: true } as never,
+);
+ok('hiding the route empties the drawn waypoints and leaves the source array untouched',
+   dfRouteHidden.waypoints.length === 0 && dfWaypoints.length === 2,
+   `drawn ${dfRouteHidden.waypoints.length} source ${dfWaypoints.length}`);
+
+const dfMissionHidden = applyDisplayFilter(
+  { attacks: dfAttacks, threats: dfThreats, waypoints: dfWaypoints } as never,
+  { hiddenAttackerIds: [], hiddenThreatSources: ['mission'], routeHidden: false } as never,
+);
+ok('hiding mission threats leaves the planning threats drawn',
+   dfMissionHidden.threats.length === 1 && (dfMissionHidden.threats[0] as { source: string }).source === 'planning',
+   `remaining: ${dfMissionHidden.threats.map((t: { source: string }) => t.source).join(',') || '(none)'}`);
+
+// The flight row's tri-state box. A partly-hidden flight must RESTORE the whole
+// flight, not hide the remainder — clicking an indeterminate box gives back
+// what is missing. Only a fully visible flight hides.
+const flight = ['p1', 'p2'];
+useUiStore.getState().resetFilter();
+useUiStore.getState().toggleFlight(flight);
+const allHiddenNow = useUiStore.getState().hiddenAttackerIds;
+ok('toggling a fully visible flight hides every member',
+   flight.every((id) => allHiddenNow.includes(id)), `hidden: ${allHiddenNow.join(',') || '(none)'}`);
+
+useUiStore.getState().resetFilter();
+useUiStore.getState().toggleAttacker('p1');
+useUiStore.getState().toggleFlight(flight);
+const afterPartial = useUiStore.getState().hiddenAttackerIds;
+ok('toggling a partly hidden flight restores the whole flight, it does not hide the rest',
+   afterPartial.length === 0, `hidden: ${afterPartial.join(',') || '(none)'}`);
+useUiStore.getState().resetFilter();

@@ -32,3 +32,18 @@ function formatCompact(cs: string): string {
 export function normalizeImportedCallsign(raw: string): string {
   return formatCallsign(raw);
 }
+
+/**
+ * The flight group a member callsign belongs to.
+ *
+ * Stored callsigns are already normalized to "Viper 1-1" form by
+ * `normalizeImportedCallsign` above, so the element suffix is always a
+ * trailing "-N" after the flight number: "Viper 1-1" → "Viper 1". A callsign
+ * with no element suffix (or any shape that doesn't match) is returned
+ * unchanged — there is no flight entity in the data model, this is purely a
+ * string grouping used by the map display filter.
+ */
+export function flightGroupOf(callsign: string): string {
+  const match = callsign.match(/^(.*\s\d+)-\d+$/);
+  return match ? match[1] : callsign;
+}

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizeImportedCallsign } from '../lib/callsign';
+import { useUiStore } from './uiStore';
 import type {
   Mission,
   Theater,
@@ -104,7 +105,16 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   isDirty: false,
   filePath: null,
   focusAttackId: null,
-  setFocusAttackId: (id) => set({ focusAttackId: id }),
+  // Saving an attack un-hides its attacker on the map display filter — a
+  // planner who just saved an attack for a hidden pilot should see it, not
+  // have the map try to frame a picture that isn't drawn.
+  setFocusAttackId: (id) => {
+    if (id) {
+      const attack = get().mission?.attacks.find((a) => a.id === id);
+      if (attack) useUiStore.getState().unhideAttacker(attack.attackerId);
+    }
+    set({ focusAttackId: id });
+  },
 
   createMission: (name: string, theater: Theater) => {
     const now = new Date().toISOString();

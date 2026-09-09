@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useMissionStore } from "./stores/missionStore";
 import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
 import { useProfileStore } from "./stores/profileStore";
+import { useUiStore } from "./stores/uiStore";
 import { FragOrdersImport } from "./components/import";
 import { MapView } from "./components/map/MapView";
 import { WaypointList } from "./components/waypoints/WaypointList";
@@ -37,6 +38,8 @@ const toolbarButton =
 function App() {
   const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat, focusAttackId, setFocusAttackId } =
     useMissionStore();
+  const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
+  const resetDisplayFilter = useUiStore((state) => state.resetFilter);
   const loadTheaters = useTheaterStore((state) => state.loadTheaters);
   const loadProfiles = useProfileStore((state) => state.loadProfiles);
   const theaterInfo = useTheaterInfo(mission?.theater);
@@ -55,6 +58,7 @@ function App() {
 
   const handleFragOrdersImport = (data: FragOrdersData, groupIndex: number) => {
     importFromFragOrders(data, groupIndex);
+    resetDisplayFilter();
     setShowImportModal(false);
     setActivePanel(null); // Close any open panel after import
   };
@@ -96,7 +100,10 @@ function App() {
     guardUnsaved('open another mission', async () => {
       setFileMsg(null);
       const result = await openMission();
-      if (result.status === 'ok') setActivePanel(null);
+      if (result.status === 'ok') {
+        setActivePanel(null);
+        resetDisplayFilter();
+      }
       reportFileResult(result, 'Opened');
     });
   };
@@ -108,6 +115,7 @@ function App() {
   const handleCloseMission = () => {
     guardUnsaved('close this mission', () => {
       closeMission();
+      resetDisplayFilter();
       setActivePanel(null);
       setFileMsg(null);
     });
@@ -124,6 +132,13 @@ function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  // How many of the mission's attacks belong to a hidden attacker — surfaced
+  // on the Attacks rail button so a hidden pilot is never forgotten silently.
+  const hiddenAttackCount = useMemo(
+    () => mission?.attacks.filter((a) => hiddenAttackerIds.includes(a.attackerId)).length ?? 0,
+    [mission, hiddenAttackerIds],
+  );
 
   // Create threat system map for quick lookups
   const threatSystemMap = useMemo(() => {
@@ -172,7 +187,10 @@ function App() {
   }, [loadTheaters, loadProfiles]);
 
   const handleNewMission = () => {
-    guardUnsaved('start a new mission', () => createMission("New Mission", "caucasus"));
+    guardUnsaved('start a new mission', () => {
+      createMission("New Mission", "caucasus");
+      resetDisplayFilter();
+    });
   };
 
   // Map interaction handlers
@@ -362,7 +380,7 @@ function App() {
                     : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
                 }`}
               >
-                Attacks ({mission.attacks.length})
+                Attacks ({mission.attacks.length}{hiddenAttackCount > 0 ? ` · ${hiddenAttackCount} hidden` : ''})
               </button>
               <button
                 onClick={() => setActivePanel(activePanel === 'kneeboards' ? null : 'kneeboards')}
