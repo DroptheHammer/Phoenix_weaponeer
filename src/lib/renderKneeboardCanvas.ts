@@ -26,7 +26,6 @@ const C = {
   diagramBg: '#F4F4EC',
   ground: '#888888',
   threatRing: 'rgba(239, 68, 68, 0.55)',
-  threatFill: 'rgba(239, 68, 68, 0.08)',
   leader: '#374151',
 };
 
@@ -302,12 +301,16 @@ function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, thr
     const px = cx + (c.x - mx) * scale, py = cy - (c.y - my) * scale;
     const r = t.maxRange_nm * scale;
     if (px + r < box.x || px - r > box.x + box.w || py + r < box.y || py - r > box.y + box.h) continue;
+    // Outline only, no fill. A target sitting inside four engagement envelopes
+    // used to wash the whole picture pink and hide the attack under it. The
+    // edge is the part a pilot can fly to -- it says where the run-in crosses
+    // into the ring -- and a ring large enough to swallow the frame now draws
+    // nothing at all rather than tinting everything. That you are inside it is
+    // already said, in bold red, by the THREATS IN AREA table above.
     ctx.beginPath();
     ctx.arc(px, py, r, 0, Math.PI * 2);
-    ctx.fillStyle = C.threatFill;
-    ctx.fill();
     ctx.strokeStyle = C.threatRing;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1.5;
     ctx.setLineDash([]);
     ctx.stroke();
   }
