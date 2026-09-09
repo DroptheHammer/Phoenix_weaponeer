@@ -135,7 +135,151 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-08 (late, Opus 5, user at the screen). **The level
+**Last session:** 2026-09-08 → 09 (Opus 5, user at the screen). **The map
+display filter is BUILT, eyeballed on all eight checks, committed and pushed**
+(`62204f5`). Gates: `npm run build` clean, **109 geo-checks** (was 99), **46
+Rust tests**. Plan at `~/.claude/plans/what-s-next-on-our-floofy-stardust.md`.
+
+### The sonnet alias is FIXED — last session's fresh-shell fix worked
+
+All three subagents this session reported **`claude-sonnet-5`** as the first
+line of their report. The `~/.zshrc` change (both `ANTHROPIC_DEFAULT_*_MODEL`
+exports commented out, backup `~/.zshrc.bak-20260908`) took effect once Claude
+Code was restarted from a fresh shell. **Keep requiring the model ID as the
+first line of every subagent report** — it costs nothing and it is the only
+cheap proof. The user asked again this session that subagents run on sonnet;
+pass `model: "sonnet"` explicitly, do not rely on the default.
+
+### What shipped — the map display filter
+
+The bottom-right map legend now doubles as the filter. A checkbox per row, plus
+an **Attacks** section listing each flight (`Viper 1`) with its members
+indented beneath (`Viper 1-1 · 2 attacks`). Threats split Mission/Planning;
+Route toggles steerpoints and the route line. Panel collapses; a **Show all**
+link shows only while something is hidden.
+
+**The load-bearing design decision: filter at the five DRAW sites inside
+`MapView`, NOT at the `App.tsx` prop boundary.** `MapController` re-fits the
+camera whenever its `fitKey` (every waypoint/threat lat-lon, joined) changes,
+so handing it filtered arrays makes **hiding the route yank the zoom**. Both
+`MapController` and `FocusController` keep the full arrays, as do the attack
+overlay's IP/target waypoint lookups — otherwise hiding the route would erase
+every attack. This was caught in exploration, before any code was written.
+
+State is a new **`src/stores/uiStore.ts`**, deliberately not `missionStore`
+(which serialises to disk and drives `isDirty`) — a view control must never
+mark the mission dirty. It stores what is **HIDDEN, not what is visible**, so
+anything newly added is visible by default; the inverse would make a new attack
+invisible until explicitly added.
+
+Nothing hides silently: the Attacks rail button reads `Attacks (4 · 1 hidden)`,
+list rows carry a dimmed "hidden on map" tag, and `setFocusAttackId` un-hides
+an attack's pilot on save. **The kneeboard card is deliberately unfiltered** —
+the card is what gets flown.
+
+New: `flightGroupOf` in `src/lib/callsign.ts` (`'Viper 1-1' → 'Viper 1'`).
+There is no flight entity in the data model; the group is implicit in the
+callsign string. The banked multi-ship strike feature will want this too.
+
+### Reviewing the subagent caught two things — FOURTH session running
+
+Gates were green and the report was clean. Still:
+
+1. **The flight tri-state box toggled the wrong way.** With a flight
+   half-hidden, clicking it hid *the rest*. Clicking a partly-filled box should
+   give back what is missing, not take away what is left. Now `anyHidden ?
+   show all : hide all`.
+2. **The threat filter had no check at all** — three of the four user-requested
+   scopes covered, threats not. Added, plus two pinning the tri-state.
+
+All three added checks were **proven to fail** first. Break 2 is the good one:
+reverting `toggleFlight` to the subagent's original `allHidden` logic fails
+exactly the new check. **Keep doing this** — it is the fourth session running
+it has found something.
+
+### The subagent was RIGHT to push back on the spec
+
+The plan told it to prove the `flightGroupOf` check by "dropping the anchor".
+It refused, correctly: `.match()` without `/g` always tries position 0 first,
+so removing `^` is a no-op for every realistic input and that break could never
+fail. It broke the `\s\d+` grouping constraint instead and added
+`flightGroupOf('Renegade-2') === 'Renegade-2'`, which only that constraint
+protects. **A subagent disputing a break-test on those grounds is doing the job
+right.**
+
+### Then the card: threat rings are OUTLINE ONLY now (`2d7535d`) — NOT EYEBALLED
+
+Eyeball item 8 (export a card for a hidden pilot) passed, but the comparison
+exposed a **pre-existing** bug. On the CBU-97 laydown on STPT 9 all four SAMs
+reach the target, and the filled rings washed the entire plan view pink with
+the attack invisible underneath; on the Mk-84 dive on STPT 8 every ring is
+outside its max range so nothing draws at all.
+
+The user chose **outline only, no fill**. The ring edge is the part a pilot can
+fly to — it says where the run-in crosses in. Dropping the fill also fixes the
+worst case for free: a ring big enough to swallow the frame (the SA-10's 47 nm
+against a 1 nm picture) now draws nothing instead of tinting everything, and
+the THREATS IN AREA table already reports being inside it in bold red.
+
+**The live map keeps its filled rings on purpose** — there the fill is how
+coverage reads while planning and you can pan away from it. The card is the one
+flown at kneeboard size.
+
+**This has NO automated gate.** The canvas renderer is not reachable from
+`geo-check`. It is committed unverified — eyeball it first thing.
+
+### UNRESOLVED — a red arc over the card header
+
+In the user's screenshot of the STPT 9 card a red arc crosses the **header**,
+above the plan view, and the whole card looks pink-cast. **I could not account
+for it and did not fix it.** The plan view is clipped to its own box
+(`renderKneeboardCanvas.ts:292-295`), nothing draws above it, and the preview
+canvas has no transparency. Three candidates, undistinguished:
+
+1. The screenshot is the **on-screen preview** with the map showing through — a
+   panel-styling bug, not a card bug.
+2. The exported PNG really has it, and the clip reading is wrong somewhere.
+3. A screenshot artefact.
+
+The outline change may have made it moot if it was a ring. **Ask the user to
+export that card into `Other Items/` and read the actual PNG** — that separates
+all three in one step. Do not guess at a fix without it.
+
+Note the red *text* in the threat table is NOT a bug: all four threats there
+are inside their max range, so they print bold dark red by design. On STPT 8
+all four are outside and print black.
+
+### START OF NEXT SESSION
+
+1. **Eyeball the outline-only threat rings** — export the STPT 9 CBU-97 card
+   and the STPT 8 Mk-84 card. Committed but unverified, and ungateable.
+2. **Get the exported PNG for the red-arc mystery above** before touching it.
+3. The queue, in the user's order: Reference DB v3 (rebuild fresh, bumps
+   `PRAGMA user_version` to 3); attack #1's egress preferring attack #2's
+   run-in; fuze-dependent release floors; dead-code removal.
+   **Dead code is confirmed dead and is a clean chain** — nothing imports
+   `src/hooks/useAttackCalculator.ts`, which is the only caller of the
+   `calculate_popup_ccip` Tauri command → `calculators::calculate_popup_ccip`
+   → its 3 Rust tests. Removing the hook lets the whole chain go. Also the
+   unused `once_cell` in Cargo.toml.
+4. The two banked features **after a clean/compact** — live-geometry Customize
+   (sliders + map redrawing as you drag, like
+   `Other Items/offset-leg-geometry.html`) and multi-aircraft coordinated
+   strike, built together.
+
+### Adjacent, noted but not done
+
+- `MapView` declares `selectedAttackId` (`:30`) wired all the way to
+  `AttackProfileOverlay`'s highlight styling, but `App.tsx` never passes it.
+  **Dead plumbing that is the ready-made hook** for the queued "select a threat
+  or attack in the list → highlight it and fly to it" idea.
+- The legend sits bottom-right, so an open side panel covers it. The user was
+  shown this and did not ask for a change; moving it bottom-left is a one-line
+  fix if it grates.
+
+---
+
+**Previous session:** 2026-09-08 (late, Opus 5, user at the screen). **The level
 offset leg is BUILT, eyeballed on all eight checks, committed and pushed**
 (`9d30046`). Gates: `npm run build` clean, **99 geo-checks** (was 81), **46
 Rust tests**. Plan at `~/.claude/plans/ok-let-s-plan-for-wise-lantern.md`.
