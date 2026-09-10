@@ -86,7 +86,7 @@ export function MapLegend({ attacks, flightMembers, threats }: MapLegendProps) {
     hiddenAttackerIds.length > 0 || hiddenThreatSources.length > 0 || routeHidden;
 
   return (
-    <div className="absolute bottom-4 right-4 bg-white rounded-lg shadow-lg p-3 text-xs z-[1000] max-w-[220px]">
+    <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg p-3 text-xs z-[1000] max-w-[220px]">
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="flex items-center justify-between w-full font-semibold mb-2 text-gray-800"

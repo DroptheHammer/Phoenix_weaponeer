@@ -23,7 +23,34 @@ export interface DisplayFilter {
   routeHidden: boolean;
 }
 
-interface UiState extends DisplayFilter {
+/**
+ * What the planner has picked out of a list, and what the map should fly to.
+ *
+ * Selection lives here for the same reason the display filter does: it is a
+ * view control, and clicking a row in a list must never mark the mission dirty
+ * or reach a saved `.json`. Attack and threat selection are mutually exclusive
+ * — only one thing is highlighted at a time, so picking a threat lets go of the
+ * attack rather than leaving two things lit up with no way to tell which the
+ * camera moved for.
+ *
+ * `focusThreatId` is a one-shot: the map consumes it, flies there, and clears
+ * it. Selection persists; the fly-to does not, so re-selecting the same threat
+ * flies to it again. Attacks already have this in `missionStore.focusAttackId`,
+ * which additionally un-hides the attacker — kept there rather than duplicated.
+ */
+interface Selection {
+  selectedAttackId: string | null;
+  selectedThreatId: string | null;
+  focusThreatId: string | null;
+}
+
+interface UiState extends DisplayFilter, Selection {
+  selectAttack: (id: string | null) => void;
+  /** Select a threat and ask the map to fly to it. */
+  selectThreat: (id: string | null) => void;
+  /** The map calls this once it has flown to `focusThreatId`. */
+  threatFocused: () => void;
+  clearSelection: () => void;
   toggleAttacker: (id: string) => void;
   /** Toggles every member of a flight together (used by the flight row's tri-state box). */
   toggleFlight: (memberIds: string[]) => void;
@@ -43,8 +70,20 @@ const emptyFilter: DisplayFilter = {
   routeHidden: false,
 };
 
+const emptySelection: Selection = {
+  selectedAttackId: null,
+  selectedThreatId: null,
+  focusThreatId: null,
+};
+
 export const useUiStore = create<UiState>((set) => ({
   ...emptyFilter,
+  ...emptySelection,
+
+  selectAttack: (id) => set({ selectedAttackId: id, selectedThreatId: null }),
+  selectThreat: (id) => set({ selectedThreatId: id, selectedAttackId: null, focusThreatId: id }),
+  threatFocused: () => set({ focusThreatId: null }),
+  clearSelection: () => set({ ...emptySelection }),
 
   toggleAttacker: (id) =>
     set((state) => ({
@@ -78,5 +117,5 @@ export const useUiStore = create<UiState>((set) => ({
     })),
 
   showAll: () => set({ ...emptyFilter }),
-  resetFilter: () => set({ ...emptyFilter }),
+  resetFilter: () => set({ ...emptyFilter, ...emptySelection }),
 }));

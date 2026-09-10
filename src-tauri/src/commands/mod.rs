@@ -50,37 +50,12 @@ pub struct Coordinates {
     pub lon: f64,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MizData {
     pub theater: String,
     pub bullseye: Coordinates,
     pub waypoints: Vec<Value>,
     pub threats: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AttackCalculationResult {
-    pub release_altitude_ft: f64,
-    pub release_speed_ktas: f64,
-    pub time_to_release_sec: f64,
-    pub min_safe_altitude_ft: f64,
-}
-
-/// Input parameters for popup CCIP calculation
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThreatExposure {
-    pub threat_id: String,
-    pub threat_name: String,
-    pub min_distance_nm: f64,
-    pub exposure_time_sec: f64,
-    pub risk_level: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThreatExposureResult {
-    pub exposures: Vec<ThreatExposure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,7 +238,6 @@ pub fn get_all_aircraft(state: State<AppState>) -> Result<Vec<db::Aircraft>, Str
 pub fn get_fuze_options(state: State<AppState>, weapon_id: String) -> Result<Vec<db::FuzeOption>, String> {
     state.db.get_fuze_options(&weapon_id).map_err(|e| e.to_string())
 }
-
 
 // ============================================================================
 // Import Commands
@@ -664,41 +638,6 @@ fn deduplicate_threats(threats: Vec<ProcessedThreat>) -> Vec<ProcessedThreat> {
     }
 
     result
-}
-
-// ============================================================================
-// Calculation Commands
-// ============================================================================
-
-/// Calculate attack profile parameters
-#[tauri::command]
-pub fn calculate_attack_profile(
-    profile_type: String,
-    params: Value,
-    weapon_id: String,
-    target_elevation: f64,
-) -> Result<AttackCalculationResult, String> {
-    // TODO: Implement attack profile calculations
-    // This will use the calculators module
-    let _ = (profile_type, params, weapon_id, target_elevation);
-    Ok(AttackCalculationResult {
-        release_altitude_ft: 4500.0,
-        release_speed_ktas: 450.0,
-        time_to_release_sec: 15.0,
-        min_safe_altitude_ft: 3000.0,
-    })
-}
-
-/// Calculate threat exposure during an attack run
-#[tauri::command]
-pub fn calculate_threat_exposure(
-    attack: Value,
-    threats: Vec<Value>,
-    target: Coordinates,
-) -> Result<ThreatExposureResult, String> {
-    // TODO: Implement threat exposure calculations
-    let _ = (attack, threats, target);
-    Ok(ThreatExposureResult { exposures: vec![] })
 }
 
 // ============================================================================

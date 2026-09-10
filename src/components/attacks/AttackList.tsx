@@ -30,8 +30,10 @@ interface AttackListProps {
 }
 
 export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAttackSaved }: AttackListProps) {
-  const { mission, removeAttack } = useMissionStore();
+  const { mission, removeAttack, setFocusAttackId } = useMissionStore();
   const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
+  const selectedAttackId = useUiStore((state) => state.selectedAttackId);
+  const selectAttack = useUiStore((state) => state.selectAttack);
   const [showEditor, setShowEditor] = useState(false);
   const [editingAttack, setEditingAttack] = useState<Attack | undefined>(undefined);
 
@@ -94,7 +96,18 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
             return (
               <div
                 key={attack.id}
-                className="bg-dcs-navy rounded-lg p-3 flex items-center justify-between hover:bg-dcs-darker transition-colors"
+                onClick={() => {
+                  // Select for the highlight, focus for the fly-to. The focus
+                  // action also un-hides the attacker, so a selected attack is
+                  // never invisible behind the display filter.
+                  selectAttack(attack.id);
+                  setFocusAttackId(attack.id);
+                }}
+                className={`rounded-lg p-3 flex items-center justify-between transition-colors cursor-pointer ${
+                  selectedAttackId === attack.id
+                    ? 'bg-dcs-darker ring-2 ring-amber-400'
+                    : 'bg-dcs-navy hover:bg-dcs-darker'
+                }`}
               >
                 <div className="flex items-center gap-4">
                   <div className="bg-dcs-accent px-2 py-1 rounded text-sm font-bold">
@@ -120,14 +133,14 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => handleEditAttack(attack)}
+                    onClick={(e) => { e.stopPropagation(); handleEditAttack(attack); }}
                     className="text-gray-400 hover:text-blue-400 px-2 py-1"
                     title="Edit attack"
                   >
                     Edit
                   </button>
                   <button
-                    onClick={() => removeAttack(attack.id)}
+                    onClick={(e) => { e.stopPropagation(); removeAttack(attack.id); }}
                     className="text-gray-400 hover:text-red-500 p-1"
                     title="Remove attack"
                   >

@@ -59,9 +59,6 @@ pub fn run() {
             // Import commands
             commands::parse_miz_file,
             commands::parse_fragorders_json,
-            // Calculation commands
-            commands::calculate_attack_profile,
-            commands::calculate_threat_exposure,
             // Export commands
             commands::render_kneeboard,
             commands::export_to_dcs_kneeboard,

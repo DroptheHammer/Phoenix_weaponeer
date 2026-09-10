@@ -40,6 +40,7 @@ function App() {
     useMissionStore();
   const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
   const resetDisplayFilter = useUiStore((state) => state.resetFilter);
+  const selectedAttackId = useUiStore((state) => state.selectedAttackId);
   const loadTheaters = useTheaterStore((state) => state.loadTheaters);
   const loadProfiles = useProfileStore((state) => state.loadProfiles);
   const theaterInfo = useTheaterInfo(mission?.theater);
@@ -293,6 +294,7 @@ function App() {
                 bullseye={mission.bullseye}
                 threatSystems={threatSystemMap}
                 flightMembers={mission.flightMembers}
+                selectedAttackId={selectedAttackId}
                 focusAttackId={focusAttackId}
                 onAttackFocused={() => setFocusAttackId(null)}
                 onMoveThreat={handleMoveThreat}

@@ -32,6 +32,7 @@ import { flightGroupOf } from '../src/lib/callsign';
 import { applyDisplayFilter } from '../src/lib/displayFilter';
 import { visibleArcSpans } from '../src/lib/arcClip';
 import { compareThreatsForCard } from '../src/lib/cardThreats';
+import { applyFlank, applyEgress } from '../src/lib/attackFlank';
 import { useUiStore } from '../src/stores/uiStore';
 import { readFileSync } from 'node:fs';
 
@@ -616,3 +617,93 @@ ok('a search radar ranks behind anything that can shoot, however far it sees',
 ok('the P-19 does not displace a live SA-11 it happens to sit closer than',
    withEwr.indexOf(buk) < withEwr.indexOf(p19),
    `Buk at ${withEwr.indexOf(buk)}, P-19 at ${withEwr.indexOf(p19)}`);
+
+// ─── Picking a flank must not discard a customized profile ───────────────────
+// The Ingress/Egress toggles used to call resetToProfile(), which cleared the
+// whole hand-edited profile: type a dive angle, pick the other flank, and the
+// dive angle silently reverted to the library default.
+//
+// Note the check turn and action range have to leave the geometry closable —
+// 25° at 5.5 nm wants 2.3 nm abeam, but a 37° dive from 9,200 ft rolls in at
+// only ~2.0 nm, so describeRunIn returns nothing and no heading is derived.
+const customDive = {
+  type: 'dive_ccip' as const,
+  ipWaypointId: 'ip',
+  rollInAltitude_ft: 9200,       // hand-typed, not a library number
+  diveAngle_deg: 37,             // hand-typed
+  releaseAltitude_ft: 5100,      // hand-typed
+  releaseSpeed_ktas: 470,
+  pulloutG: 4.5,
+  egressDirection: 'right' as const,
+  actionRange_nm: 4.5,
+  offsetAngle_deg: 20,
+  offsetDirection: 'right' as const,
+  ingressHeading_deg: 100,       // deliberately stale: must be re-derived
+  fuzeMode: 'instant',
+  quantity: 1,
+  targetElevation_ft: 0,
+};
+
+const onLeft = applyFlank(customDive as never, 'left', directBearing) as typeof customDive;
+const onRight = applyFlank(customDive as never, 'right', directBearing) as typeof customDive;
+
+ok('changing flank keeps every hand-typed number',
+   onLeft.diveAngle_deg === 37 && onLeft.rollInAltitude_ft === 9200 &&
+   onLeft.releaseAltitude_ft === 5100 && onLeft.pulloutG === 4.5 &&
+   onLeft.actionRange_nm === 4.5 && onLeft.offsetAngle_deg === 20,
+   `dive ${onLeft.diveAngle_deg}° roll-in ${onLeft.rollInAltitude_ft} rel ${onLeft.releaseAltitude_ft}`);
+ok('changing flank changes the flank', onLeft.offsetDirection === 'left', onLeft.offsetDirection);
+ok('the stale attack heading is replaced, not carried over',
+   onLeft.ingressHeading_deg !== 100 && Number.isFinite(onLeft.ingressHeading_deg),
+   `100° → ${r(onLeft.ingressHeading_deg)}°`);
+// The real proof the heading was solved rather than copied: the two flanks sit
+// the same angle either side of the direct bearing.
+const dLeft = signedHeadingDelta(onLeft.ingressHeading_deg, directBearing);
+const dRight = signedHeadingDelta(onRight.ingressHeading_deg, directBearing);
+ok('the two flanks are mirror images about the direct bearing',
+   Math.abs(dLeft + dRight) < 0.5 && Math.abs(dLeft) > 1,
+   `left ${r(dLeft)}° right ${r(dRight)}° off ${directBearing}`);
+
+// A typed egress heading outranks the direction in resolveEgressHeading, so the
+// toggle has to clear it or the button lights up and nothing moves.
+const withTypedEgress = { ...customDive, egressHeading_deg: 123 };
+const egressed = applyEgress(withTypedEgress as never, 'left') as typeof withTypedEgress;
+ok('choosing an egress side clears a typed egress heading, so the choice takes effect',
+   egressed.egressDirection === 'left' && egressed.egressHeading_deg === undefined,
+   `dir ${egressed.egressDirection}, hdg ${String(egressed.egressHeading_deg)}`);
+ok('choosing an egress side keeps the rest of the profile',
+   egressed.diveAngle_deg === 37 && egressed.actionRange_nm === 4.5);
+
+// ─── Selecting something out of a list ───────────────────────────────────────
+// Selection is a view control in uiStore, never missionStore: clicking a row
+// must not mark the mission dirty.
+useUiStore.getState().clearSelection();
+useUiStore.getState().selectAttack('a1');
+ok('selecting an attack records it', useUiStore.getState().selectedAttackId === 'a1');
+
+// Only one thing is lit at a time — otherwise two rows glow and nothing says
+// which one the camera moved for.
+useUiStore.getState().selectThreat('t1');
+ok('selecting a threat lets go of the attack',
+   useUiStore.getState().selectedThreatId === 't1' && useUiStore.getState().selectedAttackId === null,
+   `threat ${String(useUiStore.getState().selectedThreatId)}, attack ${String(useUiStore.getState().selectedAttackId)}`);
+useUiStore.getState().selectAttack('a2');
+ok('selecting an attack lets go of the threat',
+   useUiStore.getState().selectedAttackId === 'a2' && useUiStore.getState().selectedThreatId === null);
+
+// The fly-to is one-shot: the map consumes it and clears it, so selecting the
+// same threat twice flies there twice.
+useUiStore.getState().selectThreat('t2');
+ok('selecting a threat asks the map to fly to it', useUiStore.getState().focusThreatId === 't2');
+useUiStore.getState().threatFocused();
+ok('the map clears the fly-to once it has moved, leaving the selection alone',
+   useUiStore.getState().focusThreatId === null && useUiStore.getState().selectedThreatId === 't2');
+
+// A stale selection must not survive into a different mission.
+useUiStore.getState().selectThreat('t3');
+useUiStore.getState().resetFilter();
+ok('opening a new mission clears the selection',
+   useUiStore.getState().selectedThreatId === null &&
+   useUiStore.getState().selectedAttackId === null &&
+   useUiStore.getState().focusThreatId === null);
+useUiStore.getState().resetFilter();

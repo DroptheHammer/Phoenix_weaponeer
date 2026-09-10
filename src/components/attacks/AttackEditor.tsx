@@ -9,6 +9,7 @@ import { autoBuildAttack, loadoutWeapons } from '../../lib/autoBuildAttack';
 import { runAttackChecks, hasErrors } from '../../lib/attackChecks';
 import { type Side } from '../../lib/attackGeometry';
 import { describeRunIn, type RunInSummary } from '../../lib/runIn';
+import { applyFlank, applyEgress } from '../../lib/attackFlank';
 import { weaponClassOf } from '../../lib/weaponClass';
 import { formatCallsign } from '../../lib/callsign';
 import type {
@@ -72,9 +73,12 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
     attack && !attack.customized
       ? (attack.profile as { actionRange_nm?: number; offsetAngle_deg?: number; offsetDirection?: Side; offsetLegRatio?: number })
       : undefined;
-  const [actionRangeOverride] = useState<number | undefined>(saved?.actionRange_nm);
-  const [offsetLegRatioOverride] = useState<number | undefined>(saved?.offsetLegRatio);
-  const [offsetTurnOverride] = useState<number | undefined>(saved?.offsetAngle_deg);
+  // Constants, not state: the editor remounts for each open, so these never
+  // change during a session. They were useState values whose setters were never
+  // called, which read as though the run-in could be re-seeded mid-edit.
+  const actionRangeOverride = saved?.actionRange_nm;
+  const offsetLegRatioOverride = saved?.offsetLegRatio;
+  const offsetTurnOverride = saved?.offsetAngle_deg;
   const [angleOffSide, setAngleOffSide] = useState<Side | undefined>(saved?.offsetDirection);
   const [egressOverride, setEgressOverride] = useState<'left' | 'right' | undefined>(undefined);
 
@@ -164,6 +168,20 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   const resetToProfile = () => {
     setCustomized(false);
     setCustomProfile(undefined);
+  };
+
+  // Picking a flank is not a reason to throw away hand-typed numbers. When the
+  // profile has been customized, apply the change to it; otherwise auto-build
+  // will pick it up from the override.
+  const chooseIngress = (side: Side) => {
+    setAngleOffSide(side);
+    if (customized && customProfile) {
+      setCustomProfile(applyFlank(customProfile, side, build?.directBearing, selectedTarget?.elevation_ft ?? 0));
+    }
+  };
+  const chooseEgress = (side: 'left' | 'right') => {
+    setEgressOverride(side);
+    if (customized && customProfile) setCustomProfile(applyEgress(customProfile, side));
   };
 
   const handleSave = () => {
@@ -323,7 +341,7 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
                     <button
                       key={side}
                       type="button"
-                      onClick={() => { setAngleOffSide(side); resetToProfile(); }}
+                      onClick={() => chooseIngress(side)}
                       className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
                         ingressSideShown === side
                           ? 'bg-dcs-blue border-blue-400 text-white'
@@ -346,7 +364,7 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
                     <button
                       key={side}
                       type="button"
-                      onClick={() => { setEgressOverride(side); resetToProfile(); }}
+                      onClick={() => chooseEgress(side)}
                       className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
                         egress === side ? 'bg-dcs-blue border-blue-400 text-white' : 'bg-dcs-dark border-gray-600 text-gray-300 hover:border-gray-400'
                       }`}
@@ -361,7 +379,10 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
 
             {effectiveProfile && <KeyNumbers profile={effectiveProfile} />}
 
-            {build?.adjustments.length ? (
+            {/* These describe what auto-build did. Once the numbers are
+                hand-edited they no longer describe what is on screen, so they
+                are withdrawn rather than left to mislead. */}
+            {!customized && build?.adjustments.length ? (
               <ul className="mt-3 text-sm text-amber-300 space-y-1">
                 {build.adjustments.map((a) => <li key={a}>↑ {a}</li>)}
               </ul>

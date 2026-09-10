@@ -1,5 +1,5 @@
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, ZoomControl, useMapEvents } from 'react-leaflet';
-import { divIcon, DragEndEvent } from 'leaflet';
+import { divIcon, latLng, DragEndEvent } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../../types';
 import type { FlightMember } from '../../types/flight.types';
@@ -30,7 +30,7 @@ interface MapViewProps {
   attacks?: Attack[];
   bullseye?: Coordinates;
   threatSystems?: Map<string, ThreatSystem>;
-  selectedAttackId?: string;
+  selectedAttackId?: string | null;
   /** Set right after an attack is added/edited; the map reframes on it once, then this should be cleared. */
   focusAttackId?: string | null;
   onAttackFocused?: () => void;
@@ -141,6 +141,50 @@ function FocusController({
     onFocused();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusAttackId]);
+
+  return null;
+}
+
+/**
+ * Fly to a threat the planner picked out of the list.
+ *
+ * Frames the threat's whole engagement ring, not just its centre — where the
+ * ring reaches is the part that matters, and a ring-less centre point tells a
+ * planner nothing. Capped so a 130 nm SA-5 does not zoom out to the whole
+ * theatre; a huge ring frames at the cap and the marker stays put.
+ *
+ * One-shot, like FocusController: consume the id, move, clear it. Selecting the
+ * same threat again therefore flies to it again.
+ */
+function ThreatFocusController({
+  threats,
+  threatSystems,
+  focusThreatId,
+  onFocused,
+}: {
+  threats: ThreatInstance[];
+  threatSystems?: Map<string, ThreatSystem>;
+  focusThreatId?: string | null;
+  onFocused: () => void;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!focusThreatId) return;
+    const threat = threats.find((t) => t.id === focusThreatId);
+    if (!threat) {
+      onFocused();
+      return;
+    }
+    const range_nm = threatSystems?.get(threat.systemId)?.max_range_nm ?? 0;
+    const radius_m = Math.max(range_nm, 1) * 1852;
+    map.fitBounds(latLng(threat.position.lat, threat.position.lon).toBounds(radius_m * 2.2), {
+      padding: [48, 48],
+      maxZoom: 12,
+    });
+    onFocused();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusThreatId]);
 
   return null;
 }
@@ -257,6 +301,9 @@ export function MapView({
   const hiddenAttackerIds = useUiStore((s) => s.hiddenAttackerIds);
   const hiddenThreatSources = useUiStore((s) => s.hiddenThreatSources);
   const routeHidden = useUiStore((s) => s.routeHidden);
+  const selectedThreatId = useUiStore((s) => s.selectedThreatId);
+  const focusThreatId = useUiStore((s) => s.focusThreatId);
+  const threatFocused = useUiStore((s) => s.threatFocused);
   const filtered = useMemo(
     () =>
       applyDisplayFilter(
@@ -299,6 +346,9 @@ export function MapView({
         <ZoomControl position="bottomleft" />
         <MapController theater={theater} waypoints={waypoints} threats={threats} />
         <FocusController attacks={attacks} waypoints={waypoints} focusAttackId={focusAttackId} onFocused={() => onAttackFocused?.()} />
+        {/* Selection never feeds MapController's fitKey — picking something out
+            of a list must highlight it, not re-frame the whole mission. */}
+        <ThreatFocusController threats={threats} threatSystems={threatSystems} focusThreatId={focusThreatId} onFocused={threatFocused} />
         <AttackLabelLayer attacks={visibleAttacks} waypoints={waypoints} flightMembers={flightMembers} onPlaced={setPlacedLabels} />
         <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={onPlacePosition} />
 
@@ -384,10 +434,10 @@ export function MapView({
                 radius={maxRangeMeters}
                 interactive={!isPlacementMode}
                 pathOptions={{
-                  color: baseColor,
+                  color: threat.id === selectedThreatId ? '#FBBF24' : baseColor,
                   fillColor: baseColor,
-                  fillOpacity: isMissionThreat ? 0.1 : 0.05,
-                  weight: isMissionThreat ? 2 : 2,
+                  fillOpacity: threat.id === selectedThreatId ? 0.18 : isMissionThreat ? 0.1 : 0.05,
+                  weight: threat.id === selectedThreatId ? 4 : 2,
                   dashArray: isMissionThreat ? undefined : '8, 8',
                 }}
               >

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMissionStore } from '../../stores/missionStore';
+import { useUiStore } from '../../stores/uiStore';
 import { formatCoordinatesDMS } from '../../lib/coordinates';
 import type { ThreatStatus, ThreatSource, Coordinates } from '../../types';
 
@@ -340,17 +341,23 @@ interface ThreatCardProps {
 
 function ThreatCard({ threat, system, onStatusChange, onRemove }: ThreatCardProps) {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const selectedThreatId = useUiStore((state) => state.selectedThreatId);
+  const selectThreat = useUiStore((state) => state.selectThreat);
+  const isSelected = selectedThreatId === threat.id;
 
   return (
-    <div className={`bg-dcs-dark rounded-lg p-3 border-l-4 ${
-      threat.source === 'mission' ? 'border-blue-500' : 'border-orange-500'
-    }`}>
+    <div
+      onClick={() => selectThreat(threat.id)}
+      className={`bg-dcs-dark rounded-lg p-3 border-l-4 cursor-pointer transition-colors ${
+        threat.source === 'mission' ? 'border-blue-500' : 'border-orange-500'
+      } ${isSelected ? 'ring-2 ring-amber-400' : 'hover:bg-dcs-darker'}`}
+    >
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <div
               className={`w-3 h-3 rounded-full ${STATUS_COLORS[threat.status]} cursor-pointer`}
-              onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+              onClick={(e) => { e.stopPropagation(); setShowStatusDropdown(!showStatusDropdown); }}
               title={`Status: ${STATUS_LABELS[threat.status]} (click to change)`}
             />
             <div className="font-medium">
@@ -391,7 +398,7 @@ function ThreatCard({ threat, system, onStatusChange, onRemove }: ThreatCardProp
             {SOURCE_LABELS[threat.source]}
           </span>
           <button
-            onClick={() => onRemove(threat.id, threat.source)}
+            onClick={(e) => { e.stopPropagation(); onRemove(threat.id, threat.source); }}
             className="text-gray-400 hover:text-red-500 p-1 text-lg"
             title="Remove threat"
           >
@@ -408,7 +415,8 @@ function ThreatCard({ threat, system, onStatusChange, onRemove }: ThreatCardProp
             {(Object.keys(STATUS_LABELS) as ThreatStatus[]).map((status) => (
               <button
                 key={status}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   onStatusChange(threat.id, status);
                   setShowStatusDropdown(false);
                 }}
