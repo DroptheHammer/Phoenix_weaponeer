@@ -105,17 +105,37 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 - [ ] PDF export option (optional)
 
 ### Phase 4: Polish
+- [x] Additional aircraft modules — 62 delivery profiles across ten aircraft
+- [x] Level CCRP and dive bomb geometry
+- [ ] Loft geometry (LABS, F-16 loft) — profiles ship hidden, geometry unbuilt
 - [ ] FragOrders URL import (when API access provided)
-- [ ] Additional aircraft modules (F/A-18, A-10)
-- [ ] Additional attack profiles (level, loft, dive bomb)
+
+### Phase 5: The two banked features (NEXT)
+- [ ] **Live-geometry Customize** — sliders over a map that redraws as you
+      drag. Reference: `Other Items/offset-leg-geometry.html` (git-ignored).
+- [ ] **Multi-aircraft coordinated strike** — 1–4 aircraft on a joint strike,
+      adjusted as a group or per aircraft. `split_deg` on `RunInSummary` is
+      retained for this.
 
 ## Known Issues / Future Testing
 
-- [x] **Coordinate conversion** - ✅ FIXED - Now uses proper proj4 Transverse Mercator projections from FragOrders project
-  - Replaced simple lat/lon calculation with accurate proj4 transformations
-  - Added `proj` Rust crate with system library dependencies
-  - Updated test data with realistic NTTR coordinates
-  - Waypoints now appear in correct Nevada locations
+- **DO NOT re-open, both closed by the user 2026-09-09:** attack #1's egress
+  preferring attack #2's run-in (existing threat-aware logic stands), and
+  fuze-dependent release floors (the tool assumes impact detonation — see
+  `docs/DELIVERY_PLANNING.md`).
+- **The Channel has no projection**, and Sinai / Kola / Afghanistan are
+  `verified: false`. All four need ground-truth DCS x/y ↔ lat/lon pairs off the
+  F10 map; the arithmetic is already validated.
+- **Kneeboard export to DCS has never run on Windows.** `detect_dcs_folder`
+  returns `None` on Mac/Linux, so the auto-export path is untested on the only
+  platform it targets.
+- `render_kneeboard` and `export_to_dcs_kneeboard` are unimplemented stubs
+  returning errors. Check callers before assuming they are dead; the live
+  export path is `save_kneeboard_png`.
+- [x] **Coordinate conversion** — ✅ FIXED, and cleared of suspicion twice
+  since. proj4 Transverse Mercator per theater, pinned by landmark and
+  axis-order tests. **Read the warning in the 2026-07-26 notes below before
+  suspecting it a third time.**
 
 ## Important Context
 
@@ -135,7 +155,166 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
 
 ## Session Pickup Notes
 
-**Last session:** 2026-09-08 → 09 (Opus 5, user at the screen). **The map
+**Last session:** 2026-09-09 (Opus 5, user at the screen). **Four commits, all
+eyeballed where it mattered, all pushed.** Gates moved **109 → 132 geo-checks**
+and **46 → 48 Rust tests**; `npm run build` clean, `cargo build` zero warnings.
+Plans at `~/.claude/plans/what-s-next-on-the-mighty-pumpkin.md` and
+`~/.claude/plans/foamy-sauteeing-hejlsberg.md`.
+
+| Commit | What |
+|---|---|
+| `763b905` | Threat rings stroke only what is inside the diagram box |
+| `df4d4c9` | Reference DB v3 — 12 rows + the rule↔row invariant test |
+| `7974d60` | Dead pop-up calculator chain removed (−380 lines) |
+| `10b01c8` | Cleanup pass — editor defects, list selection, last dead commands |
+
+### The red arc was REAL, and the diagnosis is worth keeping
+
+Last session committed the outline-only threat rings unverified. The rings
+themselves passed. But the red arc over the header was **in the exported PNG**,
+not a screenshot artefact — and the method that found it is the reusable part:
+read the PNG with PIL, filter for the ring colour, fit a circle to the pixels.
+It came out **centre (238, 1192), radius 1009 px, residual 0.06 px** — a
+perfect circle, so a stroked ring, centred **454 px below** a plan-view box
+whose bottom is y=738 (the 1 nm scale bar measures `scale` px wide at
+`box.y + box.h - 14`, which is how you recover the frame from a PNG).
+
+**The clip was set and every save/restore balanced. The canvas stroked the
+circle through it anyway.** Rather than work out which canvas builds honour a
+clip for a path far larger than the surface, `visibleArcSpans` in
+**`src/lib/arcClip.ts`** now computes the angular spans genuinely inside the
+box and only those are stroked. A frame entirely inside a huge ring draws
+nothing — correct, and what the bold red table row is for.
+
+Found alongside it: the card built **six** threats, the table printed **four**,
+and the plan view drew rings for **all six**. The escaping arc belonged to an
+SA-11 that was never named on the card. Both now read `CARD_THREAT_ROWS`.
+
+### Reference DB v3 — the drift was the real bug
+
+Twelve rows (`SCHEMA_VERSION` 2 → 3). But the rows were the easy part. The
+mapping table already **named eight systems with no database row** — Gepard,
+Roland, Hawk, Patriot, NASAMS, Rapier, Strela-10, P-19 — which imported as
+Unknown and were dropped. Two tables that must agree had silently drifted.
+**`every_mapping_rule_resolves_to_a_database_row`** now makes that impossible.
+
+Worse: `RPC_5N62V` (Square Pair — the set that actually shoots on an S-200
+site) and `RLS_19J6` matched **neither a rule nor any pre-filter category**, so
+`is_threat_unit` returned false and they never reached the planner at all.
+
+**Trap worth remembering: `contains_run` matches WHOLE TOKENS.** `5N62` can
+never fire against `RPC_5N62V`, which tokenises to `rpc`/`5n62v`. It is
+`5N62V`.
+
+Data policy, the user's call: fill only the five fields anything reads (name,
+NATO designation, type, max range, max altitude), put the source in `notes`,
+and leave speculative columns **NULL rather than invented**.
+
+### TWO ITEMS THE USER CLOSED BY DECISION — do not reopen
+
+- **Attack #1's egress preferring attack #2's run-in: CLOSED.** *"the existing
+  logic is fine, default to egressing away from the nearest threat (sam or
+  artillery etc)."*
+- **Fuze-dependent release floors: CLOSED.** *"I'd rather just assume the bomb
+  detonates on impact."* The conservative frag min-safe per weapon is always
+  the floor; `arming_delay_sec` is carried for the card but never changes a
+  release altitude. **The tool will not plan a true low-angle LALD** the way
+  the manual does. Recorded in `docs/DELIVERY_PLANNING.md` with a do-not-reopen
+  note. That file also wrongly said the Mk-82 frag min-safe was 4,500 ft; the
+  seed says **3,000** (4,500 is the Mk-84). Corrected.
+
+### THE LESSON OF THE SESSION — script it, do not ask him to eyeball it
+
+Handed a four-item on-screen checklist, the user pushed back: *"For 2-3-4 why
+am I eyeballing this? cant you script it?"* He was right — two items were
+already covered by gates written an hour earlier, and the other two became
+Rust tests in minutes:
+
+- `a_stale_database_is_rebuilt_with_the_v3_threat_rows` stands up a v2-shaped
+  database and proves the new rows reach an existing install. That is what the
+  "rebuilding as v3" console line only *claimed*.
+- `every_threat_unit_in_the_nttr_mission_resolves_to_a_row` asserts all 27
+  threat unit types the real mission carries, in DCS's exact spelling.
+
+**Ask him only for what genuinely cannot be scripted** — does the picture read
+well, does the feel work. Everything else is a test.
+
+### Also shipped: the cleanup pass
+
+- **The Ingress/Egress toggles silently discarded customization** — both called
+  `resetToProfile()`. New pure helpers in **`src/lib/attackFlank.ts`** apply the
+  change instead, re-deriving the heading through `describeRunIn`. `applyEgress`
+  also clears a typed `egressHeading_deg`, because `resolveEgressHeading`
+  prefers it and the toggle would otherwise be a no-op.
+- The adjustments list described auto-build only; withdrawn while customized.
+- Three "override" `useState` values had setters that were never called. Now
+  constants, which is what they always were.
+- **Selection is live.** `MapView`'s `selectedAttackId` had been wired to
+  `AttackProfileOverlay`'s highlight all along with nothing passing it. Clicking
+  a row in either list now selects and flies to it. Selection lives in
+  `uiStore`, never `missionStore` — clicking a row must not dirty the mission —
+  and attack/threat selection are mutually exclusive.
+- Knock-on the plan missed: **once a row is clickable, its own Edit/Remove/
+  status controls need `stopPropagation`**, or clicking Remove also selects and
+  flies to the thing being deleted.
+- Legend moved bottom-left, out from under the side panel (`w-1/3`, right).
+
+### Break-testing found a bad TEST, not bad code
+
+Per the standing rule, all ten new checks were proven to fail first. One failed
+for a real reason: a 25° check turn at 5.5 nm wants 2.3 nm abeam, but a 37°
+dive from 9,200 ft rolls in at ~2.0 nm — the geometry never closed, so
+`describeRunIn` returned nothing. **The fixture was wrong, not the code.** The
+assertion is now stronger: the two flanks must be **mirror images about the
+direct bearing** (left −30°, right +30°).
+
+### Housekeeping
+
+- `.claude/settings.json` gained an allow-list for read-only Bash (`grep`,
+  `cat`, `head`, `tail`, `find`, `wc`, `git diff/status/log/show`) and **the
+  `"model": "sonnet"` pin was removed** so the user's Opus default wins.
+  `.claude/` is git-ignored, so this is local to the Mac only.
+- **Never use `/tmp`** — `permissions.blockReadsOutsideWorkingDirectories`
+  prompts on every access and an allow-rule does not override it. `Other Items/`
+  is git-ignored and already a working directory; better still, hold a file's
+  contents in a shell variable and restore in the same command.
+
+### START OF NEXT SESSION
+
+1. **The queue is empty apart from the two banked features.** Everything else
+   is done or closed by the user's decision.
+2. **Live-geometry Customize** — half-planned already in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`. Exploration established: the
+   recompute is *already* live (`autoBuildAttack` re-runs per keystroke via a
+   `useMemo`; `buildAttackPicture` and the geometry functions are pure and
+   cheap enough per slider tick), `MapView` is fully prop-driven and a second
+   `MapContainer` is safe. Design reference: `Other Items/offset-leg-geometry.html`.
+   **Two questions must be answered before code:** where the map sits (the
+   editor is a centred modal today) and whether knobs become sliders,
+   slider+number pairs, or stay as number boxes — bounded by *never remove a
+   knob*. **There are 35: 3 common, 12 dive, 9 level, 14 pop-up.**
+   **Gotcha:** `MapView` reads `useUiStore`'s display filters directly
+   (`:257-259`), so an embedded editor map would inherit whatever the main map
+   is hiding. The editor must show the truth.
+   **Second gotcha:** `MapController` re-fits on `fitKey` changes — a live
+   editor's picture changes constantly, so fit once on open and hold.
+3. Then **multi-aircraft coordinated strike**, which the retained `split_deg`
+   on `RunInSummary` exists for.
+
+### Adjacent, noted but not done
+
+- `render_kneeboard` and `export_to_dcs_kneeboard` in `commands/mod.rs` are
+  unimplemented stubs returning errors. Not obviously dead — check callers
+  before touching; the live export path is `save_kneeboard_png`.
+- The Channel projection, and retiring the `verified: false` flags on Sinai,
+  Kola and Afghanistan — both need ground-truth DCS x/y ↔ lat/lon pairs.
+- PDF export; FragOrders URL import (blocked on API access); loft geometry;
+  loadout from FragOrders pylons; aircraft kneeboard paths from the DB;
+  verifying kneeboard export on Windows with DCS installed.
+
+---
+
+**Previous session:** 2026-09-08 → 09 (Opus 5, user at the screen). **The map
 display filter is BUILT, eyeballed on all eight checks, committed and pushed**
 (`62204f5`). Gates: `npm run build` clean, **109 geo-checks** (was 99), **46
 Rust tests**. Plan at `~/.claude/plans/what-s-next-on-our-floofy-stardust.md`.
