@@ -167,65 +167,50 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-11 (Opus 5, user at the screen). **Three commits, all
-pushed.** Gates moved **132 → 152 geo-checks** and **48 → 58 Rust tests**;
+**Last session:** 2026-09-12 (Opus 5, user at the screen). **One commit.**
+Gates moved **152 → 156 geo-checks** and **58 → 60 Rust tests**;
 `npm run build` clean, `cargo build` zero warnings. Plan at
-`~/.claude/plans/ok-what-s-next-in-synthetic-cloud.md`.
+`~/.claude/plans/we-ve-got-a-problem-glittery-rose.md`.
 
 | Commit | What |
 |---|---|
-| `0217859` | New FragOrders export supported; Sinai projection verified |
-| `2bfb7c6` | Any waypoint can be a target, and any waypoint can be the IP |
-| `f984f39` | Open on a FragOrders export now says to use Import |
+| `3569a5c` | Number waypoints from 0, so the ramp stops eating steerpoint 1 |
 
-### The new FragOrders is a CLI, and the format did not change
+### Every steerpoint we printed was one too high
 
-The FragOrders author's rebuild is **`cmd/cli`** (cobra, commit `a3c1ff1316dd`, 2026-09-06),
-not an application to open. `fragorders parse mission.miz > mission.json` —
-the same workflow as before. `inspect` gives a readable timing/groups/DTC
-summary. **`parse` still emits the raw DCS mission table**, identical top-level
-keys plus a new `startTime`. Everything in the changelog is *more decoding*, not
-a new schema.
+The user spotted it against FragOrders: on Sinai M01 V6 the tool called Barak's
+676 ft point **waypoint 2**, FragOrders calls it **Waypoint 1**. The importer
+numbered `route.points` from 1 and skipped nothing, so point `[0]` — the parking
+spawn at Ramon, alt 31 m = the 102 ft we showed — became steerpoint 1 and pushed
+the route up by one. That included every `STPT n` on the kneeboard card, which is
+what the pilot dials into the jet.
 
-**The fragorders git cannot be refreshed** — `FragOrders/fragorders` 404s to the
-user's authenticated `gh`. The local checkout is frozen at Jan 26. Mine a new
-binary with `go version -m` and `strings` instead. In memory:
-`reference-fragorders-cli`.
+Waypoints are now numbered by **raw 0-based route-point index**, unconditionally.
+The spawn point is waypoint 0 and carries a new `departure` type; it stays listed,
+drawn, and offered in the target/IP pickers (type is a hint, never a gate).
+`buildKneeboardCard` needed no edit — it already printed `STPT ${wp.steerpoint}`
+and simply became correct. Full rationale in memory:
+`project-waypoint-numbering-is-zero-based` — **the short version is "never add 1".**
 
-`test-data/sinai_m01_v6.json` is the new reference fixture (theater `SinaiMap`,
-86 groups, 8 client flights, 34 threats all resolving to DB rows). The old NTTR
-fixture is now covered by a test too — before this session **no test loaded any
-fixture at all**, which is how `RoutePoint.eta` sat renamed to `"ETA"` against
-real data that writes `"eta"`.
+### The FragOrders web bundle is a readable reference now
 
-### Sinai is verified — and the near-miss is the lesson
+The git 404s, but fragorders.com serves `/public_frag_order.<hash>.js` (hash in
+the page HTML, `.js.map` published too). Grepping it settled both halves of the
+question outright, which is why this needed no guessing:
 
-Four single-unit `EW-*` radars from `M01 V6.miz`, spanning 700 km × 440 km,
-read off the F10 map. **All four agreed to 27 m**; residuals uniformly positive
-(+19 m N, +22 m E) because the ME truncates seconds. No correction needed.
+- `each(route.points, (pt, idx) => push({...pt, number: idx}))` — 0-based, with a
+  guard that sorted index N must carry number N.
+- The DTC generator does `if (0 === r) continue; push({Sequence: r, …})` under
+  `SteerpointStart: 1` — so the ramp never becomes a steerpoint in the jet, and
+  **cockpit STPT n = waypoint n**. There is no planner/cockpit offset.
+- It also reads the group's departure `airdromeId` off the `TakeOffParking` point.
 
-**The trap:** projecting *parked aircraft* against published airfield reference
-points first showed a convincing **−1.36 km northward bias (sd 0.45)** — mean
-three times the scatter. That was the ramp-to-datum offset, not a projection
-error. Applying it would have broken a projection already right to 27 m. Method
-and warning are in memory: `project-verifying-theater-projections`. Kola,
-Afghanistan and The Channel remain.
+**Gotcha:** the page is a Firebase SPA — `curl` of the URL returns a 1 KB shell.
+Fetch the bundle, not the page. In memory: `reference-fragorders-cli`.
 
-### Waypoint type is a hint, never a gate
-
-The Sinai mission was **unplannable**: the Target dropdown filtered on
-`wp.type === 'target'`, and M01 V6 names **none** of its 55 route points, so
-everything imported as `nav`. Any waypoint can now be a target, and any waypoint
-can be the IP — including one later in the route.
-
-Behind the IP work was a real defect: `autoBuildAttack` always called `inferIp`
-and never read a chosen `ipWaypointId`, so on pop-up a picked IP moved the drawn
-line while the computed run-in disagreed. `resolveIp` fixes that; one selector
-now serves all three profile types. Watch two things if you touch this:
-`resetToProfile` must clear the override, and `autoBuildAttack` *writes* the
-resolved IP onto every profile, so a stored id is not evidence of a choice —
-that is what `initialIpOverride` is for. In memory:
-`project-waypoints-are-free-text`.
+`barak_numbering_matches_fragorders` pins waypoint 1 to **N 31° 14.4023′
+E 34° 39.5637′**, read off the FragOrders map popup — so it guards the numbering
+*and* independently re-confirms the Sinai projection against an outside source.
 
 ### START OF NEXT SESSION
 
@@ -237,7 +222,7 @@ that is what `initialIpOverride` is for. In memory:
    code:** where the map sits (the editor is a centred modal today), and whether
    knobs become sliders, slider+number pairs, or stay number boxes — bounded by
    *never remove a knob*. **There are 35: 3 common, 12 dive, 9 level, 14
-   pop-up** — plus the new shared IP selector. **Gotcha:** `MapView` reads
+   pop-up** — plus the shared IP selector. **Gotcha:** `MapView` reads
    `useUiStore`'s display filters directly (`:257-259`), so an embedded editor
    map would inherit whatever the main map is hiding; the editor must show the
    truth. **Second gotcha:** `MapController` re-fits on `fitKey` changes — fit
@@ -247,6 +232,13 @@ that is what `initialIpOverride` is for. In memory:
 
 ### Adjacent, noted but not done
 
+- **Missions saved before `3569a5c` read one high** until re-imported. Attacks
+  reference waypoints by uuid so nothing breaks. No migration was written: an old
+  save is indistinguishable from a new one.
+- **`airdromeId` is still dropped at deserialization** (`RoutePoint`,
+  `src-tauri/src/parsers/fragorders.rs`). FragOrders uses it to name the departure
+  field; carrying it would let waypoint 0 read "Ramon AB" instead of `WP0`, but it
+  needs an airdrome-id table we do not have.
 - **DTC data is now reachable and unused.** `M01 V6.miz` ships
   `DTC/Op Sentinel Watch M01 F18.dtc`, and the new FragOrders parser exposes
   `ThreatPoints`, `JDAMTargets`, `NavPoints` and FLOT/FAOR `GeoLines` —
