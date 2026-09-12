@@ -107,8 +107,36 @@ pub fn save_mission(mission: Mission, path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn load_mission(path: String) -> Result<Mission, String> {
     let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let mission: Mission = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    Ok(mission)
+    parse_saved_mission(&json)
+}
+
+/// A saved mission and a FragOrders export are both `.json`, both land in the
+/// same file picker, and both live in `test-data/` — so Open on the wrong one is
+/// an easy mistake. Serde reports it as `missing field \`id\` at line 25917
+/// column 1`, which says nothing about what actually went wrong. Name it.
+fn parse_saved_mission(json: &str) -> Result<Mission, String> {
+    match serde_json::from_str::<Mission>(json) {
+        Ok(mission) => Ok(mission),
+        Err(e) => {
+            if looks_like_fragorders_export(json) {
+                Err("This is a FragOrders export, not a saved mission. \
+                     Use Import rather than Open to bring it in."
+                    .to_string())
+            } else {
+                Err(format!("Not a Phoenix Weaponeer mission file: {e}"))
+            }
+        }
+    }
+}
+
+/// The raw DCS mission table FragOrders emits: a top-level `coalition`, and no
+/// `id` of our own. Checked only on the error path, so the extra parse costs
+/// nothing in the normal case.
+fn looks_like_fragorders_export(json: &str) -> bool {
+    serde_json::from_str::<Value>(json)
+        .ok()
+        .and_then(|v| v.as_object().map(|o| o.contains_key("coalition") && !o.contains_key("id")))
+        .unwrap_or(false)
 }
 
 // ============================================================================
@@ -1030,5 +1058,39 @@ mod tests {
             );
         }
     }
-}
 
+    /// Opening a FragOrders export instead of importing it used to surface
+    /// serde's `missing field `id` at line 25917 column 1`, which names neither
+    /// the file nor the fix. Both are .json and both sit in test-data/.
+    #[test]
+    fn opening_a_fragorders_export_says_to_import_it_instead() {
+        let json = include_str!("../../../test-data/sinai_m01_v6.json");
+        let err = parse_saved_mission(json).expect_err("a FragOrders export is not a saved mission");
+        assert!(
+            err.contains("FragOrders export") && err.contains("Import"),
+            "the error must name the mistake and the fix, got: {err}"
+        );
+        assert!(!err.contains("missing field"), "raw serde text should not reach the user: {err}");
+    }
+
+    /// A genuinely corrupt mission file must still report the parse error
+    /// rather than being mislabelled as a FragOrders export.
+    #[test]
+    fn a_broken_mission_file_still_reports_the_parse_error() {
+        let err = parse_saved_mission(r#"{"name":"no id here"}"#)
+            .expect_err("missing id is still an error");
+        assert!(err.contains("Not a Phoenix Weaponeer mission file"), "got: {err}");
+    }
+
+    /// And a real saved mission still loads.
+    #[test]
+    fn a_saved_mission_still_parses() {
+        let json = r#"{
+            "id":"m1","name":"Test","date":"2026-09-11","theater":"sinai",
+            "bullseye":{"lat":31.0,"lon":34.0},
+            "waypoints":[],"threats":[],"flightMembers":[],"attacks":[],
+            "notes":"","createdAt":"2026-09-11T00:00:00Z","updatedAt":"2026-09-11T00:00:00Z"
+        }"#;
+        assert_eq!(parse_saved_mission(json).expect("should parse").id, "m1");
+    }
+}
