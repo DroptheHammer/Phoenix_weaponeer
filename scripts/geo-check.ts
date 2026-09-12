@@ -746,6 +746,24 @@ ok('a whitespace-only name is treated as unnamed',
 ok('a free-text name the importer could not classify is still shown verbatim',
    waypointLabel(routePoint(5, 'KILL ZONE', 'nav')) === 'Waypoint 5 — KILL ZONE');
 
+// ─── Waypoint 0 is the spawn point, and is still a waypoint ──────────────────
+// Route points are numbered by raw 0-based index, as FragOrders publishes them,
+// so waypoint 0 is the ramp/runway/air start. It stays in the list and on the
+// map — it is where the first leg is flown from — and, per "type is a hint,
+// never a gate", it is still offered in the pickers.
+const routeFromTheRamp = [
+  routePoint(2, '', 'nav'), routePoint(0, '', 'departure'),
+  routePoint(1, '', 'nav'), routePoint(3, '', 'nav'),
+];
+ok('the departure point reads "Waypoint 0", not a blank or a dangling separator',
+   waypointLabel(routePoint(0, '', 'departure')) === 'Waypoint 0');
+ok('waypoint 0 sorts first, ahead of the first turnpoint',
+   targetCandidates(routeFromTheRamp).map((w) => w.steerpoint).join(',') === '0,1,2,3');
+ok('the departure point is still offered as a target — type is a hint, never a gate',
+   targetCandidates(routeFromTheRamp).length === 4);
+ok('the departure point is still offered as an IP',
+   ipCandidates(routeFromTheRamp, 'w2').some((w) => w.steerpoint === 0));
+
 // ─── Any waypoint can be the IP ──────────────────────────────────────────────
 // The default is the prior numeric waypoint, but the planner may run in from
 // anywhere. The pick has to reach the *geometry*, not just the drawn line —

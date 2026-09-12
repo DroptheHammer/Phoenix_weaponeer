@@ -217,6 +217,7 @@ const createWaypointIcon = (label: string, type: string) => {
     cap: 'bg-purple-500',
     tanker: 'bg-green-500',
     bullseye: 'bg-orange-500',
+    departure: 'bg-slate-500',
     default: 'bg-gray-500',
   };
 

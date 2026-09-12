@@ -270,6 +270,7 @@ function WaypointTypeBadge({ type }: { type: string }) {
     tanker: 'bg-green-600',
     divert: 'bg-orange-600',
     nav: 'bg-gray-600',
+    departure: 'bg-slate-500',
   };
 
   const color = colors[type] || colors.nav;

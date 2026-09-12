@@ -490,7 +490,7 @@ fn process_player_group(
                         Err(e) => {
                             warnings.push(format!(
                                 "Dropped waypoint {} ({}) in flight {:?}: {}",
-                                i + 1,
+                                i,
                                 pt.name.as_deref().unwrap_or("unnamed"),
                                 name,
                                 e
@@ -509,8 +509,20 @@ fn process_player_group(
                     );
 
                     Some(ProcessedWaypoint {
-                        steerpoint: (i + 1) as i32,
-                        name: pt.name.clone().unwrap_or_else(|| format!("WP{}", i + 1)),
+                        // The raw 0-based route-point index, which is what
+                        // FragOrders publishes and what the jet ends up with.
+                        // Route point 0 is where the aircraft spawns — a ramp,
+                        // a runway, or a point in the air — so it is waypoint 0
+                        // and the first turnpoint is waypoint 1. Numbering it
+                        // from 1 made every steerpoint the planner showed, and
+                        // every `STPT n` on the kneeboard card, one too high.
+                        //
+                        // `i` is the pre-filter `enumerate` index deliberately:
+                        // a dropped (unprojectable) point leaves a gap rather
+                        // than renumbering the survivors out from under the
+                        // planner. See docs/BUGFIX_PLAN.md.
+                        steerpoint: i as i32,
+                        name: pt.name.clone().unwrap_or_else(|| format!("WP{}", i)),
                         wp_type,
                         position: ProcessedCoordinates { lat, lon },
                         altitude_ft: alt_ft,
@@ -643,7 +655,10 @@ fn infer_waypoint_type(name: Option<&str>, point_type: Option<&str>, action: Opt
         return "divert".to_string();
     }
     if type_norm.starts_with("TAKEOFF") {
-        return "nav".to_string();
+        // Where the jet starts, not a place you fly to. FragOrders keeps it on
+        // the map (it draws the first leg from the field) but excludes it from
+        // the DTC, so it is never a steerpoint in the cockpit.
+        return "departure".to_string();
     }
 
     // Check action
@@ -863,16 +878,18 @@ mod tests {
         // DCS exports this as "TakeOffParkingHot" — no spaces.
         assert_eq!(
             infer_waypoint_type(None, Some("TakeOffParkingHot"), Some("From Parking Area Hot")),
-            "nav"
+            "departure"
         );
-        assert_eq!(infer_waypoint_type(None, Some("TakeOffParking"), None), "nav");
+        assert_eq!(infer_waypoint_type(None, Some("TakeOffParking"), None), "departure");
+        assert_eq!(infer_waypoint_type(None, Some("TakeOffGround"), None), "departure");
+        assert_eq!(infer_waypoint_type(Some("DEPART"), Some("TakeOff"), Some("From Runway")), "departure");
     }
 
     /// The real Viper 1 (Hot) route from NTTR_Training_RF_v13, in order.
     #[test]
     fn classifies_real_nttr_redflag_route() {
         let route = [
-            ("", "TakeOffParkingHot", "nav"),
+            ("", "TakeOffParkingHot", "departure"),
             ("", "Turning Point", "nav"),
             ("JUNNO", "Turning Point", "nav"),
             ("DREAM", "Turning Point", "nav"),
@@ -969,19 +986,26 @@ mod tests {
 
         // Pinned to real geography, per test-data/README.md.
         let takeoff = &viper1.waypoints[0];
+        assert_eq!(takeoff.steerpoint, 0, "the ramp is waypoint 0, not 1");
+        assert_eq!(takeoff.wp_type, "departure", "the ramp is not a nav waypoint");
         assert!(
             (takeoff.position.lat - 36.227).abs() < 0.01
                 && (takeoff.position.lon - (-115.048)).abs() < 0.01,
-            "waypoint 1 should be the Nellis ramp, got {:?}",
+            "waypoint 0 should be the Nellis ramp, got {:?}",
             takeoff.position
         );
         let tgt1 = &viper1.waypoints[7];
+        assert_eq!(tgt1.steerpoint, 7, "TGT1 is waypoint 7, not 8");
         assert!(
             (tgt1.position.lat - 37.682).abs() < 0.01
                 && (tgt1.position.lon - (-116.623)).abs() < 0.01,
-            "waypoint 8 should be TGT1 at Tonopah, got {:?}",
+            "waypoint 7 should be TGT1 at Tonopah, got {:?}",
             tgt1.position
         );
+        // Numbering is the raw route-point index, with gaps only where a point
+        // was dropped. Nothing was dropped here, so it runs 0..13.
+        let stps: Vec<i32> = viper1.waypoints.iter().map(|w| w.steerpoint).collect();
+        assert_eq!(stps, (0..14).collect::<Vec<i32>>());
 
         assert!(!data.threats.is_empty(), "NTTR carries a red laydown");
     }
@@ -1057,6 +1081,96 @@ mod tests {
                 "{want} missing from the Sinai laydown: {systems:?}"
             );
         }
+    }
+
+    /// The bug that prompted all of this: Barak's route was numbered 1..5, so
+    /// every steerpoint the planner showed — and every `STPT n` on the
+    /// kneeboard card — was one higher than what the squadron reads on
+    /// FragOrders and what the pilot dials into the jet.
+    ///
+    /// FragOrders numbers route points by raw 0-based index (its own bundle:
+    /// `push({...pt, number: idx})`, guarded by a sequence check that requires
+    /// sorted index N to carry number N), and its DTC generator skips number 0
+    /// and writes `Sequence: r` from `SteerpointStart: 1`. So the ramp is
+    /// waypoint 0 and is never loaded into the jet, and cockpit STPT n is
+    /// FragOrders waypoint n.
+    #[test]
+    fn barak_numbering_matches_fragorders() {
+        let json = include_str!("../../../test-data/sinai_m01_v6.json");
+        let db = db::Database::open_in_memory().expect("db");
+        let data = process_fragorders_json(json, &db).expect("Sinai fixture must import");
+
+        let barak = data
+            .player_groups
+            .iter()
+            .find(|g| g.name == "Barak")
+            .expect("Barak must be offered for import");
+
+        let stps: Vec<i32> = barak.waypoints.iter().map(|w| w.steerpoint).collect();
+        assert_eq!(stps, vec![0, 1, 2, 3, 4], "Barak numbers 0..4, not 1..5");
+
+        // Point 0 is `TakeOffParking` / `From Parking Area` at Ramon (airdromeId
+        // 50), alt 31 m — the ramp elevation, not a flyable altitude.
+        let ramp = &barak.waypoints[0];
+        assert_eq!(ramp.wp_type, "departure");
+        assert!(
+            (ramp.altitude_ft - 102.0).abs() < 1.0,
+            "ramp should be ~102 ft, got {}",
+            ramp.altitude_ft
+        );
+
+        // Ground truth read straight off the FragOrders map popup for this
+        // mission: "Barak Waypoint 1 — 676 MSL", N 31 14.4023 E 34 39.5637.
+        // This pins the numbering and the Sinai projection to the same source.
+        let wp1 = &barak.waypoints[1];
+        assert_eq!(wp1.steerpoint, 1);
+        assert_eq!(wp1.wp_type, "nav");
+        assert!(
+            (wp1.altitude_ft - 676.0).abs() < 1.0,
+            "FragOrders calls the 676 ft point Waypoint 1, got {} ft",
+            wp1.altitude_ft
+        );
+        assert!(
+            (wp1.position.lat - 31.240_038).abs() < 0.001
+                && (wp1.position.lon - 34.659_395).abs() < 0.001,
+            "waypoint 1 must land where FragOrders puts it, got {:?}",
+            wp1.position
+        );
+
+        let alts: Vec<i64> = barak
+            .waypoints
+            .iter()
+            .map(|w| w.altitude_ft.round() as i64)
+            .collect();
+        assert_eq!(alts, vec![102, 676, 423, 374, 374]);
+    }
+
+    /// Numbering is the raw route-point index, unconditionally — there is no
+    /// "detect a takeoff point and shift" branch, because FragOrders has none
+    /// either. A flight that spawns airborne has a real, flyable waypoint 0.
+    #[test]
+    fn air_start_flights_also_number_from_zero() {
+        let json = include_str!("../../../test-data/nttr_redflag_viper1.json");
+        let db = db::Database::open_in_memory().expect("db");
+        let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
+
+        let bvr = data
+            .player_groups
+            .iter()
+            .find(|g| g.name == "BVR Vipers 1")
+            .expect("the air-start BVR flight must be offered for import");
+
+        let first = &bvr.waypoints[0];
+        assert_eq!(first.steerpoint, 0, "air starts number from 0 as well");
+        assert_ne!(
+            first.wp_type, "departure",
+            "a plain Turning Point is not a departure point, whatever its index"
+        );
+        assert!(
+            first.altitude_ft > 24_000.0,
+            "this flight spawns at 25,000 ft, got {}",
+            first.altitude_ft
+        );
     }
 
     /// Opening a FragOrders export instead of importing it used to surface

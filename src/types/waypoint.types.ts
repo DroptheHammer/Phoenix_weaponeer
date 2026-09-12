@@ -1,6 +1,17 @@
 export interface Waypoint {
   id: string;
-  steerpoint: number; // DCS steerpoint number (1-99)
+  /**
+   * The route-point number, 0-based, exactly as FragOrders publishes it.
+   *
+   * Waypoint 0 is where the aircraft spawns — a ramp, a runway, or a point in
+   * the air — and the first turnpoint is waypoint 1. FragOrders' DTC export
+   * skips waypoint 0 and starts the jet at steerpoint 1, so for every waypoint
+   * the pilot can actually select, this number *is* the cockpit STPT number.
+   *
+   * Numbers can have gaps: an imported point with no usable coordinates is
+   * dropped without renumbering the ones around it.
+   */
+  steerpoint: number;
   name: string; // e.g., "IP ALPHA", "TGT 1"
   type: WaypointType;
 
@@ -22,7 +33,8 @@ export type WaypointType =
   | 'marshal' // Marshal/holding point
   | 'tanker' // Tanker track
   | 'divert' // Divert airfield
-  | 'bullseye'; // Bullseye reference
+  | 'bullseye' // Bullseye reference
+  | 'departure'; // Ramp/runway/air start — where the jet begins, not a place you fly to
 
 export interface Coordinates {
   lat: number; // Decimal degrees (positive = North)

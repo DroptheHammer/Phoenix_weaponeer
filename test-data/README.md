@@ -20,21 +20,31 @@ against real-world geography.
 Import it and select group **`Viper 1 (Hot)`** (first in the list). Expect
 14 waypoints:
 
+Waypoints are numbered **0-based, by raw route-point index**, the same as
+FragOrders. Waypoint 0 is the spawn point.
+
 | # | Name | Type | Lands at |
 |---|------|------|----------|
-| 1–2 | *(unnamed)* | nav | Nellis AFB ramp, 36.227 / -115.048 |
-| 3 | JUNNO | nav | 36.730 / -114.880 |
-| 4 | DREAM | nav | 37.193 / -114.958 |
-| 5 | MARSHAL | marshal | 37.690 / -114.683 (near Caliente) |
-| 6 | MEZ | nav | 37.831 / -115.602 |
-| 7 | IP | ip | 37.777 / -116.323 (Tonopah Test Range) |
-| 8 | TGT1 | target | 37.682 / -116.623 (Tonopah Test Range Airfield) |
-| 9 | TGT2 | target | 37.309 / -116.780 |
-| 10 | EGRESS | nav | 37.550 / -115.764 |
-| 11 | ALAMO | nav | 37.365 / -115.164 (town of Alamo, NV) |
-| 12 | ARCO | nav | 36.724 / -114.953 |
-| 13 | APEX | nav | 36.329 / -114.928 |
-| 14 | LAND | divert | 36.235 / -115.033 (Nellis) |
+| 0 | *(unnamed)* | departure | Nellis AFB ramp, 36.227 / -115.048 (`TakeOffParkingHot`) |
+| 1 | *(unnamed)* | nav | Nellis AFB, 36.227 / -115.048 |
+| 2 | JUNNO | nav | 36.730 / -114.880 |
+| 3 | DREAM | nav | 37.193 / -114.958 |
+| 4 | MARSHAL | marshal | 37.690 / -114.683 (near Caliente) |
+| 5 | MEZ | nav | 37.831 / -115.602 |
+| 6 | IP | ip | 37.777 / -116.323 (Tonopah Test Range) |
+| 7 | TGT1 | target | 37.682 / -116.623 (Tonopah Test Range Airfield) |
+| 8 | TGT2 | target | 37.309 / -116.780 |
+| 9 | EGRESS | nav | 37.550 / -115.764 |
+| 10 | ALAMO | nav | 37.365 / -115.164 (town of Alamo, NV) |
+| 11 | ARCO | nav | 36.724 / -114.953 |
+| 12 | APEX | nav | 36.329 / -114.928 |
+| 13 | LAND | divert | 36.235 / -115.033 (Nellis) |
+
+This mission also exercises the other branch: the **BFM/BVR client flights
+air-start** at 25,000 ft with a plain `Turning Point` as route point 0. They are
+numbered from 0 as well — the index is the number, unconditionally, and nothing
+detects a takeoff point in order to shift it. `BVR Vipers 1` is the one pinned
+by `air_start_flights_also_number_from_zero`.
 
 The route legitimately **crosses itself** near Nellis — the outbound JUNNO leg
 crosses the inbound ARCO leg. That is real mission geometry, not an import bug.
@@ -64,7 +74,19 @@ vehicles across 22 types, including SA-2 (`S_75M_Volhov`), SA-6 (`Kub 2P25 ln`),
 SA-8 (`Osa 9A33 ln`), SA-11 (`SA-11 Buk LN 9A310M1`), ZSU-23-4 Shilkas and a
 `55G6` EWR. All of them resolve to database rows.
 
-Covered by `sinai_m01_v6_fixture_imports` in `src-tauri/src/commands/mod.rs`.
+All 8 client flights start on the ramp (`TakeOffParking` / `From Parking Area`),
+and **none of the 55 route points is named** — so every flight imports as
+waypoint 0 = the ramp (`departure`), then unnamed `nav` points from 1.
+
+**Barak (F-16C_50, Springfield11 1-1) is the numbering reference.** Its five
+waypoints are 0/102 ft (Ramon ramp, `airdromeId` 50), 1/676, 2/423, 3/374,
+4/374. Waypoint 1 is ground truth read straight off the FragOrders map popup for
+this mission — *"Barak Waypoint 1, 676 MSL, N 31° 14.4023′ E 34° 39.5637′"*,
+89.3 NM out on the first leg — which pins the numbering **and** the Sinai
+projection to the same independent source.
+
+Covered by `sinai_m01_v6_fixture_imports` and `barak_numbering_matches_fragorders`
+in `src-tauri/src/commands/mod.rs`.
 
 Sinai is now **`verified: true`** — this mission is what verified it (see the
 note at the end of this file), so importing it raises no banner.

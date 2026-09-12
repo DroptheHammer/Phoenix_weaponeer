@@ -11,6 +11,7 @@ const WAYPOINT_TYPE_LABELS: Record<WaypointType, string> = {
   tanker: 'TNK',
   divert: 'DVT',
   bullseye: 'BE',
+  departure: 'DEP',
 };
 
 export function WaypointList() {

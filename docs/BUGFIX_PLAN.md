@@ -123,7 +123,7 @@ Note on what "dead code" turned out to mean here: `MapView`'s `availableThreats`
 
 ### Task 3.2 — Surface silently dropped waypoints
 - Same file, waypoint processing (~line 351): `dcs_to_latlon(...).ok()?` inside `filter_map` silently drops waypoints.
-- Keep the drop (a waypoint with no coordinates is unusable) but log it: on `Err(e)`, `eprintln!("WARNING: dropping waypoint {:?}: {}", pt.name, e)` before returning `None`. Steerpoint numbering must continue to use the pre-filter `enumerate` index `(i + 1)` so surviving waypoints keep their original steerpoint numbers (this is already the case — do not change it).
+- Keep the drop (a waypoint with no coordinates is unusable) but log it: on `Err(e)`, `eprintln!("WARNING: dropping waypoint {:?}: {}", pt.name, e)` before returning `None`. Steerpoint numbering must continue to use the **pre-filter** `enumerate` index so surviving waypoints keep their original steerpoint numbers (this is already the case — do not change it). *(Amended 2026-09-12: the index is now used as-is rather than `i + 1`. Route points are numbered 0-based, as FragOrders publishes them, so waypoint 0 is the spawn point. The gap-preserving intent above is unchanged.)*
 - Verify: `cargo test --lib` passes.
 
 ### Task 3.3 — Word-boundary matching in waypoint type inference ✅ DONE (2026-07-26)
