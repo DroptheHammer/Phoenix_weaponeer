@@ -43,16 +43,19 @@ pub struct CoalitionSide {
 /// Bullseye position in DCS coordinates
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bullseye {
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub x: f64,
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub y: f64,
 }
 
 /// Navigation point
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NavPoint {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub x: f64,
-    #[serde(default)]
+    /// FragOrders has written this as both `y` and `Y`; accept either.
+    #[serde(alias = "Y", default, deserialize_with = "deserialize_null_as_zero")]
     pub y: f64,
     #[serde(default)]
     pub name: Option<String>,
@@ -73,7 +76,7 @@ pub struct Country {
     pub vehicle: Option<Assets>,
     #[serde(default)]
     pub ship: Option<Assets>,
-    #[serde(default)]
+    #[serde(rename = "static", default)]
     pub static_: Option<Assets>,
 }
 
@@ -92,6 +95,19 @@ where
     T: serde::Deserialize<'de>,
 {
     let opt: Option<Vec<T>> = Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
+
+/// Custom deserializer that treats an explicit `null` as `0.0`.
+///
+/// `#[serde(default)]` only covers a *missing* key. A coordinate written as
+/// `"x": null` would otherwise abort the whole mission parse, since these
+/// fields are plain `f64` rather than `Option<f64>`.
+fn deserialize_null_as_zero<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<f64> = Option::deserialize(deserializer)?;
     Ok(opt.unwrap_or_default())
 }
 
@@ -123,9 +139,9 @@ pub struct Unit {
     pub unit_id: Option<i32>,
     #[serde(rename = "type", default)]
     pub unit_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub x: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub y: f64,
     #[serde(default)]
     pub alt: Option<f64>,
@@ -223,9 +239,9 @@ pub struct RoutePoint {
     pub point_type: Option<String>,
     #[serde(default)]
     pub action: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub x: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub y: f64,
     #[serde(default)]
     pub alt: Option<f64>,
@@ -233,7 +249,9 @@ pub struct RoutePoint {
     pub alt_type: Option<String>,
     #[serde(default)]
     pub speed: Option<f64>,
-    #[serde(rename = "ETA", default)]
+    /// DCS writes `eta` lowercase; older FragOrders exports used `ETA`.
+    /// Accept both, or the field silently stays `None` on real data.
+    #[serde(rename = "ETA", alias = "eta", default)]
     pub eta: Option<f64>,
     #[serde(rename = "ETA_locked", default)]
     pub eta_locked: Option<bool>,
@@ -293,6 +311,10 @@ pub struct ProcessedFragOrdersData {
     pub player_groups: Vec<ProcessedPlayerGroup>,
     pub threats: Vec<ProcessedThreat>,
     pub trigger_zones: Vec<ProcessedTriggerZone>,
+    /// Items that could not be imported (unprojectable waypoints, threats or
+    /// zones). Empty on a clean import. Surfaced in the UI so a partial import
+    /// cannot masquerade as a complete one.
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -425,5 +447,56 @@ mod tests {
             ..player_unit.clone()
         };
         assert!(!ai_unit.is_player());
+    }
+
+    /// DCS writes `eta` lowercase. The struct was renamed to `"ETA"`, so on
+    /// every real export this field silently deserialized to `None` -- invisible
+    /// only because nothing reads it yet. Both spellings must work.
+    #[test]
+    fn route_point_accepts_both_eta_spellings() {
+        let lower: RoutePoint =
+            serde_json::from_str(r#"{"x":1.0,"y":2.0,"eta":123.5}"#).expect("lowercase eta");
+        assert_eq!(lower.eta, Some(123.5), "real exports write `eta`");
+
+        let upper: RoutePoint =
+            serde_json::from_str(r#"{"x":1.0,"y":2.0,"ETA":456.5}"#).expect("uppercase ETA");
+        assert_eq!(upper.eta, Some(456.5), "older exports wrote `ETA`");
+    }
+
+    /// `#[serde(default)]` covers a *missing* key but not an explicit `null`,
+    /// and these coordinates are plain `f64`. One null used to abort the entire
+    /// mission parse rather than costing a single point.
+    #[test]
+    fn explicit_null_coordinates_do_not_kill_the_import() {
+        let pt: RoutePoint =
+            serde_json::from_str(r#"{"x":null,"y":2.0}"#).expect("null x must not abort the parse");
+        assert_eq!(pt.x, 0.0);
+        assert_eq!(pt.y, 2.0);
+
+        let be: Bullseye =
+            serde_json::from_str(r#"{"x":null,"y":null}"#).expect("null bullseye must not abort");
+        assert_eq!((be.x, be.y), (0.0, 0.0));
+    }
+
+    /// FragOrders has written the nav-point northing as both `y` and `Y`.
+    #[test]
+    fn nav_point_accepts_either_y_spelling() {
+        let lower: NavPoint = serde_json::from_str(r#"{"x":1.0,"y":5.0}"#).expect("lowercase");
+        assert_eq!(lower.y, 5.0);
+        let upper: NavPoint = serde_json::from_str(r#"{"x":1.0,"Y":5.0}"#).expect("uppercase");
+        assert_eq!(upper.y, 5.0, "the capital-Y spelling used to import as 0.0");
+    }
+
+    /// `static_` had no rename, so the DCS `static` key never bound and every
+    /// static object in every mission was invisible to the importer.
+    #[test]
+    fn country_binds_the_dcs_static_key() {
+        let c: Country = serde_json::from_str(
+            r#"{"id":1,"static":{"group":[{"name":"Bunker","units":[]}]}}"#,
+        )
+        .expect("country with statics");
+        let statics = c.static_.expect("`static` must bind to static_");
+        assert_eq!(statics.group.len(), 1);
+        assert_eq!(statics.group[0].name.as_deref(), Some("Bunker"));
     }
 }

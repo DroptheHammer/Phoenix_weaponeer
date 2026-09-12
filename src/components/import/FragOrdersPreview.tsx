@@ -31,6 +31,34 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
         </div>
       )}
 
+      {/* Anything the importer could not place, plus threats that will be
+          dropped for want of a database row. Both used to vanish silently. */}
+      {(data.warnings.length > 0 || unknownThreats.length > 0) && (
+        <div className="rounded-lg border border-amber-500/60 bg-amber-950/60 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-200">
+            {data.warnings.length + (unknownThreats.length > 0 ? 1 : 0)} import
+            {data.warnings.length + (unknownThreats.length > 0 ? 1 : 0) === 1
+              ? ' warning'
+              : ' warnings'}
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-amber-100/90">
+            {unknownThreats.length > 0 && (
+              <li>
+                {unknownThreats.length} threat
+                {unknownThreats.length === 1 ? '' : 's'} could not be matched to a
+                database entry and will not be imported:{' '}
+                <span className="font-mono">
+                  {[...new Set(unknownThreats.map((t) => t.unit_type))].join(', ')}
+                </span>
+              </li>
+            )}
+            {data.warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Theater and Bullseye */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-dcs-dark rounded-lg p-3">

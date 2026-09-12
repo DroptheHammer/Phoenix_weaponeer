@@ -267,8 +267,17 @@ pub fn parse_fragorders_json(
     state: State<AppState>,
     json_str: String,
 ) -> Result<ProcessedFragOrdersData, String> {
+    process_fragorders_json(&json_str, &state.db)
+}
+
+/// The whole import, minus Tauri. Split out so tests can drive it against a
+/// real fixture and an in-memory database instead of a `State<AppState>`.
+pub fn process_fragorders_json(
+    json_str: &str,
+    db: &db::Database,
+) -> Result<ProcessedFragOrdersData, String> {
     // Parse the JSON
-    let mission = parsers::parse_fragorders_json(&json_str)
+    let mission = parsers::parse_fragorders_json(json_str)
         .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
     // Get theater and coordinate parameters
@@ -288,6 +297,10 @@ pub fn parse_fragorders_json(
             parsers::supported_theater_names().join(", ")
         ));
     }
+
+    // Anything dropped below goes in here and is returned to the UI. Previously
+    // these were `eprintln!` only, so a partial import looked like a clean one.
+    let mut warnings: Vec<String> = Vec::new();
 
     // Process bullseye. Unlike waypoints, a missing bullseye is normal (not every
     // mission defines one) — but a conversion *failure* is not, so it is reported
@@ -315,7 +328,7 @@ pub fn parse_fragorders_json(
             if let Some(planes) = &country.plane {
                 for group in &planes.group {
                     if group.has_player() {
-                        if let Some(processed) = process_player_group(group, theater_params) {
+                        if let Some(processed) = process_player_group(group, theater_params, &mut warnings) {
                             player_groups.push(processed);
                         }
                     }
@@ -325,7 +338,7 @@ pub fn parse_fragorders_json(
             if let Some(helis) = &country.helicopter {
                 for group in &helis.group {
                     if group.has_player() {
-                        if let Some(processed) = process_player_group(group, theater_params) {
+                        if let Some(processed) = process_player_group(group, theater_params, &mut warnings) {
                             player_groups.push(processed);
                         }
                     }
@@ -350,7 +363,8 @@ pub fn parse_fragorders_json(
                                     unit,
                                     unit_type,
                                     theater_params,
-                                    &state.db,
+                                    db,
+                                    &mut warnings,
                                 ) {
                                     threats.push(threat);
                                 }
@@ -379,7 +393,7 @@ pub fn parse_fragorders_json(
                     center: ProcessedCoordinates { lat, lon },
                     radius_m: zone.radius,
                 }),
-                Err(e) => eprintln!("WARNING: dropping trigger zone {:?}: {}", name, e),
+                Err(e) => warnings.push(format!("Dropped trigger zone {:?}: {}", name, e)),
             }
         }
     }
@@ -392,6 +406,7 @@ pub fn parse_fragorders_json(
         player_groups,
         threats,
         trigger_zones,
+        warnings,
     })
 }
 
@@ -399,6 +414,7 @@ pub fn parse_fragorders_json(
 fn process_player_group(
     group: &parsers::fragorders::Group,
     params: &parsers::TheaterCoordParams,
+    warnings: &mut Vec<String>,
 ) -> Option<ProcessedPlayerGroup> {
     let name = group.name.clone().unwrap_or_else(|| "Unknown".to_string());
 
@@ -444,12 +460,13 @@ fn process_player_group(
                     let (lat, lon) = match dcs_to_latlon(pt.x, pt.y, params) {
                         Ok(coords) => coords,
                         Err(e) => {
-                            eprintln!(
-                                "WARNING: dropping waypoint {} {:?}: {}",
+                            warnings.push(format!(
+                                "Dropped waypoint {} ({}) in flight {:?}: {}",
                                 i + 1,
-                                pt.name,
+                                pt.name.as_deref().unwrap_or("unnamed"),
+                                name,
                                 e
-                            );
+                            ));
                             return None;
                         }
                     };
@@ -492,16 +509,20 @@ fn process_threat_unit(
     unit_type: &str,
     params: &parsers::TheaterCoordParams,
     db: &db::Database,
+    warnings: &mut Vec<String>,
 ) -> Option<ProcessedThreat> {
     // Previously fell back to (0.0, 0.0), which silently placed unconvertible
     // threats in the Gulf of Guinea instead of reporting the failure.
     let (lat, lon) = match dcs_to_latlon(unit.x, unit.y, params) {
         Ok(coords) => coords,
         Err(e) => {
-            eprintln!(
-                "WARNING: dropping threat {:?} in group {:?} ({}): {}",
-                unit.name, group_name, unit_type, e
-            );
+            warnings.push(format!(
+                "Dropped threat {} in group {:?} ({}): {}",
+                unit_type,
+                group_name,
+                unit.name.as_deref().unwrap_or("unnamed"),
+                e
+            ));
             return None;
         }
     };
@@ -891,4 +912,123 @@ mod tests {
 
         std::fs::remove_file(&path).ok();
     }
+
+    // ---- Real-fixture import tests -------------------------------------
+    //
+    // Until these existed no test loaded a fixture at all: the closest,
+    // `classifies_real_nttr_redflag_route`, transcribed the route as tuples.
+    // That is how `RoutePoint.eta` sat renamed to `"ETA"` against real data
+    // that writes `"eta"` without anything noticing.
+
+    /// The original NTTR test mission must keep importing exactly as it did.
+    /// This is the regression guard for every future FragOrders schema change.
+    #[test]
+    fn nttr_fixture_imports_unchanged() {
+        let json = include_str!("../../../test-data/nttr_redflag_viper1.json");
+        let db = db::Database::open_in_memory().expect("db");
+        let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
+
+        assert_eq!(data.theater, "nevada");
+        assert!(data.projection_verified, "Nevada is a verified projection");
+        assert!(data.warnings.is_empty(), "unexpected warnings: {:?}", data.warnings);
+
+        let viper1 = data
+            .player_groups
+            .iter()
+            .find(|g| g.name.starts_with("Viper 1"))
+            .expect("Viper 1 must be offered for import");
+        assert_eq!(viper1.waypoints.len(), 14, "Viper 1 flies 14 waypoints");
+
+        // Pinned to real geography, per test-data/README.md.
+        let takeoff = &viper1.waypoints[0];
+        assert!(
+            (takeoff.position.lat - 36.227).abs() < 0.01
+                && (takeoff.position.lon - (-115.048)).abs() < 0.01,
+            "waypoint 1 should be the Nellis ramp, got {:?}",
+            takeoff.position
+        );
+        let tgt1 = &viper1.waypoints[7];
+        assert!(
+            (tgt1.position.lat - 37.682).abs() < 0.01
+                && (tgt1.position.lon - (-116.623)).abs() < 0.01,
+            "waypoint 8 should be TGT1 at Tonopah, got {:?}",
+            tgt1.position
+        );
+
+        assert!(!data.threats.is_empty(), "NTTR carries a red laydown");
+    }
+
+    /// The mission from the rebuilt FragOrders CLI (commit a3c1ff1316dd,
+    /// 2026-09-06). Same wire shape as the January export, so it must import
+    /// through the same path with nothing dropped.
+    #[test]
+    fn sinai_m01_v6_fixture_imports() {
+        let json = include_str!("../../../test-data/sinai_m01_v6.json");
+        let db = db::Database::open_in_memory().expect("db");
+        let data = process_fragorders_json(json, &db).expect("Sinai fixture must import");
+
+        assert_eq!(data.theater, "sinai");
+        assert!(
+            data.projection_verified,
+            "Sinai was pinned by F10 pairs; the amber banner must not fire"
+        );
+        assert!(
+            data.warnings.is_empty(),
+            "nothing should be dropped: {:?}",
+            data.warnings
+        );
+
+        // Eight client flights: Mustang, Lance, Spectre, Hawg, Archer, Saber,
+        // Barak, Ari.
+        assert_eq!(data.player_groups.len(), 8, "eight client flights");
+        for name in ["Mustang", "Spectre", "Barak", "Ari", "Hawg", "Archer"] {
+            assert!(
+                data.player_groups.iter().any(|g| g.name == name),
+                "{name} missing from {:?}",
+                data.player_groups.iter().map(|g| &g.name).collect::<Vec<_>>()
+            );
+        }
+
+        // The red laydown is the point of the mission: SA-2, SA-6, SA-8, SA-11,
+        // Shilkas and an EWR are all present in the raw file.
+        assert!(
+            data.threats.len() >= 10,
+            "expected a real threat laydown, got {}",
+            data.threats.len()
+        );
+        assert!(
+            data.threats.iter().all(|t| t.system_id.is_some()),
+            "unmapped threats: {:?}",
+            data.threats
+                .iter()
+                .filter(|t| t.system_id.is_none())
+                .map(|t| &t.unit_type)
+                .collect::<Vec<_>>()
+        );
+
+        // The whole DB v3 chain, exercised end to end on a mission that did not
+        // exist when those rows were written. `55G6 Nebo` and `P-19 Danube` are
+        // two of the twelve rows v3 added; before it they imported as Unknown
+        // and were dropped on the floor.
+        let systems: Vec<&str> = data
+            .threats
+            .iter()
+            .filter_map(|t| t.system_name.as_deref())
+            .collect();
+        for want in [
+            "S-75 Dvina",
+            "2K12 Kub",
+            "9K33 Osa",
+            "9K37 Buk",
+            "ZSU-23-4 Shilka",
+            "55G6 Nebo",
+            "P-19 Danube",
+        ] {
+            assert!(
+                systems.contains(&want),
+                "{want} missing from the Sinai laydown: {systems:?}"
+            );
+        }
+    }
 }
+

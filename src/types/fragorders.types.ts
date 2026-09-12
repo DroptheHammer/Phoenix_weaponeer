@@ -17,6 +17,12 @@ export interface FragOrdersData {
   player_groups: FragOrdersPlayerGroup[];
   threats: FragOrdersThreat[];
   trigger_zones: FragOrdersTriggerZone[];
+  /**
+   * Items the importer could not place (unprojectable waypoints, threats or
+   * zones). Empty on a clean import. Shown to the user so a partial import
+   * cannot look like a complete one.
+   */
+  warnings: string[];
 }
 
 /**

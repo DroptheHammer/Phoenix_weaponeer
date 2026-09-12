@@ -11,7 +11,7 @@ fragorders parse mission.miz > mission.json
 
 ## Files
 
-### `nttr_redflag_viper1.json` — ✅ use this one
+### `nttr_redflag_viper1.json` — ✅ the original reference
 
 Real `fragorders parse` output from `NTTR_Training_RF_v13.miz` (NTTR Red Flag
 training mission). This is the reference fixture: its waypoints are verified
@@ -43,6 +43,31 @@ Note `ARCO` is a plain nav fix here even though ARCO is also a tanker callsign
 elsewhere in this same mission. Waypoint-type inference deliberately does not
 treat tanker callsigns as tanker waypoints; see `infer_waypoint_type` in
 `src-tauri/src/commands/mod.rs`.
+
+### `sinai_m01_v6.json` — ✅ the new-FragOrders reference
+
+Real `fragorders parse` output from `M01 V6.miz`, produced by the **rebuilt
+FragOrders CLI** (`cmd/cli`, commit `a3c1ff1316dd`, 2026-09-06). This is the
+fixture that proves the app handles missions from the new FragOrders alongside
+the January-era `nttr_redflag_viper1.json`.
+
+The wire shape is unchanged — still the raw DCS mission table — with one new
+top-level key, `startTime` (seconds past midnight; 24300 = 06:45 local, 04:45Z
+at Sinai's UTC+2). Everything else the new build changed is *more* decoding of
+the same structure: typed weather and clouds, pylon numbers preserved as map
+keys, task parameters no longer skipped, TACAN/ICLS beacons, and DTC parsing.
+
+Contents: theater `SinaiMap`, 86 groups, 312 units, and **8 client flights** —
+Mustang (FA-18C), Lance (F-14BU), Spectre (F-16C), Hawg (A-10C II), Archer
+(AH-64D), Saber (OH-58D), Barak (F-16C), Ari (F-15ESE). The red laydown is 163
+vehicles across 22 types, including SA-2 (`S_75M_Volhov`), SA-6 (`Kub 2P25 ln`),
+SA-8 (`Osa 9A33 ln`), SA-11 (`SA-11 Buk LN 9A310M1`), ZSU-23-4 Shilkas and a
+`55G6` EWR. All of them resolve to database rows.
+
+Covered by `sinai_m01_v6_fixture_imports` in `src-tauri/src/commands/mod.rs`.
+
+Sinai is now **`verified: true`** — this mission is what verified it (see the
+note at the end of this file), so importing it raises no banner.
 
 ### `sandbox_mission.json` — real format, but imports empty
 
@@ -93,3 +118,48 @@ matches nothing.
 Retiring the `verified: false` flag needs the opposite of this file: real
 ground-truth pairs (DCS x/y and lat/lon) read off the DCS F10 map by someone who
 owns Sinai.
+
+## Sinai: how the projection was verified
+
+Sinai carried `verified: false` from the start, alongside Kola and Afghanistan.
+`M01 V6.miz` is what cleared it, and the method is worth reusing for the other
+two.
+
+**Do not click points on the F10 map.** Instead pick *single-unit groups* out of
+the mission: the `.miz` already stores each unit's exact DCS x/y, so only the
+lat/lon has to be read on screen, and the pair is exact to the arcsecond the
+Mission Editor displays. Four units were used, chosen to span the map:
+
+| Unit | DCS x (north) | DCS y (east) | Measured |
+|---|---|---|---|
+| `EW-Red-2-1` (far south) | −395998 | 180295 | N 26°29'03" E 33°06'39" |
+| `EW-Israel-2-1` (far NE) | 310556 | 398891 | N 32°50'12" E 35°27'13" |
+| `EW-Red-3-1` (far west) | 115649 | −36987 | N 31°05'03" E 30°50'17" |
+| `EW-Red-1-1` (centre-south) | 10042 | 93432 | N 30°08'49" E 32°12'46" |
+
+That spans 700 km north–south and 440 km east–west, which separates the three
+possible faults: an `x_0`/`y_0` offset shifts all four alike, a `k_0` scale error
+grows with distance from the origin, and a wrong `lon_0` shows as an east–west
+gradient.
+
+**All four agreed to within 27 m**, with residuals uniformly positive (+19 m
+north, +22 m east) — the signature of the ME truncating seconds rather than
+rounding, i.e. agreement at the limit of the input precision. The projection
+needed no correction. Pinned by `test_dcs_to_latlon_sinai_landmarks`.
+
+### The false lead, recorded so it is not chased again
+
+Before those pairs existed, an attempt was made to verify Sinai by projecting
+the mission's *parked aircraft* and comparing them to published airfield
+reference points. They landed on the right airbases across a 300 km span
+(Ramat David 0.9 km, Tel Nof 1.5 km, Cairo West 1.5 km, Nevatim 2.0 km), which
+correctly ruled out a wrong `lon_0`, a swapped axis order and any gross offset.
+
+But the residuals showed a consistent **−1.36 km northward bias (sd 0.45 km)**,
+which looked like a real `y_0` error. It was not: it was the offset between a
+parking ramp and the airfield datum. Applying that "correction" would have
+broken a projection that was already right to 27 m. Ramp positions are not
+ground truth.
+
+Also note: the FragOrders CLI cannot supply pairs. Neither `parse` nor `inspect`
+emits lat/lon, despite `pkg/dcsproj` projecting internally.

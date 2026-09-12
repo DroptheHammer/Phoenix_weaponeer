@@ -129,7 +129,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
         display_name: "Sinai",
         proj4_string: "+proj=tmerc +lon_0=33 +k_0=0.9996 +x_0=169222 +y_0=-3325313",
         default_center: (30.0, 33.0),
-        verified: false,
+        verified: true,
     },
     TheaterCoordParams {
         dcs_name: "Kola",
@@ -435,11 +435,13 @@ mod tests {
         }
     }
 
-    /// The three projections we could not cross-check must stay flagged, so the
-    /// UI keeps warning about them until someone verifies them in DCS.
+    /// The projections we could not cross-check must stay flagged, so the UI
+    /// keeps warning about them until someone verifies them in DCS. Sinai left
+    /// this list once real F10 pairs pinned it -- see
+    /// `test_dcs_to_latlon_sinai_landmarks`.
     #[test]
     fn test_unverified_theaters_are_flagged() {
-        for name in ["SinaiMap", "Kola", "Afghanistan"] {
+        for name in ["Kola", "Afghanistan"] {
             let params = get_theater_params(name).unwrap();
             assert!(!params.proj4_string.is_empty(), "{name} should still be usable");
             assert!(!params.verified, "{name} has no independent confirmation yet");
@@ -479,6 +481,52 @@ mod tests {
             assert!(
                 (lat - want_lat).abs() < 0.01 && (lon - want_lon).abs() < 0.01,
                 "{what}: got ({lat:.5}, {lon:.5}), want ({want_lat}, {want_lon})"
+            );
+        }
+    }
+
+    /// Ground truth for Sinai, read off the DCS Mission Editor.
+    ///
+    /// These are not clicked map positions: each is a single-unit group in
+    /// `test-data/sinai_m01_v6.json`, so the DCS x/y comes from the mission file
+    /// itself and only the lat/lon was read on screen. That removes any pointing
+    /// error and makes the pair exact to the arcsecond the ME displays.
+    ///
+    /// The four span 700 km north-south and 440 km east-west, which is what
+    /// separates the three ways this could be wrong: a `y_0`/`x_0` offset shifts
+    /// all four alike, a `k_0` scale error grows with distance from the origin,
+    /// and a wrong `lon_0` shows as an east-west gradient. All four agree to
+    /// within 27 m, and the residuals are uniformly positive (+19 m north,
+    /// +22 m east) -- the signature of the ME truncating seconds rather than
+    /// rounding, i.e. agreement at the limit of the input precision.
+    ///
+    /// Before this, Sinai carried `verified: false`. An earlier check that
+    /// projected *parked aircraft* onto published airfield reference points
+    /// suggested a 1.36 km northward bias; these pairs show that was an artefact
+    /// of ramp position versus airfield datum, and the projection needed no
+    /// correction.
+    #[test]
+    fn test_dcs_to_latlon_sinai_landmarks() {
+        let params = get_theater_params("SinaiMap").unwrap();
+        assert!(params.verified, "these pairs are what verifies Sinai");
+
+        // (dcs_x/northing, dcs_y/easting, lat, lon, unit in M01 V6.miz)
+        let landmarks = [
+            (-395_998.0, 180_295.0, 26.484167, 33.110833, "EW-Red-2-1 (far south)"),
+            (310_556.0, 398_891.0, 32.836667, 35.453611, "EW-Israel-2-1 (far north-east)"),
+            (115_649.0, -36_987.0, 31.084167, 30.838056, "EW-Red-3-1 (far west)"),
+            (10_042.0, 93_432.0, 30.146944, 32.212778, "EW-Red-1-1 (centre-south)"),
+        ];
+
+        // 0.001 deg is ~110 m: four times the worst observed residual, and ten
+        // times tighter than the Nevada landmarks, which were read less precisely.
+        const TOLERANCE_DEG: f64 = 0.001;
+
+        for (x, y, want_lat, want_lon, what) in landmarks {
+            let (lat, lon) = dcs_to_latlon(x, y, params).unwrap();
+            assert!(
+                (lat - want_lat).abs() < TOLERANCE_DEG && (lon - want_lon).abs() < TOLERANCE_DEG,
+                "{what}: got ({lat:.6}, {lon:.6}), want ({want_lat}, {want_lon})"
             );
         }
     }

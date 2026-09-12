@@ -124,9 +124,12 @@ The `.cargo/config.toml` file in `src-tauri/` is configured to find these librar
   preferring attack #2's run-in (existing threat-aware logic stands), and
   fuze-dependent release floors (the tool assumes impact detonation — see
   `docs/DELIVERY_PLANNING.md`).
-- **The Channel has no projection**, and Sinai / Kola / Afghanistan are
-  `verified: false`. All four need ground-truth DCS x/y ↔ lat/lon pairs off the
-  F10 map; the arithmetic is already validated.
+- **The Channel has no projection**, and Kola / Afghanistan are
+  `verified: false`. All three need ground-truth DCS x/y ↔ lat/lon pairs off the
+  F10 map; the arithmetic is already validated. **Sinai is done** (2026-09-11) —
+  use the same method: pick single-unit groups out of a mission so the x/y comes
+  from the `.miz` and only lat/lon is read on screen. See the Sinai section of
+  `test-data/README.md`; do not use parked aircraft as ground truth.
 - **Kneeboard export to DCS has never run on Windows.** `detect_dcs_folder`
   returns `None` on Mac/Linux, so the auto-export path is untested on the only
   platform it targets.
@@ -273,8 +276,9 @@ only for what genuinely cannot be scripted.
 - `render_kneeboard` and `export_to_dcs_kneeboard` in `commands/mod.rs` are
   unimplemented stubs returning errors. Not obviously dead — check callers
   before touching; the live export path is `save_kneeboard_png`.
-- The Channel projection, and retiring the `verified: false` flags on Sinai,
-  Kola and Afghanistan — both need ground-truth DCS x/y ↔ lat/lon pairs.
+- The Channel projection, and retiring the `verified: false` flags on Kola and
+  Afghanistan — both need ground-truth DCS x/y ↔ lat/lon pairs. Sinai was
+  cleared this way on 2026-09-11.
 - PDF export; FragOrders URL import (blocked on API access); loft geometry;
   loadout from FragOrders pylons; aircraft kneeboard paths from the DB;
   verifying kneeboard export on Windows with DCS installed.
