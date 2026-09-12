@@ -25,7 +25,7 @@ image = "0.25"
 rusttype = "0.9"
 thiserror = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
-proj = "0.27"
+proj = "0.31"
 base64 = "0.22"
 
 [profile.dev]

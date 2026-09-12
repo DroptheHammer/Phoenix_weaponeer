@@ -72,7 +72,35 @@ The project requires system libraries for coordinate projection. On macOS, insta
 brew install proj cmake pkgconf
 ```
 
-The `.cargo/config.toml` file in `src-tauri/` is configured to find these libraries automatically.
+Homebrew's own `pkg-config` (installed via the `pkgconf` package above) already
+defaults its search path to `/opt/homebrew/lib/pkgconfig`, so `proj` is found
+automatically with no `PKG_CONFIG_PATH` export needed. `src-tauri/.cargo/config.toml`
+only adds a linker search path, and only for the `aarch64-apple-darwin` target —
+it never applies to Linux/Windows builds — those compile `proj`'s bundled PROJ
+source via CMake instead (see the release CI section below).
+
+## Release Process
+
+`.github/workflows/release.yml` builds installers for all three platforms on
+every `v*` tag push (macOS: `.dmg`, Windows: NSIS `.exe`, Linux: `.deb`/`.rpm`/
+`.AppImage`) via `tauri-apps/tauri-action`, and attaches them to a **draft**
+GitHub Release — publish it manually once the artifacts are verified. All
+three platforms build `proj`'s bundled PROJ source via CMake rather than
+linking a system library, since no CI runner has `libproj` preinstalled; this
+only works because `proj-sys` ≥0.25 bundles PROJ ≥9.4.0, whose
+`cmake_minimum_required` floor modern CMake still accepts (PROJ 9.2.1, bundled
+by older `proj-sys`, does not — that mismatch is what silently broke macOS and
+Windows CI until 2026-09-12, see `docs/SESSION_HISTORY.md`).
+
+**Before tagging a release**, bump the version number in all three of:
+- `package.json` (`version`)
+- `src-tauri/Cargo.toml` (`[package] version`)
+- `src-tauri/tauri.conf.json` (`version`)
+
+then commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`. There's no sync
+script — these three fields are kept in sync by hand, on purpose (release
+cadence is low; see `docs/INSTALLING.md` for user-facing install notes,
+including the unsigned-binary SmartScreen/Gatekeeper workarounds).
 
 ## DCS Kneeboard Format
 
