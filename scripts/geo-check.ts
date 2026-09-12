@@ -24,10 +24,11 @@ import {
   applyPopupPlan,
 } from '../src/lib/popupPlanning';
 import { describeRunIn } from '../src/lib/runIn';
-import { inferIp, autoBuildAttack } from '../src/lib/autoBuildAttack';
+import { inferIp, resolveIp, initialIpOverride, autoBuildAttack } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
+import { targetCandidates, ipCandidates, waypointLabel } from '../src/lib/waypointOptions';
 import { flightGroupOf } from '../src/lib/callsign';
 import { applyDisplayFilter } from '../src/lib/displayFilter';
 import { visibleArcSpans } from '../src/lib/arcClip';
@@ -707,3 +708,101 @@ ok('opening a new mission clears the selection',
    useUiStore.getState().selectedAttackId === null &&
    useUiStore.getState().focusThreatId === null);
 useUiStore.getState().resetFilter();
+
+// ─── Any waypoint can be a target ────────────────────────────────────────────
+// `Waypoint.type` is inferred from the creator's free-text name, so it is a
+// hint and never a gate. Sinai M01 V6 names none of its 55 route points, so
+// every one imports as `nav`; a `type === 'target'` filter left the Target
+// dropdown empty and the whole mission unplannable.
+const routePoint = (steerpoint: number, name: string, type: string) =>
+  ({ id: `w${steerpoint}`, steerpoint, name, type,
+     coordinates: { lat: 31 + steerpoint / 100, lon: 34 }, elevation_ft: 0 }) as never;
+
+// The Sinai shape: four unnamed nav points, nothing typed as a target.
+const unnamedRoute = [
+  routePoint(1, '', 'nav'), routePoint(2, '', 'nav'),
+  routePoint(3, '', 'nav'), routePoint(4, '', 'nav'),
+];
+ok('every waypoint is offered as a target, even when all four are unnamed nav points',
+   targetCandidates(unnamedRoute).length === 4);
+
+// A route that does name a target still offers everything, not just that one.
+const namedRoute = [
+  routePoint(3, 'JUNNO', 'nav'), routePoint(1, '', 'nav'),
+  routePoint(8, 'TGT1', 'target'), routePoint(7, 'IP', 'ip'),
+];
+ok('a route containing a real target still offers every waypoint, not only the target',
+   targetCandidates(namedRoute).length === 4);
+ok('target candidates come back in route order regardless of input order',
+   targetCandidates(namedRoute).map((w) => w.steerpoint).join(',') === '1,3,7,8');
+
+// The creator's text is passed through verbatim; our inferred type is not shown.
+ok('a named waypoint reads "Waypoint 8 — TGT1"',
+   waypointLabel(routePoint(8, 'TGT1', 'target')) === 'Waypoint 8 — TGT1');
+ok('an unnamed waypoint reads "Waypoint 1" with no dangling separator',
+   waypointLabel(routePoint(1, '', 'nav')) === 'Waypoint 1');
+ok('a whitespace-only name is treated as unnamed',
+   waypointLabel(routePoint(2, '   ', 'nav')) === 'Waypoint 2');
+ok('a free-text name the importer could not classify is still shown verbatim',
+   waypointLabel(routePoint(5, 'KILL ZONE', 'nav')) === 'Waypoint 5 — KILL ZONE');
+
+// ─── Any waypoint can be the IP ──────────────────────────────────────────────
+// The default is the prior numeric waypoint, but the planner may run in from
+// anywhere. The pick has to reach the *geometry*, not just the drawn line —
+// before this, autoBuildAttack always called inferIp and a chosen IP moved the
+// picture while the computed run-in silently disagreed with it.
+const ipEast  = { id: 'ip-e', steerpoint: 5, name: 'EAST',  type: 'nav',
+                  coordinates: calculateDestination(tgt, 90, 12), elevation_ft: 3000 };
+const ipNorth = { id: 'ip-n', steerpoint: 6, name: 'NORTH', type: 'nav',
+                  coordinates: calculateDestination(tgt, 0, 12), elevation_ft: 3000 };
+const ipLate  = { id: 'ip-l', steerpoint: 9, name: 'LATE',  type: 'nav',
+                  coordinates: calculateDestination(tgt, 180, 12), elevation_ft: 3000 };
+const ipMission = { waypoints: [ipEast, ipNorth, wpTgt, ipLate], flightMembers: [pilot],
+                    threats: [], attacks: [] };
+
+ok('the default IP is the prior numeric waypoint',
+   resolveIp(ipMission as never, wpTgt as never, undefined)?.id === 'ip-n');
+ok('an explicit pick beats the prior numeric waypoint',
+   resolveIp(ipMission as never, wpTgt as never, 'ip-e')?.id === 'ip-e');
+ok('a waypoint LATER in the route may be chosen as the IP',
+   resolveIp(ipMission as never, wpTgt as never, 'ip-l')?.id === 'ip-l');
+ok('the target itself cannot be its own IP — falls back to the inferred one',
+   resolveIp(ipMission as never, wpTgt as never, wpTgt.id)?.id === 'ip-n');
+ok('a deleted IP falls back to the inferred one rather than losing the run-in',
+   resolveIp(ipMission as never, wpTgt as never, 'gone')?.id === 'ip-n');
+
+// The pick must change the COMPUTED run-in, not only what is drawn.
+const buildAuto = autoBuildAttack({
+  mission: ipMission, targetWaypointId: wpTgt.id, attackerId: pilot.id,
+  weapons: [gbu31], profiles: [jdamLevel], threatSystems: [],
+} as never);
+const buildEast = autoBuildAttack({
+  mission: ipMission, targetWaypointId: wpTgt.id, attackerId: pilot.id,
+  weapons: [gbu31], profiles: [jdamLevel], threatSystems: [],
+  overrides: { ipWaypointId: 'ip-e' },
+} as never);
+// NORTH is 12 nm due north of the target, so the run-in tracks 180°;
+// EAST is 12 nm due east, so it tracks 270°.
+ok('the default IP drives the computed run-in bearing (NORTH → 180°)',
+   Math.abs((buildAuto.directBearing ?? 0) - 180) < 1, String(r(buildAuto.directBearing ?? 0)));
+ok('choosing a different IP moves the computed run-in bearing (EAST → 270°)',
+   Math.abs((buildEast.directBearing ?? 0) - 270) < 1, String(r(buildEast.directBearing ?? 0)));
+ok('the chosen IP is written onto the built profile, so the map and card agree',
+   (buildEast.attack?.profile as { ipWaypointId?: string })?.ipWaypointId === 'ip-e');
+
+// The picker offers everything except the target itself, in route order.
+ok('IP candidates are every waypoint except the target, in route order',
+   ipCandidates([wpTgt, ipLate, ipEast, ipNorth] as never, wpTgt.id)
+     .map((w) => w.id).join(',') === 'ip-e,ip-n,ip-l');
+
+// Reopening a saved attack must not look hard-pinned. autoBuildAttack writes
+// the resolved IP onto every profile it builds, so a stored id is not evidence
+// the planner chose anything.
+ok('a stored IP equal to the inferred one opens as Auto, so it keeps tracking the route',
+   initialIpOverride(ipMission as never, wpTgt as never, 'ip-n') === undefined);
+ok('a stored IP the planner really chose opens as that override',
+   initialIpOverride(ipMission as never, wpTgt as never, 'ip-e') === 'ip-e');
+ok('an attack with no stored IP opens as Auto',
+   initialIpOverride(ipMission as never, wpTgt as never, undefined) === undefined);
+ok('with no target there is nothing to infer from, so no override',
+   initialIpOverride(ipMission as never, undefined, 'ip-e') === undefined);

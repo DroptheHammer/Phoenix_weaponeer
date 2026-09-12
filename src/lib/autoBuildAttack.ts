@@ -63,6 +63,11 @@ export interface AutoBuildOverrides {
   offsetLegRatio?: number;
   /** Which flank to run in on; undefined = away from the nearest threat */
   angleOffSide?: Side;
+  /**
+   * The waypoint to run in from. Undefined = the prior numeric waypoint
+   * (`inferIp`). Any waypoint may be chosen; see `resolveIp`.
+   */
+  ipWaypointId?: string;
   egressDirection?: 'left' | 'right';
 }
 
@@ -126,6 +131,45 @@ export function inferIp(mission: Mission, target: Waypoint): Waypoint | undefine
   return mission.waypoints
     .filter((wp) => wp.id !== target.id && wp.steerpoint < target.steerpoint)
     .sort((a, b) => b.steerpoint - a.steerpoint)[0];
+}
+
+/**
+ * The waypoint this attack actually runs in from: the planner's pick when they
+ * have made one, otherwise `inferIp`'s prior numeric waypoint.
+ *
+ * The pick is honoured for *any* waypoint, not only one earlier in the route —
+ * the planner can see the map and the tool should not overrule them. An id that
+ * no longer resolves (the waypoint was deleted, or it is the target itself)
+ * falls back to the inferred one rather than leaving the attack with no run-in.
+ */
+export function resolveIp(
+  mission: Mission,
+  target: Waypoint,
+  ipWaypointId?: string,
+): Waypoint | undefined {
+  const picked = ipWaypointId
+    ? mission.waypoints.find((wp) => wp.id === ipWaypointId && wp.id !== target.id)
+    : undefined;
+  return picked ?? inferIp(mission, target);
+}
+
+/**
+ * The IP override an editor should open with, given what a saved attack stored.
+ *
+ * The inverse of `resolveIp`. `autoBuildAttack` writes the resolved IP onto
+ * *every* profile it builds, so a stored id is not evidence that the planner
+ * chose anything — on reopening, an attack that simply took the default would
+ * otherwise look hard-pinned and stop tracking the route. A stored id that
+ * matches the inferred waypoint is therefore reported as no override at all, so
+ * the control opens on "Auto" and still names the waypoint in use.
+ */
+export function initialIpOverride(
+  mission: Mission,
+  target: Waypoint | undefined,
+  storedIpWaypointId: string | undefined,
+): string | undefined {
+  if (!storedIpWaypointId || !target) return undefined;
+  return inferIp(mission, target)?.id === storedIpWaypointId ? undefined : storedIpWaypointId;
 }
 
 /**
@@ -287,7 +331,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   }
 
   // The run-in: route to the action point, check turn, offset leg, join.
-  const ipWaypoint = inferIp(mission, target);
+  const ipWaypoint = resolveIp(mission, target, overrides.ipWaypointId);
   const directBearing = ipWaypoint ? calculateBearing(ipWaypoint.coordinates, target.coordinates) : undefined;
   const threatSide = directBearing != null ? nearestThreatSide(mission, target, directBearing, threatSystems) : undefined;
   const side: Side = overrides.angleOffSide ?? (threatSide ? opposite(threatSide) : 'right');

@@ -5,13 +5,14 @@ import { Modal } from '../common/Modal';
 import { PopupCCIPForm } from './forms/PopupCCIPForm';
 import { DiveForm } from './forms/DiveForm';
 import { LevelForm } from './forms/LevelForm';
-import { autoBuildAttack, loadoutWeapons } from '../../lib/autoBuildAttack';
+import { autoBuildAttack, loadoutWeapons, resolveIp, initialIpOverride, inferIp } from '../../lib/autoBuildAttack';
 import { runAttackChecks, hasErrors } from '../../lib/attackChecks';
 import { type Side } from '../../lib/attackGeometry';
 import { describeRunIn, type RunInSummary } from '../../lib/runIn';
 import { applyFlank, applyEgress } from '../../lib/attackFlank';
 import { weaponClassOf } from '../../lib/weaponClass';
 import { formatCallsign } from '../../lib/callsign';
+import { targetCandidates, ipCandidates, waypointLabel } from '../../lib/waypointOptions';
 import type {
   Attack,
   AttackProfile,
@@ -88,20 +89,37 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   const [releaseMode, setReleaseMode] = useState<Attack['releaseMode']>(attack?.releaseMode ?? 'single');
 
   // Customize: once the planner touches the numbers, auto-build stops overwriting them.
+  // Which waypoint the run-in starts from. Undefined = the prior numeric
+  // waypoint. Feeds autoBuildAttack, so the hint, the geometry and the drawn
+  // picture all agree — the pick used to move only the drawing.
+  const [ipWaypointId, setIpWaypointId] = useState<string | undefined>(() =>
+    mission
+      ? initialIpOverride(
+          mission,
+          mission.waypoints.find((wp) => wp.id === attack?.targetWaypointId),
+          (attack?.profile as { ipWaypointId?: string } | undefined)?.ipWaypointId,
+        )
+      : undefined,
+  );
+
   const [customized, setCustomized] = useState(Boolean(attack && (attack.customized || !attack.sourceProfileId)));
   const [showCustomize, setShowCustomize] = useState(Boolean(attack && (attack.customized || !attack.sourceProfileId)));
   const [customProfile, setCustomProfile] = useState<AttackProfile | undefined>(attack?.profile);
 
   const flightMembers = mission?.flightMembers ?? [];
-  const targetWaypoints = mission?.waypoints.filter((wp) => wp.type === 'target') ?? [];
+  // Every waypoint, not only `target`-typed ones: the type is our guess at the
+  // creator's free-text name, and plenty of missions name nothing at all.
+  const targetWaypoints = targetCandidates(mission?.waypoints ?? []);
   const attacker = flightMembers.find((fm) => fm.id === attackerId);
   const selectedTarget = mission?.waypoints.find((wp) => wp.id === targetWaypointId);
-  // Any waypoint before the target can be the one the jet flies in from —
-  // the previous target, for a chained attack — not only IP-typed ones.
-  const ipWaypoints =
-    mission?.waypoints
-      .filter((wp) => selectedTarget && wp.id !== selectedTarget.id && wp.steerpoint < selectedTarget.steerpoint)
-      .sort((a, b) => b.steerpoint - a.steerpoint) ?? [];
+  // Any waypoint can be the one the jet flies in from — the previous target,
+  // for a chained attack, or anything else the planner picks off the map. The
+  // default is still the prior numeric waypoint, applied by `resolveIp`.
+  const ipWaypoints = ipCandidates(mission?.waypoints ?? [], selectedTarget?.id);
+  // What "Auto" resolves to. Deliberately `inferIp`, not `build.ipWaypoint`:
+  // once an override is set the build resolves to the override, and labelling
+  // the Auto option with that would have it claim auto meant the planner's pick.
+  const autoIpWaypoint = mission && selectedTarget ? inferIp(mission, selectedTarget) : undefined;
 
   // Weapon choices: what the attacker carries, else every A/G store.
   const carried = loadoutWeapons(attacker, weapons);
@@ -124,10 +142,11 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
         offsetLegRatio: offsetLegRatioOverride,
         offsetTurn_deg: offsetTurnOverride,
         angleOffSide,
+        ipWaypointId,
         egressDirection: egressOverride,
       },
     });
-  }, [mission, targetWaypointId, attackerId, weapons, profiles, threatSystems, weaponId, profileId, actionRangeOverride, offsetLegRatioOverride, offsetTurnOverride, angleOffSide, egressOverride]);
+  }, [mission, targetWaypointId, attackerId, weapons, profiles, threatSystems, weaponId, profileId, actionRangeOverride, offsetLegRatioOverride, offsetTurnOverride, angleOffSide, ipWaypointId, egressOverride]);
 
   // Keep the pick lists honest as the picks change.
   useEffect(() => {
@@ -168,6 +187,10 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   const resetToProfile = () => {
     setCustomized(false);
     setCustomProfile(undefined);
+    // The IP is part of what the profile decides, so resetting returns it to
+    // the auto waypoint too — otherwise a hand-picked IP survived a reset and
+    // quietly kept driving the geometry.
+    setIpWaypointId(undefined);
   };
 
   // Picking a flank is not a reason to throw away hand-typed numbers. When the
@@ -182,6 +205,28 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   const chooseEgress = (side: 'left' | 'right') => {
     setEgressOverride(side);
     if (customized && customProfile) setCustomProfile(applyEgress(customProfile, side));
+  };
+
+  // The IP belongs to the attack, not to one profile type, so it lives here
+  // rather than in each form. When the profile has been customized it must be
+  // written through as well, or `effectiveProfile` would save the old IP.
+  const chooseIp = (id: string) => {
+    const next = id || undefined;
+    setIpWaypointId(next);
+    // Loft and standoff carry no IP field, so only the three run-in profiles
+    // are written through. The override still reaches autoBuildAttack either way.
+    if (
+      customized &&
+      customProfile &&
+      mission &&
+      selectedTarget &&
+      (customProfile.type === 'level_ccrp' ||
+        customProfile.type === 'dive_ccip' ||
+        customProfile.type === 'popup_ccip')
+    ) {
+      const resolved = resolveIp(mission, selectedTarget, next);
+      setCustomProfile({ ...customProfile, ipWaypointId: resolved?.id ?? '' });
+    }
   };
 
   const handleSave = () => {
@@ -231,7 +276,7 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   const autoNote = angleOffIsAuto ? ' · auto: away from the nearest threat' : '';
   const angleOffHint =
     !build?.ipWaypoint || build.directBearing == null
-      ? 'Needs a waypoint before the target in the route'
+      ? 'No waypoint before the target in the route — pick one under Customize → Run in from'
       : !runIn
         ? ''
         : !runIn.closes
@@ -257,7 +302,7 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
             <select className={select} style={{ colorScheme: 'dark' }} value={targetWaypointId} onChange={(e) => setTargetWaypointId(e.target.value)}>
               <option value="">Select target…</option>
               {targetWaypoints.map((wp) => (
-                <option key={wp.id} value={wp.id}>STPT {wp.steerpoint} — {wp.name}</option>
+                <option key={wp.id} value={wp.id}>{waypointLabel(wp)}</option>
               ))}
             </select>
             {selectedTarget && <div className="text-xs text-gray-400 mt-1">Elev {Math.round(selectedTarget.elevation_ft || 0).toLocaleString()} ft MSL</div>}
@@ -429,6 +474,29 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
                 </div>
               </div>
 
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className={label}>Run in from (IP)</label>
+                  <select
+                    className={select}
+                    style={{ colorScheme: 'dark' }}
+                    value={ipWaypointId ?? ''}
+                    onChange={(e) => chooseIp(e.target.value)}
+                    disabled={!selectedTarget}
+                  >
+                    <option value="">
+                      {autoIpWaypoint ? `Auto — ${waypointLabel(autoIpWaypoint)}` : 'Auto — no prior waypoint'}
+                    </option>
+                    {ipWaypoints.map((wp) => (
+                      <option key={wp.id} value={wp.id}>{waypointLabel(wp)}</option>
+                    ))}
+                  </select>
+                  <div className="text-xs text-gray-400 mt-1">
+                    Defaults to the waypoint before the target; pick any waypoint to override.
+                  </div>
+                </div>
+              </div>
+
               {customized && customProfile?.type === 'dive_ccip' && (
                 <DiveForm profile={customProfile as DiveCCIPProfile} onChange={setCustomProfile} directBearing_deg={build?.directBearing} />
               )}
@@ -438,7 +506,6 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
               {customized && customProfile?.type === 'popup_ccip' && (
                 <PopupCCIPForm
                   profile={customProfile as PopupCCIPProfile}
-                  ipWaypoints={ipWaypoints}
                   targetElevation={selectedTarget?.elevation_ft || 0}
                   selectedWeapon={selectedWeapon ?? null}
                   onChange={setCustomProfile}

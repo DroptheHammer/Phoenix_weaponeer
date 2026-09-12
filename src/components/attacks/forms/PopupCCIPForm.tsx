@@ -1,4 +1,4 @@
-import type { PopupCCIPProfile, Waypoint, DbWeapon } from '../../../types';
+import type { PopupCCIPProfile, DbWeapon } from '../../../types';
 import { resolveEgressHeading } from '../../../lib/attackGeometry';
 import { applyPopupPlan, popupPlanOf, DEFAULT_TRACKING_TIME_S, DEFAULT_PULL_G, FT_PER_NM } from '../../../lib/popupPlanning';
 import { weaponFloor_ft } from '../../../lib/autoBuildAttack';
@@ -6,7 +6,6 @@ import { ActionPointFields } from './ActionPointFields';
 
 interface PopupCCIPFormProps {
   profile: PopupCCIPProfile;
-  ipWaypoints: Waypoint[];
   targetElevation: number;
   selectedWeapon: DbWeapon | null;
   onChange: (profile: PopupCCIPProfile) => void;
@@ -28,7 +27,7 @@ const ft = (v: number) => `${Math.round(v).toLocaleString()} ft`;
  * the run-in on the route. Everything in the grey panel is derived from them
  * and is what the card prints and the map draws. See docs/DELIVERY_PLANNING.md.
  */
-export function PopupCCIPForm({ profile, ipWaypoints, targetElevation, selectedWeapon, onChange, directBearing_deg }: PopupCCIPFormProps) {
+export function PopupCCIPForm({ profile, targetElevation, selectedWeapon, onChange, directBearing_deg }: PopupCCIPFormProps) {
   const set = (patch: Partial<PopupCCIPProfile>) => onChange(applyPopupPlan({ ...profile, ...patch }, directBearing_deg));
   const num = (key: keyof PopupCCIPProfile) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = parseFloat(e.target.value);
@@ -43,20 +42,6 @@ export function PopupCCIPForm({ profile, ipWaypoints, targetElevation, selectedW
     <div className="space-y-4">
       {/* The run-in on the route */}
       <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className={label}>Run in from</label>
-          <select
-            className={field}
-            style={{ colorScheme: 'dark' }}
-            value={profile.ipWaypointId || ''}
-            onChange={(e) => set({ ipWaypointId: e.target.value })}
-          >
-            <option value="">Select waypoint…</option>
-            {ipWaypoints.map((wp) => (
-              <option key={wp.id} value={wp.id}>STPT {wp.steerpoint} — {wp.name} ({wp.type})</option>
-            ))}
-          </select>
-        </div>
         <div>
           <label className={label}>Attack heading (°)</label>
           <input
