@@ -2,6 +2,101 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Last session:** 2026-09-11 (Opus 5, user at the screen). **Three commits, all
+pushed.** Gates moved **132 → 152 geo-checks** and **48 → 58 Rust tests**;
+`npm run build` clean, `cargo build` zero warnings. Plan at
+`~/.claude/plans/ok-what-s-next-in-synthetic-cloud.md`.
+
+| Commit | What |
+|---|---|
+| `0217859` | New FragOrders export supported; Sinai projection verified |
+| `2bfb7c6` | Any waypoint can be a target, and any waypoint can be the IP |
+| `f984f39` | Open on a FragOrders export now says to use Import |
+
+### The new FragOrders is a CLI, and the format did not change
+
+The FragOrders author's rebuild is **`cmd/cli`** (cobra, commit `a3c1ff1316dd`, 2026-09-06),
+not an application to open. `fragorders parse mission.miz > mission.json` —
+the same workflow as before. `inspect` gives a readable timing/groups/DTC
+summary. **`parse` still emits the raw DCS mission table**, identical top-level
+keys plus a new `startTime`. Everything in the changelog is *more decoding*, not
+a new schema.
+
+**The fragorders git cannot be refreshed** — `FragOrders/fragorders` 404s to the
+user's authenticated `gh`. The local checkout is frozen at Jan 26. Mine a new
+binary with `go version -m` and `strings` instead. In memory:
+`reference-fragorders-cli`.
+
+`test-data/sinai_m01_v6.json` is the new reference fixture (theater `SinaiMap`,
+86 groups, 8 client flights, 34 threats all resolving to DB rows). The old NTTR
+fixture is now covered by a test too — before this session **no test loaded any
+fixture at all**, which is how `RoutePoint.eta` sat renamed to `"ETA"` against
+real data that writes `"eta"`.
+
+### Sinai is verified — and the near-miss is the lesson
+
+Four single-unit `EW-*` radars from `M01 V6.miz`, spanning 700 km × 440 km,
+read off the F10 map. **All four agreed to 27 m**; residuals uniformly positive
+(+19 m N, +22 m E) because the ME truncates seconds. No correction needed.
+
+**The trap:** projecting *parked aircraft* against published airfield reference
+points first showed a convincing **−1.36 km northward bias (sd 0.45)** — mean
+three times the scatter. That was the ramp-to-datum offset, not a projection
+error. Applying it would have broken a projection already right to 27 m. Method
+and warning are in memory: `project-verifying-theater-projections`. Kola,
+Afghanistan and The Channel remain.
+
+### Waypoint type is a hint, never a gate
+
+The Sinai mission was **unplannable**: the Target dropdown filtered on
+`wp.type === 'target'`, and M01 V6 names **none** of its 55 route points, so
+everything imported as `nav`. Any waypoint can now be a target, and any waypoint
+can be the IP — including one later in the route.
+
+Behind the IP work was a real defect: `autoBuildAttack` always called `inferIp`
+and never read a chosen `ipWaypointId`, so on pop-up a picked IP moved the drawn
+line while the computed run-in disagreed. `resolveIp` fixes that; one selector
+now serves all three profile types. Watch two things if you touch this:
+`resetToProfile` must clear the override, and `autoBuildAttack` *writes* the
+resolved IP onto every profile, so a stored id is not evidence of a choice —
+that is what `initialIpOverride` is for. In memory:
+`project-waypoints-are-free-text`.
+
+### START OF NEXT SESSION
+
+1. **The two banked features are still the whole queue.**
+2. **Live-geometry Customize** — half-planned in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`. The recompute is *already*
+   live; `MapView` is prop-driven and a second `MapContainer` is safe. Design
+   reference: `Other Items/offset-leg-geometry.html`. **Two questions before
+   code:** where the map sits (the editor is a centred modal today), and whether
+   knobs become sliders, slider+number pairs, or stay number boxes — bounded by
+   *never remove a knob*. **There are 35: 3 common, 12 dive, 9 level, 14
+   pop-up** — plus the new shared IP selector. **Gotcha:** `MapView` reads
+   `useUiStore`'s display filters directly (`:257-259`), so an embedded editor
+   map would inherit whatever the main map is hiding; the editor must show the
+   truth. **Second gotcha:** `MapController` re-fits on `fitKey` changes — fit
+   once on open and hold.
+3. Then **multi-aircraft coordinated strike**, which `split_deg` on
+   `RunInSummary` is retained for. See memory: `project-live-geometry-customize`.
+
+### Adjacent, noted but not done
+
+- **DTC data is now reachable and unused.** `M01 V6.miz` ships
+  `DTC/Op Sentinel Watch M01 F18.dtc`, and the new FragOrders parser exposes
+  `ThreatPoints`, `JDAMTargets`, `NavPoints` and FLOT/FAOR `GeoLines` —
+  pre-built threat and target data we currently get nowhere. Also available:
+  TACAN/ICLS beacons, `startTime`/`TheaterUTCOffset` for TOT, and real pylon
+  loadouts (`CLSID`) to fill the hard-coded `loadout: []` in `missionStore.ts`.
+- Red **statics** (23 in this mission — ammo depots, tanks, warehouses) and red
+  **planes** are still never scanned; only `country.vehicle` is. The `static`
+  key binds correctly now, so the data is there.
+- Kola / Afghanistan / The Channel projections; PDF export; FragOrders URL
+  import (blocked on API access); loft geometry; aircraft kneeboard paths from
+  the DB; verifying kneeboard export on Windows with DCS installed.
+
+---
+
 **Last session:** 2026-09-09 (Opus 5, user at the screen). **Four commits, all
 eyeballed where it mattered, all pushed.** Gates moved **109 → 132 geo-checks**
 and **46 → 48 Rust tests**; `npm run build` clean, `cargo build` zero warnings.

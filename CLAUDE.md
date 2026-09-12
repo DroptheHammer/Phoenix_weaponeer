@@ -167,118 +167,95 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-09 (Opus 5, user at the screen). **Four commits, all
-eyeballed where it mattered, all pushed.** Gates moved **109 → 132 geo-checks**
-and **46 → 48 Rust tests**; `npm run build` clean, `cargo build` zero warnings.
-Plans at `~/.claude/plans/what-s-next-on-the-mighty-pumpkin.md` and
-`~/.claude/plans/foamy-sauteeing-hejlsberg.md`.
+**Last session:** 2026-09-11 (Opus 5, user at the screen). **Three commits, all
+pushed.** Gates moved **132 → 152 geo-checks** and **48 → 58 Rust tests**;
+`npm run build` clean, `cargo build` zero warnings. Plan at
+`~/.claude/plans/ok-what-s-next-in-synthetic-cloud.md`.
 
 | Commit | What |
 |---|---|
-| `763b905` | Threat rings stroke only what is inside the diagram box |
-| `df4d4c9` | Reference DB v3 — 12 rows + the rule↔row invariant test |
-| `7974d60` | Dead pop-up calculator chain removed (−380 lines) |
-| `10b01c8` | Cleanup pass — editor defects, list selection, last dead commands |
+| `0217859` | New FragOrders export supported; Sinai projection verified |
+| `2bfb7c6` | Any waypoint can be a target, and any waypoint can be the IP |
+| `f984f39` | Open on a FragOrders export now says to use Import |
 
-### The red arc was REAL, and the diagnosis is worth keeping
+### The new FragOrders is a CLI, and the format did not change
 
-Last session committed the outline-only threat rings unverified. The rings
-themselves passed. But the red arc over the header was **in the exported PNG**,
-not a screenshot artefact — and the method that found it is the reusable part:
-read the PNG with PIL, filter for the ring colour, fit a circle to the pixels.
-It came out **centre (238, 1192), radius 1009 px, residual 0.06 px** — a
-perfect circle, so a stroked ring, centred **454 px below** a plan-view box
-whose bottom is y=738 (the 1 nm scale bar measures `scale` px wide at
-`box.y + box.h - 14`, which is how you recover the frame from a PNG).
+The FragOrders author's rebuild is **`cmd/cli`** (cobra, commit `a3c1ff1316dd`, 2026-09-06),
+not an application to open. `fragorders parse mission.miz > mission.json` —
+the same workflow as before. `inspect` gives a readable timing/groups/DTC
+summary. **`parse` still emits the raw DCS mission table**, identical top-level
+keys plus a new `startTime`. Everything in the changelog is *more decoding*, not
+a new schema.
 
-**The clip was set and every save/restore balanced. The canvas stroked the
-circle through it anyway.** Rather than work out which canvas builds honour a
-clip for a path far larger than the surface, `visibleArcSpans` in
-**`src/lib/arcClip.ts`** now computes the angular spans genuinely inside the
-box and only those are stroked. A frame entirely inside a huge ring draws
-nothing — correct, and what the bold red table row is for.
+**The fragorders git cannot be refreshed** — `FragOrders/fragorders` 404s to the
+user's authenticated `gh`. The local checkout is frozen at Jan 26. Mine a new
+binary with `go version -m` and `strings` instead. In memory:
+`reference-fragorders-cli`.
 
-Found alongside it: the card built **six** threats, the table printed **four**,
-and the plan view drew rings for **all six**. The escaping arc belonged to an
-SA-11 that was never named on the card. Both now read `CARD_THREAT_ROWS`.
+`test-data/sinai_m01_v6.json` is the new reference fixture (theater `SinaiMap`,
+86 groups, 8 client flights, 34 threats all resolving to DB rows). The old NTTR
+fixture is now covered by a test too — before this session **no test loaded any
+fixture at all**, which is how `RoutePoint.eta` sat renamed to `"ETA"` against
+real data that writes `"eta"`.
 
-### Reference DB v3 — the drift was the real bug
+### Sinai is verified — and the near-miss is the lesson
 
-Twelve rows (`SCHEMA_VERSION` 2 → 3). The mapping table already **named eight
-systems with no database row** — Gepard, Roland, Hawk, Patriot, NASAMS, Rapier,
-Strela-10, P-19 — which imported as Unknown and were dropped.
-**`every_mapping_rule_resolves_to_a_database_row`** now makes that impossible.
-Worse: `RPC_5N62V` (Square Pair — the set that actually shoots on an S-200
-site) and `RLS_19J6` matched **neither a rule nor any pre-filter category** and
-never reached the planner at all. Data policy and the whole-token-matching trap
-are in memory: `project-threat-db-data-policy`.
+Four single-unit `EW-*` radars from `M01 V6.miz`, spanning 700 km × 440 km,
+read off the F10 map. **All four agreed to 27 m**; residuals uniformly positive
+(+19 m N, +22 m E) because the ME truncates seconds. No correction needed.
 
-### Two items the user CLOSED by decision this session — see memory
+**The trap:** projecting *parked aircraft* against published airfield reference
+points first showed a convincing **−1.36 km northward bias (sd 0.45)** — mean
+three times the scatter. That was the ramp-to-datum offset, not a projection
+error. Applying it would have broken a projection already right to 27 m. Method
+and warning are in memory: `project-verifying-theater-projections`. Kola,
+Afghanistan and The Channel remain.
 
-Attack #1's egress preferring attack #2's run-in, and fuze-dependent release
-floors, are both settled — do not reopen either. Full context (including the
-user's own words and the Mk-82/Mk-84 frag min-safe correction) is in memory:
-`closed-decisions-do-not-reopen`.
+### Waypoint type is a hint, never a gate
 
-### THE LESSON OF THE SESSION — script it, do not ask him to eyeball it
+The Sinai mission was **unplannable**: the Target dropdown filtered on
+`wp.type === 'target'`, and M01 V6 names **none** of its 55 route points, so
+everything imported as `nav`. Any waypoint can now be a target, and any waypoint
+can be the IP — including one later in the route.
 
-Already captured in memory (`feedback-script-it-dont-ask-him-to-eyeball`) and
-reinforced again this session: handed a four-item on-screen checklist, the user
-pushed back — two items were already covered by gates, the other two became
-Rust tests (`a_stale_database_is_rebuilt_with_the_v3_threat_rows`,
-`every_threat_unit_in_the_nttr_mission_resolves_to_a_row`) in minutes. Ask him
-only for what genuinely cannot be scripted.
-
-### Also shipped: the cleanup pass
-
-- **The Ingress/Egress toggles silently discarded customization** — both called
-  `resetToProfile()`. New pure helpers in **`src/lib/attackFlank.ts`** apply the
-  change instead, re-deriving the heading through `describeRunIn`.
-- **Selection is live.** `MapView`'s `selectedAttackId` had been wired to
-  `AttackProfileOverlay`'s highlight all along with nothing passing it. Clicking
-  a row in either list now selects and flies to it. Selection lives in
-  `uiStore`, never `missionStore` — clicking a row must not dirty the mission —
-  and attack/threat selection are mutually exclusive. Row-level Edit/Remove
-  controls needed `stopPropagation` once rows became clickable.
-- Legend moved bottom-left, out from under the side panel (`w-1/3`, right).
-
-### Housekeeping
-
-- `.claude/settings.json` gained an allow-list for read-only Bash (`grep`,
-  `cat`, `head`, `tail`, `find`, `wc`, `git diff/status/log/show`) and **the
-  `"model": "sonnet"` pin was removed** so the user's Opus default wins.
-  `.claude/` is git-ignored, so this is local to the Mac only.
+Behind the IP work was a real defect: `autoBuildAttack` always called `inferIp`
+and never read a chosen `ipWaypointId`, so on pop-up a picked IP moved the drawn
+line while the computed run-in disagreed. `resolveIp` fixes that; one selector
+now serves all three profile types. Watch two things if you touch this:
+`resetToProfile` must clear the override, and `autoBuildAttack` *writes* the
+resolved IP onto every profile, so a stored id is not evidence of a choice —
+that is what `initialIpOverride` is for. In memory:
+`project-waypoints-are-free-text`.
 
 ### START OF NEXT SESSION
 
-1. **The queue is empty apart from the two banked features.** Everything else
-   is done or closed by the user's decision.
-2. **Live-geometry Customize** — half-planned already in
-   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`. Exploration established: the
-   recompute is *already* live (`autoBuildAttack` re-runs per keystroke via a
-   `useMemo`; `buildAttackPicture` and the geometry functions are pure and
-   cheap enough per slider tick), `MapView` is fully prop-driven and a second
-   `MapContainer` is safe. Design reference: `Other Items/offset-leg-geometry.html`.
-   **Two questions must be answered before code:** where the map sits (the
-   editor is a centred modal today) and whether knobs become sliders,
-   slider+number pairs, or stay as number boxes — bounded by *never remove a
-   knob*. **There are 35: 3 common, 12 dive, 9 level, 14 pop-up.**
-   **Gotcha:** `MapView` reads `useUiStore`'s display filters directly
-   (`:257-259`), so an embedded editor map would inherit whatever the main map
-   is hiding. The editor must show the truth.
-   **Second gotcha:** `MapController` re-fits on `fitKey` changes — a live
-   editor's picture changes constantly, so fit once on open and hold.
-3. Then **multi-aircraft coordinated strike**, which the retained `split_deg`
-   on `RunInSummary` exists for. See memory: `project-live-geometry-customize`.
+1. **The two banked features are still the whole queue.**
+2. **Live-geometry Customize** — half-planned in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`. The recompute is *already*
+   live; `MapView` is prop-driven and a second `MapContainer` is safe. Design
+   reference: `Other Items/offset-leg-geometry.html`. **Two questions before
+   code:** where the map sits (the editor is a centred modal today), and whether
+   knobs become sliders, slider+number pairs, or stay number boxes — bounded by
+   *never remove a knob*. **There are 35: 3 common, 12 dive, 9 level, 14
+   pop-up** — plus the new shared IP selector. **Gotcha:** `MapView` reads
+   `useUiStore`'s display filters directly (`:257-259`), so an embedded editor
+   map would inherit whatever the main map is hiding; the editor must show the
+   truth. **Second gotcha:** `MapController` re-fits on `fitKey` changes — fit
+   once on open and hold.
+3. Then **multi-aircraft coordinated strike**, which `split_deg` on
+   `RunInSummary` is retained for. See memory: `project-live-geometry-customize`.
 
 ### Adjacent, noted but not done
 
-- `render_kneeboard` and `export_to_dcs_kneeboard` in `commands/mod.rs` are
-  unimplemented stubs returning errors. Not obviously dead — check callers
-  before touching; the live export path is `save_kneeboard_png`.
-- The Channel projection, and retiring the `verified: false` flags on Kola and
-  Afghanistan — both need ground-truth DCS x/y ↔ lat/lon pairs. Sinai was
-  cleared this way on 2026-09-11.
-- PDF export; FragOrders URL import (blocked on API access); loft geometry;
-  loadout from FragOrders pylons; aircraft kneeboard paths from the DB;
-  verifying kneeboard export on Windows with DCS installed.
+- **DTC data is now reachable and unused.** `M01 V6.miz` ships
+  `DTC/Op Sentinel Watch M01 F18.dtc`, and the new FragOrders parser exposes
+  `ThreatPoints`, `JDAMTargets`, `NavPoints` and FLOT/FAOR `GeoLines` —
+  pre-built threat and target data we currently get nowhere. Also available:
+  TACAN/ICLS beacons, `startTime`/`TheaterUTCOffset` for TOT, and real pylon
+  loadouts (`CLSID`) to fill the hard-coded `loadout: []` in `missionStore.ts`.
+- Red **statics** (23 in this mission — ammo depots, tanks, warehouses) and red
+  **planes** are still never scanned; only `country.vehicle` is. The `static`
+  key binds correctly now, so the data is there.
+- Kola / Afghanistan / The Channel projections; PDF export; FragOrders URL
+  import (blocked on API access); loft geometry; aircraft kneeboard paths from
+  the DB; verifying kneeboard export on Windows with DCS installed.
