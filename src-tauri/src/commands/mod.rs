@@ -10,6 +10,7 @@ use crate::parsers::{
     ProcessedThreat, ProcessedTriggerZone, ProcessedUnit, ProcessedWaypoint, ThreatMatchConfidence,
 };
 use crate::profiles;
+use crate::settings;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -95,9 +96,25 @@ pub fn new_mission(name: String, theater: String) -> Result<Mission, String> {
     })
 }
 
-/// Save mission to file
+/// Refuse to write anything but the one file type a command exists for. The
+/// frontend passes whatever path it has, and a command that writes any
+/// extension is a way to drop a runnable file (a `.bat` in Startup) on disk.
+fn require_extension(path: &str, extension: &str, what: &str) -> Result<(), String> {
+    let matches = std::path::Path::new(path)
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case(extension))
+        .unwrap_or(false);
+    if matches {
+        Ok(())
+    } else {
+        Err(format!("{what} can only be saved as .{extension} files, not {path}"))
+    }
+}
+
+/// Save mission to file (`.json` only)
 #[tauri::command]
 pub fn save_mission(mission: Mission, path: String) -> Result<(), String> {
+    require_extension(&path, "json", "Missions")?;
     let json = serde_json::to_string_pretty(&mission).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(())
@@ -728,57 +745,75 @@ pub fn export_to_dcs_kneeboard(
     Err("DCS export not yet implemented".to_string())
 }
 
+/// The eight bytes every PNG file starts with.
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+
 /// Save a kneeboard PNG (base64-encoded) to a file path
 ///
-/// The frontend renders the card to a canvas and sends the PNG as a base64 string.
-/// This command decodes and writes it to disk.
+/// The frontend renders the card to a canvas and sends the PNG as a base64
+/// string. Only a `.png` path, and only bytes that are a PNG, are written —
+/// this must not be a general "write these bytes anywhere" command.
+///
+/// Folders are not created: every caller writes into a folder the user picked,
+/// so a missing folder is an error to report, not a path to invent.
 #[tauri::command]
 pub fn save_kneeboard_png(path: String, base64_data: String) -> Result<(), String> {
     use base64::Engine;
+    require_extension(&path, "png", "Kneeboard cards")?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&base64_data)
         .map_err(|e| format!("Base64 decode error: {}", e))?;
-    if let Some(parent) = std::path::Path::new(&path).parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    if !bytes.starts_with(PNG_SIGNATURE) {
+        return Err("Not a PNG image".to_string());
     }
-    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-    Ok(())
+    std::fs::write(&path, bytes).map_err(|e| format!("Cannot write {path}: {e}"))
 }
 
-/// Detect the DCS "Saved Games" folder path
-///
-/// Windows: %USERPROFILE%\Saved Games\DCS
-/// Mac/Linux: DCS not officially supported, returns None
+// ============================================================================
+// Settings Commands
+// ============================================================================
+
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Cannot resolve app data dir: {e}"))?
+        .join(settings::SETTINGS_FILE))
+}
+
+/// The saved settings. A damaged file comes back as defaults with a warning.
 #[tauri::command]
-pub fn detect_dcs_folder() -> Result<Option<String>, String> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::env;
+pub fn get_settings(app: AppHandle) -> Result<settings::SettingsLoad, String> {
+    Ok(settings::read_settings(&settings_path(&app)?))
+}
 
-        // Try standard location: %USERPROFILE%\Saved Games\DCS
-        if let Ok(profile) = env::var("USERPROFILE") {
-            let dcs_path = format!("{}\\Saved Games\\DCS", profile);
-            if std::path::Path::new(&dcs_path).exists() {
-                return Ok(Some(dcs_path));
-            }
-        }
+/// Remember (`folder`) or forget (`null`) the DCS kneeboard folder for one
+/// aircraft type. Returns the settings as now saved.
+#[tauri::command]
+pub fn set_kneeboard_folder(
+    app: AppHandle,
+    aircraft_id: String,
+    folder: Option<String>,
+) -> Result<settings::Settings, String> {
+    let path = settings_path(&app)?;
+    let current = settings::read_settings(&path).settings;
+    let next = settings::with_kneeboard_folder(current, &aircraft_id, folder.as_deref())?;
+    settings::write_settings(&path, &next)?;
+    Ok(next)
+}
 
-        // Try legacy DCS.openbeta if main not found
-        if let Ok(profile) = env::var("USERPROFILE") {
-            let beta_path = format!("{}\\Saved Games\\DCS.openbeta", profile);
-            if std::path::Path::new(&beta_path).exists() {
-                return Ok(Some(beta_path));
-            }
-        }
+/// Whether a remembered folder is still there — a reinstalled or moved DCS
+/// means asking again rather than recreating a dead path.
+#[tauri::command]
+pub fn folder_exists(path: String) -> bool {
+    std::path::Path::new(&path).is_dir()
+}
 
-        Ok(None)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // Mac/Linux: DCS not officially supported
-        Ok(None)
-    }
+/// Where the folder picker should open for an aircraft type (see `settings`).
+#[tauri::command]
+pub fn suggest_kneeboard_folder(kneeboard_path: String) -> Option<String> {
+    settings::suggest_kneeboard_folder(settings::saved_games_dir().as_deref(), &kneeboard_path)
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 // ============================================================================
@@ -799,6 +834,69 @@ fn chrono_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fresh, empty scratch folder per test.
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("phoenix_cmd_{}_{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn base64_of(bytes: &[u8]) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    fn png_bytes() -> Vec<u8> {
+        [PNG_SIGNATURE, b"rest of the image"].concat()
+    }
+
+    #[test]
+    fn a_kneeboard_card_saves_as_a_png_whatever_the_extension_case() {
+        let path = scratch_dir("png_ok").join("Viper_1-1_TGT.PNG");
+        save_kneeboard_png(path.to_string_lossy().into_owned(), base64_of(&png_bytes())).expect("save");
+        assert_eq!(std::fs::read(&path).unwrap(), png_bytes());
+    }
+
+    #[test]
+    fn a_kneeboard_save_refuses_any_other_file_type() {
+        let dir = scratch_dir("png_ext");
+        for name in ["startup.bat", "card.png.exe", "card"] {
+            let path = dir.join(name);
+            let result = save_kneeboard_png(path.to_string_lossy().into_owned(), base64_of(&png_bytes()));
+            assert!(result.is_err(), "{name} was accepted");
+            assert!(!path.exists(), "{name} was written");
+        }
+    }
+
+    #[test]
+    fn a_kneeboard_save_refuses_bytes_that_are_not_a_png() {
+        let path = scratch_dir("png_bytes").join("card.png");
+        let result = save_kneeboard_png(path.to_string_lossy().into_owned(), base64_of(b"@echo off\r\n"));
+        assert!(result.is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_kneeboard_save_does_not_invent_folders() {
+        let missing = scratch_dir("png_folder").join("not_there");
+        let result = save_kneeboard_png(missing.join("card.png").to_string_lossy().into_owned(), base64_of(&png_bytes()));
+        assert!(result.is_err());
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn a_mission_saves_only_as_json() {
+        let dir = scratch_dir("mission_ext");
+        let mission = new_mission("Op".to_string(), "nevada".to_string()).unwrap();
+        let bad = dir.join("mission.bat");
+        assert!(save_mission(mission.clone(), bad.to_string_lossy().into_owned()).is_err());
+        assert!(!bad.exists());
+        let good = dir.join("mission.JSON");
+        save_mission(mission, good.to_string_lossy().into_owned()).expect("json saves");
+        assert!(good.exists());
+    }
 
     fn threat(system_id: Option<&str>, unit_type: &str, lat: f64, lon: f64) -> ProcessedThreat {
         ProcessedThreat {

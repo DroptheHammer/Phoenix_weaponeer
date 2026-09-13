@@ -158,9 +158,11 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
   use the same method: pick single-unit groups out of a mission so the x/y comes
   from the `.miz` and only lat/lon is read on screen. See the Sinai section of
   `test-data/README.md`; do not use parked aircraft as ground truth.
-- **Kneeboard export to DCS has never run on Windows.** `detect_dcs_folder`
-  returns `None` on Mac/Linux, so the auto-export path is untested on the only
-  platform it targets.
+- **Kneeboard export to DCS has never run on Windows.** The folder is
+  user-chosen once per aircraft type and remembered (⚙ Settings,
+  `src-tauri/src/settings.rs`) — never auto-assumed. The picker's best-guess
+  start point and the remembered-folder flow are untested on Windows, the only
+  platform DCS runs on.
 - `render_kneeboard` and `export_to_dcs_kneeboard` are unimplemented stubs
   returning errors. Check callers before assuming they are dead; the live
   export path is `save_kneeboard_png`.

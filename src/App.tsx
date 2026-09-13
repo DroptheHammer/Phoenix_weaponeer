@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMissionStore } from "./stores/missionStore";
 import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
 import { useProfileStore } from "./stores/profileStore";
@@ -12,6 +13,8 @@ import { FlightRoster } from "./components/flights/FlightRoster";
 import { AttackList } from "./components/attacks/AttackList";
 import { KneeboardPreview } from "./components/kneeboard/KneeboardPreview";
 import { UnsavedChangesDialog } from "./components/mission/UnsavedChangesDialog";
+import { SettingsModal } from "./components/settings/SettingsModal";
+import { useSettingsStore } from "./stores/settingsStore";
 import { openMission, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
 import type { FragOrdersData, DbWeapon, FuzeOption } from "./types";
 
@@ -28,6 +31,8 @@ interface Aircraft {
   id: string;
   name: string;
   dcs_module_name: string;
+  /** The database's guess at the DCS kneeboard folder name; only aims the folder picker. */
+  kneeboard_path: string;
 }
 
 type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
@@ -43,6 +48,7 @@ function App() {
   const selectedAttackId = useUiStore((state) => state.selectedAttackId);
   const loadTheaters = useTheaterStore((state) => state.loadTheaters);
   const loadProfiles = useProfileStore((state) => state.loadProfiles);
+  const loadSettings = useSettingsStore((state) => state.loadSettings);
   const theaterInfo = useTheaterInfo(mission?.theater);
   const [threats, setThreats] = useState<ThreatSystem[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
@@ -51,6 +57,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
   const [threatPlacementCallback, setThreatPlacementCallback] = useState<((position: { lat: number; lon: number }) => void) | null>(null);
   // Action held back by the unsaved-changes guard, with the phrase shown to the user.
@@ -78,6 +85,38 @@ function App() {
     }
     action();
   };
+
+  // Closing the window — the X, or Alt+F4 on Windows — is the easiest way of
+  // all to lose an hour of planning, so it gets the same guard. The listener
+  // outlives this render, so it reads the store rather than the closure.
+  // Needs `core:window:allow-destroy` in capabilities/default.json: once a
+  // close listener exists, the window only closes when we destroy it.
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    appWindow
+      .onCloseRequested((event) => {
+        const { mission: current, isDirty: dirty } = useMissionStore.getState();
+        if (!current || !dirty) return; // not prevented, so Tauri closes the window
+        event.preventDefault();
+        setPendingAction({
+          label: 'quit',
+          run: () => {
+            appWindow.destroy().catch((e) => setFileMsg(`Error: could not close the window: ${String(e)}`));
+          },
+        });
+      })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch((e) => console.warn('Close guard unavailable:', e));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   const reportFileResult = (result: FileResult, verb: string) => {
     if (result.status === 'ok') {
@@ -157,6 +196,8 @@ function App() {
           invoke<DbWeapon[]>("get_all_weapons"),
           loadTheaters(),
           loadProfiles(),
+          // Never throws: a settings problem is shown in Settings, not here.
+          loadSettings(),
         ]);
         setThreats(threatData);
         setAircraft(aircraftData);
@@ -241,6 +282,9 @@ function App() {
           )}
 
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowSettings(true)} className={toolbarButton} title="Settings">
+              ⚙ Settings
+            </button>
             <button onClick={handleOpen} className={toolbarButton}>
               Open
             </button>
@@ -421,6 +465,8 @@ function App() {
                       weapons={weapons}
                       fuzeOptions={fuzeOptions}
                       threatSystems={threats}
+                      aircraft={aircraft}
+                      onOpenSettings={() => setShowSettings(true)}
                     />
                   )}
                 </div>
@@ -486,6 +532,8 @@ function App() {
           </div>
         )}
       </main>
+
+      {showSettings && <SettingsModal aircraft={aircraft} onClose={() => setShowSettings(false)} />}
 
       {showImportModal && (
         <FragOrdersImport

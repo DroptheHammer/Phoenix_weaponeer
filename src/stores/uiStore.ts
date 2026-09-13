@@ -45,6 +45,9 @@ interface Selection {
 }
 
 interface UiState extends DisplayFilter, Selection {
+  /** Grey map under the kneeboard card's north-up picture. A view preference, never reset by Open/Import. */
+  kneeboardMap: boolean;
+  toggleKneeboardMap: () => void;
   selectAttack: (id: string | null) => void;
   /** Select a threat and ask the map to fly to it. */
   selectThreat: (id: string | null) => void;
@@ -79,6 +82,9 @@ const emptySelection: Selection = {
 export const useUiStore = create<UiState>((set) => ({
   ...emptyFilter,
   ...emptySelection,
+
+  kneeboardMap: true,
+  toggleKneeboardMap: () => set((state) => ({ kneeboardMap: !state.kneeboardMap })),
 
   selectAttack: (id) => set({ selectedAttackId: id, selectedThreatId: null }),
   selectThreat: (id) => set({ selectedThreatId: id, selectedAttackId: null, focusThreatId: id }),

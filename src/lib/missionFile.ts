@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { useMissionStore } from '../stores/missionStore';
 import type { Mission } from '../types/mission.types';
+import { validateMission } from './validateMission';
 
 /**
  * Mission file I/O — the only place that talks to `save_mission` / `load_mission`.
@@ -98,8 +99,14 @@ export async function openMission(): Promise<FileResult> {
 
   const path = Array.isArray(picked) ? picked[0] : picked;
   try {
-    const mission = await invoke<Mission>('load_mission', { path });
-    useMissionStore.getState().loadMission(mission, path);
+    const loaded = await invoke<unknown>('load_mission', { path });
+    // A mission file can come from anyone in the squadron: nothing reaches the
+    // store (and from there the map's raw-HTML markers) unchecked.
+    const check = validateMission(loaded);
+    if (!check.ok) {
+      return { status: 'error', message: `Not a usable mission file — ${check.problems.join('; ')}` };
+    }
+    useMissionStore.getState().loadMission(check.mission, path);
     return { status: 'ok', path };
   } catch (error) {
     return { status: 'error', message: String(error) };

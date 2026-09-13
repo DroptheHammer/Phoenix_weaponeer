@@ -1,5 +1,7 @@
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, ZoomControl, useMapEvents } from 'react-leaflet';
 import { divIcon, latLng, DragEndEvent } from 'leaflet';
+import { OSM_TILE_URL } from '../../lib/kneeboardBasemap';
+import { escapeHtml } from '../../lib/html';
 import 'leaflet/dist/leaflet.css';
 import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../../types';
 import type { FlightMember } from '../../types/flight.types';
@@ -223,10 +225,12 @@ const createWaypointIcon = (label: string, type: string) => {
 
   const color = colors[type] || colors.default;
 
+  // Raw HTML: Leaflet assigns this to innerHTML, and `label` and `type` come
+  // from the mission file. Escape everything interpolated.
   return divIcon({
     html: `<div class="flex flex-col items-center">
-      <div class="${color} text-white font-bold rounded-full w-8 h-8 flex items-center justify-center shadow-lg border-2 border-white">
-        ${label}
+      <div class="${escapeHtml(color)} text-white font-bold rounded-full w-8 h-8 flex items-center justify-center shadow-lg border-2 border-white">
+        ${escapeHtml(label)}
       </div>
     </div>`,
     className: 'custom-waypoint-marker',
@@ -263,9 +267,9 @@ const createThreatIcon = (threatType: string, isDraggable: boolean) => {
 
   return divIcon({
     html: `<div class="flex items-center justify-center ${cursor}">
-      <div style="background-color: ${color}; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"
+      <div style="background-color: ${escapeHtml(color)}; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"
            class="text-white font-bold rounded w-6 h-6 flex items-center justify-center text-xs">
-        ${threatType.charAt(0)}
+        ${escapeHtml(threatType.charAt(0))}
       </div>
     </div>`,
     className: 'custom-threat-marker',
@@ -341,7 +345,7 @@ export function MapView({
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          url={OSM_TILE_URL}
           maxZoom={15}
         />
         <ZoomControl position="bottomleft" />

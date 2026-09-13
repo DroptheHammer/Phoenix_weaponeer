@@ -9,6 +9,7 @@ pub mod db;
 pub mod exporters;
 pub mod parsers;
 pub mod profiles;
+pub mod settings;
 
 use db::Database;
 use tauri::Manager;
@@ -63,7 +64,11 @@ pub fn run() {
             commands::render_kneeboard,
             commands::export_to_dcs_kneeboard,
             commands::save_kneeboard_png,
-            commands::detect_dcs_folder,
+            // Settings
+            commands::get_settings,
+            commands::set_kneeboard_folder,
+            commands::folder_exists,
+            commands::suggest_kneeboard_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

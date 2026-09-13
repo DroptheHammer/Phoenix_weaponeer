@@ -4,6 +4,16 @@ import { LINE_STYLE, MARKER_COLOR, LABEL_STYLE, pictureFitPoints } from './attac
 import { layoutLabels, leaderLine, edgeCrossing, type LabelRequest, type PlacedLabel, type Rect } from './labelLayout';
 import { visibleArcSpans } from './arcClip';
 import { CARD_THREAT_ROWS } from './cardThreats';
+import type { Coordinates } from '../types/waypoint.types';
+import {
+  OSM_ATTRIBUTION,
+  cachedBasemapTiles,
+  loadBasemapTiles,
+  planBasemap,
+  tileRectPx,
+  type BasemapReport,
+  type BasemapTiles,
+} from './kneeboardBasemap';
 
 export const KNEEBOARD_WIDTH = 768;
 export const KNEEBOARD_HEIGHT = 1024;
@@ -266,10 +276,24 @@ function drawPlacedLabel(ctx: CanvasRenderingContext2D, label: PlacedLabel) {
 
 // ─── Plan view, north up ──────────────────────────────────────────────────────
 
-function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, threats: KneeboardThreatItem[], box: Rect) {
-  fillRect(ctx, box.x, box.y, box.w, box.h, C.diagramBg);
+export interface PlanViewTransform {
+  target: Coordinates;
+  /** Card pixels per nautical mile. */
+  scale: number;
+  toPx: (c: Coordinates) => [number, number];
+  fromPx: (x: number, y: number) => Coordinates;
+  /** East/north nautical miles off the target, to card pixels. */
+  nmToPx: (east_nm: number, north_nm: number) => [number, number];
+}
+
+/**
+ * The north-up picture's projection: flat, centred on the target, zoomed to
+ * the attack. Pulled out of `drawPlanView` so the basemap alignment can be
+ * checked in node against exactly what the card draws.
+ */
+export function planViewTransform(picture: AttackPicture, box: Rect): PlanViewTransform | undefined {
   const target = picture.markers.find((m) => m.kind === 'TGT')?.position ?? picture.lines[0]?.points[0];
-  if (!target) return;
+  if (!target) return undefined;
   const cosLat = Math.cos((target.lat * Math.PI) / 180);
   const toNm = (c: { lat: number; lon: number }) => ({ x: (c.lon - target.lon) * 60 * cosLat, y: (c.lat - target.lat) * 60 });
 
@@ -284,10 +308,66 @@ function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, thr
   const scale = Math.min((box.w - 2 * padPx) / Math.max(maxX - minX, 0.5), (box.h - 2 * padPx) / Math.max(maxY - minY, 0.5));
   const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
   const mx = (minX + maxX) / 2, my = (minY + maxY) / 2;
-  const toPx = (c: { lat: number; lon: number }): [number, number] => {
-    const n = toNm(c);
-    return [cx + (n.x - mx) * scale, cy - (n.y - my) * scale];
+  const nmToPx = (east: number, north: number): [number, number] => [cx + (east - mx) * scale, cy - (north - my) * scale];
+  return {
+    target,
+    scale,
+    toPx: (c) => {
+      const n = toNm(c);
+      return nmToPx(n.x, n.y);
+    },
+    fromPx: (x, y) => ({
+      lat: target.lat + (my - (y - cy) / scale) / 60,
+      lon: target.lon + (mx + (x - cx) / scale) / (60 * cosLat),
+    }),
+    nmToPx,
   };
+}
+
+/**
+ * How much of the card background is laid back over the grey map, so the
+ * attack stays loudest. Chosen against Ramon AB: at 0.45 the runway was barely
+ * there and a desert target showed nothing; at 0.20 runways and roads read and
+ * the attack lines still dominate. A contrast boost on top made it too busy.
+ */
+const BASEMAP_WASH = 0.2;
+
+/** Grey OSM tiles under the picture, washed out. Tiles not yet fetched are reported, not waited for. */
+function drawBasemap(ctx: CanvasRenderingContext2D, basemap: BasemapTiles, view: PlanViewTransform, box: Rect): BasemapReport {
+  const nw = view.fromPx(box.x, box.y);
+  const se = view.fromPx(box.x + box.w, box.y + box.h);
+  const tiles = planBasemap(nw, se, view.scale, view.target.lat);
+  const report: BasemapReport = { tiles, drawn: 0, failed: 0, pending: 0 };
+  for (const tile of tiles) {
+    const image = basemap(tile);
+    if (image === undefined) report.pending++;
+    else if (image === null) report.failed++;
+    else {
+      const rect = tileRectPx(tile, view.toPx);
+      ctx.drawImage(image, rect.x, rect.y, rect.w, rect.h);
+      report.drawn++;
+    }
+  }
+  if (report.drawn > 0) {
+    ctx.save();
+    ctx.globalAlpha = BASEMAP_WASH;
+    fillRect(ctx, box.x, box.y, box.w, box.h, C.diagramBg);
+    ctx.restore();
+  }
+  return report;
+}
+
+function drawPlanView(
+  ctx: CanvasRenderingContext2D,
+  picture: AttackPicture,
+  threats: KneeboardThreatItem[],
+  box: Rect,
+  basemap?: BasemapTiles,
+): BasemapReport | undefined {
+  fillRect(ctx, box.x, box.y, box.w, box.h, C.diagramBg);
+  const view = planViewTransform(picture, box);
+  if (!view) return undefined;
+  const { scale, toPx, nmToPx } = view;
   const insideBox = (p: [number, number]) => p[0] >= box.x && p[0] <= box.x + box.w && p[1] >= box.y && p[1] <= box.y + box.h;
 
   ctx.save();
@@ -295,12 +375,13 @@ function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, thr
   ctx.rect(box.x, box.y, box.w, box.h);
   ctx.clip();
 
+  const report = basemap ? drawBasemap(ctx, basemap, view, box) : undefined;
+
   // Threat rings, as on the map: centre from bearing and distance off the target.
   for (const t of threats) {
     if (!t.maxRange_nm) continue;
     const b = (t.bearing_deg * Math.PI) / 180;
-    const c = { x: Math.sin(b) * t.distance_nm, y: Math.cos(b) * t.distance_nm };
-    const px = cx + (c.x - mx) * scale, py = cy - (c.y - my) * scale;
+    const [px, py] = nmToPx(Math.sin(b) * t.distance_nm, Math.cos(b) * t.distance_nm);
     const r = t.maxRange_nm * scale;
     // Outline only, no fill. A target sitting inside four engagement envelopes
     // used to wash the whole picture pink and hide the attack under it. The
@@ -359,6 +440,10 @@ function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, thr
   }
   // North arrow and scale bar are obstacles too.
   obstacles.push({ x: box.x + box.w - 40, y: box.y + 6, w: 36, h: 62 }, { x: box.x + 6, y: box.y + box.h - 30, w: scale + 20, h: 26 });
+  // The map's credit line, bottom right, only when there is a map to credit.
+  ctx.font = `9px ${SANS}`;
+  const attributionW = report && report.drawn > 0 ? ctx.measureText(OSM_ATTRIBUTION).width + 8 : 0;
+  if (attributionW) obstacles.push({ x: box.x + box.w - attributionW - 2, y: box.y + box.h - 15, w: attributionW + 2, h: 15 });
 
   const requests: LabelRequest[] = [
     // Markers first, then the boxes, so the numbers a pilot flies win the space.
@@ -425,7 +510,12 @@ function drawPlanView(ctx: CanvasRenderingContext2D, picture: AttackPicture, thr
   ctx.lineTo(bx + scale, by + 4);
   ctx.stroke();
   txt(ctx, '1 nm', bx + scale / 2, by - 6, { size: 10, family: SANS, color: C.sectionLabel, align: 'center' });
+  if (attributionW) {
+    fillRect(ctx, box.x + box.w - attributionW, box.y + box.h - 13, attributionW, 13, 'rgba(244, 244, 236, 0.85)');
+    txt(ctx, OSM_ATTRIBUTION, box.x + box.w - 4, box.y + box.h - 3, { size: 9, family: SANS, color: C.textGray, align: 'right' });
+  }
   ctx.restore();
+  return report;
 }
 
 // ─── Side view ────────────────────────────────────────────────────────────────
@@ -542,11 +632,17 @@ function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile, box: 
 
 const FOOTER_HEIGHT = 26;
 
-export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCard): void {
+/**
+ * Draw the card. With `basemap`, the north-up picture sits on whatever map
+ * tiles are already in hand; the report lists the tiles it wanted, so a caller
+ * can fetch the rest and draw again. Without it the card is drawn plain.
+ */
+export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCard, basemap?: BasemapTiles): BasemapReport | undefined {
   canvas.width = KNEEBOARD_WIDTH;
   canvas.height = KNEEBOARD_HEIGHT;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  if (!ctx) return undefined;
+  let report: BasemapReport | undefined;
 
   fillRect(ctx, 0, 0, KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, C.bg);
 
@@ -568,7 +664,7 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
     const headingText = `ATTACK HDG ${fmtHdg(diagram.attackHeading_deg)}   ·   EGRESS ${diagram.egressDirection.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}`;
     if (diagram.picture) {
       y = sectionStrip(ctx, 'ATTACK — NORTH UP', y, headingText);
-      drawPlanView(ctx, diagram.picture, card.threatSection.threats.slice(0, CARD_THREAT_ROWS), { x: 0, y, w: KNEEBOARD_WIDTH, h: planH });
+      report = drawPlanView(ctx, diagram.picture, card.threatSection.threats.slice(0, CARD_THREAT_ROWS), { x: 0, y, w: KNEEBOARD_WIDTH, h: planH }, basemap);
       y += planH;
       hLine(ctx, y, C.divider);
       y += 1;
@@ -584,6 +680,45 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
   fillRect(ctx, 0, KNEEBOARD_HEIGHT - FOOTER_HEIGHT, KNEEBOARD_WIDTH, FOOTER_HEIGHT, C.headerBg);
   txt(ctx, 'PHOENIX WEAPONEER', 10, KNEEBOARD_HEIGHT - 10, { size: 10, bold: true, family: MONO, color: '#667788' });
   txt(ctx, 'UNCLASSIFIED // TRAINING USE ONLY', KNEEBOARD_WIDTH / 2, KNEEBOARD_HEIGHT - 10, { size: 9, family: MONO, color: '#445566', align: 'center' });
+  return report;
+}
+
+/**
+ * How the map came out on a card. `none`: the card has no north-up picture.
+ * `partial` / `unavailable`: some or all tiles never arrived (offline, blocked).
+ */
+export type MapStatus = 'ok' | 'partial' | 'unavailable' | 'off' | 'none';
+
+export function mapStatusOf(report: BasemapReport | undefined, enabled: boolean): MapStatus {
+  if (!enabled) return 'off';
+  if (!report || report.tiles.length === 0) return 'none';
+  if (report.drawn === report.tiles.length) return 'ok';
+  return report.drawn > 0 ? 'partial' : 'unavailable';
+}
+
+/**
+ * Draw the card with its map, for export: draw once with what is cached, fetch
+ * what was missing (bounded by `timeoutMs`), draw again. A card whose tiles do
+ * not come is still drawn and still exported — just without the map.
+ *
+ * Give each export its own canvas: the preview redraws the shared one whenever
+ * its own tiles land, and could do so between this draw and the PNG encode.
+ */
+export async function renderKneeboardCardWithMap(
+  canvas: HTMLCanvasElement,
+  card: KneeboardCard,
+  opts: { map: boolean; timeoutMs?: number },
+): Promise<MapStatus> {
+  if (!opts.map) {
+    renderKneeboardCard(canvas, card);
+    return 'off';
+  }
+  let report = renderKneeboardCard(canvas, card, cachedBasemapTiles);
+  if (report && report.pending > 0) {
+    await loadBasemapTiles(report.tiles, opts.timeoutMs);
+    report = renderKneeboardCard(canvas, card, cachedBasemapTiles);
+  }
+  return mapStatusOf(report, true);
 }
 
 /** Export canvas to base64 PNG string (strip the data URL prefix) */

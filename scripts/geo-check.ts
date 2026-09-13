@@ -35,6 +35,22 @@ import { visibleArcSpans } from '../src/lib/arcClip';
 import { compareThreatsForCard } from '../src/lib/cardThreats';
 import { applyFlank, applyEgress } from '../src/lib/attackFlank';
 import { useUiStore } from '../src/stores/uiStore';
+import {
+  lonLatToTile,
+  tileNwCorner,
+  metresPerTilePixel,
+  chooseZoom,
+  tilesCovering,
+  planBasemap,
+  tileRectPx,
+  MIN_BASEMAP_ZOOM,
+  MAX_BASEMAP_ZOOM,
+  MAX_BASEMAP_TILES,
+} from '../src/lib/kneeboardBasemap';
+import { planViewTransform, mapStatusOf } from '../src/lib/renderKneeboardCanvas';
+import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../src/lib/kneeboardExportPlan';
+import { validateMission } from '../src/lib/validateMission';
+import { escapeHtml } from '../src/lib/html';
 import { readFileSync } from 'node:fs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -824,3 +840,146 @@ ok('an attack with no stored IP opens as Auto',
    initialIpOverride(ipMission as never, wpTgt as never, undefined) === undefined);
 ok('with no target there is nothing to infer from, so no override',
    initialIpOverride(ipMission as never, undefined, 'ip-e') === undefined);
+
+// ─── Kneeboard basemap: tile arithmetic, and tiles landing where the card draws ──
+// Reference values are from an independent Python calculation, not this code.
+const origin = lonLatToTile(0, 0, 1);
+ok('tile maths: (0°, 0°) at zoom 1 is the corner of tile (1, 1)', Math.abs(origin.x - 1) < 1e-9 && Math.abs(origin.y - 1) < 1e-9, JSON.stringify(origin));
+const sinaiTile = lonLatToTile(31.0, 34.5, 14);
+ok('tile maths: N31 E34.5 at zoom 14 is 9762.133 / 6706.811 (independent Python calc)',
+   Math.abs(sinaiTile.x - 9762.1333) < 0.001 && Math.abs(sinaiTile.y - 6706.8113) < 0.001, JSON.stringify(sinaiTile));
+const nttrTile = lonLatToTile(37.15, -116.83, 13);
+ok('tile maths: N37.15 W116.83 at zoom 13 is 1437.468 / 3184.295 (independent Python calc)',
+   Math.abs(nttrTile.x - 1437.4684) < 0.001 && Math.abs(nttrTile.y - 3184.2946) < 0.001, JSON.stringify(nttrTile));
+const cornerBack = lonLatToTile(tileNwCorner(9762, 6706, 14).lat, tileNwCorner(9762, 6706, 14).lon, 14);
+ok('tile maths: a tile corner converts back to exactly that tile', Math.abs(cornerBack.x - 9762) < 1e-6 && Math.abs(cornerBack.y - 6706) < 1e-6, JSON.stringify(cornerBack));
+const sinaiNw = tileNwCorner(9762, 6706, 14), sinaiSe = tileNwCorner(9763, 6707, 14);
+ok('tile maths: tile 9762/6706 brackets N31 E34.5', sinaiNw.lat >= 31 && sinaiSe.lat <= 31 && sinaiNw.lon <= 34.5 && sinaiSe.lon >= 34.5);
+
+const zooms = [20, 40, 80, 160, 320, 640].map((pxPerNm) => chooseZoom(pxPerNm, 31));
+ok('chooseZoom: more pixels per mile never picks a coarser zoom', zooms.every((z, i) => i === 0 || z >= zooms[i - 1]) && zooms[5] > zooms[0], zooms.join(','));
+const z160 = chooseZoom(160, 31);
+ok('chooseZoom: tiles at least as detailed as the card (drawn shrunk, never stretched)', metresPerTilePixel(31, z160) <= 1852 / 160, `z${z160}`);
+ok('chooseZoom: and the lowest zoom that is — one coarser would be stretched', metresPerTilePixel(31, z160 - 1) > 1852 / 160, `z${z160}`);
+ok('chooseZoom: clamps at both ends, and a nonsense scale falls back to the lowest',
+   chooseZoom(0.001, 31) === MIN_BASEMAP_ZOOM && chooseZoom(1e7, 31) === MAX_BASEMAP_ZOOM && chooseZoom(NaN, 31) === MIN_BASEMAP_ZOOM);
+
+const coverNw = { lat: 31.05, lon: 34.4 }, coverSe = { lat: 30.95, lon: 34.6 };
+const covering = tilesCovering(coverNw, coverSe, 14);
+const hasTileOf = (lat: number, lon: number) => {
+  const f = lonLatToTile(lat, lon, 14);
+  return covering.some((t) => t.x === Math.floor(f.x) && t.y === Math.floor(f.y));
+};
+ok('tilesCovering: includes the tile under every corner of the frame',
+   hasTileOf(coverNw.lat, coverNw.lon) && hasTileOf(coverNw.lat, coverSe.lon) && hasTileOf(coverSe.lat, coverNw.lon) && hasTileOf(coverSe.lat, coverSe.lon), `${covering.length} tiles`);
+const zoomedOut = planBasemap({ lat: 40, lon: 20 }, { lat: 20, lon: 50 }, 160, 30);
+ok('planBasemap: a frame zoomed far out steps down to a sane tile count instead of fetching thousands',
+   zoomedOut.length > 0 && zoomedOut.length <= MAX_BASEMAP_TILES, `${zoomedOut.length} tiles at z${zoomedOut[0]?.z}`);
+
+// The real test: a point on a tile, placed the way drawBasemap places tiles,
+// must land where the card's own projection puts that point. Checked across a
+// 9×9 grid over the whole north-up box, at NTTR and at Sinai latitudes.
+const cardBox = { x: 0, y: 300, w: 768, h: 470 };
+const sinaiTgt = { lat: 30.6, lon: 34.8 };
+const sinaiPicture = buildAttackPicture(
+  distantAttack,
+  { ...ipWp, coordinates: calculateDestination(sinaiTgt, (direct + 180) % 360, 12) },
+  { ...tgtWp, coordinates: sinaiTgt },
+);
+for (const [theatre, pic] of [['NTTR', picture], ['Sinai', sinaiPicture]] as const) {
+  const view = planViewTransform(pic!, cardBox)!;
+  const nw = view.fromPx(cardBox.x, cardBox.y), se = view.fromPx(cardBox.x + cardBox.w, cardBox.y + cardBox.h);
+  const tiles = planBasemap(nw, se, view.scale, view.target.lat);
+  const z = tiles[0].z;
+  let worstPx = 0, worstRoundTrip = 0;
+  for (let i = 0; i <= 8; i++) {
+    for (let j = 0; j <= 8; j++) {
+      const px = cardBox.x + (cardBox.w * i) / 8, py = cardBox.y + (cardBox.h * j) / 8;
+      const p = view.fromPx(px, py);
+      const back = view.toPx(p);
+      worstRoundTrip = Math.max(worstRoundTrip, Math.hypot(back[0] - px, back[1] - py));
+      const f = lonLatToTile(p.lat, p.lon, z);
+      const rect = tileRectPx({ x: Math.floor(f.x), y: Math.floor(f.y), z }, view.toPx);
+      const onTile: [number, number] = [rect.x + (f.x - Math.floor(f.x)) * rect.w, rect.y + (f.y - Math.floor(f.y)) * rect.h];
+      worstPx = Math.max(worstPx, Math.hypot(onTile[0] - back[0], onTile[1] - back[1]));
+    }
+  }
+  ok(`${theatre} card: fromPx and toPx are inverses`, worstRoundTrip < 1e-6, worstRoundTrip.toExponential(1));
+  ok(`${theatre} card: map tiles land within 1 px of the card's projection across the whole box`, worstPx < 1, `worst ${worstPx.toFixed(2)} px, z${z}, ${tiles.length} tiles, ${view.scale.toFixed(0)} px/nm`);
+  const rects = tiles.map((t) => tileRectPx(t, view.toPx));
+  ok(`${theatre} card: the tiles cover the box to its edges — no bare strip`,
+     Math.min(...rects.map((r) => r.x)) <= cardBox.x && Math.min(...rects.map((r) => r.y)) <= cardBox.y &&
+     Math.max(...rects.map((r) => r.x + r.w)) >= cardBox.x + cardBox.w && Math.max(...rects.map((r) => r.y + r.h)) >= cardBox.y + cardBox.h);
+}
+
+const report = (drawn: number, failed: number, pending: number) => ({ tiles: Array(drawn + failed + pending).fill({ x: 0, y: 0, z: 1 }), drawn, failed, pending });
+ok('mapStatusOf: every tile drawn is ok, some is partial, none is unavailable',
+   mapStatusOf(report(4, 0, 0), true) === 'ok' && mapStatusOf(report(3, 1, 0), true) === 'partial' && mapStatusOf(report(0, 2, 2), true) === 'unavailable');
+ok('mapStatusOf: switched off says off, and a card with no picture says none',
+   mapStatusOf(report(4, 0, 0), false) === 'off' && mapStatusOf(undefined, true) === 'none');
+
+// ─── Export to DCS: each aircraft type's cards go to that type's folder ────────
+const exportMission = {
+  flightMembers: [
+    { id: 'v11', aircraftId: 'f16c' },
+    { id: 'h11', aircraftId: 'a10c' },
+    { id: 'v12', aircraftId: 'f16c' },
+  ],
+  attacks: [
+    { id: 'atk1', attackerId: 'v11' },
+    { id: 'atk2', attackerId: 'h11' },
+    { id: 'atk3', attackerId: 'v12' },
+    { id: 'atk4', attackerId: 'gone' },
+  ],
+} as never;
+const plan = groupAttacksByAircraft(exportMission);
+ok('export groups: one folder per aircraft type, in the order each first appears',
+   plan.groups.map((g) => g.aircraftId).join(',') === 'f16c,a10c', plan.groups.map((g) => g.aircraftId).join(','));
+ok('export groups: both Vipers\' cards go together, the Hog\'s on its own — not all into the first attack\'s folder',
+   plan.groups[0].attacks.map((a) => a.id).join(',') === 'atk1,atk3' && plan.groups[1].attacks.map((a) => a.id).join(',') === 'atk2');
+ok('export groups: an attack whose pilot left the flight is set aside, not exported somewhere',
+   plan.orphans.map((a) => a.id).join(',') === 'atk4');
+const dbAircraft = [{ id: 'av8b', name: 'AV-8B Harrier', kneeboard_path: 'AV8BNA' }];
+ok('folder hint comes from the database, not a hard-coded list (av8b → AV8BNA, not AV8B)',
+   aircraftFolderInfo('av8b', dbAircraft).folderHint === 'AV8BNA' && aircraftFolderInfo('av8b', dbAircraft).name === 'AV-8B Harrier');
+ok('an aircraft the database does not know still gets a name and a hint',
+   aircraftFolderInfo('mig21', dbAircraft).name === 'mig21' && aircraftFolderInfo('mig21', dbAircraft).folderHint === 'mig21');
+
+const takenNames = new Set<string>();
+const claimed = ['Viper_1-1_TGT.png', 'Viper_1-1_TGT.png', 'viper_1-1_tgt.png', 'Viper_1-2_TGT.png'].map((n) => claimFilename(n, takenNames));
+ok('two cards with the same name get _2, _3 instead of overwriting — case-insensitively, as Windows and macOS folders are',
+   claimed.join(',') === 'Viper_1-1_TGT.png,Viper_1-1_TGT_2.png,viper_1-1_tgt_3.png,Viper_1-2_TGT.png', claimed.join(','));
+
+// ─── A shared mission file is untrusted until checked ─────────────────────────
+const goodMission = {
+  id: 'm1', name: 'Op Sentinel', date: '2026-09-12', theater: 'sinai', bullseye: { lat: 30.5, lon: 34.5 },
+  notes: '', createdAt: '2026-09-12T00:00:00Z', updatedAt: '2026-09-12T00:00:00Z',
+  waypoints: [{ id: 'w0', steerpoint: 0, name: 'WP0', type: 'departure', coordinates: { lat: 30.776, lon: 34.667 }, elevation_ft: 102 }],
+  threats: [{ id: 't1', systemId: 'sa6', position: { lat: 31.0, lon: 34.2 }, status: 'active', source: 'mission' }],
+  flightMembers: [{ id: 'f1', callsign: 'Springfield 1-1', position: 1, role: 'flight_lead', aircraftId: 'f16c', loadout: [] }],
+  attacks: [{ id: 'a1', targetWaypointId: 'w0', attackerId: 'f1', profileType: 'dive_ccip', profile: { type: 'dive_ccip' }, weaponId: 'mk84', releaseQuantity: 1, releaseMode: 'single', sequenceNumber: 1 }],
+};
+ok('a well-formed saved mission passes the file check', validateMission(goodMission).ok, JSON.stringify(validateMission(goodMission)));
+const payload = '<img src=x onerror=alert(1)>';
+const hostile = structuredClone(goodMission);
+(hostile.waypoints[0] as Record<string, unknown>).steerpoint = payload;
+const hostileCheck = validateMission(hostile);
+ok('a steerpoint carrying HTML is refused before it can reach the map',
+   !hostileCheck.ok && hostileCheck.problems.some((p) => p.includes('steerpoint')), JSON.stringify(hostileCheck));
+const noPosition = structuredClone(goodMission);
+(noPosition.threats[0] as Record<string, unknown>).position = { lat: null, lon: 34 };
+ok('a threat with no real position is refused', !validateMission(noPosition).ok);
+ok('something that is not a mission at all is refused',
+   !validateMission([]).ok && !validateMission(null).ok && !validateMission({ ...goodMission, attacks: 'nope' }).ok);
+const olderSave = structuredClone(goodMission) as Record<string, unknown>;
+delete (olderSave.attacks as Record<string, unknown>[])[0].sequenceNumber;
+delete (olderSave.waypoints as Record<string, unknown>[])[0].elevation_ft;
+ok('an older save missing optional fields still opens', validateMission(olderSave).ok, JSON.stringify(validateMission(olderSave)));
+const brokenEverywhere = structuredClone(goodMission) as Record<string, unknown>;
+brokenEverywhere.waypoints = Array.from({ length: 20 }, () => ({ ...goodMission.waypoints[0], id: 7 }));
+const brokenCheck = validateMission(brokenEverywhere);
+ok('a file broken everywhere lists a handful of problems, not hundreds',
+   !brokenCheck.ok && brokenCheck.problems.length === 7 && brokenCheck.problems[6] === '…and 14 more', JSON.stringify(brokenCheck));
+ok('escapeHtml defuses markup, quotes and ampersands',
+   escapeHtml(payload) === '&lt;img src=x onerror=alert(1)&gt;' && escapeHtml(`"'&`) === '&quot;&#39;&amp;');
+ok('escapeHtml leaves an ordinary steerpoint number alone', escapeHtml(12) === '12');
