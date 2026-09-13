@@ -130,7 +130,7 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
 - [x] Kneeboard card renderer (768x1024 PNG)
 - [x] Export single card to user-selected location
 - [x] Batch export with proper folder picker
-- [x] DCS folder auto-detection and quick export
+- [x] Export to DCS — per-aircraft kneeboard folders, user-chosen once and remembered (⚙ Settings)
 - [ ] PDF export option (optional)
 
 ### Phase 4: Polish
@@ -197,87 +197,94 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-12 (Opus 5, user at the screen). **One commit.**
-Gates moved **152 → 156 geo-checks** and **58 → 60 Rust tests**;
+**Last session:** 2026-09-12 → 13 (Opus 5, user at the screen). **Two commits,
+pushed.** Gates moved **156 → 189 geo-checks** and **60 → 74 Rust tests**;
 `npm run build` clean, `cargo build` zero warnings. Plan at
-`~/.claude/plans/we-ve-got-a-problem-glittery-rose.md`.
+`~/.claude/plans/i-need-to-plan-transient-breeze.md`. **Version is still 0.2.0**
+— not bumped, not tagged.
 
 | Commit | What |
 |---|---|
-| `3569a5c` | Number waypoints from 0, so the ramp stops eating steerpoint 1 |
+| `fea03ad` | Kneeboard map layer, per-aircraft DCS folders, and the 0.2.1 security sweep |
+| (next) | Session notes; adds `test-data/sinai_m01_v7.json` (user-supplied, no test yet) |
 
-### Every steerpoint we printed was one too high
+### Grey map under the card's north-up picture
 
-The user spotted it against FragOrders: on Sinai M01 V6 the tool called Barak's
-676 ft point **waypoint 2**, FragOrders calls it **Waypoint 1**. The importer
-numbered `route.points` from 1 and skipped nothing, so point `[0]` — the parking
-spawn at Ramon, alt 31 m = the 102 ft we showed — became steerpoint 1 and pushed
-the route up by one. That included every `STPT n` on the kneeboard card, which is
-what the pilot dials into the jet.
+`src/lib/kneeboardBasemap.ts` holds the pure tile maths and the loader.
+`planViewTransform` was pulled out of `drawPlanView` so alignment is testable:
+tiles land within ~0.5 px of the card's projection across the whole box. Drawing
+is two passes (`renderKneeboardCardWithMap`): draw with cached tiles, fetch the
+missing ones (8 s cap), draw again. Each export gets its own canvas.
+**Gotchas:** without `img.crossOrigin = 'anonymous'` every export throws
+(tainted canvas); greyscale is a `getImageData` loop because `ctx.filter` is
+missing from older WebKit. The wash is **0.20**, chosen from renders at Ramon AB
+(0.45 hid the runway, a contrast boost was too busy).
 
-Waypoints are now numbered by **raw 0-based route-point index**, unconditionally.
-The spawn point is waypoint 0 and carries a new `departure` type; it stays listed,
-drawn, and offered in the target/IP pickers (type is a hint, never a gate).
-`buildKneeboardCard` needed no edit — it already printed `STPT ${wp.steerpoint}`
-and simply became correct. Full rationale in memory:
-`project-waypoint-numbering-is-zero-based` — **the short version is "never add 1".**
+**Reusable technique:** esbuild-bundle a TS harness into a `file://` page, then
+`"Google Chrome" --headless=new --virtual-time-budget=30000 --screenshot=…`.
+That renders real cards (and proves the PNG encode) without the Tauri app.
 
-### The FragOrders web bundle is a readable reference now
+### DCS kneeboard folders are user-chosen (user correction)
 
-The git 404s, but fragorders.com serves `/public_frag_order.<hash>.js` (hash in
-the page HTML, `.js.map` published too). Grepping it settled both halves of the
-question outright, which is why this needed no guessing:
+The folder is never assumed. The first export per aircraft type opens the picker
+at a best guess (`settings::suggest_kneeboard_folder`), and the choice is saved in
+`<app data>/settings.json`. **⚙ Settings** has Choose…/Reset per type; the
+kneeboard panel shows each type's folder with Reset. `detect_dcs_folder` and the
+hard-coded 4-aircraft map are gone. The user wants Settings to become the home for
+preferences that matter; the "Map background" toggle still lives in `uiStore` and
+is not persisted. Memory: `project-dcs-kneeboard-folder-is-user-guided`.
 
-- `each(route.points, (pt, idx) => push({...pt, number: idx}))` — 0-based, with a
-  guard that sorted index N must carry number N.
-- The DTC generator does `if (0 === r) continue; push({Sequence: r, …})` under
-  `SteerpointStart: 1` — so the ramp never becomes a steerpoint in the jet, and
-  **cockpit STPT n = waypoint n**. There is no planner/cockpit offset.
-- It also reads the group's departure `airdromeId` off the `TakeOffParking` point.
+### 0.2.1 review — `docs/REVIEW_0.2.1.md` (status table at the top)
 
-**Gotcha:** the page is a Firebase SPA — `curl` of the URL returns a 1 KB shell.
-Fetch the bundle, not the page. In memory: `reference-fragorders-cli`.
+**Fixed:**
+- **H1:** shared mission file → script → write any file. Fixed by the
+  `validateMission` gate and `escapeHtml` in the divIcon strings.
+- **M0:** CSP turned on.
+- **M1:** save commands locked to `.json` / `.png`.
+- **M2, M3, M7:** via the per-aircraft folders.
+- **M4:** window close guard.
+- **M5:** error boundary.
+- **M6:** filename collisions.
 
-`barak_numbering_matches_fragorders` pins waypoint 1 to **N 31° 14.4023′
-E 34° 39.5637′**, read off the FragOrders map popup — so it guards the numbering
-*and* independently re-confirms the Sinai projection against an outside source.
+Memory: `project-security-posture`. **Open:** M8 (NaN from a cleared Customize
+field — plausible, write the test first) and L1–L9: dead `mlua`/`zip`/`image`/
+`rusttype` and stub commands, unused `shell:allow-open`, `npm audit fix`, setup
+`expect` panics, CI action pinning, Linux fonts, `cargo-audit` not installed.
+
+### Not yet verified by the user
+
+The user tested the map layer and the Settings/export flow on Mac.
+Multi-aircraft export can't be exercised: imports are per flight, one type.
+**Still untested** — the list given at the end of the session:
+1. **CSP**, the most likely breakage: planner tiles, marker styling, the card
+   map, and exports. Unstyled markers → `style-src`; missing tiles → `img-src`.
+2. `Other Items/hostile_mission_TEST.json` must be refused, and the title must
+   not become HACKED.
+3. The user's real older saves still open under `validateMission`.
+4. Close guard. macOS Cmd+Q may bypass it.
+5. Duplicate card names export as `_2`.
+
+**Windows has not run any of this session's work:** picker start point, tile
+CORS on WebView2, CSP.
 
 ### START OF NEXT SESSION
 
-1. **The two banked features are still the whole queue.**
-2. **Live-geometry Customize** — half-planned in
-   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`. The recompute is *already*
-   live; `MapView` is prop-driven and a second `MapContainer` is safe. Design
-   reference: `Other Items/offset-leg-geometry.html`. **Two questions before
-   code:** where the map sits (the editor is a centred modal today), and whether
-   knobs become sliders, slider+number pairs, or stay number boxes — bounded by
-   *never remove a knob*. **There are 35: 3 common, 12 dive, 9 level, 14
-   pop-up** — plus the shared IP selector. **Gotcha:** `MapView` reads
-   `useUiStore`'s display filters directly (`:257-259`), so an embedded editor
-   map would inherit whatever the main map is hiding; the editor must show the
-   truth. **Second gotcha:** `MapController` re-fits on `fitKey` changes — fit
-   once on open and hold.
-3. Then **multi-aircraft coordinated strike**, which `split_deg` on
-   `RunInSummary` is retained for. See memory: `project-live-geometry-customize`.
+1. **Ask whether the test list above passed**; fix what didn't.
+2. Settle the remaining review items (M8, Lows). Then bump **0.2.0 → 0.2.1** in
+   `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, and
+   commit. **Ask before tagging `v0.2.1`** — the tag starts release CI.
+3. Then the banked features: **Live-geometry Customize** (half-planned in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`; `MapView` reads `useUiStore`
+   display filters directly, and `MapController` re-fits on `fitKey`) and
+   **multi-aircraft coordinated strike**. Memory: `project-live-geometry-customize`.
 
 ### Adjacent, noted but not done
 
-- **Missions saved before `3569a5c` read one high** until re-imported. Attacks
-  reference waypoints by uuid so nothing breaks. No migration was written: an old
-  save is indistinguishable from a new one.
-- **`airdromeId` is still dropped at deserialization** (`RoutePoint`,
-  `src-tauri/src/parsers/fragorders.rs`). FragOrders uses it to name the departure
-  field; carrying it would let waypoint 0 read "Ramon AB" instead of `WP0`, but it
-  needs an airdrome-id table we do not have.
-- **DTC data is now reachable and unused.** `M01 V6.miz` ships
-  `DTC/Op Sentinel Watch M01 F18.dtc`, and the new FragOrders parser exposes
-  `ThreatPoints`, `JDAMTargets`, `NavPoints` and FLOT/FAOR `GeoLines` —
-  pre-built threat and target data we currently get nowhere. Also available:
-  TACAN/ICLS beacons, `startTime`/`TheaterUTCOffset` for TOT, and real pylon
-  loadouts (`CLSID`) to fill the hard-coded `loadout: []` in `missionStore.ts`.
-- Red **statics** (23 in this mission — ammo depots, tanks, warehouses) and red
-  **planes** are still never scanned; only `country.vehicle` is. The `static`
-  key binds correctly now, so the data is there.
-- Kola / Afghanistan / The Channel projections; PDF export; FragOrders URL
-  import (blocked on API access); loft geometry; aircraft kneeboard paths from
-  the DB; verifying kneeboard export on Windows with DCS installed.
+- `test-data/sinai_m01_v7.json` has no README entry or import test yet.
+- Missions saved before `3569a5c` read one high until re-imported.
+- `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after
+  its airfield.
+- DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
+- Red statics and planes are never scanned.
+- Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;
+  loft geometry.

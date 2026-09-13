@@ -2,6 +2,91 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Last session:** 2026-09-12 (Opus 5, user at the screen). **One commit.**
+Gates moved **152 → 156 geo-checks** and **58 → 60 Rust tests**;
+`npm run build` clean, `cargo build` zero warnings. Plan at
+`~/.claude/plans/we-ve-got-a-problem-glittery-rose.md`.
+
+| Commit | What |
+|---|---|
+| `3569a5c` | Number waypoints from 0, so the ramp stops eating steerpoint 1 |
+
+### Every steerpoint we printed was one too high
+
+The user spotted it against FragOrders: on Sinai M01 V6 the tool called Barak's
+676 ft point **waypoint 2**, FragOrders calls it **Waypoint 1**. The importer
+numbered `route.points` from 1 and skipped nothing, so point `[0]` — the parking
+spawn at Ramon, alt 31 m = the 102 ft we showed — became steerpoint 1 and pushed
+the route up by one. That included every `STPT n` on the kneeboard card, which is
+what the pilot dials into the jet.
+
+Waypoints are now numbered by **raw 0-based route-point index**, unconditionally.
+The spawn point is waypoint 0 and carries a new `departure` type; it stays listed,
+drawn, and offered in the target/IP pickers (type is a hint, never a gate).
+`buildKneeboardCard` needed no edit — it already printed `STPT ${wp.steerpoint}`
+and simply became correct. Full rationale in memory:
+`project-waypoint-numbering-is-zero-based` — **the short version is "never add 1".**
+
+### The FragOrders web bundle is a readable reference now
+
+The git 404s, but fragorders.com serves `/public_frag_order.<hash>.js` (hash in
+the page HTML, `.js.map` published too). Grepping it settled both halves of the
+question outright, which is why this needed no guessing:
+
+- `each(route.points, (pt, idx) => push({...pt, number: idx}))` — 0-based, with a
+  guard that sorted index N must carry number N.
+- The DTC generator does `if (0 === r) continue; push({Sequence: r, …})` under
+  `SteerpointStart: 1` — so the ramp never becomes a steerpoint in the jet, and
+  **cockpit STPT n = waypoint n**. There is no planner/cockpit offset.
+- It also reads the group's departure `airdromeId` off the `TakeOffParking` point.
+
+**Gotcha:** the page is a Firebase SPA — `curl` of the URL returns a 1 KB shell.
+Fetch the bundle, not the page. In memory: `reference-fragorders-cli`.
+
+`barak_numbering_matches_fragorders` pins waypoint 1 to **N 31° 14.4023′
+E 34° 39.5637′**, read off the FragOrders map popup — so it guards the numbering
+*and* independently re-confirms the Sinai projection against an outside source.
+
+### START OF NEXT SESSION
+
+1. **The two banked features are still the whole queue.**
+2. **Live-geometry Customize** — half-planned in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`. The recompute is *already*
+   live; `MapView` is prop-driven and a second `MapContainer` is safe. Design
+   reference: `Other Items/offset-leg-geometry.html`. **Two questions before
+   code:** where the map sits (the editor is a centred modal today), and whether
+   knobs become sliders, slider+number pairs, or stay number boxes — bounded by
+   *never remove a knob*. **There are 35: 3 common, 12 dive, 9 level, 14
+   pop-up** — plus the shared IP selector. **Gotcha:** `MapView` reads
+   `useUiStore`'s display filters directly (`:257-259`), so an embedded editor
+   map would inherit whatever the main map is hiding; the editor must show the
+   truth. **Second gotcha:** `MapController` re-fits on `fitKey` changes — fit
+   once on open and hold.
+3. Then **multi-aircraft coordinated strike**, which `split_deg` on
+   `RunInSummary` is retained for. See memory: `project-live-geometry-customize`.
+
+### Adjacent, noted but not done
+
+- **Missions saved before `3569a5c` read one high** until re-imported. Attacks
+  reference waypoints by uuid so nothing breaks. No migration was written: an old
+  save is indistinguishable from a new one.
+- **`airdromeId` is still dropped at deserialization** (`RoutePoint`,
+  `src-tauri/src/parsers/fragorders.rs`). FragOrders uses it to name the departure
+  field; carrying it would let waypoint 0 read "Ramon AB" instead of `WP0`, but it
+  needs an airdrome-id table we do not have.
+- **DTC data is now reachable and unused.** `M01 V6.miz` ships
+  `DTC/Op Sentinel Watch M01 F18.dtc`, and the new FragOrders parser exposes
+  `ThreatPoints`, `JDAMTargets`, `NavPoints` and FLOT/FAOR `GeoLines` —
+  pre-built threat and target data we currently get nowhere. Also available:
+  TACAN/ICLS beacons, `startTime`/`TheaterUTCOffset` for TOT, and real pylon
+  loadouts (`CLSID`) to fill the hard-coded `loadout: []` in `missionStore.ts`.
+- Red **statics** (23 in this mission — ammo depots, tanks, warehouses) and red
+  **planes** are still never scanned; only `country.vehicle` is. The `static`
+  key binds correctly now, so the data is there.
+- Kola / Afghanistan / The Channel projections; PDF export; FragOrders URL
+  import (blocked on API access); loft geometry; aircraft kneeboard paths from
+  the DB; verifying kneeboard export on Windows with DCS installed.
+
 **Last session:** 2026-09-11 (Opus 5, user at the screen). **Three commits, all
 pushed.** Gates moved **132 → 152 geo-checks** and **48 → 58 Rust tests**;
 `npm run build` clean, `cargo build` zero warnings. Plan at
