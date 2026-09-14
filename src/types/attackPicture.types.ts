@@ -42,6 +42,8 @@ export interface AttackPicture {
   attackHeading: number;
   egressHeading: number;
   egressDirection: string;
+  /** The IP's short name — "STPT 3" or "CUSTOM IP" — for the card's frame-edge arrow. */
+  ipShortLabel?: string;
 }
 
 // ─── Side view ────────────────────────────────────────────────────────────────

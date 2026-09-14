@@ -189,6 +189,15 @@ pub fn list_delivery_profiles(app: AppHandle) -> Result<profiles::ProfileLibrary
 /// `Shell::open` is deprecated in favour of tauri-plugin-opener; it still
 /// works, and a second plugin for one folder-reveal is not worth it yet.
 #[allow(deprecated)]
+/// Actually terminates the app, after the frontend's unsaved-changes check
+/// (if any) has run. Carries an exit code, so `lib.rs`'s `ExitRequested`
+/// handler can tell this apart from a user-initiated Cmd+Q / Dock Quit and
+/// let it through instead of intercepting it again.
+#[tauri::command]
+pub fn exit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 #[tauri::command]
 pub fn reveal_profiles_dir(app: AppHandle) -> Result<String, String> {
     let dir = profiles_dir(&app)?;

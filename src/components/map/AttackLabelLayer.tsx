@@ -3,6 +3,7 @@ import { useMap } from 'react-leaflet';
 import type { Attack, Waypoint } from '../../types';
 import type { FlightMember } from '../../types/flight.types';
 import { buildAttackPicture, LABEL_STYLE, pictureFitPoints } from '../../lib/attackPicture';
+import { attackIpAnchor } from '../../lib/ipAnchor';
 import { layoutLabels, edgeCrossing, labelsAreLegible, type LabelRequest, type PlacedLabel, type Rect } from '../../lib/labelLayout';
 
 interface AttackLabelLayerProps {
@@ -49,11 +50,10 @@ export function AttackLabelLayer({ attacks, waypoints, flightMembers, onPlaced }
       const requests: LabelRequest[] = [];
 
       for (const attack of attacks) {
-        const ipWaypointId = (attack.profile as { ipWaypointId?: string }).ipWaypointId;
-        const ipWaypoint = ipWaypointId ? waypoints.find((wp) => wp.id === ipWaypointId) : undefined;
         const targetWaypoint = waypoints.find((wp) => wp.id === attack.targetWaypointId);
         if (!targetWaypoint) continue;
-        const picture = buildAttackPicture(attack, ipWaypoint, targetWaypoint);
+        const ipAnchor = attackIpAnchor(waypoints, attack);
+        const picture = buildAttackPicture(attack, ipAnchor, targetWaypoint);
         if (!picture) continue;
 
         // Project the attack's fit points to determine if labels are legible at this zoom

@@ -54,6 +54,7 @@ export type {
   PopupCCIPProfile,
   LoftCCRPProfile,
   StandoffProfile,
+  IpAnchorFields,
 } from './attack.types';
 
 // Delivery profiles

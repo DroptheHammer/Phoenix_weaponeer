@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMissionStore } from '../../stores/missionStore';
 import { useProfileStore } from '../../stores/profileStore';
+import { useUiStore } from '../../stores/uiStore';
 import { Modal } from '../common/Modal';
 import { PopupCCIPForm } from './forms/PopupCCIPForm';
 import { DiveForm } from './forms/DiveForm';
 import { LevelForm } from './forms/LevelForm';
-import { autoBuildAttack, loadoutWeapons, resolveIp, initialIpOverride, inferIp } from '../../lib/autoBuildAttack';
+import { autoBuildAttack, loadoutWeapons, resolveIp, inferIp } from '../../lib/autoBuildAttack';
+import { initialIpChoice, ipFieldsFor, ipPointFromFields, seedCustomIp, type IpChoiceMode } from '../../lib/ipAnchor';
+import { formatCoordinatesDMS } from '../../lib/coordinates';
 import { runAttackChecks, hasErrors } from '../../lib/attackChecks';
 import { type Side } from '../../lib/attackGeometry';
 import { describeRunIn, type RunInSummary } from '../../lib/runIn';
@@ -16,7 +19,9 @@ import { targetCandidates, ipCandidates, waypointLabel } from '../../lib/waypoin
 import type {
   Attack,
   AttackProfile,
+  Coordinates,
   DiveCCIPProfile,
+  IpAnchorFields,
   LevelCCRPProfile,
   PopupCCIPProfile,
   DbWeapon,
@@ -89,22 +94,44 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   const [releaseMode, setReleaseMode] = useState<Attack['releaseMode']>(attack?.releaseMode ?? 'single');
 
   // Customize: once the planner touches the numbers, auto-build stops overwriting them.
-  // Which waypoint the run-in starts from. Undefined = the prior numeric
-  // waypoint. Feeds autoBuildAttack, so the hint, the geometry and the drawn
-  // picture all agree — the pick used to move only the drawing.
-  const [ipWaypointId, setIpWaypointId] = useState<string | undefined>(() =>
+  // Where the run-in starts: Auto (the prior numeric waypoint), a chosen
+  // waypoint, or a custom point placed on the map / dialed in as a radial and
+  // distance off the target. Feeds autoBuildAttack, so the hint, the geometry
+  // and the drawn picture all agree — the pick used to move only the drawing.
+  const initialIpFor = () =>
     mission
-      ? initialIpOverride(
-          mission,
+      ? initialIpChoice(
+          mission.waypoints,
           mission.waypoints.find((wp) => wp.id === attack?.targetWaypointId),
-          (attack?.profile as { ipWaypointId?: string } | undefined)?.ipWaypointId,
+          (attack?.profile as IpAnchorFields | undefined) ?? {},
         )
-      : undefined,
-  );
+      : { mode: 'auto' as const };
+  const [ipMode, setIpMode] = useState<IpChoiceMode>(() => initialIpFor().mode);
+  const [ipWaypointId, setIpWaypointId] = useState<string | undefined>(() => initialIpFor().ipWaypointId);
+  const [customIp, setCustomIp] = useState<Coordinates | undefined>(() => initialIpFor().customIp);
+  /** Non-null only while the planner is typing; the displayed value re-derives from customIp otherwise. */
+  const [ipFields, setIpFields] = useState<{ radial: string; distance: string } | null>(null);
+  const mapPick = useUiStore((s) => s.mapPick);
+  const requestMapPick = useUiStore((s) => s.requestMapPick);
+  const setIpDraft = useUiStore((s) => s.setIpDraft);
 
   const [customized, setCustomized] = useState(Boolean(attack && (attack.customized || !attack.sourceProfileId)));
   const [showCustomize, setShowCustomize] = useState(Boolean(attack && (attack.customized || !attack.sourceProfileId)));
   const [customProfile, setCustomProfile] = useState<AttackProfile | undefined>(attack?.profile);
+  // The three above are seeded from `attack` only once, at mount, via
+  // useState's initializer form — if this editor instance is ever pointed at
+  // a different attack without a full unmount (the normal path unmounts via
+  // `showEditor &&`, but nothing here depends on that holding true in every
+  // caller), they'd carry over stale until `startCustomizing`/`resetToProfile`
+  // next ran. Re-derive explicitly whenever the attack being edited changes,
+  // keyed on id alone so an unrelated re-render with a fresh `attack` object
+  // reference (same attack, new store snapshot) doesn't stomp in-progress edits.
+  const attackId = attack?.id;
+  useEffect(() => {
+    setCustomized(Boolean(attack && (attack.customized || !attack.sourceProfileId)));
+    setShowCustomize(Boolean(attack && (attack.customized || !attack.sourceProfileId)));
+    setCustomProfile(attack?.profile);
+  }, [attackId]);
 
   const flightMembers = mission?.flightMembers ?? [];
   // Every waypoint, not only `target`-typed ones: the type is our guess at the
@@ -142,11 +169,12 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
         offsetLegRatio: offsetLegRatioOverride,
         offsetTurn_deg: offsetTurnOverride,
         angleOffSide,
-        ipWaypointId,
+        ipWaypointId: ipMode === 'waypoint' ? ipWaypointId : undefined,
+        customIp: ipMode === 'custom' ? customIp : undefined,
         egressDirection: egressOverride,
       },
     });
-  }, [mission, targetWaypointId, attackerId, weapons, profiles, threatSystems, weaponId, profileId, actionRangeOverride, offsetLegRatioOverride, offsetTurnOverride, angleOffSide, ipWaypointId, egressOverride]);
+  }, [mission, targetWaypointId, attackerId, weapons, profiles, threatSystems, weaponId, profileId, actionRangeOverride, offsetLegRatioOverride, offsetTurnOverride, angleOffSide, ipMode, ipWaypointId, customIp, egressOverride]);
 
   // Keep the pick lists honest as the picks change.
   useEffect(() => {
@@ -186,11 +214,23 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
 
   const resetToProfile = () => {
     setCustomized(false);
+    // `customized` and `showCustomize` move together everywhere else — the
+    // toggle button always opens *into* customizing (startCustomizing) and
+    // never shows the panel without it. Leaving showCustomize on here (its
+    // only other caller is the delivery-mode switch below) broke that: the
+    // panel stayed open with customized/customProfile cleared, so the
+    // per-type form (gated on customized) vanished until the triangle was
+    // toggled twice. Collapsing keeps the invariant, and here it just means
+    // "Customize" again shows the plain auto-built summary until reopened.
+    setShowCustomize(false);
     setCustomProfile(undefined);
     // The IP is part of what the profile decides, so resetting returns it to
     // the auto waypoint too — otherwise a hand-picked IP survived a reset and
     // quietly kept driving the geometry.
+    setIpMode('auto');
     setIpWaypointId(undefined);
+    setCustomIp(undefined);
+    setIpFields(null);
   };
 
   // Picking a flank is not a reason to throw away hand-typed numbers. When the
@@ -208,26 +248,105 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   };
 
   // The IP belongs to the attack, not to one profile type, so it lives here
-  // rather than in each form. When the profile has been customized it must be
+  // rather than in each form — every profile type now carries the same
+  // ipWaypointId/customIp fields (IpAnchorFields), so the write-through below
+  // applies uniformly. When the profile has been customized it must be
   // written through as well, or `effectiveProfile` would save the old IP.
-  const chooseIp = (id: string) => {
+  //
+  // Picking "Auto" while customized still writes a concrete waypoint id —
+  // today's resolved one — rather than leaving it undefined: customizing
+  // means freezing the numbers, the same way a hand-picked flank or egress
+  // side survives further route edits instead of continuing to auto-track.
+  //
+  // Read through a ref updated every render, not the render's own closed-over
+  // variables: `ipDraft.onMove` (below) is captured once when the effect
+  // runs and invoked later, from a map drag, by which point `customized` or
+  // `customProfile` may have moved on — a stale closure here would silently
+  // drop the drag or clobber edits made since.
+  const latest = useRef({ customized, customProfile, mission, selectedTarget });
+  latest.current = { customized, customProfile, mission, selectedTarget };
+  const writeIpThrough = (mode: IpChoiceMode, waypointId: string | undefined, point: Coordinates | undefined) => {
+    const { customized, customProfile, mission, selectedTarget } = latest.current;
+    if (!customized || !customProfile || !mission || !selectedTarget) return;
+    const resolvedWaypointId = mode === 'custom' ? undefined : mode === 'waypoint' ? waypointId : resolveIp(mission, selectedTarget, undefined)?.id;
+    setCustomProfile({ ...customProfile, ipWaypointId: resolvedWaypointId, customIp: mode === 'custom' ? point : undefined } as AttackProfile);
+  };
+
+  const chooseIpAuto = () => {
+    setIpMode('auto');
+    setIpWaypointId(undefined);
+    setCustomIp(undefined);
+    setIpFields(null);
+    writeIpThrough('auto', undefined, undefined);
+  };
+
+  const chooseIpWaypoint = (id: string) => {
     const next = id || undefined;
+    setIpMode('waypoint');
     setIpWaypointId(next);
-    // Loft and standoff carry no IP field, so only the three run-in profiles
-    // are written through. The override still reaches autoBuildAttack either way.
-    if (
-      customized &&
-      customProfile &&
-      mission &&
-      selectedTarget &&
-      (customProfile.type === 'level_ccrp' ||
-        customProfile.type === 'dive_ccip' ||
-        customProfile.type === 'popup_ccip')
-    ) {
-      const resolved = resolveIp(mission, selectedTarget, next);
-      setCustomProfile({ ...customProfile, ipWaypointId: resolved?.id ?? '' });
+    setCustomIp(undefined);
+    setIpFields(null);
+    writeIpThrough('waypoint', next, undefined);
+  };
+
+  const chooseIpCustomMode = () => {
+    const seeded = customIp ?? (selectedTarget ? seedCustomIp(selectedTarget, build?.ipAnchor) : undefined);
+    setIpMode('custom');
+    setIpWaypointId(undefined);
+    setCustomIp(seeded);
+    setIpFields(null);
+    writeIpThrough('custom', undefined, seeded);
+  };
+
+  const placeCustomIpOnMap = () => {
+    if (!selectedTarget) return;
+    requestMapPick({
+      kind: 'customIp',
+      prompt: 'Click the map to place the custom IP',
+      onPick: (point) => {
+        setIpMode('custom');
+        setIpWaypointId(undefined);
+        setCustomIp(point);
+        setIpFields(null);
+        writeIpThrough('custom', undefined, point);
+      },
+    });
+  };
+
+  const handleIpFieldChange = (field: 'radial' | 'distance', value: string) => {
+    const current = ipFields ?? (customIp && selectedTarget ? ipFieldsFor(selectedTarget.coordinates, customIp) : { radial: '', distance: '' });
+    const next = { ...current, [field]: value };
+    setIpFields(next);
+    if (!selectedTarget) return;
+    const point = ipPointFromFields(selectedTarget.coordinates, next.radial, next.distance);
+    if (point) {
+      setCustomIp(point);
+      writeIpThrough('custom', undefined, point);
     }
   };
+  const handleIpFieldBlur = () => setIpFields(null);
+
+  // The custom IP marker on the map, while it's being edited here: draws
+  // draggable, and a drag calls straight back into setCustomIp via onMove
+  // (see uiStore's MapPick/ipDraft doc comment) rather than the map writing
+  // the point back through a second channel.
+  useEffect(() => {
+    if (ipMode !== 'custom' || !customIp) {
+      setIpDraft(null);
+      return;
+    }
+    setIpDraft({
+      attackId: attack?.id ?? null,
+      point: customIp,
+      onMove: (point) => {
+        setCustomIp(point);
+        setIpFields(null);
+        writeIpThrough('custom', undefined, point);
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ipMode, customIp, attack?.id]);
+  useEffect(() => () => setIpDraft(null), [setIpDraft]);
 
   const handleSave = () => {
     if (!canSave || !mission || !effectiveProfile || !profileType) return;
@@ -275,8 +394,8 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
   const angleOffIsAuto = angleOffSide == null && !customized;
   const autoNote = angleOffIsAuto ? ' · auto: away from the nearest threat' : '';
   const angleOffHint =
-    !build?.ipWaypoint || build.directBearing == null
-      ? 'No waypoint before the target in the route — pick one under Customize → Run in from'
+    !build?.ipAnchor || build.directBearing == null
+      ? 'No waypoint before the target in the route — pick one, or place a custom point, under Customize → Run in from'
       : !runIn
         ? ''
         : !runIn.closes
@@ -293,7 +412,7 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
       : undefined;
 
   return (
-    <Modal title={attack ? 'Edit Attack' : 'Add Attack'} onClose={onClose} widthClass="w-[860px]">
+    <Modal title={attack ? 'Edit Attack' : 'Add Attack'} onClose={onClose} widthClass="w-[860px]" hidden={!!mapPick}>
       <div className="space-y-5">
         {/* The picks */}
         <div className="grid grid-cols-3 gap-4">
@@ -475,24 +594,96 @@ export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, a
               </div>
 
               <div className="grid grid-cols-3 gap-4">
-                <div>
+                <div className="col-span-3">
                   <label className={label}>Run in from (IP)</label>
-                  <select
-                    className={select}
-                    style={{ colorScheme: 'dark' }}
-                    value={ipWaypointId ?? ''}
-                    onChange={(e) => chooseIp(e.target.value)}
-                    disabled={!selectedTarget}
-                  >
-                    <option value="">
-                      {autoIpWaypoint ? `Auto — ${waypointLabel(autoIpWaypoint)}` : 'Auto — no prior waypoint'}
-                    </option>
-                    {ipWaypoints.map((wp) => (
-                      <option key={wp.id} value={wp.id}>{waypointLabel(wp)}</option>
+                  <div className="flex gap-2 mb-2">
+                    {([
+                      ['auto', 'Auto'],
+                      ['waypoint', 'Waypoint'],
+                      ['custom', 'Custom point'],
+                    ] as const).map(([mode, text]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => (mode === 'auto' ? chooseIpAuto() : mode === 'waypoint' ? chooseIpWaypoint(ipWaypointId ?? '') : chooseIpCustomMode())}
+                        disabled={!selectedTarget}
+                        className={`flex-1 py-1.5 rounded-lg text-sm border transition-colors ${
+                          ipMode === mode ? 'bg-dcs-blue border-blue-400 text-white' : 'bg-dcs-dark border-gray-600 text-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        {text}
+                      </button>
                     ))}
-                  </select>
+                  </div>
+
+                  {ipMode === 'auto' && (
+                    <div className="text-xs text-gray-400">
+                      {autoIpWaypoint ? `Auto — ${waypointLabel(autoIpWaypoint)}` : 'Auto — no prior waypoint'}
+                    </div>
+                  )}
+
+                  {ipMode === 'waypoint' && (
+                    <select
+                      className={select}
+                      style={{ colorScheme: 'dark' }}
+                      value={ipWaypointId ?? ''}
+                      onChange={(e) => chooseIpWaypoint(e.target.value)}
+                      disabled={!selectedTarget}
+                    >
+                      <option value="">
+                        {autoIpWaypoint ? `Auto — ${waypointLabel(autoIpWaypoint)}` : 'Auto — no prior waypoint'}
+                      </option>
+                      {ipWaypoints.map((wp) => (
+                        <option key={wp.id} value={wp.id}>{waypointLabel(wp)}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {ipMode === 'custom' && selectedTarget && (() => {
+                    const fields = ipFields ?? (customIp ? ipFieldsFor(selectedTarget.coordinates, customIp) : { radial: '', distance: '' });
+                    const runInHeading = fields.radial ? Math.round((Number(fields.radial) + 180) % 360) : undefined;
+                    return (
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={placeCustomIpOnMap}
+                          className="w-full py-1.5 rounded-lg text-sm border border-gray-600 bg-dcs-dark text-gray-200 hover:border-gray-400 transition-colors"
+                        >
+                          📍 Place on map
+                        </button>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Radial from target (°)</label>
+                            <input
+                              type="text"
+                              className={select}
+                              value={fields.radial}
+                              onChange={(e) => handleIpFieldChange('radial', e.target.value)}
+                              onBlur={handleIpFieldBlur}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Distance (nm)</label>
+                            <input
+                              type="text"
+                              className={select}
+                              value={fields.distance}
+                              onChange={(e) => handleIpFieldChange('distance', e.target.value)}
+                              onBlur={handleIpFieldBlur}
+                            />
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {customIp
+                            ? `${runInHeading != null ? `→ run-in ${runInHeading.toString().padStart(3, '0')}° · ` : ''}${formatCoordinatesDMS(customIp)}`
+                            : 'Click "Place on map", or type a radial and distance from the target.'}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   <div className="text-xs text-gray-400 mt-1">
-                    Defaults to the waypoint before the target; pick any waypoint to override.
+                    Defaults to the waypoint before the target; pick a waypoint or drop a custom point to override.
                   </div>
                 </div>
               </div>

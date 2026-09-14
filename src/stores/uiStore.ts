@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ThreatSource } from '../types';
+import type { Coordinates, ThreatSource } from '../types';
 
 /**
  * Map display filter — a view-time control, not mission data.
@@ -44,6 +44,20 @@ interface Selection {
   focusThreatId: string | null;
 }
 
+/**
+ * What the map is waiting for a click on — a threat being placed from
+ * `ThreatList`, or a custom attack IP being placed from `AttackEditor`. One
+ * shared slot rather than a callback per feature: `MapView`'s click handler
+ * and its "interactive={false}" guards on every marker only need to know
+ * whether a pick is armed at all, not which feature armed it.
+ */
+export interface MapPick {
+  kind: 'threat' | 'customIp';
+  /** Shown in the map's placement banner. */
+  prompt: string;
+  onPick: (position: Coordinates) => void;
+}
+
 interface UiState extends DisplayFilter, Selection {
   /** Grey map under the kneeboard card's north-up picture. A view preference, never reset by Open/Import. */
   kneeboardMap: boolean;
@@ -65,6 +79,27 @@ interface UiState extends DisplayFilter, Selection {
   showAll: () => void;
   /** Clears every hide-set — called on New/Open/Import/Close so a stale filter never lies. */
   resetFilter: () => void;
+
+  /** What the map is waiting for a click on; null when nothing is armed. */
+  mapPick: MapPick | null;
+  requestMapPick: (pick: MapPick) => void;
+  cancelMapPick: () => void;
+  /** The map calls this on click while a pick is armed: delivers the position and disarms. */
+  deliverMapPick: (position: Coordinates) => void;
+
+/**
+   * The custom IP `AttackEditor` is live-editing, drawn draggable on the map
+   * while the editor is open. `attackId: null` means a new, unsaved attack.
+   * Separate from `mapPick`: the draft is live for the whole time the editor
+   * is open, not just the moment a click is being waited on.
+   *
+   * `onMove` — not a raw point the map writes back — is deliberate: a drag
+   * calls straight into the editor's own `setCustomIp`, so there is exactly
+   * one direction of data flow (editor → store → marker → editor's callback)
+   * rather than two components both writing the same store field and racing.
+   */
+  ipDraft: { attackId: string | null; point: Coordinates; onMove: (point: Coordinates) => void } | null;
+  setIpDraft: (draft: UiState['ipDraft']) => void;
 }
 
 const emptyFilter: DisplayFilter = {
@@ -79,9 +114,11 @@ const emptySelection: Selection = {
   focusThreatId: null,
 };
 
-export const useUiStore = create<UiState>((set) => ({
+export const useUiStore = create<UiState>((set, get) => ({
   ...emptyFilter,
   ...emptySelection,
+  mapPick: null,
+  ipDraft: null,
 
   kneeboardMap: true,
   toggleKneeboardMap: () => set((state) => ({ kneeboardMap: !state.kneeboardMap })),
@@ -123,5 +160,14 @@ export const useUiStore = create<UiState>((set) => ({
     })),
 
   showAll: () => set({ ...emptyFilter }),
-  resetFilter: () => set({ ...emptyFilter, ...emptySelection }),
+  resetFilter: () => set({ ...emptyFilter, ...emptySelection, mapPick: null, ipDraft: null }),
+
+  requestMapPick: (pick) => set({ mapPick: pick }),
+  cancelMapPick: () => set({ mapPick: null }),
+  deliverMapPick: (position) => {
+    const pick = get().mapPick;
+    set({ mapPick: null });
+    pick?.onPick(position);
+  },
+  setIpDraft: (draft) => set({ ipDraft: draft }),
 }));

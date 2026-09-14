@@ -27,6 +27,7 @@ import { describeRunIn } from '../src/lib/runIn';
 import { inferIp, resolveIp, initialIpOverride, autoBuildAttack } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
+import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
 import { targetCandidates, ipCandidates, waypointLabel } from '../src/lib/waypointOptions';
 import { flightGroupOf } from '../src/lib/callsign';
@@ -213,7 +214,10 @@ const distantAttack = {
 };
 const ipWp = { id: 'ip', steerpoint: 7, type: 'ip' as const, name: 'IP', coordinates: farIp, elevation_ft: 0 };
 const tgtWp = { id: 'tgt', steerpoint: 8, type: 'target' as const, name: 'TGT', coordinates: tgt, elevation_ft: 0 };
-const picture = buildAttackPicture(distantAttack, ipWp, tgtWp);
+// Build a real IpAnchor from a waypoint fixture via the production resolver, not a hand-rolled stand-in.
+const anchorOf = (ip: { id: string; steerpoint: number; name: string; coordinates: { lat: number; lon: number } }, target: { id: string; steerpoint: number; name: string; coordinates: { lat: number; lon: number } }) =>
+  resolveIpAnchor([ip as never, target as never], target as never, { ipWaypointId: ip.id })!;
+const picture = buildAttackPicture(distantAttack, anchorOf(ipWp, tgtWp), tgtWp);
 if (!picture) throw new Error('buildAttackPicture failed');
 
 // The raw all-points set (what the map USED to fit) includes the route line.
@@ -242,7 +246,7 @@ ok('pictureFitPoints includes egress label position', hasEgressLabel);
 ok('pictureFitPoints includes TGT marker position', hasTgtMarker);
 
 // ─── IP labels: only when there is a real IP waypoint ─────────────────────────
-const diveWithIp = buildAttackPicture(distantAttack, ipWp, tgtWp);
+const diveWithIp = buildAttackPicture(distantAttack, anchorOf(ipWp, tgtWp), tgtWp);
 const diveNoIp = buildAttackPicture(distantAttack, undefined, tgtWp);
 ok('dive picture WITH ip waypoint has an ip label', diveWithIp && diveWithIp.labels.some((l) => l.kind === 'ip'));
 ok('dive picture WITHOUT ip waypoint has no ip label', diveNoIp && !diveNoIp.labels.some((l) => l.kind === 'ip'));
@@ -263,7 +267,7 @@ const levelAttack = {
     targetElevation_ft: 0,
   },
 };
-const levelWithIp = buildAttackPicture(levelAttack, ipWp, tgtWp);
+const levelWithIp = buildAttackPicture(levelAttack, anchorOf(ipWp, tgtWp), tgtWp);
 const levelNoIp = buildAttackPicture(levelAttack, undefined, tgtWp);
 ok('level picture WITH ip waypoint has an ip label', levelWithIp && levelWithIp.labels.some((l) => l.kind === 'ip'));
 ok('level picture WITHOUT ip waypoint has no ip label', levelNoIp && !levelNoIp.labels.some((l) => l.kind === 'ip'));
@@ -408,7 +412,7 @@ ok('the 13.9 nm action point still fits inside the 15.3 nm route leg, no adjustm
 
 // THE ONE THAT PROVES THE FEATURE. Measured on the picture the map and the
 // kneeboard card both draw. Reads 2.04 nm (0.29 x J) without the change.
-const lvlPic = buildAttackPicture(levelBuild.attack as never, wpIp as never, wpTgt as never)!;
+const lvlPic = buildAttackPicture(levelBuild.attack as never, anchorOf(wpIp, wpTgt), wpTgt as never)!;
 const apPt = lvlPic.markers.find((m) => m.kind === 'AP')!.position;
 const runPt = lvlPic.markers.find((m) => m.kind === 'RUN')!.position;
 const drawnLeg = calculateDistance(apPt, runPt);
@@ -472,6 +476,20 @@ if (diveProfiles.length) {
   ok('dive still uses the handbook 20 deg check turn and carries no leg ratio',
      dp != null && dp.offsetAngle_deg === 20 && dp.offsetLegRatio === undefined,
      `turn ${dp?.offsetAngle_deg} ratio ${dp?.offsetLegRatio}`);
+
+  // A custom IP wins over the route's real IP waypoint, for dive too.
+  const diveCustomIp = calculateDestination(wpTgt.coordinates, 300, 10);
+  const diveCustomBuild = autoBuildAttack({
+    mission: { waypoints: [wpIp, wpTgt], flightMembers: [divePilot], threats: [], attacks: [] },
+    targetWaypointId: wpTgt.id, attackerId: divePilot.id, weapons: [mk82],
+    profiles: diveProfiles, threatSystems: [],
+    overrides: { customIp: diveCustomIp },
+  } as never);
+  ok('dive: a custom IP moves the computed run-in bearing off the route waypoint',
+     Math.abs((diveCustomBuild.directBearing ?? 0) - 120) < 1, String(r(diveCustomBuild.directBearing ?? 0)));
+  const dcp = diveCustomBuild.attack?.profile as { customIp?: { lat: number; lon: number }; ipWaypointId?: string } | undefined;
+  ok('dive: the custom point is written onto the built profile, ipWaypointId cleared',
+     dcp?.ipWaypointId === undefined && dcp?.customIp != null && calculateDistance(dcp.customIp as never, diveCustomIp) < 0.001);
 }
 
 // ─── Map display filter ──────────────────────────────────────────────────────
@@ -824,6 +842,25 @@ ok('choosing a different IP moves the computed run-in bearing (EAST → 270°)',
 ok('the chosen IP is written onto the built profile, so the map and card agree',
    (buildEast.attack?.profile as { ipWaypointId?: string })?.ipWaypointId === 'ip-e');
 
+// A custom point beats even an explicitly chosen waypoint.
+const customIpPoint = calculateDestination(tgt, 45, 9);
+const buildCustom = autoBuildAttack({
+  mission: ipMission, targetWaypointId: wpTgt.id, attackerId: pilot.id,
+  weapons: [gbu31], profiles: [jdamLevel], threatSystems: [],
+  overrides: { ipWaypointId: 'ip-e', customIp: customIpPoint },
+} as never);
+ok('a custom IP wins over an explicitly chosen waypoint — moves the computed run-in bearing (→ 225°)',
+   Math.abs((buildCustom.directBearing ?? 0) - 225) < 1, String(r(buildCustom.directBearing ?? 0)));
+const bcp = buildCustom.attack?.profile as { customIp?: { lat: number; lon: number }; ipWaypointId?: string } | undefined;
+ok('the custom point is written onto the built profile as customIp, with ipWaypointId cleared',
+   bcp?.ipWaypointId === undefined && bcp?.customIp != null && calculateDistance(bcp.customIp as never, customIpPoint) < 0.001);
+ok('a non-finite override customIp falls back to the chosen waypoint rather than breaking the build',
+   autoBuildAttack({
+     mission: ipMission, targetWaypointId: wpTgt.id, attackerId: pilot.id,
+     weapons: [gbu31], profiles: [jdamLevel], threatSystems: [],
+     overrides: { ipWaypointId: 'ip-e', customIp: { lat: NaN, lon: 0 } },
+   } as never).attack != null);
+
 // The picker offers everything except the target itself, in route order.
 ok('IP candidates are every waypoint except the target, in route order',
    ipCandidates([wpTgt, ipLate, ipEast, ipNorth] as never, wpTgt.id)
@@ -881,11 +918,9 @@ ok('planBasemap: a frame zoomed far out steps down to a sane tile count instead 
 // 9×9 grid over the whole north-up box, at NTTR and at Sinai latitudes.
 const cardBox = { x: 0, y: 300, w: 768, h: 470 };
 const sinaiTgt = { lat: 30.6, lon: 34.8 };
-const sinaiPicture = buildAttackPicture(
-  distantAttack,
-  { ...ipWp, coordinates: calculateDestination(sinaiTgt, (direct + 180) % 360, 12) },
-  { ...tgtWp, coordinates: sinaiTgt },
-);
+const sinaiIpWp = { ...ipWp, coordinates: calculateDestination(sinaiTgt, (direct + 180) % 360, 12) };
+const sinaiTgtWp = { ...tgtWp, coordinates: sinaiTgt };
+const sinaiPicture = buildAttackPicture(distantAttack, anchorOf(sinaiIpWp, sinaiTgtWp), sinaiTgtWp);
 for (const [theatre, pic] of [['NTTR', picture], ['Sinai', sinaiPicture]] as const) {
   const view = planViewTransform(pic!, cardBox)!;
   const nw = view.fromPx(cardBox.x, cardBox.y), se = view.fromPx(cardBox.x + cardBox.w, cardBox.y + cardBox.h);
@@ -969,6 +1004,16 @@ ok('a steerpoint carrying HTML is refused before it can reach the map',
 const noPosition = structuredClone(goodMission);
 (noPosition.threats[0] as Record<string, unknown>).position = { lat: null, lon: 34 };
 ok('a threat with no real position is refused', !validateMission(noPosition).ok);
+const missionWithGoodCustomIp = structuredClone(goodMission);
+(missionWithGoodCustomIp.attacks[0].profile as Record<string, unknown>).customIp = { lat: 30.8, lon: 34.7 };
+ok('an attack with a well-formed custom IP passes the file check', validateMission(missionWithGoodCustomIp).ok, JSON.stringify(validateMission(missionWithGoodCustomIp)));
+const missionWithHostileCustomIp = structuredClone(goodMission);
+(missionWithHostileCustomIp.attacks[0].profile as Record<string, unknown>).customIp = { lat: '<img src=x onerror=alert(1)>', lon: 34 };
+const hostileIpCheck = validateMission(missionWithHostileCustomIp);
+ok('an attack with a malicious custom IP is refused before it can reach the map',
+   !hostileIpCheck.ok && hostileIpCheck.problems.some((p) => p.includes('custom IP')), JSON.stringify(hostileIpCheck));
+ok('a profile with no customIp at all is still accepted (most attacks have none)',
+   validateMission(goodMission).ok);
 ok('something that is not a mission at all is refused',
    !validateMission([]).ok && !validateMission(null).ok && !validateMission({ ...goodMission, attacks: 'nope' }).ok);
 const olderSave = structuredClone(goodMission) as Record<string, unknown>;
@@ -983,3 +1028,93 @@ ok('a file broken everywhere lists a handful of problems, not hundreds',
 ok('escapeHtml defuses markup, quotes and ampersands',
    escapeHtml(payload) === '&lt;img src=x onerror=alert(1)&gt;' && escapeHtml(`"'&`) === '&quot;&#39;&amp;');
 ok('escapeHtml leaves an ordinary steerpoint number alone', escapeHtml(12) === '12');
+
+// ─── IP anchor: precedence, round trip, and safety (lib/ipAnchor.ts) ──────────
+// A custom IP is the whole point of issue #4 — every profile type must agree
+// on precedence (custom > chosen waypoint > inferred prior waypoint) and on
+// what a broken or coincident-with-target point does, since this is the one
+// place a shared mission file's numbers get drawn straight onto the map.
+const anchorTgt = wp('tgt-a', 5, 'target', 32.0, 35.0);
+const anchorPrior = wp('prior-a', 4, 'nav', 32.05, 35.02);
+const anchorPicked = wp('picked-a', 2, 'nav', 31.9, 34.9);
+const anchorWps = [anchorPrior, anchorPicked, anchorTgt];
+const anchorCustomPt = calculateDestination(anchorTgt.coordinates, 270, 8);
+
+const anchorCustom = resolveIpAnchor(anchorWps as never, anchorTgt as never, { ipWaypointId: anchorPicked.id, customIp: anchorCustomPt });
+ok('resolveIpAnchor: a custom point wins over a chosen waypoint',
+   anchorCustom?.source === 'custom' && calculateDistance(anchorCustom.point, anchorCustomPt) < 0.001);
+
+const anchorWaypoint = resolveIpAnchor(anchorWps as never, anchorTgt as never, { ipWaypointId: anchorPicked.id });
+ok('resolveIpAnchor: an explicit waypoint wins over the inferred one',
+   anchorWaypoint?.source === 'waypoint' && anchorWaypoint.waypoint?.id === anchorPicked.id);
+
+const anchorAuto = resolveIpAnchor(anchorWps as never, anchorTgt as never, {});
+ok('resolveIpAnchor: falls back to the prior numeric waypoint when nothing is chosen',
+   anchorAuto?.source === 'auto' && anchorAuto.waypoint?.id === anchorPrior.id);
+
+const anchorNaN = resolveIpAnchor(anchorWps as never, anchorTgt as never, { ipWaypointId: anchorPicked.id, customIp: { lat: NaN, lon: 35 } });
+ok('resolveIpAnchor: a non-finite custom point falls back to the chosen waypoint, never crashes',
+   anchorNaN?.source === 'waypoint' && anchorNaN.waypoint?.id === anchorPicked.id);
+
+const anchorOnTarget = resolveIpAnchor(anchorWps as never, anchorTgt as never, { customIp: anchorTgt.coordinates });
+ok('resolveIpAnchor: a custom point on top of the target is not usable, falls back to auto',
+   anchorOnTarget?.source === 'auto');
+
+ok('resolveIpAnchor: a custom anchor reads "Custom IP" / "CUSTOM IP"',
+   anchorCustom?.label === 'Custom IP' && anchorCustom?.shortLabel === 'CUSTOM IP');
+ok('resolveIpAnchor: a waypoint anchor names the STPT',
+   anchorWaypoint?.shortLabel === `STPT ${anchorPicked.steerpoint}` && anchorWaypoint?.label === waypointLabel(anchorPicked as never));
+
+ok('initialIpChoice: a stored custom point opens Custom',
+   initialIpChoice(anchorWps as never, anchorTgt as never, { customIp: anchorCustomPt }).mode === 'custom');
+ok('initialIpChoice: a stored id equal to the inferred waypoint opens Auto',
+   initialIpChoice(anchorWps as never, anchorTgt as never, { ipWaypointId: anchorPrior.id }).mode === 'auto');
+ok('initialIpChoice: a stored id different from the inferred waypoint opens the waypoint mode',
+   initialIpChoice(anchorWps as never, anchorTgt as never, { ipWaypointId: anchorPicked.id }).mode === 'waypoint');
+
+const anchorAttack = { targetWaypointId: anchorTgt.id, profile: { type: 'dive_ccip', customIp: anchorCustomPt } };
+ok('attackIpAnchor: reads the anchor straight off a saved attack',
+   attackIpAnchor(anchorWps as never, anchorAttack as never)?.source === 'custom');
+
+// Point <-> radial/distance round trip, including the 0/360 wrap and high latitude.
+for (const [lat, radial, dist] of [[32.0, 45, 6.2], [60.0, 358, 12.4], [-10, 179.5, 3.1], [32.0, 0.4, 2.0]] as const) {
+  const origin = { lat, lon: 10 };
+  const pt = ipFromRadial(origin, radial, dist);
+  const back = ipRadial(origin, pt);
+  ok(`ipRadial/ipFromRadial round-trip at lat ${lat}, radial ${radial}`,
+     Math.abs(((back.radial_deg - radial + 540) % 360) - 180) < 0.01 && Math.abs(back.distance_nm - dist) < 0.001,
+     `${r(back.radial_deg)}/${r(back.distance_nm)}`);
+}
+
+// ipPointFromFields never returns a NaN coordinate — the M8 failure mode a
+// cleared or half-typed Customize field used to risk.
+for (const [radial, distance] of [['', ''], ['abc', '5'], ['090', '0'], ['090', '-3'], ['090', 'abc']] as const) {
+  ok(`ipPointFromFields('${radial}', '${distance}') is undefined, never NaN`,
+     ipPointFromFields(anchorTgt.coordinates, radial, distance) === undefined);
+}
+ok('ipPointFromFields parses a good pair', ipPointFromFields(anchorTgt.coordinates, '090', '5.0') !== undefined);
+
+// ipFieldsFor -> ipPointFromFields -> ipFieldsFor is stable: no display drift on blur.
+const anchorFields1 = ipFieldsFor(anchorTgt.coordinates, anchorCustomPt);
+const anchorRoundTripped = ipPointFromFields(anchorTgt.coordinates, anchorFields1.radial, anchorFields1.distance)!;
+const anchorFields2 = ipFieldsFor(anchorTgt.coordinates, anchorRoundTripped);
+ok('ipFieldsFor is stable across a round trip through the text fields',
+   anchorFields1.radial === anchorFields2.radial && anchorFields1.distance === anchorFields2.distance,
+   `${anchorFields1.radial}/${anchorFields1.distance} vs ${anchorFields2.radial}/${anchorFields2.distance}`);
+
+ok('seedCustomIp: seeds from the current anchor when there is one',
+   calculateDistance(seedCustomIp(anchorTgt as never, anchorWaypoint), anchorWaypoint!.point) < 0.001);
+const anchorSeeded = seedCustomIp(anchorTgt as never, undefined);
+ok('seedCustomIp: seeds 10 nm north of the target when there is no current anchor',
+   Math.abs(calculateDistance(anchorSeeded, anchorTgt.coordinates) - 10) < 0.01 &&
+   Math.abs(calculateBearing(anchorTgt.coordinates, anchorSeeded)) < 0.01);
+
+// inferIp/resolveIp/initialIpOverride (autoBuildAttack.ts) are now thin
+// delegates — must still behave exactly as before.
+ok('inferIp delegates to inferIpFrom',
+   inferIp({ waypoints: anchorWps } as never, anchorTgt as never)?.id === inferIpFrom(anchorWps as never, anchorTgt as never)?.id);
+ok('resolveIp delegates to resolveIpAnchor',
+   resolveIp({ waypoints: anchorWps } as never, anchorTgt as never, anchorPicked.id)?.id === anchorPicked.id);
+ok('initialIpOverride delegates to initialIpOverrideFrom',
+   initialIpOverride({ waypoints: anchorWps } as never, anchorTgt as never, anchorPrior.id) === undefined &&
+   initialIpOverride({ waypoints: anchorWps } as never, anchorTgt as never, anchorPicked.id) === anchorPicked.id);

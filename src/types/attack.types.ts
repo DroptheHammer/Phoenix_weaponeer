@@ -77,9 +77,21 @@ export interface ActionPointFields {
   offsetLegRatio?: number;
 }
 
-export interface LevelCCRPProfile extends ActionPointFields {
+/**
+ * Where the run-in starts. Precedence: an explicit custom point beats an
+ * explicitly chosen waypoint, which beats the prior numeric waypoint
+ * (`inferIp`/`inferIpFrom`). Resolved by `resolveIpAnchor` (`lib/ipAnchor.ts`)
+ * — read that, never these fields directly.
+ */
+export interface IpAnchorFields {
+  /** A waypoint the planner picked, or auto-build resolved to. */
+  ipWaypointId?: string;
+  /** A point the planner dropped on the map or dialed in as a radial/distance off the target. Wins over ipWaypointId. */
+  customIp?: Coordinates;
+}
+
+export interface LevelCCRPProfile extends ActionPointFields, IpAnchorFields {
   type: 'level_ccrp';
-  ipWaypointId?: string; // Draws the run-in from a real IP when set
   /** The attack axis: whatever the action-point geometry produces. */
   ingressHeading_deg: number;
   releaseAltitude_ft: number; // MSL
@@ -89,9 +101,8 @@ export interface LevelCCRPProfile extends ActionPointFields {
   egressHeading_deg?: number; // undefined = straight ahead (resolveEgressHeading)
 }
 
-export interface DiveCCIPProfile extends ActionPointFields {
+export interface DiveCCIPProfile extends ActionPointFields, IpAnchorFields {
   type: 'dive_ccip';
-  ipWaypointId?: string; // Draws the run-in from a real IP when set
   /** The attack axis: whatever the action-point geometry produces. The roll-in is the turn onto it. */
   ingressHeading_deg: number;
   ingressAltitude_ft?: number; // AGL, before roll-in; defaults to roll-in altitude
@@ -113,10 +124,9 @@ export interface DiveCCIPProfile extends ActionPointFields {
  * all print the same numbers. Saves that predate the model carry no
  * `approachHeading_deg`; the map and card rebuild a plan from their inputs.
  */
-export interface PopupCCIPProfile {
+export interface PopupCCIPProfile extends IpAnchorFields {
   type: 'popup_ccip';
 
-  ipWaypointId: string; // Initial Point waypoint
   /** The attack axis (pull-down → target): route ∓ check turn ± pull-down turn. Derived. */
   runInHeading_deg?: number;
   /** Heading flown on the offset leg and through the pop: route ∓ check turn. Derived. */
@@ -159,7 +169,7 @@ export interface PopupCCIPProfile {
   egressHeading_deg?: number; // undefined = auto: 90° break off the attack heading (resolveEgressHeading)
 }
 
-export interface LoftCCRPProfile {
+export interface LoftCCRPProfile extends IpAnchorFields {
   type: 'loft_ccrp';
   ingressHeading_deg: number;
   ingressAltitude_ft: number;
@@ -170,7 +180,7 @@ export interface LoftCCRPProfile {
   egressHeading_deg: number;
 }
 
-export interface StandoffProfile {
+export interface StandoffProfile extends IpAnchorFields {
   type: 'standoff';
   releasePoint: Coordinates;
   releaseAltitude_ft: number;

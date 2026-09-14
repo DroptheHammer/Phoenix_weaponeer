@@ -426,7 +426,7 @@ function drawPlanView(
       if (t > 0) {
         const tx = Math.min(Math.max(edge[0], box.x + 14), box.x + box.w - 14);
         const ty = Math.min(Math.max(edge[1], box.y + 14), box.y + box.h - 8);
-        txt(ctx, '→ IP', tx, ty, { size: 10, bold: true, family: SANS, color: '#2563eb', align: 'center' });
+        txt(ctx, `→ ${picture.ipShortLabel ?? 'IP'}`, tx, ty, { size: 10, bold: true, family: SANS, color: '#2563eb', align: 'center' });
       }
     }
   }

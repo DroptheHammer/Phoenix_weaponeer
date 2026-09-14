@@ -143,7 +143,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     const card = buildKneeboardCard(mission, selectedAttackId, weapons, fuzeOptions, threatSystems);
     if (!card) return;
 
-    const defaultName = kneeboardFilename(card.header.callsign, card.header.targetName);
+    const defaultName = kneeboardFilename(card.header.callsign, card.header.targetName, card.header.targetSteerpoint);
     const path = await save({
       defaultPath: defaultName,
       filters: [{ name: 'PNG Image', extensions: ['png'] }],
@@ -189,7 +189,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
         if (!card) continue;
         const { base64, status } = await renderForExport(card);
         statuses.push(status);
-        const filename = claimFilename(kneeboardFilename(card.header.callsign, card.header.targetName), taken);
+        const filename = claimFilename(kneeboardFilename(card.header.callsign, card.header.targetName, card.header.targetSteerpoint), taken);
         try {
           await invoke<void>('save_kneeboard_png', { path: await join(folder, filename), base64Data: base64 });
           saved++;
@@ -250,7 +250,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
           if (!card) continue;
           const { base64, status } = await renderForExport(card);
           statuses.push(status);
-          const filename = claimFilename(kneeboardFilename(card.header.callsign, card.header.targetName), taken);
+          const filename = claimFilename(kneeboardFilename(card.header.callsign, card.header.targetName, card.header.targetSteerpoint), taken);
           try {
             await invoke<void>('save_kneeboard_png', { path: await join(folder, filename), base64Data: base64 });
             saved++;

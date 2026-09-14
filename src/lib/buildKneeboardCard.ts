@@ -3,10 +3,10 @@ import type { Mission } from '../types/mission.types';
 import type { Attack } from '../types/attack.types';
 import type { DbWeapon, FuzeOption } from '../types/weapon.types';
 import { resolveEgressHeading, type Turn } from './attackGeometry';
-import { inferIp } from './autoBuildAttack';
 import { popupPlanOf } from './popupPlanning';
 import { describeRunIn } from './runIn';
 import { buildAttackPicture, buildSideProfile } from './attackPicture';
+import { attackIpAnchor } from './ipAnchor';
 import { runAttackChecks } from './attackChecks';
 import { getTheaterInfo } from '../stores/theaterStore';
 import { compareThreatsForCard, CARD_THREAT_POOL } from './cardThreats';
@@ -94,11 +94,10 @@ interface RunInGeo {
 
 function describeRunInForCard(mission: Mission, attack: Attack, target: Mission['waypoints'][number]): RunInGeo {
   const p = attack.profile;
-  const ipId = (p as { ipWaypointId?: string }).ipWaypointId;
-  const ip = (ipId ? mission.waypoints.find((w) => w.id === ipId) : undefined) ?? inferIp(mission, target);
-  if (!ip) return {};
-  const directBearing = bearingDeg(ip.coordinates, target.coordinates);
-  const geo: RunInGeo = { ipName: `STPT ${ip.steerpoint} ${ip.name}`, directBearing };
+  const anchor = attackIpAnchor(mission.waypoints, attack);
+  if (!anchor) return {};
+  const directBearing = bearingDeg(anchor.point, target.coordinates);
+  const geo: RunInGeo = { ipName: anchor.label, directBearing };
   const story = describeRunIn(p, directBearing, target.elevation_ft ?? 0);
   if (!story) {
     // A save that predates the action point: the heading is all we know.
@@ -238,9 +237,8 @@ const fmtHeading = (h?: number) =>
  */
 function buildDiagramData(mission: Mission, attack: Attack, target: Mission['waypoints'][number]): KneeboardDiagramData | undefined {
   const p = attack.profile;
-  const ipId = (p as { ipWaypointId?: string }).ipWaypointId;
-  const ip = (ipId ? mission.waypoints.find((w) => w.id === ipId) : undefined) ?? inferIp(mission, target);
-  const picture = buildAttackPicture(attack, ip, target);
+  const ipAnchor = attackIpAnchor(mission.waypoints, attack);
+  const picture = buildAttackPicture(attack, ipAnchor, target);
   const side = buildSideProfile(attack, target.elevation_ft ?? 0);
   if (!picture && !side) return undefined;
   const heading = picture?.attackHeading ?? (p as { ingressHeading_deg?: number }).ingressHeading_deg ?? (p as { runInHeading_deg?: number }).runInHeading_deg;
@@ -317,18 +315,16 @@ export function buildKneeboardCard(
     .sort(compareThreatsForCard)
     .slice(0, CARD_THREAT_POOL);
 
-  // IP waypoint name for egress section (popup CCIP only)
+  // IP anchor name for egress section (popup CCIP only)
   let fenceOutWaypoint: string | undefined;
   // Run-in heading: user override if set, otherwise the natural IP→Target bearing
   let runInHeading: number | undefined;
   if (attack.profile.type === 'popup_ccip') {
     const popupProfile = attack.profile;
-    if (popupProfile.ipWaypointId) {
-      const ipWp = mission.waypoints.find((w) => w.id === popupProfile.ipWaypointId);
-      if (ipWp) {
-        fenceOutWaypoint = `STPT ${ipWp.steerpoint} - ${ipWp.name}`;
-        runInHeading = bearingDeg(ipWp.coordinates, targetPos);
-      }
+    const anchor = attackIpAnchor(mission.waypoints, attack);
+    if (anchor) {
+      fenceOutWaypoint = anchor.waypoint ? `${anchor.shortLabel} - ${anchor.waypoint.name}` : anchor.label;
+      runInHeading = bearingDeg(anchor.point, targetPos);
     }
     if (
       popupProfile.runInHeading_deg != null &&
@@ -415,8 +411,14 @@ export function buildKneeboardCard(
   };
 }
 
-/** Generate a safe filename for a kneeboard card */
-export function kneeboardFilename(callsign: string, targetName: string): string {
+/**
+ * Generate a safe filename for a kneeboard card. Plenty of waypoints are
+ * never named (see the free-text waypoint policy), so an empty targetName
+ * falls back to the steerpoint — otherwise the name segment vanishes and the
+ * file ends in a bare, confusing trailing underscore before ".png".
+ */
+export function kneeboardFilename(callsign: string, targetName: string, targetSteerpoint?: number): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9\-_]/g, '_').replace(/_+/g, '_');
-  return `${safe(callsign)}_${safe(targetName)}.png`;
+  const target = targetName.trim() || (targetSteerpoint != null ? `STPT${targetSteerpoint}` : 'TARGET');
+  return `${safe(callsign)}_${safe(target)}.png`;
 }

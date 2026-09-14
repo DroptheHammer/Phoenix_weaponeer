@@ -92,7 +92,16 @@ export function validateMission(raw: unknown): MissionCheck {
     text(attack, 'targetWaypointId', where);
     text(attack, 'attackerId', where);
     text(attack, 'profileType', where);
-    if (!isObject(attack.profile)) problems.push(`${where}: profile is missing (got ${show(attack.profile)})`);
+    if (!isObject(attack.profile)) {
+      problems.push(`${where}: profile is missing (got ${show(attack.profile)})`);
+    } else {
+      // A custom IP or a standoff release point is a free lat/lon a planner
+      // placed on the map — unlike an ipWaypointId, it is never itself
+      // checked against a real waypoint, so a shared mission file could
+      // otherwise smuggle anything through it onto the map's marker HTML.
+      if (attack.profile.customIp != null) position(attack.profile.customIp, `${where} custom IP`);
+      if (attack.profile.releasePoint != null) position(attack.profile.releasePoint, `${where} release point`);
+    }
   }
 
   if (problems.length === 0) return { ok: true, mission: raw as unknown as Mission };

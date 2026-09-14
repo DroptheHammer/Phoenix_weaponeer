@@ -12,7 +12,7 @@ pub mod profiles;
 pub mod settings;
 
 use db::Database;
-use tauri::Manager;
+use tauri::{Emitter, Manager, RunEvent};
 
 /// Application state containing the database
 pub struct AppState {
@@ -69,7 +69,23 @@ pub fn run() {
             commands::set_kneeboard_folder,
             commands::folder_exists,
             commands::suggest_kneeboard_folder,
+            commands::exit_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // The window-level close guard (`onCloseRequested` in App.tsx)
+            // never sees a macOS Cmd+Q / Dock "Quit" — that's an app-level
+            // exit request, not a window close. `code` distinguishes the
+            // two: `None` means the OS/user asked to quit, so hold it and
+            // let the frontend run its own unsaved-changes check; `Some(_)`
+            // means our own `exit_app` command asked, so let it through or
+            // this would loop forever calling exit_app and re-intercepting it.
+            if let RunEvent::ExitRequested { api, code, .. } = event {
+                if code.is_none() {
+                    api.prevent_exit();
+                    let _ = app_handle.emit("quit-requested", ());
+                }
+            }
+        });
 }

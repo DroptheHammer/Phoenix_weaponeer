@@ -8,6 +8,7 @@
 
 import type { Attack, DiveCCIPProfile, LevelCCRPProfile, PopupCCIPProfile } from '../types/attack.types';
 import type { Waypoint, Coordinates } from '../types/waypoint.types';
+import type { IpAnchor } from './ipAnchor';
 import type {
   AttackPicture,
   LineStyleKey,
@@ -104,11 +105,11 @@ const ft = (v: number) => Math.round(v).toLocaleString();
 
 function actionOf(
   profile: { actionRange_nm?: number; offsetAngle_deg?: number; offsetDirection?: 'left' | 'right'; offsetLegRatio?: number },
-  ipWaypoint: Waypoint | undefined,
+  ipAnchor: IpAnchor | undefined,
   targetWaypoint: Waypoint,
   joinRange_nm?: number,
 ): ActionPointInput | undefined {
-  if (!ipWaypoint || profile.actionRange_nm == null || profile.offsetAngle_deg == null || !profile.offsetDirection) return undefined;
+  if (!ipAnchor || profile.actionRange_nm == null || profile.offsetAngle_deg == null || !profile.offsetDirection) return undefined;
 
   // A level profile that carries a leg ratio derives BOTH the leg and the action
   // point from the live join range — the stored actionRange_nm goes stale as soon
@@ -120,7 +121,7 @@ function actionOf(
       : undefined;
 
   return {
-    directBearing_deg: calculateBearing(ipWaypoint.coordinates, targetWaypoint.coordinates),
+    directBearing_deg: calculateBearing(ipAnchor.point, targetWaypoint.coordinates),
     actionRange_nm: solved?.actionRange_nm ?? profile.actionRange_nm,
     offsetTurn_deg: profile.offsetAngle_deg,
     side: profile.offsetDirection,
@@ -155,20 +156,20 @@ const targetMarker = (position: { lat: number; lon: number }, attackHeading: num
 
 // ─── Plan view ────────────────────────────────────────────────────────────────
 
-export function buildAttackPicture(attack: Attack, ipWaypoint: Waypoint | undefined, targetWaypoint: Waypoint): AttackPicture | undefined {
+export function buildAttackPicture(attack: Attack, ipAnchor: IpAnchor | undefined, targetWaypoint: Waypoint): AttackPicture | undefined {
   switch (attack.profileType) {
     case 'dive_ccip':
-      return divePicture(attack, attack.profile as DiveCCIPProfile, ipWaypoint, targetWaypoint);
+      return divePicture(attack, attack.profile as DiveCCIPProfile, ipAnchor, targetWaypoint);
     case 'level_ccrp':
-      return levelPicture(attack, attack.profile as LevelCCRPProfile, ipWaypoint, targetWaypoint);
+      return levelPicture(attack, attack.profile as LevelCCRPProfile, ipAnchor, targetWaypoint);
     case 'popup_ccip':
-      return ipWaypoint ? popupPicture(attack.profile as PopupCCIPProfile, ipWaypoint, targetWaypoint) : undefined;
+      return ipAnchor ? popupPicture(attack.profile as PopupCCIPProfile, ipAnchor, targetWaypoint) : undefined;
     default:
       return undefined;
   }
 }
 
-function divePicture(attack: Attack, profile: DiveCCIPProfile, ipWaypoint: Waypoint | undefined, targetWaypoint: Waypoint): AttackPicture {
+function divePicture(attack: Attack, profile: DiveCCIPProfile, ipAnchor: IpAnchor | undefined, targetWaypoint: Waypoint): AttackPicture {
   const g = calculateDiveGeometry(targetWaypoint.coordinates, profile.ingressHeading_deg, {
     rollInAltitude_ft: profile.rollInAltitude_ft,
     releaseAltitude_ft: profile.releaseAltitude_ft,
@@ -177,8 +178,8 @@ function divePicture(attack: Attack, profile: DiveCCIPProfile, ipWaypoint: Waypo
     egressDirection: profile.egressDirection,
     egressHeading_deg: profile.egressHeading_deg,
     egressG: profile.pulloutG,
-    ipPoint: ipWaypoint?.coordinates,
-    action: actionOf(profile, ipWaypoint, targetWaypoint),
+    ipPoint: ipAnchor?.point,
+    action: actionOf(profile, ipAnchor, targetWaypoint),
   });
   const releaseLabel = attack.deliveryMode === 'DTOS' ? 'System release ~' : attack.deliveryMode === 'MAN' ? 'Pickle by' : 'Release by';
   const lines: PictureLine[] = g.actionPoint
@@ -213,9 +214,9 @@ function divePicture(attack: Attack, profile: DiveCCIPProfile, ipWaypoint: Waypo
     targetMarker(g.targetPoint, g.attackHeading),
   );
   const labels: PictureLabel[] = [{ kind: 'egress', position: g.egress.end, text: `Egress ${profile.egressDirection}, ${fmtHdg(g.egressHeading)}°` }];
-  if (ipWaypoint) {
+  if (ipAnchor) {
     const ingressAlt = profile.ingressAltitude_ft ?? profile.rollInAltitude_ft;
-    labels.push({ kind: 'ip', position: g.ingressStart, text: `IP: ${ft(ingressAlt)}ft AGL @ ${profile.releaseSpeed_ktas}kts → route ${fmtHdg(g.routeHeading)}°` });
+    labels.push({ kind: 'ip', position: g.ingressStart, text: `${ipAnchor.shortLabel}: ${ft(ingressAlt)}ft AGL @ ${profile.releaseSpeed_ktas}kts → route ${fmtHdg(g.routeHeading)}°` });
   }
   return {
     lines,
@@ -224,19 +225,20 @@ function divePicture(attack: Attack, profile: DiveCCIPProfile, ipWaypoint: Waypo
     attackHeading: g.attackHeading,
     egressHeading: g.egressHeading,
     egressDirection: profile.egressDirection,
+    ipShortLabel: ipAnchor?.shortLabel,
   };
 }
 
-function levelPicture(attack: Attack, profile: LevelCCRPProfile, ipWaypoint: Waypoint | undefined, targetWaypoint: Waypoint): AttackPicture {
+function levelPicture(attack: Attack, profile: LevelCCRPProfile, ipAnchor: IpAnchor | undefined, targetWaypoint: Waypoint): AttackPicture {
   const releaseAltitude_agl = Math.max(profile.releaseAltitude_ft - (targetWaypoint.elevation_ft ?? 0), 0);
   const joinRange_nm = levelReleaseRange_nm(releaseAltitude_agl, profile.releaseSpeed_ktas) + LEVEL_RUN_IN_NM;
-  const action = actionOf(profile, ipWaypoint, targetWaypoint, joinRange_nm);
+  const action = actionOf(profile, ipAnchor, targetWaypoint, joinRange_nm);
   const g = calculateLevelGeometry(targetWaypoint.coordinates, profile.ingressHeading_deg, {
     releaseAltitude_agl,
     releaseSpeed_ktas: profile.releaseSpeed_ktas,
     egressDirection: profile.egressDirection ?? 'straight',
     egressHeading_deg: profile.egressHeading_deg,
-    ipPoint: ipWaypoint?.coordinates,
+    ipPoint: ipAnchor?.point,
     action,
   });
   const mode = attack.deliveryMode ?? 'CCRP';
@@ -272,8 +274,8 @@ function levelPicture(attack: Attack, profile: LevelCCRPProfile, ipWaypoint: Way
     targetMarker(g.targetPoint, g.attackHeading),
   );
   const labels: PictureLabel[] = [{ kind: 'egress', position: g.egress.end, text: `Egress ${egressDirection}, ${fmtHdg(g.egressHeading)}°` }];
-  if (ipWaypoint) {
-    labels.push({ kind: 'ip', position: g.ingressStart, text: `IP: ${ft(profile.releaseAltitude_ft)}ft MSL @ ${profile.releaseSpeed_ktas}kts → route ${fmtHdg(g.routeHeading)}°` });
+  if (ipAnchor) {
+    labels.push({ kind: 'ip', position: g.ingressStart, text: `${ipAnchor.shortLabel}: ${ft(profile.releaseAltitude_ft)}ft MSL @ ${profile.releaseSpeed_ktas}kts → route ${fmtHdg(g.routeHeading)}°` });
   }
   return {
     lines,
@@ -282,16 +284,17 @@ function levelPicture(attack: Attack, profile: LevelCCRPProfile, ipWaypoint: Way
     attackHeading: g.attackHeading,
     egressHeading: g.egressHeading,
     egressDirection,
+    ipShortLabel: ipAnchor?.shortLabel,
   };
 }
 
-function popupPicture(profile: PopupCCIPProfile, ipWaypoint: Waypoint, targetWaypoint: Waypoint): AttackPicture {
-  const directBearing = calculateBearing(ipWaypoint.coordinates, targetWaypoint.coordinates);
+function popupPicture(profile: PopupCCIPProfile, ipAnchor: IpAnchor, targetWaypoint: Waypoint): AttackPicture {
+  const directBearing = calculateBearing(ipAnchor.point, targetWaypoint.coordinates);
   const { plan, action, pullDown_deg } = popupActionOf(profile, directBearing);
   const s = flankSign(action.side);
   const attackHeading = normalizeHeading(directBearing - s * action.offsetTurn_deg + s * pullDown_deg);
   const egressHeading = resolveEgressHeading(profile, attackHeading);
-  const g = calculatePopupGeometry(ipWaypoint.coordinates, targetWaypoint.coordinates, {
+  const g = calculatePopupGeometry(ipAnchor.point, targetWaypoint.coordinates, {
     mapDistance_ft: plan.mapDistance_ft,
     turnRadius_ft: plan.turnRadius_ft,
     popToPullDown_ft: plan.popToPullDown_ft,
@@ -353,12 +356,13 @@ function popupPicture(profile: PopupCCIPProfile, ipWaypoint: Waypoint, targetWay
       targetMarker(g.targetPoint, g.attackHeading, 'right'),
     ],
     labels: [
-      { kind: 'ip', position: g.ipPoint, text: `IP: ${ft(profile.runInAltitude_ft)}ft @ ${profile.runInSpeed_ktas}kts → route ${fmtHdg(g.routeHeading)}°` },
+      { kind: 'ip', position: g.ipPoint, text: `${ipAnchor.shortLabel}: ${ft(profile.runInAltitude_ft)}ft @ ${profile.runInSpeed_ktas}kts → route ${fmtHdg(g.routeHeading)}°` },
       { kind: 'egress', position: g.egress.end, text: `Egress ${profile.egressDirection}, ${fmtHdg(egressHeading)}°` },
     ],
     attackHeading: g.attackHeading,
     egressHeading: egressHeading,
     egressDirection: profile.egressDirection,
+    ipShortLabel: ipAnchor.shortLabel,
   };
 }
 

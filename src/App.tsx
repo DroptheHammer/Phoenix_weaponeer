@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMissionStore } from "./stores/missionStore";
 import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
@@ -41,7 +42,7 @@ const toolbarButton =
   'px-3 py-1.5 rounded-lg text-sm font-medium bg-dcs-blue hover:bg-blue-600 transition-colors';
 
 function App() {
-  const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat, focusAttackId, setFocusAttackId } =
+  const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat, updateAttack, focusAttackId, setFocusAttackId } =
     useMissionStore();
   const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
   const resetDisplayFilter = useUiStore((state) => state.resetFilter);
@@ -59,7 +60,7 @@ function App() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
-  const [threatPlacementCallback, setThreatPlacementCallback] = useState<((position: { lat: number; lon: number }) => void) | null>(null);
+  const mapPick = useUiStore((state) => state.mapPick);
   // Action held back by the unsaved-changes guard, with the phrase shown to the user.
   const [pendingAction, setPendingAction] = useState<{ label: string; run: () => void } | null>(null);
   const [fileMsg, setFileMsg] = useState<string | null>(null);
@@ -112,6 +113,39 @@ function App() {
         else unlisten = stop;
       })
       .catch((e) => console.warn('Close guard unavailable:', e));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // Cmd+Q / Dock "Quit" on macOS is an app-level exit request, not a window
+  // close — `onCloseRequested` above never sees it, which is how it used to
+  // bypass the unsaved-changes guard entirely. `lib.rs` intercepts that exit
+  // request and emits this event instead of letting the app quit; once the
+  // planner has answered (or there was nothing to save), `exit_app` actually
+  // terminates the process.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    listen('quit-requested', () => {
+      const { mission: current, isDirty: dirty } = useMissionStore.getState();
+      if (!current || !dirty) {
+        void invoke('exit_app');
+        return;
+      }
+      setPendingAction({
+        label: 'quit',
+        run: () => {
+          void invoke('exit_app');
+        },
+      });
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch((e) => console.warn('Quit guard unavailable:', e));
     return () => {
       disposed = true;
       unlisten?.();
@@ -245,15 +279,11 @@ function App() {
     removeThreat(threatId);
   };
 
-  const handleRequestThreatPlacement = (callback: (position: { lat: number; lon: number }) => void) => {
-    setThreatPlacementCallback(() => callback);
-  };
-
-  const handleMapClickForThreatPlacement = (position: { lat: number; lon: number }) => {
-    if (threatPlacementCallback) {
-      threatPlacementCallback(position);
-      setThreatPlacementCallback(null); // Exit placement mode
-    }
+  // A saved attack's custom IP, dragged on the map — mirrors handleMoveThreat.
+  const handleMoveCustomIp = (attackId: string, position: { lat: number; lon: number }) => {
+    const target = mission?.attacks.find((a) => a.id === attackId);
+    if (!target) return;
+    updateAttack(attackId, { profile: { ...target.profile, customIp: position } });
   };
 
   return (
@@ -343,8 +373,7 @@ function App() {
                 onAttackFocused={() => setFocusAttackId(null)}
                 onMoveThreat={handleMoveThreat}
                 onRemoveThreat={handleRemoveThreat}
-                isPlacementMode={!!threatPlacementCallback}
-                onPlacePosition={handleMapClickForThreatPlacement}
+                onMoveCustomIp={handleMoveCustomIp}
               />
             </div>
 
@@ -440,9 +469,12 @@ function App() {
               </button>
             </div>
 
-            {/* Right sidebar panel - slides in when active */}
+            {/* Right sidebar panel - slides in when active. Hidden (not unmounted —
+                an open AttackEditor must survive) while the map is waiting for a
+                placement click, so the click can land anywhere including the
+                strip the panel normally covers. */}
             {activePanel && (
-              <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-dcs-navy shadow-2xl z-[1000] overflow-y-auto">
+              <div className={`absolute right-0 top-0 bottom-0 w-1/3 bg-dcs-navy shadow-2xl z-[1000] overflow-y-auto ${mapPick ? 'hidden' : ''}`}>
                 {/* Panel header */}
                 <div className="sticky top-0 bg-dcs-blue p-4 flex justify-between items-center shadow-md z-10">
                   <h2 className="text-xl font-semibold capitalize">{activePanel}</h2>
@@ -457,7 +489,7 @@ function App() {
                 {/* Panel content */}
                 <div className="p-4">
                   {activePanel === 'waypoints' && <WaypointList />}
-                  {activePanel === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} onRequestPlacement={handleRequestThreatPlacement} />}
+                  {activePanel === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} />}
                   {activePanel === 'flight' && <FlightRoster aircraft={aircraft} />}
                   {activePanel === 'attacks' && <AttackList weapons={weapons} fuzeOptions={fuzeOptions} aircraft={aircraft} threatSystems={threats} onAttackSaved={() => setActivePanel(null)} />}
                   {activePanel === 'kneeboards' && (

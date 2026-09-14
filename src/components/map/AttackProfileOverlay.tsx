@@ -4,11 +4,12 @@ import type { Attack, Waypoint } from '../../types';
 import type { LineStyleKey, MarkerKind } from '../../types/attackPicture.types';
 import { MARKER_Z } from './mapLayers';
 import { buildAttackPicture, LINE_STYLE, MARKER_TAILWIND } from '../../lib/attackPicture';
+import type { IpAnchor } from '../../lib/ipAnchor';
 
 interface AttackProfileOverlayProps {
   attack: Attack;
   /** Popup attacks need one; dive and level draw a schematic run-in without it. */
-  ipWaypoint?: Waypoint;
+  ipAnchor?: IpAnchor;
   targetWaypoint: Waypoint;
   isSelected?: boolean;
   /** While placing a threat, overlay markers must not swallow the map click. */
@@ -30,8 +31,8 @@ const ll = (c: { lat: number; lon: number }): [number, number] => [c.lat, c.lon]
  * them as one overlay so two attacks' boxes (or two points on the same
  * short leg) never stack on top of each other.
  */
-export function AttackProfileOverlay({ attack, ipWaypoint, targetWaypoint, isSelected = false, isPlacementMode = false }: AttackProfileOverlayProps) {
-  const picture = buildAttackPicture(attack, ipWaypoint, targetWaypoint);
+export function AttackProfileOverlay({ attack, ipAnchor, targetWaypoint, isSelected = false, isPlacementMode = false }: AttackProfileOverlayProps) {
+  const picture = buildAttackPicture(attack, ipAnchor, targetWaypoint);
   if (!picture) return null;
 
   const pathFor = (style: LineStyleKey) => {

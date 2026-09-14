@@ -9,8 +9,10 @@ import { useTheaterInfo } from '../../stores/theaterStore';
 import { Fragment, useMemo, useEffect, useState } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
 import { AttackLabelLayer } from './AttackLabelLayer';
+import { CustomIpMarker } from './CustomIpMarker';
 import { MapLegend } from './MapLegend';
 import { buildAttackPicture, pictureFitPoints } from '../../lib/attackPicture';
+import { attackIpAnchor } from '../../lib/ipAnchor';
 import { leaderLine, type PlacedLabel } from '../../lib/labelLayout';
 import { MARKER_Z } from './mapLayers';
 import { applyDisplayFilter } from '../../lib/displayFilter';
@@ -38,10 +40,8 @@ interface MapViewProps {
   onAttackFocused?: () => void;
   onMoveThreat?: (threatId: string, position: Coordinates) => void;
   onRemoveThreat?: (threatId: string) => void;
-  // Threat placement is driven by ThreatList via onRequestPlacement: it supplies
-  // the callback, App toggles isPlacementMode, and a map click reports the position.
-  isPlacementMode?: boolean;
-  onPlacePosition?: (position: Coordinates) => void;
+  /** A saved attack's custom IP, dragged on the map. Mirrors onMoveThreat. */
+  onMoveCustomIp?: (attackId: string, position: Coordinates) => void;
   flightMembers?: FlightMember[];
 }
 
@@ -129,9 +129,8 @@ function FocusController({
       onFocused();
       return;
     }
-    const ipWaypointId = (attack.profile as { ipWaypointId?: string }).ipWaypointId;
-    const ipWaypoint = ipWaypointId ? waypoints.find((wp) => wp.id === ipWaypointId) : undefined;
-    const picture = buildAttackPicture(attack, ipWaypoint, targetWaypoint);
+    const ipAnchor = attackIpAnchor(waypoints, attack);
+    const picture = buildAttackPicture(attack, ipAnchor, targetWaypoint);
 
     const fitPoints = picture ? pictureFitPoints(picture) : [];
     const points: [number, number][] =
@@ -291,13 +290,21 @@ export function MapView({
   onAttackFocused,
   onMoveThreat,
   onRemoveThreat,
-  isPlacementMode = false,
-  onPlacePosition,
+  onMoveCustomIp,
   flightMembers = [],
 }: MapViewProps) {
   const theaterInfo = useTheaterInfo(theater);
   const center = theaterInfo?.default_center ?? { lat: 0, lon: 0 };
   const [placedLabels, setPlacedLabels] = useState<PlacedLabel[]>([]);
+
+  // What the map is waiting for a click on — armed by ThreatList or by
+  // AttackEditor's custom-IP picker. See uiStore.ts's MapPick.
+  const mapPick = useUiStore((s) => s.mapPick);
+  const deliverMapPick = useUiStore((s) => s.deliverMapPick);
+  const cancelMapPick = useUiStore((s) => s.cancelMapPick);
+  const isPlacementMode = !!mapPick;
+  // AttackEditor's live custom-IP draft, drawn draggable while it's open.
+  const ipDraft = useUiStore((s) => s.ipDraft);
 
   // Map display filter — a view-time control only. Applied here, at the draw
   // sites, and NOT fed into MapController/FocusController below: those two
@@ -355,7 +362,7 @@ export function MapView({
             of a list must highlight it, not re-frame the whole mission. */}
         <ThreatFocusController threats={threats} threatSystems={threatSystems} focusThreatId={focusThreatId} onFocused={threatFocused} />
         <AttackLabelLayer attacks={visibleAttacks} waypoints={waypoints} flightMembers={flightMembers} onPlaced={setPlacedLabels} />
-        <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={onPlacePosition} />
+        <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={deliverMapPick} />
 
         {/* Bullseye marker */}
         {bullseye && (
@@ -513,27 +520,40 @@ export function MapView({
           );
         })}
 
-        {/* Attack profile overlays */}
+        {/* Attack profile overlays, and each one's custom IP marker if it has one */}
         {visibleAttacks.map((attack) => {
           // Any profile may name an IP; only popup cannot be drawn without one
           // (the overlay itself decides that).
-          const ipWaypointId = (attack.profile as { ipWaypointId?: string }).ipWaypointId;
-          const ipWaypoint = ipWaypointId ? waypoints.find((wp) => wp.id === ipWaypointId) : undefined;
           const targetWaypoint = waypoints.find(wp => wp.id === attack.targetWaypointId);
 
           if (!targetWaypoint) return null;
+          const ipAnchor = attackIpAnchor(waypoints, attack);
+          // Suppressed while this attack's custom IP is the editor's live
+          // draft (rendered separately below) — never draw both at once.
+          const showSavedIpMarker = ipAnchor?.source === 'custom' && ipDraft?.attackId !== attack.id;
 
           return (
-            <AttackProfileOverlay
-              key={`${attack.id}-${isPlacementMode}`}
-              attack={attack}
-              ipWaypoint={ipWaypoint}
-              targetWaypoint={targetWaypoint}
-              isSelected={attack.id === selectedAttackId}
-              isPlacementMode={isPlacementMode}
-            />
+            <Fragment key={`${attack.id}-${isPlacementMode}`}>
+              <AttackProfileOverlay
+                attack={attack}
+                ipAnchor={ipAnchor}
+                targetWaypoint={targetWaypoint}
+                isSelected={attack.id === selectedAttackId}
+                isPlacementMode={isPlacementMode}
+              />
+              {showSavedIpMarker && onMoveCustomIp && (
+                <CustomIpMarker
+                  position={ipAnchor.point}
+                  onMove={(point) => onMoveCustomIp(attack.id, point)}
+                  interactive={!isPlacementMode}
+                />
+              )}
+            </Fragment>
           );
         })}
+
+        {/* The attack editor's live custom-IP draft, for a new or currently-open attack. */}
+        {ipDraft && <CustomIpMarker position={ipDraft.point} onMove={ipDraft.onMove} interactive={!isPlacementMode} />}
       </MapContainer>
 
       {/* Attack-picture labels, laid out collision-aware over every visible attack. */}
@@ -567,10 +587,13 @@ export function MapView({
         ))}
       </div>
 
-      {/* Placement mode indicator */}
-      {isPlacementMode && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-dcs-accent text-white px-6 py-3 rounded-lg shadow-lg z-[1000] font-medium">
-          Click map to place threat
+      {/* Placement mode indicator — the prompt names whatever ThreatList or AttackEditor armed. */}
+      {mapPick && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-dcs-accent text-white px-6 py-3 rounded-lg shadow-lg z-[1000] font-medium flex items-center gap-3">
+          <span>{mapPick.prompt}</span>
+          <button type="button" onClick={() => cancelMapPick()} className="text-white/80 hover:text-white text-sm underline">
+            Cancel
+          </button>
         </div>
       )}
 

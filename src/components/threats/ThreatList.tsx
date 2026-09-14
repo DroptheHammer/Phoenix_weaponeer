@@ -17,7 +17,6 @@ interface ThreatSystem {
 interface ThreatListProps {
   threatSystems: Map<string, ThreatSystem>;
   availableThreats: ThreatSystem[];
-  onRequestPlacement?: (callback: (position: Coordinates) => void) => void;
 }
 
 const STATUS_COLORS: Record<ThreatStatus, string> = {
@@ -49,8 +48,9 @@ const THREAT_TYPE_COLORS: Record<string, string> = {
   EWR: 'text-blue-400',
 };
 
-export function ThreatList({ threatSystems, availableThreats, onRequestPlacement }: ThreatListProps) {
+export function ThreatList({ threatSystems, availableThreats }: ThreatListProps) {
   const { mission, addThreat, updateThreat, removeThreat } = useMissionStore();
+  const requestMapPick = useUiStore((state) => state.requestMapPick);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState<string>('');
   const [newThreatCoords, setNewThreatCoords] = useState({ lat: '', lon: '' });
@@ -104,11 +104,6 @@ export function ThreatList({ threatSystems, availableThreats, onRequestPlacement
     return acc;
   }, {} as Record<string, ThreatSystem[]>);
 
-  // Use first target waypoint or bullseye as default position for new threats
-  const defaultPosition: Coordinates | null = mission?.waypoints.find(w => w.type === 'target')?.coordinates
-    || mission?.bullseye
-    || null;
-
   return (
     <div className="h-full flex flex-col">
       {/* Header with add button */}
@@ -121,25 +116,17 @@ export function ThreatList({ threatSystems, availableThreats, onRequestPlacement
         </div>
         <button
           onClick={() => {
-            if (onRequestPlacement) {
-              // Request map placement - when user clicks map, open modal with coords
-              onRequestPlacement((position) => {
+            requestMapPick({
+              kind: 'threat',
+              prompt: 'Click map to place threat',
+              onPick: (position) => {
                 setNewThreatCoords({
                   lat: position.lat.toFixed(5),
                   lon: position.lon.toFixed(5),
                 });
                 setShowAddModal(true);
-              });
-            } else {
-              // Fallback to default position if no map placement available
-              if (defaultPosition) {
-                setNewThreatCoords({
-                  lat: defaultPosition.lat.toFixed(5),
-                  lon: defaultPosition.lon.toFixed(5),
-                });
-              }
-              setShowAddModal(true);
-            }
+              },
+            });
           }}
           className="bg-dcs-accent hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
         >

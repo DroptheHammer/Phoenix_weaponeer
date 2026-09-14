@@ -1,12 +1,13 @@
 import type { Mission } from '../types/mission.types';
 import type { Attack, DiveCCIPProfile, LevelCCRPProfile, PopupCCIPProfile } from '../types/attack.types';
 import type { DbWeapon } from '../types/weapon.types';
-import type { Waypoint } from '../types/waypoint.types';
+import type { Coordinates, Waypoint } from '../types/waypoint.types';
 import type { DeliveryProfile, WeaponClass } from '../types/profile.types';
 import { SUPPORTED_GEOMETRIES, diveParams, levelParams, popupParams } from '../types/profile.types';
 import { weaponClassOf, WEAPON_CLASS_LABEL } from './weaponClass';
 import { calculateBearing, calculateDistance } from './coordinates';
 import { runAttackChecks, type AttackCheck } from './attackChecks';
+import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, type IpAnchor } from './ipAnchor';
 import {
   opposite,
   flankSign,
@@ -68,6 +69,8 @@ export interface AutoBuildOverrides {
    * (`inferIp`). Any waypoint may be chosen; see `resolveIp`.
    */
   ipWaypointId?: string;
+  /** A point the planner placed as the IP. Wins over `ipWaypointId`. */
+  customIp?: Coordinates;
   egressDirection?: 'left' | 'right';
 }
 
@@ -90,6 +93,7 @@ export interface AutoBuildResult {
   /** Every profile this aircraft has for this weapon class — the chips */
   candidates: DeliveryProfile[];
   ipWaypoint?: Waypoint;
+  ipAnchor?: IpAnchor;
   attackHeading?: number;
   /** Bearing IP → target: the route leg */
   directBearing?: number;
@@ -128,9 +132,7 @@ export function loadoutWeapons(attacker: Mission['flightMembers'][number] | unde
  * off the same steerpoint.)
  */
 export function inferIp(mission: Mission, target: Waypoint): Waypoint | undefined {
-  return mission.waypoints
-    .filter((wp) => wp.id !== target.id && wp.steerpoint < target.steerpoint)
-    .sort((a, b) => b.steerpoint - a.steerpoint)[0];
+  return inferIpFrom(mission.waypoints, target);
 }
 
 /**
@@ -147,10 +149,7 @@ export function resolveIp(
   target: Waypoint,
   ipWaypointId?: string,
 ): Waypoint | undefined {
-  const picked = ipWaypointId
-    ? mission.waypoints.find((wp) => wp.id === ipWaypointId && wp.id !== target.id)
-    : undefined;
-  return picked ?? inferIp(mission, target);
+  return resolveIpAnchor(mission.waypoints, target, { ipWaypointId })?.waypoint;
 }
 
 /**
@@ -168,8 +167,7 @@ export function initialIpOverride(
   target: Waypoint | undefined,
   storedIpWaypointId: string | undefined,
 ): string | undefined {
-  if (!storedIpWaypointId || !target) return undefined;
-  return inferIp(mission, target)?.id === storedIpWaypointId ? undefined : storedIpWaypointId;
+  return initialIpOverrideFrom(mission.waypoints, target, storedIpWaypointId);
 }
 
 /**
@@ -331,8 +329,9 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   }
 
   // The run-in: route to the action point, check turn, offset leg, join.
-  const ipWaypoint = resolveIp(mission, target, overrides.ipWaypointId);
-  const directBearing = ipWaypoint ? calculateBearing(ipWaypoint.coordinates, target.coordinates) : undefined;
+  const ipAnchor = resolveIpAnchor(mission.waypoints, target, { ipWaypointId: overrides.ipWaypointId, customIp: overrides.customIp });
+  const ipWaypoint = ipAnchor?.waypoint;
+  const directBearing = ipAnchor ? calculateBearing(ipAnchor.point, target.coordinates) : undefined;
   const threatSide = directBearing != null ? nearestThreatSide(mission, target, directBearing, threatSystems) : undefined;
   const side: Side = overrides.angleOffSide ?? (threatSide ? opposite(threatSide) : 'right');
   const s = flankSign(side);
@@ -345,10 +344,10 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
 
   // Chained attacks: the previous steerpoint may be closer than the action
   // range. The check turn cannot come before the leg starts, so pull it in.
-  const legLength_nm = ipWaypoint ? calculateDistance(ipWaypoint.coordinates, target.coordinates) : undefined;
+  const legLength_nm = ipAnchor ? calculateDistance(ipAnchor.point, target.coordinates) : undefined;
   if (legLength_nm != null && actionRange > legLength_nm - 0.5) {
     const pulledIn = Math.max(1, Math.floor((legLength_nm - 0.5) * 2) / 2);
-    adjustments.push(`Action point pulled in ${actionRange} → ${pulledIn} nm: STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target`);
+    adjustments.push(`Action point pulled in ${actionRange} → ${pulledIn} nm: ${ipAnchor!.shortLabel} is only ${legLength_nm.toFixed(1)} nm from the target`);
     actionRange = pulledIn;
   }
 
@@ -388,13 +387,13 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
       const shortened = achieved != null ? solveOffsetLeg(joinRange_nm, checkTurn, achieved) : undefined;
       if (shortened) {
         adjustments.push(
-          `Offset leg shortened to ${round2(achieved!)} × the run-in — STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target, so the action point sits at ${fitted} nm and the azimuth split drops ${Math.round(solution.split_deg)}° → ${Math.round(shortened.split_deg)}°`,
+          `Offset leg shortened to ${round2(achieved!)} × the run-in — ${ipAnchor!.shortLabel} is only ${legLength_nm.toFixed(1)} nm from the target, so the action point sits at ${fitted} nm and the azimuth split drops ${Math.round(solution.split_deg)}° → ${Math.round(shortened.split_deg)}°`,
         );
         ratio = achieved!;
         solution = shortened;
       } else {
         problems.push(
-          `${profile.name} needs its run-in start ${joinRange_nm.toFixed(1)} nm out, but STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
+          `${profile.name} needs its run-in start ${joinRange_nm.toFixed(1)} nm out, but ${ipAnchor!.shortLabel} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
         );
       }
     }
@@ -411,7 +410,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
       const moved = round1(Math.ceil((joinRange_nm + 1.5) * 2) / 2);
       if (legLength_nm != null && moved > legLength_nm - 0.5) {
         problems.push(
-          `${profile.name} needs its roll-in ${joinRange_nm.toFixed(1)} nm out, but STPT ${ipWaypoint!.steerpoint} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
+          `${profile.name} needs its roll-in ${joinRange_nm.toFixed(1)} nm out, but ${ipAnchor!.shortLabel} is only ${legLength_nm.toFixed(1)} nm from the target — add a waypoint before it or pick a tighter profile`,
         );
       }
       actionRange = moved;
@@ -453,7 +452,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   if (dive && diveNumbers) {
     const p: DiveCCIPProfile = {
       type: 'dive_ccip',
-      ipWaypointId: ipWaypoint?.id,
+      ...(ipAnchor?.source === 'custom' ? { customIp: ipAnchor.point, ipWaypointId: undefined } : { ipWaypointId: ipAnchor?.waypoint?.id }),
       ingressHeading_deg: attackHeading,
       ingressAltitude_ft: diveNumbers.ingress,
       rollInAltitude_ft: diveNumbers.rollIn,
@@ -471,7 +470,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   } else if (level && levelNumbers) {
     const p: LevelCCRPProfile = {
       type: 'level_ccrp',
-      ipWaypointId: ipWaypoint?.id,
+      ...(ipAnchor?.source === 'custom' ? { customIp: ipAnchor.point, ipWaypointId: undefined } : { ipWaypointId: ipAnchor?.waypoint?.id }),
       ingressHeading_deg: attackHeading,
       releaseAltitude_ft: levelNumbers.releaseMsl,
       releaseSpeed_ktas: levelNumbers.speed,
@@ -484,11 +483,11 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     attackProfile = p;
     profileType = 'level_ccrp';
   } else if (popup && popupNumbers) {
-    if (!ipWaypoint) problems.push('A pop-up needs an IP in the route');
+    if (!ipAnchor) problems.push('A pop-up needs an IP — pick a waypoint or place a custom point');
     const built = applyPopupPlan(
       {
         type: 'popup_ccip',
-        ipWaypointId: ipWaypoint?.id ?? '',
+        ...(ipAnchor?.source === 'custom' ? { customIp: ipAnchor.point, ipWaypointId: undefined } : { ipWaypointId: ipAnchor?.waypoint?.id }),
         runInHeading_deg: attackHeading,
         runInAltitude_ft: popup.runInAltitude_ft,
         runInSpeed_ktas: popupNumbers.speed,
@@ -517,7 +516,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     attackProfile = p;
     profileType = 'popup_ccip';
   } else {
-    return { attack: null, profile, weapon, weaponClass, candidates, ipWaypoint, attackHeading, directBearing, adjustments, problems, checks: [] };
+    return { attack: null, profile, weapon, weaponClass, candidates, ipWaypoint, ipAnchor, attackHeading, directBearing, adjustments, problems, checks: [] };
   }
 
   const attack: Omit<Attack, 'id'> = {
@@ -554,6 +553,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     weaponClass,
     candidates,
     ipWaypoint,
+    ipAnchor,
     attackHeading,
     directBearing,
     runIn: directBearing != null ? describeRunIn(attackProfile, directBearing, target.elevation_ft ?? 0) : undefined,
