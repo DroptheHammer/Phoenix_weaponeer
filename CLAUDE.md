@@ -139,12 +139,18 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
 - [ ] Loft geometry (LABS, F-16 loft) — profiles ship hidden, geometry unbuilt
 - [ ] FragOrders URL import (when API access provided)
 
-### Phase 5: The two banked features (NEXT)
+### Phase 5: The banked features (NEXT)
 - [ ] **Live-geometry Customize** — sliders over a map that redraws as you
       drag. Reference: `Other Items/offset-leg-geometry.html` (git-ignored).
 - [ ] **Multi-aircraft coordinated strike** — 1–4 aircraft on a joint strike,
       adjusted as a group or per aircraft. `split_deg` on `RunInSummary` is
       retained for this.
+- [ ] **Shared custom IP across a flight's attacks** — let a custom IP set on
+      one attack be picked by other attacks in the flight (so #2/#3 can fly
+      the same IP as #1), instead of each attack only carrying its own. If the
+      shared IP is deleted, every attack using it needs to fall back to Auto
+      rather than break. Not designed yet — flagged 2026-09-13 while testing
+      the per-attack custom IP feature (`src/lib/ipAnchor.ts`).
 
 ## Known Issues / Future Testing
 
@@ -197,86 +203,95 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-12 → 13 (Opus 5, user at the screen). **Two commits,
-pushed.** Gates moved **156 → 189 geo-checks** and **60 → 74 Rust tests**;
-`npm run build` clean, `cargo build` zero warnings. Plan at
-`~/.claude/plans/i-need-to-plan-transient-breeze.md`. **Version is still 0.2.0**
-— not bumped, not tagged.
+**Last session:** 2026-09-13 → 14 (Sonnet 5, user at the screen). **One
+commit so far, plus this session-notes commit, both to be pushed.** Rust
+tests steady at **74**; `npm run build` clean, `cargo build`/`cargo test`
+clean. Plan at `~/.claude/plans/what-s-the-testing-plan-cozy-falcon.md`.
+**Version is still 0.2.0** — not bumped, not tagged.
 
 | Commit | What |
 |---|---|
-| `fea03ad` | Kneeboard map layer, per-aircraft DCS folders, and the 0.2.1 security sweep |
-| (next) | Session notes; adds `test-data/sinai_m01_v7.json` (user-supplied, no test yet) |
+| `90f3f9d` | Custom IP for attacks, plus three bugs found and fixed while testing it |
+| (next) | Session notes |
 
-### Grey map under the card's north-up picture
+### Custom IP for attacks — shipped and tested
 
-`src/lib/kneeboardBasemap.ts` holds the pure tile maths and the loader.
-`planViewTransform` was pulled out of `drawPlanView` so alignment is testable:
-tiles land within ~0.5 px of the card's projection across the whole box. Drawing
-is two passes (`renderKneeboardCardWithMap`): draw with cached tiles, fetch the
-missing ones (8 s cap), draw again. Each export gets its own canvas.
-**Gotchas:** without `img.crossOrigin = 'anonymous'` every export throws
-(tainted canvas); greyscale is a `getImageData` loop because `ctx.filter` is
-missing from older WebKit. The wash is **0.20**, chosen from renders at Ramon AB
-(0.45 hid the runway, a contrast boost was too busy).
+Attacks can now get their Initial Point from a draggable/typed custom map
+point (radial + distance off target, or drop a pin), not just Auto (prior
+waypoint) or a chosen waypoint. Resolver logic is `src/lib/ipAnchor.ts`;
+UI is a 3-way Auto/Waypoint/Custom toggle in `AttackEditor.tsx` plus a
+draggable `CustomIpMarker.tsx`. Every consumer — the map overlay, the attack
+label layer, `autoBuildAttack`, the kneeboard card, and `validateMission`'s
+shared-mission gate — reads through the same anchor. The user tested the
+whole feature by hand (toggle, place-on-map, drag, radial/distance typing,
+mode switching, labels, kneeboard rendering, multiple attacks at once) and it
+all passed.
 
-**Reusable technique:** esbuild-bundle a TS harness into a `file://` page, then
-`"Google Chrome" --headless=new --virtual-time-budget=30000 --screenshot=…`.
-That renders real cards (and proves the PNG encode) without the Tauri app.
+**Banked while testing it, not built:** letting a custom IP set on one attack
+be reused by others in the flight, cascading to Auto if deleted. See
+`project-shared-custom-ip` and the new Phase 5 bullet below.
 
-### DCS kneeboard folders are user-chosen (user correction)
+### Three bugs found during that testing pass, all fixed
 
-The folder is never assumed. The first export per aircraft type opens the picker
-at a best guess (`settings::suggest_kneeboard_folder`), and the choice is saved in
-`<app data>/settings.json`. **⚙ Settings** has Choose…/Reset per type; the
-kneeboard panel shows each type's folder with Reset. `detect_dcs_folder` and the
-hard-coded 4-aircraft map are gone. The user wants Settings to become the home for
-preferences that matter; the "Map background" toggle still lives in `uiStore` and
-is not persisted. Memory: `project-dcs-kneeboard-folder-is-user-guided`.
+1. **Customize panel showed only common fields, missing the profile-specific
+   form, until the triangle was toggled twice.** Root cause:
+   `resetToProfile()` (called on every delivery-mode switch) cleared
+   `customized` but left `showCustomize` on — breaking the invariant that the
+   two always move together everywhere else in `AttackEditor.tsx`. A first
+   attempted fix (re-sync on `attack?.id` change) was **correctly rejected by
+   the user as not actually fixing their repro** before the real cause was
+   found — worth remembering that a plausible-looking fix still needs to be
+   checked against the user's exact repro, not just "it typechecks."
+2. **Exported kneeboard filenames for an unnamed target waypoint ended in a
+   bare trailing underscore** (`Uzi_1-2_.png`) — `kneeboardFilename()` had no
+   fallback when `targetName` is blank, which is common (see
+   `project-waypoints-are-free-text`). Now falls back to the steerpoint:
+   `Uzi_1-2_STPT2.png`.
+3. **Cmd+Q / Dock Quit on macOS bypassed the unsaved-changes guard entirely**
+   — confirmed by the user, then fixed rather than left as the documented
+   limitation. It's an app-level `RunEvent::ExitRequested` in Tauri, not a
+   window-level close, so the existing `onCloseRequested` listener never saw
+   it. `src-tauri/src/lib.rs` now intercepts it (only when
+   `code.is_none()`, i.e. user-initiated) and emits a `quit-requested` event;
+   `App.tsx` reuses the same `UnsavedChangesDialog`; a new `exit_app` Rust
+   command (carries an explicit code, so the handler doesn't re-intercept its
+   own exit) actually terminates. **Not yet re-tested** — needs the real
+   Tauri app (`npm run tauri dev` or a build), not just Vite.
 
-### 0.2.1 review — `docs/REVIEW_0.2.1.md` (status table at the top)
+### Part 2 (carryover security/UX checks from last session) — all run
 
-**Fixed:**
-- **H1:** shared mission file → script → write any file. Fixed by the
-  `validateMission` gate and `escapeHtml` in the divIcon strings.
-- **M0:** CSP turned on.
-- **M1:** save commands locked to `.json` / `.png`.
-- **M2, M3, M7:** via the per-aircraft folders.
-- **M4:** window close guard.
-- **M5:** error boundary.
-- **M6:** filename collisions.
+CSP (planner map, kneeboard map layer, PNG export), the hostile mission file,
+old save files, the window close guard (✕ button), and duplicate kneeboard
+filenames all passed. **Windows was explicitly waived by the user** —
+"almost all of these are just copies... trust that tauri is doing its cross
+platform job... raise a windows issue later" — see
+`feedback-windows-testing-not-required-every-time` in memory. Genuinely
+Windows-only surface (the folder-picker start point, WebView2 tile CORS) is
+still unverified, not passed; treat a future Windows report as new, not a
+reopened item.
 
-Memory: `project-security-posture`. **Open:** M8 (NaN from a cleared Customize
-field — plausible, write the test first) and L1–L9: dead `mlua`/`zip`/`image`/
-`rusttype` and stub commands, unused `shell:allow-open`, `npm audit fix`, setup
-`expect` panics, CI action pinning, Linux fonts, `cargo-audit` not installed.
+### 0.2.1 review — `docs/REVIEW_0.2.1.md` (status table at the top) — unchanged this session
 
-### Not yet verified by the user
-
-The user tested the map layer and the Settings/export flow on Mac.
-Multi-aircraft export can't be exercised: imports are per flight, one type.
-**Still untested** — the list given at the end of the session:
-1. **CSP**, the most likely breakage: planner tiles, marker styling, the card
-   map, and exports. Unstyled markers → `style-src`; missing tiles → `img-src`.
-2. `Other Items/hostile_mission_TEST.json` must be refused, and the title must
-   not become HACKED.
-3. The user's real older saves still open under `validateMission`.
-4. Close guard. macOS Cmd+Q may bypass it.
-5. Duplicate card names export as `_2`.
-
-**Windows has not run any of this session's work:** picker start point, tile
-CORS on WebView2, CSP.
+Still open: **M8** (NaN from a cleared Customize field — plausible, write the
+test first) and **L1–L9** (dead `mlua`/`zip`/`image`/`rusttype` and stub
+commands, unused `shell:allow-open`, `npm audit fix`, setup `expect` panics,
+CI action pinning, Linux fonts, `cargo-audit` not installed). Memory:
+`project-security-posture`.
 
 ### START OF NEXT SESSION
 
-1. **Ask whether the test list above passed**; fix what didn't.
-2. Settle the remaining review items (M8, Lows). Then bump **0.2.0 → 0.2.1** in
+1. **Re-test the Cmd+Q fix** in the real Tauri app (dirty mission → Cmd+Q →
+   expect the Unsaved Changes dialog; try both Discard and Save from it).
+2. Settle M8 and the Lows above. Then bump **0.2.0 → 0.2.1** in
    `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, and
    commit. **Ask before tagging `v0.2.1`** — the tag starts release CI.
-3. Then the banked features: **Live-geometry Customize** (half-planned in
-   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`; `MapView` reads `useUiStore`
-   display filters directly, and `MapController` re-fits on `fitKey`) and
-   **multi-aircraft coordinated strike**. Memory: `project-live-geometry-customize`.
+3. Then the banked features, in whatever order the user prefers:
+   **Live-geometry Customize** (half-planned in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`; memory
+   `project-live-geometry-customize`), **multi-aircraft coordinated strike**,
+   and **shared custom IP across a flight's attacks** (memory
+   `project-shared-custom-ip` — naturally adjacent to multi-aircraft strike,
+   worth designing together).
 
 ### Adjacent, noted but not done
 

@@ -2,6 +2,89 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Last session:** 2026-09-12 → 13 (Opus 5, user at the screen). **Two commits,
+pushed.** Gates moved **156 → 189 geo-checks** and **60 → 74 Rust tests**;
+`npm run build` clean, `cargo build` zero warnings. Plan at
+`~/.claude/plans/i-need-to-plan-transient-breeze.md`. **Version is still 0.2.0**
+— not bumped, not tagged.
+
+| Commit | What |
+|---|---|
+| `fea03ad` | Kneeboard map layer, per-aircraft DCS folders, and the 0.2.1 security sweep |
+| `72f934a` | Session notes; adds `test-data/sinai_m01_v7.json` (user-supplied, no test yet) |
+
+### Grey map under the card's north-up picture
+
+`src/lib/kneeboardBasemap.ts` holds the pure tile maths and the loader.
+`planViewTransform` was pulled out of `drawPlanView` so alignment is testable:
+tiles land within ~0.5 px of the card's projection across the whole box. Drawing
+is two passes (`renderKneeboardCardWithMap`): draw with cached tiles, fetch the
+missing ones (8 s cap), draw again. Each export gets its own canvas.
+**Gotchas:** without `img.crossOrigin = 'anonymous'` every export throws
+(tainted canvas); greyscale is a `getImageData` loop because `ctx.filter` is
+missing from older WebKit. The wash is **0.20**, chosen from renders at Ramon AB
+(0.45 hid the runway, a contrast boost was too busy).
+
+**Reusable technique:** esbuild-bundle a TS harness into a `file://` page, then
+`"Google Chrome" --headless=new --virtual-time-budget=30000 --screenshot=…`.
+That renders real cards (and proves the PNG encode) without the Tauri app.
+
+### DCS kneeboard folders are user-chosen (user correction)
+
+The folder is never assumed. The first export per aircraft type opens the picker
+at a best guess (`settings::suggest_kneeboard_folder`), and the choice is saved in
+`<app data>/settings.json`. **⚙ Settings** has Choose…/Reset per type; the
+kneeboard panel shows each type's folder with Reset. `detect_dcs_folder` and the
+hard-coded 4-aircraft map are gone. The user wants Settings to become the home for
+preferences that matter; the "Map background" toggle still lives in `uiStore` and
+is not persisted. Memory: `project-dcs-kneeboard-folder-is-user-guided`.
+
+### 0.2.1 review — `docs/REVIEW_0.2.1.md` (status table at the top)
+
+**Fixed:**
+- **H1:** shared mission file → script → write any file. Fixed by the
+  `validateMission` gate and `escapeHtml` in the divIcon strings.
+- **M0:** CSP turned on.
+- **M1:** save commands locked to `.json` / `.png`.
+- **M2, M3, M7:** via the per-aircraft folders.
+- **M4:** window close guard.
+- **M5:** error boundary.
+- **M6:** filename collisions.
+
+Memory: `project-security-posture`. **Open:** M8 (NaN from a cleared Customize
+field — plausible, write the test first) and L1–L9: dead `mlua`/`zip`/`image`/
+`rusttype` and stub commands, unused `shell:allow-open`, `npm audit fix`, setup
+`expect` panics, CI action pinning, Linux fonts, `cargo-audit` not installed.
+
+### Not yet verified by the user (as of 2026-09-13, before further testing)
+
+The user tested the map layer and the Settings/export flow on Mac.
+Multi-aircraft export can't be exercised: imports are per flight, one type.
+**Still untested at the time this was written** — the list given at the end of
+that session (see the 2026-09-13 entry above for what actually happened when
+these were run):
+1. **CSP**, the most likely breakage: planner tiles, marker styling, the card
+   map, and exports. Unstyled markers → `style-src`; missing tiles → `img-src`.
+2. `Other Items/hostile_mission_TEST.json` must be refused, and the title must
+   not become HACKED.
+3. The user's real older saves still open under `validateMission`.
+4. Close guard. macOS Cmd+Q may bypass it.
+5. Duplicate card names export as `_2`.
+
+**Windows had not run any of this session's work:** picker start point, tile
+CORS on WebView2, CSP. (Still true as of 2026-09-13 — see above.)
+
+### Adjacent, noted but not done (as of 2026-09-13)
+
+- `test-data/sinai_m01_v7.json` has no README entry or import test yet.
+- Missions saved before `3569a5c` read one high until re-imported.
+- `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after
+  its airfield.
+- DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
+- Red statics and planes are never scanned.
+- Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;
+  loft geometry.
+
 **Last session:** 2026-09-12 (Opus 5, user at the screen). **One commit.**
 Gates moved **152 → 156 geo-checks** and **58 → 60 Rust tests**;
 `npm run build` clean, `cargo build` zero warnings. Plan at
