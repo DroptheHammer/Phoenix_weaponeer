@@ -412,6 +412,22 @@ pub fn process_fragorders_json(
     })
 }
 
+/// A waypoint's name: the mission creator's text verbatim when there is any;
+/// otherwise the airfield the point is tied to (a ramp start is waypoint 0 at
+/// "Ramat David", not a blank); otherwise what the file says, as before.
+///
+/// The airfield name comes from the file's own `airdromeId`, not from our
+/// inference, so it is safe to show as a name.
+fn waypoint_name(pt: &parsers::fragorders::RoutePoint, index: usize, theater: &str) -> String {
+    let has_creator_name = pt.name.as_deref().is_some_and(|n| !n.trim().is_empty());
+    if !has_creator_name {
+        if let Some(field) = pt.airdrome_id.and_then(|id| parsers::airfields::airfield(theater, id)) {
+            return field.name.to_string();
+        }
+    }
+    pt.name.clone().unwrap_or_else(|| format!("WP{}", index))
+}
+
 /// Process a player group into the output format
 fn process_player_group(
     group: &parsers::fragorders::Group,
@@ -496,7 +512,7 @@ fn process_player_group(
                         // than renumbering the survivors out from under the
                         // planner. See docs/BUGFIX_PLAN.md.
                         steerpoint: i as i32,
-                        name: pt.name.clone().unwrap_or_else(|| format!("WP{}", i)),
+                        name: waypoint_name(pt, i, params.normalized_name),
                         wp_type,
                         position: ProcessedCoordinates { lat, lon },
                         altitude_ft: alt_ft,
@@ -1044,6 +1060,12 @@ mod tests {
         let stps: Vec<i32> = viper1.waypoints.iter().map(|w| w.steerpoint).collect();
         assert_eq!(stps, (0..14).collect::<Vec<i32>>());
 
+        // The unnamed ramp start takes its airfield's name (airdromeId 4). The
+        // landing point is tied to the same airfield but the creator named it,
+        // and the creator's text always wins.
+        assert_eq!(viper1.waypoints[0].name, "Nellis");
+        assert_eq!(viper1.waypoints[13].name, "LAND");
+
         assert!(!data.threats.is_empty(), "NTTR carries a red laydown");
     }
 
@@ -1206,10 +1228,12 @@ mod tests {
         let stps: Vec<i32> = barak.waypoints.iter().map(|w| w.steerpoint).collect();
         assert_eq!(stps, vec![0, 1, 2, 3, 4], "Barak numbers 0..4, not 1..5");
 
-        // Point 0 is `TakeOffParking` / `From Parking Area` at Ramon (airdromeId
-        // 50), alt 31 m — the ramp elevation, not a flyable altitude.
+        // Point 0 is `TakeOffParking` / `From Parking Area` at Ramat David
+        // (airdromeId 50), alt 31 m — the ramp elevation, not a flyable
+        // altitude. It is unnamed in the file, so it takes the airfield's name.
         let ramp = &barak.waypoints[0];
         assert_eq!(ramp.wp_type, "departure");
+        assert_eq!(ramp.name, "Ramat David");
         assert!(
             (ramp.altitude_ft - 102.0).abs() < 1.0,
             "ramp should be ~102 ft, got {}",
@@ -1259,6 +1283,7 @@ mod tests {
 
         let first = &bvr.waypoints[0];
         assert_eq!(first.steerpoint, 0, "air starts number from 0 as well");
+        assert_eq!(first.name, "", "an air start has no airfield (airdromeId 0), so it stays unnamed");
         assert_ne!(
             first.wp_type, "departure",
             "a plain Turning Point is not a departure point, whatever its index"

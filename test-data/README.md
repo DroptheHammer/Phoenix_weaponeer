@@ -76,10 +76,12 @@ SA-8 (`Osa 9A33 ln`), SA-11 (`SA-11 Buk LN 9A310M1`), ZSU-23-4 Shilkas and a
 
 All 8 client flights start on the ramp (`TakeOffParking` / `From Parking Area`),
 and **none of the 55 route points is named** — so every flight imports as
-waypoint 0 = the ramp (`departure`), then unnamed `nav` points from 1.
+waypoint 0 = the ramp (`departure`, named after its airfield from the point's
+`airdromeId`), then unnamed `nav` points from 1.
 
 **Barak (F-16C_50, Springfield11 1-1) is the numbering reference.** Its five
-waypoints are 0/102 ft (Ramon ramp, `airdromeId` 50), 1/676, 2/423, 3/374,
+waypoints are 0/102 ft (Ramat David ramp, `airdromeId` 50; earlier notes
+wrongly said Ramon, and the position settles it), 1/676, 2/423, 3/374,
 4/374. Waypoint 1 is ground truth read straight off the FragOrders map popup for
 this mission — *"Barak Waypoint 1, 676 MSL, N 31° 14.4023′ E 34° 39.5637′"*,
 89.3 NM out on the first leg — which pins the numbering **and** the Sinai

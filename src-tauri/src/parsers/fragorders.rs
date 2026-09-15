@@ -257,6 +257,10 @@ pub struct RoutePoint {
     pub eta_locked: Option<bool>,
     #[serde(default)]
     pub task: Option<serde_json::Value>,
+    /// The DCS airfield this point is tied to (ramp start, runway start,
+    /// landing). `0` means none. Numbered per theater — see `airfields.rs`.
+    #[serde(rename = "airdromeId", default)]
+    pub airdrome_id: Option<i64>,
 }
 
 /// Triggers container

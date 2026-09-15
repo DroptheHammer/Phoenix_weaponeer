@@ -3,6 +3,8 @@
 //! Handles the FragOrders import: DCS coordinate conversion per theater, the
 //! FragOrders mission JSON, and mapping DCS unit names onto threat systems.
 
+pub mod airfields;
+mod airfields_data;
 pub mod coordinate_conversion;
 pub mod fragorders;
 pub mod threat_mapping;
