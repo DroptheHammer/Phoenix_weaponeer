@@ -2,6 +2,92 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Last session:** 2026-09-14 (Opus 5, user at the screen). **Two commits and
+a tag, all pushed, plus this session-notes commit.** Gates: **232 geo-checks**
+(was 224), **75 Rust tests** (74 − 1 dead stub test + 2 new), `npm run build`
+clean, `cargo build` **zero warnings**, `cargo audit` **0 vulnerabilities**.
+Plan at `~/.claude/plans/what-s-next-in-this-structured-crystal.md`.
+**Version is 0.2.1, tagged.**
+
+| Commit | What |
+|---|---|
+| `2bf0a95` | Close the 0.2.1 review: M8, L1–L7, Cmd+Q verified |
+| `f4609cb` | Bump version to 0.2.1 — tagged `v0.2.1` |
+| (next) | Session notes |
+
+### 0.2.1 review closed — `docs/REVIEW_0.2.1.md` status table is current
+
+- **M4 Cmd+Q guard: tested in the real app by the user.** Discard, Save, Dock →
+  Quit, and a clean quit all behave.
+- **M8 (NaN from a cleared Customize field): confirmed, then fixed.**
+  `runAttackChecks` flags any non-finite profile number as an error, so Save is
+  blocked. `DiveForm`/`LevelForm` send a cleared optional field back to Auto,
+  keep the last value for a cleared required field, and re-derive a cleared
+  heading. The pop-up form and action-point fields already had guards.
+- **L1** Windows-safe "Saved:" filename. **L2/L3** removed `mlua`, `zip`,
+  `image`, `rusttype`, `uuid`, `thiserror`, the `exporters` module,
+  `MizParser`, the four stub commands and `chrono_now`. **L4** dropped
+  `shell:allow-open`. **L5** `npm audit fix`; `cargo-audit` installed;
+  compatible `cargo update`s for `bytes`, `time`, `tar` and `plist`
+  (→ `quick-xml` 0.41) cleared all 6 Rust advisories. **L6** a database
+  failure at launch shows an error dialog and quits. **L7** CI actions pinned
+  to commit SHAs.
+- **Found along the way:** last session's `exit_app` was inserted between
+  `reveal_profiles_dir` and its doc comment, so `#[allow(deprecated)]` landed
+  on the wrong function. Moved back, and the warning is gone.
+  `reveal_profiles_dir` has **no frontend caller**. The user chose to keep it
+  for a future "Open profiles folder" button.
+- **Not seen on screen, by the user's choice:** the L6 error dialog (it would
+  mean locking the real database). **Still open:** L8 and L9, which need a
+  Linux or Windows machine.
+
+**Break-tests (every new test shown to fail):**
+
+| Test | Broken how | Result |
+|---|---|---|
+| 6 × `attackChecks: … = NaN is an error` | today's code, before the fix | FAIL, no checks returned |
+| `a_blocked_app_data_folder_is_reported_with_its_path` | path stripped from the message | FAIL |
+| `an_unopenable_database_is_reported_with_its_path` | path stripped | **passed anyway**, because SQLite's own error text already names the file. Rewritten to `starts_with` our own wording, then FAIL |
+
+### Release
+
+`v0.2.1` tagged at `f4609cb`. This is the first release run with the
+SHA-pinned `tauri-action` / `rust-toolchain`. **CI passed on all three
+platforms** (run `34933050169`). The **draft** release has
+`Phoenix.Weaponeer_0.2.1_aarch64.dmg`, `_x64-setup.exe`, `_x64_en-US.msi`,
+`_amd64.deb`, `-1.x86_64.rpm`, `_amd64.AppImage` and the macOS `.app.tar.gz`.
+**Published 2026-09-15 at the user's request**, marked Latest.
+
+### START OF NEXT SESSION
+
+1. `v0.2.1` is released and published. Nothing is pending on it.
+2. Then a banked feature, whichever the user picks: **Live-geometry
+   Customize** (half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md`;
+   memory `project-live-geometry-customize`), or **multi-aircraft coordinated
+   strike together with shared custom IP** (memory `project-shared-custom-ip`).
+
+### Adjacent, noted but not done
+
+- The npm `uuid` advisory is left alone. It only affects v3/v5/v6, the app
+  imports only `v4`, and the fix is a breaking jump to uuid 14.
+- `Shell::open` is deprecated in favour of `tauri-plugin-opener`. It's only used
+  by the button-less `reveal_profiles_dir`.
+- `ARCHITECTURE.md` still sketches the removed stubs (`MizParser`,
+  `render_kneeboard`, `mlua`). It's the original design doc, not the current
+  code.
+- `cargo audit` still shows 11 unmaintained/unsound warnings, all deep in
+  Tauri's own dependency tree.
+- `test-data/sinai_m01_v7.json` has no README entry or import test yet.
+- Missions saved before `3569a5c` read one high until re-imported.
+- `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after
+  its airfield.
+- DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
+- Red statics and planes are never scanned.
+- Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;
+  loft geometry.
+
+---
+
 **Last session:** 2026-09-13 → 14 (Sonnet 5, user at the screen). **One
 commit so far, plus this session-notes commit, both to be pushed.** Rust
 tests steady at **74**; `npm run build` clean, `cargo build`/`cargo test`

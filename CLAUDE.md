@@ -176,7 +176,7 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
   "probable threats, location unknown" count. ⚙ Settings → Admin reveals each
   kind for the current session. The positions are still in the saved `.json`
   and the `.miz`, so this is honor-system. Sinai M01 hides its entire red
-  laydown. **Not yet checked on screen.** Memory:
+  laydown. Checked on screen by the user 2026-09-14. Memory:
   `project-hidden-threats-policy`.
 - The old Rust stubs (`render_kneeboard`, `export_to_dcs_kneeboard`,
   `parse_miz_file`, `new_mission`, the `exporters` module, `MizParser`) and
@@ -215,65 +215,73 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-14 (Opus 5, user at the screen). **Two commits and
-a tag, all pushed, plus this session-notes commit.** Gates: **232 geo-checks**
-(was 224), **75 Rust tests** (74 − 1 dead stub test + 2 new), `npm run build`
-clean, `cargo build` **zero warnings**, `cargo audit` **0 vulnerabilities**.
-Plan at `~/.claude/plans/what-s-next-in-this-structured-crystal.md`.
-**Version is 0.2.1, tagged.**
+**Last session:** 2026-09-14, continued (Opus 5, user at the screen). **Three
+commits, all pushed, plus this session-notes commit.** Gates: **246 geo-checks**
+(was 232), **83 Rust tests** (was 75), `npm run build` clean, `cargo build`
+**zero warnings**. Plan at `~/.claude/plans/ok-what-s-next-bubbly-moth.md`.
+**Version is still 0.2.1.** Everything below is unreleased, on `main`.
 
 | Commit | What |
 |---|---|
-| `2bf0a95` | Close the 0.2.1 review: M8, L1–L7, Cmd+Q verified |
-| `f4609cb` | Bump version to 0.2.1 — tagged `v0.2.1` |
+| `a20b11d` | Sinai M01 V7 fixture test and README entry |
+| `e0ad7fe` | Name unnamed airfield waypoints after their airfield |
+| `3b8cfe1` | Hide threats the mission author hid |
 | (next) | Session notes |
 
-### 0.2.1 review closed — `docs/REVIEW_0.2.1.md` status table is current
+### Sinai V7 fixture
 
-- **M4 Cmd+Q guard: tested in the real app by the user.** Discard, Save, Dock →
-  Quit, and a clean quit all behave.
-- **M8 (NaN from a cleared Customize field): confirmed, then fixed.**
-  `runAttackChecks` flags any non-finite profile number as an error, so Save is
-  blocked. `DiveForm`/`LevelForm` send a cleared optional field back to Auto,
-  keep the last value for a cleared required field, and re-derive a cleared
-  heading. The pop-up form and action-point fields already had guards.
-- **L1** Windows-safe "Saved:" filename. **L2/L3** removed `mlua`, `zip`,
-  `image`, `rusttype`, `uuid`, `thiserror`, the `exporters` module,
-  `MizParser`, the four stub commands and `chrono_now`. **L4** dropped
-  `shell:allow-open`. **L5** `npm audit fix`; `cargo-audit` installed;
-  compatible `cargo update`s for `bytes`, `time`, `tar` and `plist`
-  (→ `quick-xml` 0.41) cleared all 6 Rust advisories. **L6** a database
-  failure at launch shows an error dialog and quits. **L7** CI actions pinned
-  to commit SHAs.
-- **Found along the way:** last session's `exit_app` was inserted between
-  `reveal_profiles_dir` and its doc comment, so `#[allow(deprecated)]` landed
-  on the wrong function. Moved back, and the warning is gone.
-  `reveal_profiles_dir` has **no frontend caller**. The user chose to keep it
-  for a future "Open profiles folder" button.
-- **Not seen on screen, by the user's choice:** the L6 error dialog (it would
-  mean locking the real database). **Still open:** L8 and L9, which need a
-  Linux or Windows machine.
+Same wire shape as V6. `sinai_m01_v7_fixture_imports` pins the content
+changes: the new SA-13 (`Strela-10M3`) maps to `9K35 Strela-10`, and Spectre
+numbers 0..4. The README lists the full V6→V7 diff.
+
+### Airfield names for waypoint 0
+
+- `RoutePoint` now reads `airdromeId`. An unnamed point tied to an airfield
+  takes the airfield's name (Barak waypoint 0 reads **"Ramat David"**). The
+  creator's own text always wins, and air starts (id 0) stay blank.
+- The table in `src-tauri/src/parsers/airfields_data.rs` is **generated**:
+  `npm run gen-airfields` (`scripts/gen-airfields.mjs`), from pydcs pinned at
+  `55dc18a`. It covers 11 maps. **Iraq and Afghanistan are absent** (pydcs has
+  no terrain for them), so their points stay unnamed.
+- **Correction:** the old notes said Barak spawns at "Ramon". **Sinai airfield
+  50 is Ramat David.** Every airfield start in both fixtures sits 0.2–3.4 km
+  from its pydcs entry, and Barak's 89 NM first leg fits Ramat David, not
+  Ramon. `fixture_airfield_ids_sit_at_their_airfields` now guards this for
+  Sinai and Nevada. Other maps' ids are pydcs's word only.
+- Missions saved earlier keep a blank waypoint 0 until re-imported.
+
+### Hidden enemy threats
+
+Rules are in memory `project-hidden-threats-policy`; don't reopen them. In
+short: `hiddenOnPlanner` **or** `hidden` hides a threat from map, list,
+auto-build and cards. Planners get a "Probable threats — location unknown"
+count. ⚙ Settings → Admin has one session-only switch per flag, and a revealed
+threat counts fully. **The user checked it on screen:** Sinai M01 import, both
+switches, and relaunch resets them. The one gate is `useVisibleMission()`
+(`src/hooks/`) → `src/lib/threatVisibility.ts`. Any new threat consumer must use
+it.
 
 **Break-tests (every new test shown to fail):**
 
 | Test | Broken how | Result |
 |---|---|---|
-| 6 × `attackChecks: … = NaN is an error` | today's code, before the fix | FAIL, no checks returned |
-| `a_blocked_app_data_folder_is_reported_with_its_path` | path stripped from the message | FAIL |
-| `an_unopenable_database_is_reported_with_its_path` | path stripped | **passed anyway**, because SQLite's own error text already names the file. Rewritten to `starts_with` our own wording, then FAIL |
+| V7 Strela / Spectre asserts | pointed at the V6 file (Strela removed to reach Spectre) | FAIL each |
+| Barak "Ramat David", `known_ids_resolve…` | Ramon's name on Sinai id 50 | FAIL |
+| NTTR `LAND` stays `LAND` | airfield name overrides the creator's | FAIL |
+| `fixture_airfield_ids_sit_at_their_airfields` | Hatzor/Tel Nof ids swapped | FAIL (12.5 km off) |
+| `a_hidden_duplicate_never_swallows…` | flags dropped from the dedupe key | FAIL |
+| Sinai / NTTR hide-flag tests | group `hidden` not copied onto threats | FAIL both |
+| geo-check visibility, probable, leak guard | reveal check inverted; `visibleMission` returns the raw mission | 8 FAIL; 2 FAIL |
 
-### Release
-
-`v0.2.1` tagged at `f4609cb`. This is the first release run with the
-SHA-pinned `tauri-action` / `rust-toolchain`. **CI passed on all three
-platforms** (run `34933050169`). The **draft** release has
-`Phoenix.Weaponeer_0.2.1_aarch64.dmg`, `_x64-setup.exe`, `_x64_en-US.msi`,
-`_amd64.deb`, `-1.x86_64.rpm`, `_amd64.AppImage` and the macOS `.app.tar.gz`.
-**Published 2026-09-15 at the user's request**, marked Latest.
+**Not directly tested:** the BVR "stays blank" assert (the id-0 guard is
+redundant, so no break shows it); the card-level leak (covered only through
+`useVisibleMission` at the call site; the lib leak guard tests
+`nearestThreatSide`).
 
 ### START OF NEXT SESSION
 
-1. `v0.2.1` is released and published. Nothing is pending on it.
+1. `main` has three user-facing changes since `v0.2.1`. Ask whether to cut
+   **0.2.2** (bump the three version fields, tag, verify the draft release).
 2. Then a banked feature, whichever the user picks: **Live-geometry
    Customize** (half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md`;
    memory `project-live-geometry-customize`), or **multi-aircraft coordinated
@@ -292,6 +300,8 @@ platforms** (run `34933050169`). The **draft** release has
   Tauri's own dependency tree.
 - Missions saved before `3569a5c` read one high until re-imported.
 - DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
-- Red statics and planes are never scanned.
+- Red statics and planes are never scanned. Sinai V7 has 23 red statics and
+  4 red planes; NTTR has 35 red planes. If they are added, they must carry the
+  hide flags too.
 - Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;
   loft geometry.
