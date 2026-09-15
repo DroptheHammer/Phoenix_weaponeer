@@ -1,6 +1,6 @@
 [package]
 name = "phoenix-weaponeer"
-version = "0.2.0"
+version = "0.2.1"
 description = "Phoenix Weaponeer - DCS tactical mission planning and kneeboard generation"
 authors = ["Phoenix Squadron"]
 edition = "2021"
