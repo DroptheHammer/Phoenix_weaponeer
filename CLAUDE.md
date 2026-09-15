@@ -246,7 +246,10 @@ not here — this section is a snapshot for resuming work, not a journal.
 commits, all pushed, plus this session-notes commit.** Gates: **246 geo-checks**
 (was 232), **83 Rust tests** (was 75), `npm run build` clean, `cargo build`
 **zero warnings**. Plan at `~/.claude/plans/ok-what-s-next-bubbly-moth.md`.
-**Version is still 0.2.1.** Everything below is unreleased, on `main`.
+**Released as v0.2.2 on 2026-09-15** (commit `a84c32a`, CI run `35025480810`
+green on all three platforms, all seven installers attached, published and
+marked Latest at the user's request). The release checklist now lives at the
+top of "Release Process" above.
 
 | Commit | What |
 |---|---|
@@ -307,9 +310,8 @@ redundant, so no break shows it); the card-level leak (covered only through
 
 ### START OF NEXT SESSION
 
-1. `main` has three user-facing changes since `v0.2.1`. Ask whether to cut
-   **0.2.2** (bump the three version fields, tag, verify the draft release).
-2. Then a banked feature, whichever the user picks: **Live-geometry
+1. `v0.2.2` is released and published. Nothing is pending on it.
+2. A banked feature, whichever the user picks: **Live-geometry
    Customize** (half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md`;
    memory `project-live-geometry-customize`), or **multi-aircraft coordinated
    strike together with shared custom IP** (memory `project-shared-custom-ip`).
