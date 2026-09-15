@@ -64,6 +64,14 @@ export interface ThreatInstance {
   orientationDeg?: number; // Facing direction (for directional systems)
 
   notes?: string;
+
+  /**
+   * The mission author hid this group on the DCS mission planner / F10 map.
+   * Only ever set on imported threats; absent means not hidden, so older
+   * saved missions are unaffected. See `lib/threatVisibility.ts`.
+   */
+  hiddenOnPlanner?: boolean;
+  hiddenOnMap?: boolean;
 }
 
 export type ThreatStatus =

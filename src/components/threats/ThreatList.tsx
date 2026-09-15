@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMissionStore } from '../../stores/missionStore';
 import { useUiStore } from '../../stores/uiStore';
+import { useVisibleMission } from '../../hooks/useVisibleMission';
+import { probableThreats } from '../../lib/threatVisibility';
 import { formatCoordinatesDMS } from '../../lib/coordinates';
 import type { ThreatStatus, ThreatSource, Coordinates } from '../../types';
 
@@ -49,7 +51,13 @@ const THREAT_TYPE_COLORS: Record<string, string> = {
 };
 
 export function ThreatList({ threatSystems, availableThreats }: ThreatListProps) {
-  const { mission, addThreat, updateThreat, removeThreat } = useMissionStore();
+  const { mission: fullMission, addThreat, updateThreat, removeThreat } = useMissionStore();
+  // Every list and count below works on what this planner may see. Threats the
+  // mission author hid appear only in the probable-threats summary.
+  const mission = useVisibleMission();
+  const reveal = useUiStore((state) => state.revealHidden);
+  const probable = probableThreats(fullMission?.threats ?? [], reveal, (threat) => threat.systemId);
+  const probableCount = probable.reduce((total, p) => total + p.count, 0);
   const requestMapPick = useUiStore((state) => state.requestMapPick);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState<string>('');
@@ -185,8 +193,35 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
           </div>
         )}
 
+        {/* Probable threats: hidden by the mission author, counted by system, no positions */}
+        {probableCount > 0 && (
+          <div>
+            <h4 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
+              <span className="w-2 h-2 bg-purple-400 rounded-full"></span>
+              Probable Threats — location unknown ({probableCount})
+            </h4>
+            <p className="text-xs text-gray-400 mb-2">
+              The mission author hid where these are. Expect them, but they are not on the map, in the attack geometry or on cards.
+            </p>
+            <div className="bg-dcs-dark rounded p-2 text-sm space-y-1">
+              {probable.map((p) => {
+                const system = threatSystems.get(p.key);
+                return (
+                  <div key={p.key} className="flex justify-between gap-2">
+                    <span>
+                      {system?.name ?? p.key}
+                      {system?.nato_designation && <span className="text-gray-400"> ({system.nato_designation})</span>}
+                    </span>
+                    <span className="text-gray-400">×{p.count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Empty state */}
-        {(!mission || mission.threats.length === 0) && (
+        {(!mission || mission.threats.length === 0) && probableCount === 0 && (
           <div className="text-gray-400 text-center py-8">
             <p>No threats identified.</p>
             <p className="text-sm mt-2">Import a mission with threats or add planning threats manually.</p>

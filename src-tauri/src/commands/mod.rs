@@ -357,10 +357,14 @@ pub fn process_fragorders_json(
             if let Some(vehicles) = &country.vehicle {
                 for group in &vehicles.group {
                     let group_name = group.name.clone().unwrap_or_default();
+                    // The author's hide flags are per group, so every threat in
+                    // the group carries them. `hiddenOnMFD` is not used.
+                    let hidden_on_planner = group.hidden_on_planner.unwrap_or(false);
+                    let hidden_on_map = group.hidden.unwrap_or(false);
                     for unit in &group.units {
                         if let Some(unit_type) = &unit.unit_type {
                             if parsers::is_threat_unit(unit_type) {
-                                if let Some(threat) = process_threat_unit(
+                                if let Some(mut threat) = process_threat_unit(
                                     &group_name,
                                     unit,
                                     unit_type,
@@ -368,6 +372,8 @@ pub fn process_fragorders_json(
                                     db,
                                     &mut warnings,
                                 ) {
+                                    threat.hidden_on_planner = hidden_on_planner;
+                                    threat.hidden_on_map = hidden_on_map;
                                     threats.push(threat);
                                 }
                             }
@@ -584,6 +590,9 @@ fn process_threat_unit(
         system_id,
         system_name,
         confidence,
+        // Set by the caller, from the group's flags.
+        hidden_on_planner: false,
+        hidden_on_map: false,
     })
 }
 
@@ -681,9 +690,13 @@ fn deduplicate_threats(threats: Vec<ProcessedThreat>) -> Vec<ProcessedThreat> {
     for threat in threats {
         let dominated = result.iter().any(|existing| {
             let same_system = existing.system_id == threat.system_id;
+            // A hidden duplicate must never swallow a visible threat, or the
+            // reverse: the survivor's flags decide who gets to see the site.
+            let same_hiding = existing.hidden_on_planner == threat.hidden_on_planner
+                && existing.hidden_on_map == threat.hidden_on_map;
             let lat_diff = (existing.position.lat - threat.position.lat).abs();
             let lon_diff = (existing.position.lon - threat.position.lon).abs();
-            same_system && lat_diff < threshold && lon_diff < threshold
+            same_system && same_hiding && lat_diff < threshold && lon_diff < threshold
         });
 
         if !dominated {
@@ -861,6 +874,8 @@ mod tests {
             system_id: system_id.map(str::to_string),
             system_name: system_id.map(str::to_string),
             confidence: ThreatMatchConfidence::High,
+            hidden_on_planner: false,
+            hidden_on_map: false,
         }
     }
 
@@ -1200,6 +1215,64 @@ mod tests {
             .expect("Spectre must be offered for import");
         let stps: Vec<i32> = spectre.waypoints.iter().map(|w| w.steerpoint).collect();
         assert_eq!(stps, vec![0, 1, 2, 3, 4], "Spectre numbers 0..4 in V7");
+    }
+
+    /// Sinai M01's author hid every red ground group, with all three DCS flags
+    /// set. Every threat must carry both flags we read, so the planner shows
+    /// the laydown only as probable threats.
+    #[test]
+    fn sinai_v7_threats_carry_the_authors_hide_flags() {
+        let json = include_str!("../../../test-data/sinai_m01_v7.json");
+        let db = db::Database::open_in_memory().expect("db");
+        let data = process_fragorders_json(json, &db).expect("Sinai V7 fixture must import");
+
+        assert!(!data.threats.is_empty());
+        let unflagged: Vec<&str> = data
+            .threats
+            .iter()
+            .filter(|t| !(t.hidden_on_planner && t.hidden_on_map))
+            .map(|t| t.group_name.as_str())
+            .collect();
+        assert!(unflagged.is_empty(), "every Sinai threat is hidden both ways: {unflagged:?}");
+    }
+
+    /// NTTR predates `hiddenOnPlanner`: its groups write only `hidden`. The
+    /// SA-2 site the author hid carries the map flag and nothing else, and
+    /// groups left visible carry neither.
+    #[test]
+    fn nttr_hidden_sa2_carries_only_the_map_flag() {
+        let json = include_str!("../../../test-data/nttr_redflag_viper1.json");
+        let db = db::Database::open_in_memory().expect("db");
+        let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
+
+        let sa2: Vec<&ProcessedThreat> =
+            data.threats.iter().filter(|t| t.group_name == "Interdiction SA2").collect();
+        assert!(!sa2.is_empty(), "the hidden SA-2 site must still import");
+        assert!(
+            sa2.iter().all(|t| t.hidden_on_map && !t.hidden_on_planner),
+            "the SA-2 site is hidden on the map only"
+        );
+        assert!(
+            data.threats.iter().any(|t| !t.hidden_on_map && !t.hidden_on_planner),
+            "groups the author left visible stay visible"
+        );
+    }
+
+    #[test]
+    fn a_hidden_duplicate_never_swallows_a_visible_threat() {
+        let threat = |hidden: bool| ProcessedThreat {
+            unit_type: "Kub 2P25 ln".into(),
+            group_name: "SAM site".into(),
+            position: ProcessedCoordinates { lat: 30.0, lon: 34.0 },
+            system_id: Some("sa6".into()),
+            system_name: Some("2K12 Kub".into()),
+            confidence: ThreatMatchConfidence::High,
+            hidden_on_planner: hidden,
+            hidden_on_map: hidden,
+        };
+        let kept = deduplicate_threats(vec![threat(true), threat(false), threat(false)]);
+        assert_eq!(kept.len(), 2, "one hidden and one visible launcher survive, not one of either");
+        assert!(kept.iter().any(|t| !t.hidden_on_map), "the visible site must survive");
     }
 
     /// The bug that prompted all of this: Barak's route was numbered 1..5, so

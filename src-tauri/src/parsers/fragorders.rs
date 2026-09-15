@@ -128,6 +128,13 @@ pub struct Group {
     pub frequency: Option<f64>,
     #[serde(default)]
     pub modulation: Option<i32>,
+    /// The mission author hid this group on the F10 map.
+    #[serde(default)]
+    pub hidden: Option<bool>,
+    /// The mission author hid this group on the mission planner. Older
+    /// missions do not write this key at all.
+    #[serde(rename = "hiddenOnPlanner", default)]
+    pub hidden_on_planner: Option<bool>,
 }
 
 /// Individual unit within a group
@@ -361,6 +368,10 @@ pub struct ProcessedThreat {
     pub system_id: Option<String>,
     pub system_name: Option<String>,
     pub confidence: ThreatMatchConfidence,
+    /// The group's `hiddenOnPlanner`: the mission author hid it from planners.
+    pub hidden_on_planner: bool,
+    /// The group's `hidden`: the mission author hid it on the F10 map.
+    pub hidden_on_map: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

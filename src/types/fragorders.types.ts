@@ -67,6 +67,10 @@ export interface FragOrdersThreat {
   system_id: string | null;
   system_name: string | null;
   confidence: ThreatMatchConfidence;
+  /** The group's DCS `hiddenOnPlanner` flag. */
+  hidden_on_planner: boolean;
+  /** The group's DCS `hidden` flag (hidden on the F10 map). */
+  hidden_on_map: boolean;
 }
 
 /**

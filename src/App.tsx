@@ -6,6 +6,7 @@ import { useMissionStore } from "./stores/missionStore";
 import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
 import { useProfileStore } from "./stores/profileStore";
 import { useUiStore } from "./stores/uiStore";
+import { useVisibleMission } from "./hooks/useVisibleMission";
 import { FragOrdersImport } from "./components/import";
 import { MapView } from "./components/map/MapView";
 import { WaypointList } from "./components/waypoints/WaypointList";
@@ -47,6 +48,8 @@ function App() {
   const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
   const resetDisplayFilter = useUiStore((state) => state.resetFilter);
   const selectedAttackId = useUiStore((state) => state.selectedAttackId);
+  // Author-hidden threats removed unless revealed (⚙ Settings → Admin).
+  const visibleMission = useVisibleMission();
   const loadTheaters = useTheaterStore((state) => state.loadTheaters);
   const loadProfiles = useProfileStore((state) => state.loadProfiles);
   const loadSettings = useSettingsStore((state) => state.loadSettings);
@@ -363,7 +366,7 @@ function App() {
               <MapView
                 theater={mission.theater}
                 waypoints={mission.waypoints}
-                threats={mission.threats}
+                threats={visibleMission?.threats ?? []}
                 attacks={mission.attacks}
                 bullseye={mission.bullseye}
                 threatSystems={threatSystemMap}
@@ -435,7 +438,7 @@ function App() {
                     : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
                 }`}
               >
-                Threats ({mission.threats.length})
+                Threats ({visibleMission?.threats.length ?? 0})
               </button>
               <button
                 onClick={() => setActivePanel(activePanel === 'flight' ? null : 'flight')}

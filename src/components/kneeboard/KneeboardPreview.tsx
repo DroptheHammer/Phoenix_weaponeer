@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save, open } from '@tauri-apps/plugin-dialog';
-import { useMissionStore } from '../../stores/missionStore';
+import { useVisibleMission } from '../../hooks/useVisibleMission';
 import { useUiStore } from '../../stores/uiStore';
 import { buildKneeboardCard, kneeboardFilename, type ThreatSystemInfo } from '../../lib/buildKneeboardCard';
 import { join } from '@tauri-apps/api/path';
@@ -48,7 +48,9 @@ function exportMapNote(statuses: MapStatus[]): string {
 }
 
 export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft, onOpenSettings }: KneeboardPreviewProps) {
-  const { mission } = useMissionStore();
+  // Cards are built from what this planner may see: no author-hidden threat
+  // reaches a card unless it was revealed in ⚙ Settings → Admin.
+  const mission = useVisibleMission();
   const kneeboardMap = useUiStore((state) => state.kneeboardMap);
   const toggleKneeboardMap = useUiStore((state) => state.toggleKneeboardMap);
   const kneeboardFolders = useSettingsStore((state) => state.settings.kneeboardFolders);

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Coordinates, ThreatSource } from '../types';
+import type { HiddenReveal } from '../lib/threatVisibility';
 
 /**
  * Map display filter — a view-time control, not mission data.
@@ -100,6 +101,14 @@ interface UiState extends DisplayFilter, Selection {
    */
   ipDraft: { attackId: string | null; point: Coordinates; onMove: (point: Coordinates) => void } | null;
   setIpDraft: (draft: UiState['ipDraft']) => void;
+
+  /**
+   * Which author-hidden threats are revealed (⚙ Settings → Admin). Session
+   * only: both start false on every launch and never reach a mission file.
+   * New/Open/Import leave it alone, because it is a setting, not a map filter.
+   */
+  revealHidden: HiddenReveal;
+  setRevealHidden: (change: Partial<HiddenReveal>) => void;
 }
 
 const emptyFilter: DisplayFilter = {
@@ -170,4 +179,15 @@ export const useUiStore = create<UiState>((set, get) => ({
     pick?.onPick(position);
   },
   setIpDraft: (draft) => set({ ipDraft: draft }),
+
+  revealHidden: { onPlanner: false, onMap: false },
+  setRevealHidden: (change) =>
+    set((state) => {
+      const revealHidden = { ...state.revealHidden, ...change };
+      // Hiding again must not leave a now-hidden threat selected, with the map
+      // about to fly to it. Clearing any threat selection is simpler than
+      // working out which one, and costs at most a click.
+      const hiding = change.onPlanner === false || change.onMap === false;
+      return hiding ? { revealHidden, selectedThreatId: null, focusThreatId: null } : { revealHidden };
+    }),
 }));

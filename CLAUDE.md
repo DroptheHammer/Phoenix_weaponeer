@@ -169,6 +169,15 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
   `src-tauri/src/settings.rs`) — never auto-assumed. The picker's best-guess
   start point and the remembered-folder flow are untested on Windows, the only
   platform DCS runs on.
+- **Threats the mission author hid are hidden in the planner only**
+  (`src/lib/threatVisibility.ts`, 2026-09-14). Either DCS flag
+  (`hiddenOnPlanner`, or `hidden` on the F10 map) keeps a threat off the map,
+  the threat list, auto-build geometry and cards. Planners see only a
+  "probable threats, location unknown" count. ⚙ Settings → Admin reveals each
+  kind for the current session. The positions are still in the saved `.json`
+  and the `.miz`, so this is honor-system. Sinai M01 hides its entire red
+  laydown. **Not yet checked on screen.** Memory:
+  `project-hidden-threats-policy`.
 - The old Rust stubs (`render_kneeboard`, `export_to_dcs_kneeboard`,
   `parse_miz_file`, `new_mission`, the `exporters` module, `MizParser`) and
   their crates (`mlua`, `zip`, `image`, `rusttype`) were removed 2026-09-14
@@ -281,10 +290,7 @@ platforms** (run `34933050169`). The **draft** release has
   code.
 - `cargo audit` still shows 11 unmaintained/unsound warnings, all deep in
   Tauri's own dependency tree.
-- `test-data/sinai_m01_v7.json` has no README entry or import test yet.
 - Missions saved before `3569a5c` read one high until re-imported.
-- `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after
-  its airfield.
 - DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
 - Red statics and planes are never scanned.
 - Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;

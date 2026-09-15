@@ -77,6 +77,13 @@ export function validateMission(raw: unknown): MissionCheck {
     text(threat, 'id', where);
     text(threat, 'systemId', where);
     position(threat.position, where);
+    // A shared file could otherwise pass a truthy string and have the app
+    // treat a threat as hidden, or not, by accident.
+    for (const flag of ['hiddenOnPlanner', 'hiddenOnMap']) {
+      if (threat[flag] != null && typeof threat[flag] !== 'boolean') {
+        problems.push(`${where}: ${flag} must be true or false (got ${show(threat[flag])})`);
+      }
+    }
   }
 
   for (const [member, n] of entries('flightMembers')) {

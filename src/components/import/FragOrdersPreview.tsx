@@ -1,6 +1,14 @@
 import { useState } from 'react';
-import type { FragOrdersData, FragOrdersPlayerGroup } from '../../types';
+import type { FragOrdersData, FragOrdersPlayerGroup, FragOrdersThreat } from '../../types';
 import { getConfidenceClass } from '../../types';
+import { useUiStore } from '../../stores/uiStore';
+import { isHiddenByAuthor, isThreatVisible, probableThreats } from '../../lib/threatVisibility';
+
+/** The importer's snake_case flags, in the shape the visibility rule reads. */
+const flagsOf = (threat: FragOrdersThreat) => ({
+  hiddenOnPlanner: threat.hidden_on_planner,
+  hiddenOnMap: threat.hidden_on_map,
+});
 
 interface FragOrdersPreviewProps {
   data: FragOrdersData;
@@ -12,7 +20,18 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
   const [selectedGroupIndex, setSelectedGroupIndex] = useState(0);
 
   const selectedGroup = data.player_groups[selectedGroupIndex];
-  const knownThreats = data.threats.filter((t) => t.system_id !== null);
+  const reveal = useUiStore((state) => state.revealHidden);
+  // Threats the mission author hid are left out of the list unless revealed in
+  // ⚙ Settings → Admin, and summarised by system instead, with no positions.
+  const shownThreats = data.threats.filter((t) => isThreatVisible(flagsOf(t), reveal));
+  const hiddenCount = data.threats.length - shownThreats.length;
+  const probable = probableThreats(
+    data.threats.flatMap((t) => (t.system_name ? [{ ...flagsOf(t), name: t.system_name }] : [])),
+    reveal,
+    (t) => t.name,
+  );
+  const knownThreats = shownThreats.filter((t) => t.system_id !== null);
+  const shownUnknownCount = shownThreats.length - knownThreats.length;
   const unknownThreats = data.threats.filter((t) => t.system_id === null);
 
   return (
@@ -107,20 +126,25 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
       {/* Threats */}
       <div className="bg-dcs-dark rounded-lg p-4">
         <h3 className="font-medium mb-3">
-          Threats ({data.threats.length})
+          Threats ({shownThreats.length})
           {knownThreats.length > 0 && (
             <span className="text-green-400 text-sm ml-2">
               {knownThreats.length} identified
             </span>
           )}
-          {unknownThreats.length > 0 && (
+          {shownUnknownCount > 0 && (
             <span className="text-yellow-400 text-sm ml-2">
-              {unknownThreats.length} unknown
+              {shownUnknownCount} unknown
+            </span>
+          )}
+          {hiddenCount > 0 && (
+            <span className="text-purple-400 text-sm ml-2">
+              {hiddenCount} hidden by the mission author
             </span>
           )}
         </h3>
 
-        {data.threats.length > 0 ? (
+        {shownThreats.length > 0 ? (
           <div className="max-h-48 overflow-y-auto">
             <table className="w-full text-sm">
               <thead className="text-gray-400 text-left">
@@ -131,12 +155,15 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
-                {data.threats.slice(0, 20).map((threat, idx) => (
+                {shownThreats.slice(0, 20).map((threat, idx) => (
                   <tr key={idx}>
                     <td className="py-1 font-mono text-xs">{threat.unit_type}</td>
                     <td className="py-1">
                       {threat.system_name || (
                         <span className="text-gray-500 italic">Unknown</span>
+                      )}
+                      {isHiddenByAuthor(flagsOf(threat)) && (
+                        <span className="text-purple-400 text-xs ml-2">hidden by author</span>
                       )}
                     </td>
                     <td className={`py-1 ${getConfidenceClass(threat.confidence)}`}>
@@ -144,18 +171,29 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
                     </td>
                   </tr>
                 ))}
-                {data.threats.length > 20 && (
+                {shownThreats.length > 20 && (
                   <tr>
                     <td colSpan={3} className="py-2 text-gray-400 text-center">
-                      ... and {data.threats.length - 20} more
+                      ... and {shownThreats.length - 20} more
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : hiddenCount === 0 ? (
           <p className="text-gray-400 text-sm">No threats detected in mission.</p>
+        ) : null}
+
+        {probable.length > 0 && (
+          <div className="mt-3 text-sm">
+            <p className="text-purple-300">
+              Probable threats, location unknown. These import without positions:
+            </p>
+            <p className="text-gray-300 mt-1">
+              {probable.map((p) => `${p.key} ×${p.count}`).join(', ')}
+            </p>
+          </div>
         )}
       </div>
 

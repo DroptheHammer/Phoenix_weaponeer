@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useMissionStore } from '../../stores/missionStore';
+import { useUiStore } from '../../stores/uiStore';
+import { hiddenCounts } from '../../lib/threatVisibility';
 import { chooseKneeboardFolder, folderStillThere } from '../../lib/dcsExport';
 import type { AircraftFolderInfo } from '../../lib/kneeboardExportPlan';
 
@@ -16,6 +19,14 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
   const kneeboardFolders = useSettingsStore((state) => state.settings.kneeboardFolders);
   const warning = useSettingsStore((state) => state.warning);
   const setKneeboardFolder = useSettingsStore((state) => state.setKneeboardFolder);
+
+  const reveal = useUiStore((state) => state.revealHidden);
+  const setRevealHidden = useUiStore((state) => state.setRevealHidden);
+  const threats = useMissionStore((state) => state.mission?.threats);
+  const counts = threats ? hiddenCounts(threats) : null;
+  // Tucked away by default; open when a switch is already on, so it is never
+  // on without being visible.
+  const [showAdmin, setShowAdmin] = useState(reveal.onPlanner || reveal.onMap);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +127,47 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
                 </div>
               );
             })}
+          </div>
+
+          <div className="pt-3 mt-3 border-t border-gray-700">
+            <button
+              onClick={() => setShowAdmin((open) => !open)}
+              className="text-sm text-gray-400 hover:text-white"
+            >
+              {showAdmin ? '▾' : '▸'} Admin
+            </button>
+            {showAdmin && (
+              <div className="mt-2 space-y-2 text-sm">
+                <p className="text-xs text-gray-400">
+                  Show enemy threats the mission author hid. Once shown, they count like any other threat: map, attack
+                  geometry and cards. Both switches turn off every time the app starts. This only hides them in the
+                  planner; anyone who opens the mission file itself can still read the positions.
+                </p>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={reveal.onPlanner}
+                    onChange={(e) => setRevealHidden({ onPlanner: e.target.checked })}
+                  />
+                  Show threats hidden on the planner
+                  {counts && <span className="text-gray-400">({counts.onPlanner} in this mission)</span>}
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={reveal.onMap}
+                    onChange={(e) => setRevealHidden({ onMap: e.target.checked })}
+                  />
+                  Show threats hidden on the F10 map
+                  {counts && <span className="text-gray-400">({counts.onMap} in this mission)</span>}
+                </label>
+                {counts && counts.both > 0 && (
+                  <p className="text-xs text-amber-300">
+                    {counts.both} {counts.both === 1 ? 'is' : 'are'} hidden both ways and need both switches.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

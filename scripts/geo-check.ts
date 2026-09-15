@@ -24,7 +24,7 @@ import {
   applyPopupPlan,
 } from '../src/lib/popupPlanning';
 import { describeRunIn } from '../src/lib/runIn';
-import { inferIp, resolveIp, initialIpOverride, autoBuildAttack } from '../src/lib/autoBuildAttack';
+import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
@@ -51,6 +51,7 @@ import {
 import { planViewTransform, mapStatusOf } from '../src/lib/renderKneeboardCanvas';
 import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../src/lib/kneeboardExportPlan';
 import { validateMission } from '../src/lib/validateMission';
+import { isThreatVisible, visibleMission, probableThreats, hiddenCounts, type HideFlags } from '../src/lib/threatVisibility';
 import { escapeHtml } from '../src/lib/html';
 import { runAttackChecks, hasErrors } from '../src/lib/attackChecks';
 import { readFileSync } from 'node:fs';
@@ -1136,3 +1137,66 @@ ok('attackChecks: level releaseAltitude_ft = NaN is an error',
    hasErrors(runAttackChecks({ profileType: 'level_ccrp', profile: { ...cleanLevel, releaseAltitude_ft: NaN } as never, targetElevation_ft: 0 })));
 ok('attackChecks: an absent optional field (egress heading) is not an error',
    !hasErrors(runAttackChecks({ profileType: 'level_ccrp', profile: { ...cleanLevel, egressHeading_deg: undefined } as never, targetElevation_ft: 0 })));
+
+// ---------------------------------------------------------------------------
+// Author-hidden threats. Either DCS flag hides a threat from the planner; each
+// Admin switch reveals only its own kind; a threat hidden both ways needs both.
+// A hidden threat must never reach threat-aware geometry.
+// ---------------------------------------------------------------------------
+const revealNone = { onPlanner: false, onMap: false };
+const revealBoth = { onPlanner: true, onMap: true };
+const revealPlanner = { onPlanner: true, onMap: false };
+const revealMap = { onPlanner: false, onMap: true };
+const flagPlanner = { hiddenOnPlanner: true };
+const flagMap = { hiddenOnMap: true };
+const flagBoth = { hiddenOnPlanner: true, hiddenOnMap: true };
+ok('threatVisibility: an unflagged threat (old saves, planning threats) is always visible',
+   isThreatVisible({}, revealNone) && isThreatVisible({ hiddenOnPlanner: false, hiddenOnMap: false }, revealNone));
+ok('threatVisibility: either flag hides it with both switches off',
+   !isThreatVisible(flagPlanner, revealNone) && !isThreatVisible(flagMap, revealNone) && !isThreatVisible(flagBoth, revealNone));
+ok('threatVisibility: each switch reveals only its own kind',
+   isThreatVisible(flagPlanner, revealPlanner) && !isThreatVisible(flagMap, revealPlanner)
+   && isThreatVisible(flagMap, revealMap) && !isThreatVisible(flagPlanner, revealMap));
+ok('threatVisibility: a threat hidden both ways needs both switches',
+   !isThreatVisible(flagBoth, revealPlanner) && !isThreatVisible(flagBoth, revealMap) && isThreatVisible(flagBoth, revealBoth));
+
+const hvThreats = [
+  { id: 'h1', systemId: 'sa6', position: { lat: 31.0, lon: 34.2 }, status: 'active', source: 'mission', hiddenOnPlanner: true, hiddenOnMap: true },
+  { id: 'h2', systemId: 'sa6', position: { lat: 31.1, lon: 34.3 }, status: 'active', source: 'mission', hiddenOnPlanner: true, hiddenOnMap: true },
+  { id: 'h3', systemId: 'sa8', position: { lat: 31.2, lon: 34.4 }, status: 'active', source: 'mission', hiddenOnMap: true },
+  { id: 'v1', systemId: 'zsu234', position: { lat: 31.3, lon: 34.5 }, status: 'active', source: 'mission' },
+  { id: 'p1', systemId: 'sa8', position: { lat: 31.4, lon: 34.6 }, status: 'active', source: 'planning' },
+];
+const hvMission = { threats: hvThreats } as never as { threats: { id: string }[] };
+const hvVisibleIds = visibleMission(hvMission as never, revealNone as never) as { threats: { id: string }[] };
+ok('visibleMission: keeps only the unhidden mission threat and the planning threat',
+   hvVisibleIds.threats.map((t) => t.id).join() === 'v1,p1', hvVisibleIds.threats.map((t) => t.id).join());
+ok('visibleMission: returns the same object when nothing is hidden (memo-safe)',
+   visibleMission(hvMission as never, revealBoth) === (hvMission as never));
+const hvKeyed = hvThreats as (HideFlags & { systemId: string })[];
+const probableNone = probableThreats(hvKeyed, revealNone, (t) => t.systemId);
+ok('probableThreats: counts hidden threats by system, most numerous first',
+   JSON.stringify(probableNone) === JSON.stringify([{ key: 'sa6', count: 2 }, { key: 'sa8', count: 1 }]), JSON.stringify(probableNone));
+ok('probableThreats: carries no positions, only a key and a count',
+   probableNone.every((p) => Object.keys(p).sort().join() === 'count,key'));
+ok('probableThreats: empty once everything is revealed',
+   probableThreats(hvKeyed, revealBoth, (t) => t.systemId).length === 0);
+ok('hiddenCounts: per flag, and both ways',
+   JSON.stringify(hiddenCounts(hvThreats)) === JSON.stringify({ onPlanner: 2, onMap: 3, both: 2 }), JSON.stringify(hiddenCounts(hvThreats)));
+
+// The leak guard: a hidden SAM 2.6 nm east of a target, run-in heading north,
+// sits on the right. Threat-aware geometry must stop seeing it once it reads
+// the planner's view of the mission.
+const leakTarget = { id: 'tgt', steerpoint: 5, name: 'TGT', type: 'target', coordinates: { lat: 31.0, lon: 34.0 }, elevation_ft: 0 };
+const leakMission = { threats: [{ id: 'h', systemId: 'sa6', position: { lat: 31.0, lon: 34.05 }, status: 'active', source: 'mission', hiddenOnPlanner: true }] };
+const leakSystems = [{ id: 'sa6', max_range_nm: 13 }];
+ok('leak guard: the raw mission does see the hidden SAM on the right (so the next check can fail)',
+   nearestThreatSide(leakMission as never, leakTarget as never, 0, leakSystems) === 'right',
+   String(nearestThreatSide(leakMission as never, leakTarget as never, 0, leakSystems)));
+ok('leak guard: the planner view of the mission does not',
+   nearestThreatSide(visibleMission(leakMission as never, revealNone), leakTarget as never, 0, leakSystems) === undefined);
+
+ok('validateMission: a non-boolean hide flag is rejected',
+   !validateMission({ ...goodMission, threats: [{ ...goodMission.threats[0], hiddenOnMap: 'yes' }] }).ok);
+ok('validateMission: boolean hide flags pass',
+   validateMission({ ...goodMission, threats: [{ ...goodMission.threats[0], hiddenOnPlanner: true, hiddenOnMap: false }] }).ok);

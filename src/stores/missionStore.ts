@@ -193,6 +193,10 @@ export const useMissionStore = create<MissionState>((set, get) => ({
         status: 'active' as const,
         source: 'mission' as const,
         notes: `${t.group_name} - DCS unit: ${t.unit_type}`,
+        // The author's hide flags, carried only when set, so a threat nobody
+        // hid saves exactly as before.
+        ...(t.hidden_on_planner ? { hiddenOnPlanner: true } : {}),
+        ...(t.hidden_on_map ? { hiddenOnMap: true } : {}),
       }));
 
     // Create flight members from units (position is 1-4)

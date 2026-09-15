@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMissionStore } from '../../stores/missionStore';
+import { useVisibleMission } from '../../hooks/useVisibleMission';
 import { useProfileStore } from '../../stores/profileStore';
 import { useUiStore } from '../../stores/uiStore';
 import { Modal } from '../common/Modal';
@@ -63,7 +64,10 @@ const label = 'block text-sm font-medium mb-1';
  * who wants to change them.
  */
 export function AttackEditor({ attack, onClose, onSaved, weapons, fuzeOptions, aircraft, threatSystems = [] }: AttackEditorProps) {
-  const { mission, addAttack, updateAttack, setFocusAttackId } = useMissionStore();
+  const { addAttack, updateAttack, setFocusAttackId } = useMissionStore();
+  // Auto-build is threat-aware, so it must only ever see threats this planner
+  // may see, or the geometry would give a hidden SAM's position away.
+  const mission = useVisibleMission();
   const profiles = useProfileStore((s) => s.profiles);
   const profilesLoaded = useProfileStore((s) => s.loaded);
 
