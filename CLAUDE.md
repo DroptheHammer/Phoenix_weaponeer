@@ -260,12 +260,11 @@ SHA-pinned `tauri-action` / `rust-toolchain`. **CI passed on all three
 platforms** (run `34933050169`). The **draft** release has
 `Phoenix.Weaponeer_0.2.1_aarch64.dmg`, `_x64-setup.exe`, `_x64_en-US.msi`,
 `_amd64.deb`, `-1.x86_64.rpm`, `_amd64.AppImage` and the macOS `.app.tar.gz`.
-**It's still a draft**, waiting for the user to check it and publish.
+**Published 2026-09-15 at the user's request**, marked Latest.
 
 ### START OF NEXT SESSION
 
-1. The `v0.2.1` release CI is green. The user checks the draft release's
-   installers on GitHub and publishes it.
+1. `v0.2.1` is released and published. Nothing is pending on it.
 2. Then a banked feature, whichever the user picks: **Live-geometry
    Customize** (half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md`;
    memory `project-live-geometry-customize`), or **multi-aircraft coordinated
