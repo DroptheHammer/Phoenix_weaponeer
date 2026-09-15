@@ -91,6 +91,28 @@ in `src-tauri/src/commands/mod.rs`.
 Sinai is now **`verified: true`** — this mission is what verified it (see the
 note at the end of this file), so importing it raises no banner.
 
+### `sinai_m01_v7.json` — the same mission, re-saved
+
+Real `fragorders parse` output from `M01 V7.miz`, the mission creator's next
+revision of M01. **The wire shape is identical to V6.** A structural diff finds
+no new or removed key types, only content changes:
+
+- **Red ground:** six new vehicle groups (`TIC:Egypt Mech Inf#…`): two BMP-1
+  and two BTR-60 platoons, each with a Ural-375 truck; a second ZSU-23-4 split
+  out of what was a two-Shilka group; and an SA-13 (`Strela-10M3`), which maps
+  to `9K35 Strela-10`. Trucks and APCs are filtered out as non-threats, as
+  before.
+- **Red air:** three of the five MiG-29 flights are gone. One remaining flight
+  moved from a runway start to a ramp start.
+- **Blue:** one new ground group (`TIC:Israel Mech Inf#M113-3`). **Spectre**'s
+  route grows from 4 to 5 points, so it numbers 0..4.
+- Every group carries `startTime: 0`, as in V6. The new groups add a few more
+  of these keys, which is all a line-count diff of the two files shows.
+
+The same eight client flights import. Every route point is still unnamed (`""`).
+
+Covered by `sinai_m01_v7_fixture_imports` in `src-tauri/src/commands/mod.rs`.
+
 ### `sandbox_mission.json` — real format, but imports empty
 
 Genuine `fragorders parse` output with correct NTTR coordinates (bullseye

@@ -1120,6 +1120,66 @@ mod tests {
         }
     }
 
+    /// The re-saved M01 (V7). Same wire shape as V6; the changes are content —
+    /// six new red groups including an SA-13, one fewer MiG flight, and a fifth
+    /// route point on Spectre — so it must import through the same path with
+    /// nothing dropped and the new SHORAD mapped.
+    #[test]
+    fn sinai_m01_v7_fixture_imports() {
+        let json = include_str!("../../../test-data/sinai_m01_v7.json");
+        let db = db::Database::open_in_memory().expect("db");
+        let data = process_fragorders_json(json, &db).expect("Sinai V7 fixture must import");
+
+        assert_eq!(data.theater, "sinai");
+        assert!(data.projection_verified, "Sinai is verified; no amber banner");
+        assert!(
+            data.warnings.is_empty(),
+            "nothing should be dropped: {:?}",
+            data.warnings
+        );
+        assert_eq!(data.player_groups.len(), 8, "the same eight client flights as V6");
+
+        assert!(
+            data.threats.iter().all(|t| t.system_id.is_some()),
+            "unmapped threats: {:?}",
+            data.threats
+                .iter()
+                .filter(|t| t.system_id.is_none())
+                .map(|t| &t.unit_type)
+                .collect::<Vec<_>>()
+        );
+        let systems: Vec<&str> = data
+            .threats
+            .iter()
+            .filter_map(|t| t.system_name.as_deref())
+            .collect();
+        // V6's laydown, plus the `Strela-10M3` group V7 added.
+        for want in [
+            "S-75 Dvina",
+            "2K12 Kub",
+            "9K33 Osa",
+            "9K37 Buk",
+            "ZSU-23-4 Shilka",
+            "55G6 Nebo",
+            "P-19 Danube",
+            "9K35 Strela-10",
+        ] {
+            assert!(
+                systems.contains(&want),
+                "{want} missing from the V7 laydown: {systems:?}"
+            );
+        }
+
+        // Spectre gained a route point in V7: waypoints 0..4, where V6 had 0..3.
+        let spectre = data
+            .player_groups
+            .iter()
+            .find(|g| g.name == "Spectre")
+            .expect("Spectre must be offered for import");
+        let stps: Vec<i32> = spectre.waypoints.iter().map(|w| w.steerpoint).collect();
+        assert_eq!(stps, vec![0, 1, 2, 3, 4], "Spectre numbers 0..4 in V7");
+    }
+
     /// The bug that prompted all of this: Barak's route was numbered 1..5, so
     /// every steerpoint the planner showed — and every `STPT n` on the
     /// kneeboard card — was one higher than what the squadron reads on
