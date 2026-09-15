@@ -35,8 +35,10 @@ jobs:
           node-version: 20
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        # Pinned to a commit (was @stable); with a SHA the toolchain must be named.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
       - name: Install dependencies (Ubuntu)
@@ -53,7 +55,8 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        # Pinned to a commit (was @v0): this step runs with contents: write.
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

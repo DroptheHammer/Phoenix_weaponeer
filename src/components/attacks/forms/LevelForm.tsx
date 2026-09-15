@@ -22,8 +22,13 @@ export function LevelForm({ profile, targetElevation_ft, onChange, directBearing
     const heading = actionPointHeading(next, directBearing_deg, joinRangeOf(next));
     return heading != null ? { ...next, ingressHeading_deg: heading } : next;
   };
-  const num = (key: keyof LevelCCRPProfile) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    onChange(withHeading({ ...profile, [key]: parseFloat(e.target.value) }));
+  // A cleared optional field goes back to Auto; a cleared required field keeps
+  // its last value rather than storing NaN.
+  const num = (key: keyof LevelCCRPProfile, optional = false) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseFloat(e.target.value);
+    if (Number.isFinite(v)) onChange(withHeading({ ...profile, [key]: v }));
+    else if (optional) onChange(withHeading({ ...profile, [key]: undefined }));
+  };
   const joinRange_nm = joinRangeOf(profile);
   const computedHeading = actionPointHeading(profile, directBearing_deg, joinRange_nm);
 
@@ -37,7 +42,11 @@ export function LevelForm({ profile, targetElevation_ft, onChange, directBearing
           type="number"
           className={field}
           value={profile.ingressHeading_deg != null ? Math.round(profile.ingressHeading_deg) : ''}
-          onChange={(e) => onChange({ ...profile, ingressHeading_deg: parseFloat(e.target.value) })}
+          onChange={(e) => {
+            // Clearing the override hands the heading back to the geometry.
+            const v = parseFloat(e.target.value);
+            onChange(Number.isFinite(v) ? { ...profile, ingressHeading_deg: v } : withHeading(profile));
+          }}
         />
         <div className="text-xs text-gray-400 mt-1">Set by the geometry below; type to override</div>
       </div>
@@ -95,7 +104,7 @@ export function LevelForm({ profile, targetElevation_ft, onChange, directBearing
           className={field}
           value={profile.egressHeading_deg ?? ''}
           placeholder={`Auto: ${profile.egressDirection && profile.egressDirection !== 'straight' ? `90° ${profile.egressDirection}` : `straight ahead ${Math.round(profile.ingressHeading_deg ?? 0)}°`}`}
-          onChange={num('egressHeading_deg')}
+          onChange={num('egressHeading_deg', true)}
         />
       </div>
     </div>

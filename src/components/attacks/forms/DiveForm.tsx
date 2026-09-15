@@ -21,8 +21,13 @@ export function DiveForm({ profile, onChange, directBearing_deg }: DiveFormProps
     const heading = actionPointHeading(next, directBearing_deg, diveGroundRange_nm(next.rollInAltitude_ft, next.diveAngle_deg));
     return heading != null ? { ...next, ingressHeading_deg: heading } : next;
   };
-  const num = (key: keyof DiveCCIPProfile) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    onChange(withHeading({ ...profile, [key]: parseFloat(e.target.value) }));
+  // A cleared optional field goes back to Auto; a cleared required field keeps
+  // its last value rather than storing NaN.
+  const num = (key: keyof DiveCCIPProfile, optional = false) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseFloat(e.target.value);
+    if (Number.isFinite(v)) onChange(withHeading({ ...profile, [key]: v }));
+    else if (optional) onChange(withHeading({ ...profile, [key]: undefined }));
+  };
   const joinRange_nm = diveGroundRange_nm(profile.rollInAltitude_ft, profile.diveAngle_deg);
   const computedHeading = actionPointHeading(profile, directBearing_deg, joinRange_nm);
 
@@ -34,7 +39,11 @@ export function DiveForm({ profile, onChange, directBearing_deg }: DiveFormProps
           type="number"
           className={field}
           value={profile.ingressHeading_deg != null ? Math.round(profile.ingressHeading_deg) : ''}
-          onChange={(e) => onChange({ ...profile, ingressHeading_deg: parseFloat(e.target.value) })}
+          onChange={(e) => {
+            // Clearing the override hands the heading back to the geometry.
+            const v = parseFloat(e.target.value);
+            onChange(Number.isFinite(v) ? { ...profile, ingressHeading_deg: v } : withHeading(profile));
+          }}
         />
         <div className="text-xs text-gray-400 mt-1">Set by the geometry below; type to override</div>
       </div>
@@ -48,7 +57,7 @@ export function DiveForm({ profile, onChange, directBearing_deg }: DiveFormProps
       />
       <div>
         <label className={label}>Ingress altitude (ft AGL)</label>
-        <input type="number" className={field} value={profile.ingressAltitude_ft ?? ''} placeholder={`${profile.rollInAltitude_ft}`} onChange={num('ingressAltitude_ft')} />
+        <input type="number" className={field} value={profile.ingressAltitude_ft ?? ''} placeholder={`${profile.rollInAltitude_ft}`} onChange={num('ingressAltitude_ft', true)} />
       </div>
       <div>
         <label className={label}>Roll-in altitude (ft AGL)</label>
@@ -90,7 +99,7 @@ export function DiveForm({ profile, onChange, directBearing_deg }: DiveFormProps
           className={field}
           value={profile.egressHeading_deg ?? ''}
           placeholder={`Auto: ${Math.round(resolveEgressHeading(profile, profile.ingressHeading_deg))}°`}
-          onChange={num('egressHeading_deg')}
+          onChange={num('egressHeading_deg', true)}
         />
       </div>
     </div>

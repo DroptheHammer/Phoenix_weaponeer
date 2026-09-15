@@ -119,6 +119,15 @@ export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
   const checks: AttackCheck[] = [];
   const rp = releasePoint(profile, targetElevation_ft);
 
+  // A cleared Customize field parses to NaN, and every check below skips a
+  // non-finite number as "nothing to compare" — so it used to sail through to
+  // Save and the card. A number that is not a number is an error.
+  for (const [key, value] of Object.entries(profile)) {
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      checks.push({ level: 'error', text: `A Customize field is blank or not a number (${key})` });
+    }
+  }
+
   // Geometry that cannot be flown, regardless of weapon.
   if (isNum(rp.rollIn_agl) && isNum(rp.alt_agl) && rp.rollIn_agl <= rp.alt_agl) {
     checks.push({

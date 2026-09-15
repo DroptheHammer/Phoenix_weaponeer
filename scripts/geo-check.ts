@@ -52,6 +52,7 @@ import { planViewTransform, mapStatusOf } from '../src/lib/renderKneeboardCanvas
 import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../src/lib/kneeboardExportPlan';
 import { validateMission } from '../src/lib/validateMission';
 import { escapeHtml } from '../src/lib/html';
+import { runAttackChecks, hasErrors } from '../src/lib/attackChecks';
 import { readFileSync } from 'node:fs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -1118,3 +1119,20 @@ ok('resolveIp delegates to resolveIpAnchor',
 ok('initialIpOverride delegates to initialIpOverrideFrom',
    initialIpOverride({ waypoints: anchorWps } as never, anchorTgt as never, anchorPrior.id) === undefined &&
    initialIpOverride({ waypoints: anchorWps } as never, anchorTgt as never, anchorPicked.id) === anchorPicked.id);
+
+// ---------------------------------------------------------------------------
+// M8: a NaN in a profile (a cleared Customize field) must be an error, so Save
+// is blocked and the card flags it — never skipped as "not a number, no check".
+// ---------------------------------------------------------------------------
+const cleanDive = { type: 'dive_ccip', ingressHeading_deg: 200, rollInAltitude_ft: 8000, diveAngle_deg: 30, releaseAltitude_ft: 4500, releaseSpeed_ktas: 450, pulloutG: 4, egressDirection: 'right' };
+ok('attackChecks: a clean dive profile has no errors',
+   !hasErrors(runAttackChecks({ profileType: 'dive_ccip', profile: cleanDive as never })));
+for (const key of ['releaseAltitude_ft', 'rollInAltitude_ft', 'diveAngle_deg', 'releaseSpeed_ktas', 'ingressHeading_deg'] as const) {
+  const nanChecks = runAttackChecks({ profileType: 'dive_ccip', profile: { ...cleanDive, [key]: NaN } as never });
+  ok(`attackChecks: dive ${key} = NaN is an error`, hasErrors(nanChecks), JSON.stringify(nanChecks));
+}
+const cleanLevel = { type: 'level_ccrp', ingressHeading_deg: 200, releaseAltitude_ft: 3000, releaseSpeed_ktas: 450, egressDirection: 'right' };
+ok('attackChecks: level releaseAltitude_ft = NaN is an error',
+   hasErrors(runAttackChecks({ profileType: 'level_ccrp', profile: { ...cleanLevel, releaseAltitude_ft: NaN } as never, targetElevation_ft: 0 })));
+ok('attackChecks: an absent optional field (egress heading) is not an error',
+   !hasErrors(runAttackChecks({ profileType: 'level_ccrp', profile: { ...cleanLevel, egressHeading_deg: undefined } as never, targetElevation_ft: 0 })));

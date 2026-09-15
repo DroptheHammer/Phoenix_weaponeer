@@ -3,7 +3,7 @@
 Sample missions for manual testing of the FragOrders import path.
 
 The app imports **FragOrders CLI output**, not `.miz` files directly
-(`parse_miz_file` is still a stub). Produce a file with:
+(there is no built-in `.miz` parser). Produce a file with:
 
 ```bash
 fragorders parse mission.miz > mission.json

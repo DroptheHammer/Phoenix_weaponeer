@@ -51,50 +51,9 @@ pub struct Coordinates {
     pub lon: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MizData {
-    pub theater: String,
-    pub bullseye: Coordinates,
-    pub waypoints: Vec<Value>,
-    pub threats: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KneeboardCard {
-    pub id: String,
-    pub flight_member_id: String,
-    pub attack_id: String,
-    pub header: Value,
-    pub target_section: Value,
-    pub threat_section: Value,
-    pub attack_section: Value,
-    pub weapon_section: Value,
-    pub egress_section: Value,
-}
-
 // ============================================================================
 // Mission Commands
 // ============================================================================
-
-/// Create a new mission
-#[tauri::command]
-pub fn new_mission(name: String, theater: String) -> Result<Mission, String> {
-    let now = chrono_now();
-    Ok(Mission {
-        id: uuid::Uuid::new_v4().to_string(),
-        name,
-        date: now.split('T').next().unwrap_or(&now).to_string(),
-        theater,
-        bullseye: Coordinates { lat: 0.0, lon: 0.0 },
-        waypoints: vec![],
-        threats: vec![],
-        flight_members: vec![],
-        attacks: vec![],
-        notes: String::new(),
-        created_at: now.clone(),
-        updated_at: now,
-    })
-}
 
 /// Refuse to write anything but the one file type a command exists for. The
 /// frontend passes whatever path it has, and a command that writes any
@@ -184,11 +143,6 @@ pub fn list_delivery_profiles(app: AppHandle) -> Result<profiles::ProfileLibrary
     profiles::load_all(&dir)
 }
 
-/// Open the squadron profile folder in Finder / Explorer.
-///
-/// `Shell::open` is deprecated in favour of tauri-plugin-opener; it still
-/// works, and a second plugin for one folder-reveal is not worth it yet.
-#[allow(deprecated)]
 /// Actually terminates the app, after the frontend's unsaved-changes check
 /// (if any) has run. Carries an exit code, so `lib.rs`'s `ExitRequested`
 /// handler can tell this apart from a user-initiated Cmd+Q / Dock Quit and
@@ -198,6 +152,11 @@ pub fn exit_app(app: AppHandle) {
     app.exit(0);
 }
 
+/// Open the squadron profile folder in Finder / Explorer.
+///
+/// `Shell::open` is deprecated in favour of tauri-plugin-opener; it still
+/// works, and a second plugin for one folder-reveal is not worth it yet.
+#[allow(deprecated)]
 #[tauri::command]
 pub fn reveal_profiles_dir(app: AppHandle) -> Result<String, String> {
     let dir = profiles_dir(&app)?;
@@ -296,17 +255,6 @@ pub fn get_fuze_options(state: State<AppState>, weapon_id: String) -> Result<Vec
 // ============================================================================
 // Import Commands
 // ============================================================================
-
-/// Parse a DCS .miz file
-#[tauri::command]
-pub fn parse_miz_file(path: String) -> Result<MizData, String> {
-    // TODO: Implement .miz file parsing
-    // This will use the zip crate to extract and mlua to parse Lua files
-    Err(format!(
-        "MIZ parsing not yet implemented for: {}",
-        path
-    ))
-}
 
 /// Parse FragOrders JSON output and convert to Phoenix Weaponeer format
 ///
@@ -734,26 +682,6 @@ fn deduplicate_threats(threats: Vec<ProcessedThreat>) -> Vec<ProcessedThreat> {
 // Export Commands
 // ============================================================================
 
-/// Render a kneeboard card to PNG
-#[tauri::command]
-pub fn render_kneeboard(card: KneeboardCard) -> Result<Vec<u8>, String> {
-    // TODO: Implement kneeboard rendering using the image crate
-    let _ = card;
-    Err("Kneeboard rendering not yet implemented".to_string())
-}
-
-/// Export kneeboard cards to DCS kneeboard folder
-#[tauri::command]
-pub fn export_to_dcs_kneeboard(
-    cards: Vec<KneeboardCard>,
-    aircraft: String,
-    dcs_path: String,
-) -> Result<(), String> {
-    // TODO: Implement export to DCS kneeboard folder
-    let _ = (cards, aircraft, dcs_path);
-    Err("DCS export not yet implemented".to_string())
-}
-
 /// The eight bytes every PNG file starts with.
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
@@ -825,21 +753,6 @@ pub fn suggest_kneeboard_folder(kneeboard_path: String) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
-/// Get current timestamp in ISO format
-fn chrono_now() -> String {
-    // Simple ISO timestamp without chrono dependency
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    // Approximate ISO format (good enough for scaffolding)
-    format!("2024-01-01T00:00:{}Z", secs % 86400)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -895,10 +808,27 @@ mod tests {
         assert!(!missing.exists());
     }
 
+    fn empty_mission() -> Mission {
+        Mission {
+            id: "m1".to_string(),
+            name: "Op".to_string(),
+            date: String::new(),
+            theater: "nevada".to_string(),
+            bullseye: Coordinates { lat: 0.0, lon: 0.0 },
+            waypoints: vec![],
+            threats: vec![],
+            flight_members: vec![],
+            attacks: vec![],
+            notes: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
     #[test]
     fn a_mission_saves_only_as_json() {
         let dir = scratch_dir("mission_ext");
-        let mission = new_mission("Op".to_string(), "nevada".to_string()).unwrap();
+        let mission = empty_mission();
         let bad = dir.join("mission.bat");
         assert!(save_mission(mission.clone(), bad.to_string_lossy().into_owned()).is_err());
         assert!(!bad.exists());

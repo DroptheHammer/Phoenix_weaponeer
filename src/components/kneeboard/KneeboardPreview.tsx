@@ -156,7 +156,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     try {
       const { base64, status } = await renderForExport(card);
       await invoke<void>('save_kneeboard_png', { path, base64Data: base64 });
-      setExportMsg(`Saved: ${path.split('/').pop()}${exportMapNote([status])}`);
+      setExportMsg(`Saved: ${path.split(/[/\\]/).pop()}${exportMapNote([status])}`);
     } catch (e) {
       setExportMsg(`Error: ${String(e)}`);
     } finally {

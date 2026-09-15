@@ -18,10 +18,17 @@ reads that way, but no test or run has shown it yet.
 | M0 | **Fixed** | Real CSP in `tauri.conf.json` (`devCsp` lets Vite's dev server work; `style-src` kept out of Tauri's nonce injection so Leaflet's inline styles still apply). |
 | M1 | **Fixed** | `save_mission` writes only `.json`; `save_kneeboard_png` writes only `.png`, only PNG bytes, and no longer creates folders. |
 | M2, M3, M7 | **Fixed** | Per-aircraft kneeboard folders in ⚙ Settings (see the note under M2). |
-| M4 | **Fixed** | The window's close button runs the unsaved-changes dialog. **macOS Cmd+Q may still quit without asking.** |
+| M4 | **Fixed** | The window's close button runs the unsaved-changes dialog. macOS Cmd+Q / Dock → Quit do too (app-level `ExitRequested` → `quit-requested`) — tested in the real app 2026-09-14: Discard, Save, Dock Quit, and a clean quit all behave. |
 | M5 | **Fixed** | `ErrorBoundary` shows the error and offers **Save a copy…**. |
 | M6 | **Fixed** | Clashing card filenames get `_2`, `_3` within one export. |
-| M8, L1–L9 | Open | Not picked yet. (L1 is partly done: both multi-card exports now join paths with Tauri's `join`.) |
+| M8 | **Fixed** (2026-09-14) | Confirmed by geo-check first (six NaN tests failed). `runAttackChecks` now turns any non-finite number in a profile into an error, so Save is blocked; `DiveForm`/`LevelForm` send a cleared optional field back to Auto, keep the last value for a cleared required field, and re-derive a cleared attack heading. |
+| L1 | **Fixed** (2026-09-14) | Both multi-card exports join with Tauri's `join`; the single-card "Saved:" message splits on `/[/\\]/`. `dcsExport.ts` no longer builds paths at all. |
+| L7 | **Fixed** (2026-09-14) | `tauri-action` pinned to `84b9d35` (v0) and `rust-toolchain` to `6bed076` (stable, now named with `toolchain: stable`). GitHub's own `checkout`/`setup-node` left on `@v4`. |
+| L2, L3 | **Fixed** (2026-09-14) | Removed `mlua`, `zip`, `image`, `rusttype` (plus `uuid` and `thiserror`, whose only users went with them), the `exporters` module, `MizParser`, the stub commands `render_kneeboard` / `export_to_dcs_kneeboard` / `parse_miz_file`, `new_mission` and `chrono_now`. Rust tests 74 → 73 (the `exporters` placeholder test went with it). |
+| L4 | **Fixed** (2026-09-14) | `shell:allow-open` removed from `capabilities/default.json`. No click-through possible: nothing in the frontend calls `reveal_profiles_dir` any more (kept for a future "Open profiles folder" button, by choice), and it opens the folder from Rust, which never needed the capability. |
+| L5 | **Fixed** (2026-09-14) | `npm audit fix` cleared everything but `uuid` (the advisory is v3/v5/v6 only; the app imports only `v4`, and the fix is a breaking jump to 14 — left alone). `cargo-audit` installed: 6 vulnerabilities found, all transitive, all cleared by compatible `cargo update`s (`bytes` 1.12.1, `time` 0.3.55, `tar` 0.4.46 — a `proj-sys` build dep — and `plist` 1.10.0 → `quick-xml` 0.41.0). Now 0 vulnerabilities; 11 unmaintained/unsound warnings remain, all deep in Tauri's own tree. |
+| L6 | **Fixed** (2026-09-14) | `open_database_in` returns a plain message with the path; setup shows it in a native error dialog (non-blocking `show` — setup is on the main thread) and quits with code 1. Two new tests, both shown to fail with the path stripped from the message; Rust tests now 75. The dialog itself has not been seen on screen (skipped by choice — it would mean locking the real database). |
+| L8, L9 | Open | Need a Linux / Windows box. |
 
 ---
 
@@ -95,7 +102,7 @@ There is no `ErrorBoundary` anywhere in `src/`. A malformed shared mission, or a
 
 **Fix:** ask Windows for the Known Folder (`FOLDERID_SavedGames`).
 
-### M8. Clearing a Customize number field can save NaN — Plausible
+### M8. Clearing a Customize number field can save NaN — Confirmed, FIXED 2026-09-14
 `DiveForm.tsx:25`, `LevelForm.tsx:26` (and the pop-up fields) store `parseFloat('')` = `NaN`. `attackChecks` skips non-finite values (`attackChecks.ts:54`), so nothing turns into an error and Save stays enabled.
 
 **Failure:** the card or map shows `NaN` or a missing leg.

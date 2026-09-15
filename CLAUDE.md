@@ -169,9 +169,11 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
   `src-tauri/src/settings.rs`) — never auto-assumed. The picker's best-guess
   start point and the remembered-folder flow are untested on Windows, the only
   platform DCS runs on.
-- `render_kneeboard` and `export_to_dcs_kneeboard` are unimplemented stubs
-  returning errors. Check callers before assuming they are dead; the live
-  export path is `save_kneeboard_png`.
+- The old Rust stubs (`render_kneeboard`, `export_to_dcs_kneeboard`,
+  `parse_miz_file`, `new_mission`, the `exporters` module, `MizParser`) and
+  their crates (`mlua`, `zip`, `image`, `rusttype`) were removed 2026-09-14
+  (review L2/L3). Cards render in the frontend; the only export command is
+  `save_kneeboard_png`. `.miz` import goes through FragOrders CLI output.
 - [x] **Coordinate conversion** — ✅ FIXED, and cleared of suspicion twice
   since. proj4 Transverse Mercator per theater, pinned by landmark and
   axis-order tests. **Read the warning in the 2026-07-26 notes below before
@@ -184,6 +186,7 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
 - **Output goal:** Kneeboard cards that fit DCS format with employment parameters
 - **Aircraft focus:** F-16C initially, expandable to F/A-18C, A-10C II
 - **`Other Items/`** at the repo root is a git-ignored drop zone for screenshots, exported cards, and scratch reference pages the user wants read (e.g. `offset-leg-geometry.html`, a design reference — do not delete it). Never commit it.
+- **Permissions run through the macOS Bash sandbox (auto-allow)**, configured in `.claude/settings.json`: commands inside the project run unprompted; outside folders need `/add-dir`, new sites prompt once per session. Use the Edit/Write/Read tools for files — never python/sed heredoc edits, `cd` prefixes, or loops/globs over outside folders (memory: `feedback-commands-that-dont-prompt`).
 - **Durable lessons and decisions belong in the memory system**, not just in session notes — see `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`.
 
 ## Reference Materials
