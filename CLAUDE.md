@@ -206,98 +206,81 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-13 → 14 (Sonnet 5, user at the screen). **One
-commit so far, plus this session-notes commit, both to be pushed.** Rust
-tests steady at **74**; `npm run build` clean, `cargo build`/`cargo test`
-clean. Plan at `~/.claude/plans/what-s-the-testing-plan-cozy-falcon.md`.
-**Version is still 0.2.0** — not bumped, not tagged.
+**Last session:** 2026-09-14 (Opus 5, user at the screen). **Two commits and
+a tag, all pushed, plus this session-notes commit.** Gates: **232 geo-checks**
+(was 224), **75 Rust tests** (74 − 1 dead stub test + 2 new), `npm run build`
+clean, `cargo build` **zero warnings**, `cargo audit` **0 vulnerabilities**.
+Plan at `~/.claude/plans/what-s-next-in-this-structured-crystal.md`.
+**Version is 0.2.1, tagged.**
 
 | Commit | What |
 |---|---|
-| `90f3f9d` | Custom IP for attacks, plus three bugs found and fixed while testing it |
+| `2bf0a95` | Close the 0.2.1 review: M8, L1–L7, Cmd+Q verified |
+| `f4609cb` | Bump version to 0.2.1 — tagged `v0.2.1` |
 | (next) | Session notes |
 
-### Custom IP for attacks — shipped and tested
+### 0.2.1 review closed — `docs/REVIEW_0.2.1.md` status table is current
 
-Attacks can now get their Initial Point from a draggable/typed custom map
-point (radial + distance off target, or drop a pin), not just Auto (prior
-waypoint) or a chosen waypoint. Resolver logic is `src/lib/ipAnchor.ts`;
-UI is a 3-way Auto/Waypoint/Custom toggle in `AttackEditor.tsx` plus a
-draggable `CustomIpMarker.tsx`. Every consumer — the map overlay, the attack
-label layer, `autoBuildAttack`, the kneeboard card, and `validateMission`'s
-shared-mission gate — reads through the same anchor. The user tested the
-whole feature by hand (toggle, place-on-map, drag, radial/distance typing,
-mode switching, labels, kneeboard rendering, multiple attacks at once) and it
-all passed.
+- **M4 Cmd+Q guard: tested in the real app by the user.** Discard, Save, Dock →
+  Quit, and a clean quit all behave.
+- **M8 (NaN from a cleared Customize field): confirmed, then fixed.**
+  `runAttackChecks` flags any non-finite profile number as an error, so Save is
+  blocked. `DiveForm`/`LevelForm` send a cleared optional field back to Auto,
+  keep the last value for a cleared required field, and re-derive a cleared
+  heading. The pop-up form and action-point fields already had guards.
+- **L1** Windows-safe "Saved:" filename. **L2/L3** removed `mlua`, `zip`,
+  `image`, `rusttype`, `uuid`, `thiserror`, the `exporters` module,
+  `MizParser`, the four stub commands and `chrono_now`. **L4** dropped
+  `shell:allow-open`. **L5** `npm audit fix`; `cargo-audit` installed;
+  compatible `cargo update`s for `bytes`, `time`, `tar` and `plist`
+  (→ `quick-xml` 0.41) cleared all 6 Rust advisories. **L6** a database
+  failure at launch shows an error dialog and quits. **L7** CI actions pinned
+  to commit SHAs.
+- **Found along the way:** last session's `exit_app` was inserted between
+  `reveal_profiles_dir` and its doc comment, so `#[allow(deprecated)]` landed
+  on the wrong function. Moved back, and the warning is gone.
+  `reveal_profiles_dir` has **no frontend caller**. The user chose to keep it
+  for a future "Open profiles folder" button.
+- **Not seen on screen, by the user's choice:** the L6 error dialog (it would
+  mean locking the real database). **Still open:** L8 and L9, which need a
+  Linux or Windows machine.
 
-**Banked while testing it, not built:** letting a custom IP set on one attack
-be reused by others in the flight, cascading to Auto if deleted. See
-`project-shared-custom-ip` and the new Phase 5 bullet below.
+**Break-tests (every new test shown to fail):**
 
-### Three bugs found during that testing pass, all fixed
+| Test | Broken how | Result |
+|---|---|---|
+| 6 × `attackChecks: … = NaN is an error` | today's code, before the fix | FAIL, no checks returned |
+| `a_blocked_app_data_folder_is_reported_with_its_path` | path stripped from the message | FAIL |
+| `an_unopenable_database_is_reported_with_its_path` | path stripped | **passed anyway**, because SQLite's own error text already names the file. Rewritten to `starts_with` our own wording, then FAIL |
 
-1. **Customize panel showed only common fields, missing the profile-specific
-   form, until the triangle was toggled twice.** Root cause:
-   `resetToProfile()` (called on every delivery-mode switch) cleared
-   `customized` but left `showCustomize` on — breaking the invariant that the
-   two always move together everywhere else in `AttackEditor.tsx`. A first
-   attempted fix (re-sync on `attack?.id` change) was **correctly rejected by
-   the user as not actually fixing their repro** before the real cause was
-   found — worth remembering that a plausible-looking fix still needs to be
-   checked against the user's exact repro, not just "it typechecks."
-2. **Exported kneeboard filenames for an unnamed target waypoint ended in a
-   bare trailing underscore** (`Uzi_1-2_.png`) — `kneeboardFilename()` had no
-   fallback when `targetName` is blank, which is common (see
-   `project-waypoints-are-free-text`). Now falls back to the steerpoint:
-   `Uzi_1-2_STPT2.png`.
-3. **Cmd+Q / Dock Quit on macOS bypassed the unsaved-changes guard entirely**
-   — confirmed by the user, then fixed rather than left as the documented
-   limitation. It's an app-level `RunEvent::ExitRequested` in Tauri, not a
-   window-level close, so the existing `onCloseRequested` listener never saw
-   it. `src-tauri/src/lib.rs` now intercepts it (only when
-   `code.is_none()`, i.e. user-initiated) and emits a `quit-requested` event;
-   `App.tsx` reuses the same `UnsavedChangesDialog`; a new `exit_app` Rust
-   command (carries an explicit code, so the handler doesn't re-intercept its
-   own exit) actually terminates. **Not yet re-tested** — needs the real
-   Tauri app (`npm run tauri dev` or a build), not just Vite.
+### Release
 
-### Part 2 (carryover security/UX checks from last session) — all run
-
-CSP (planner map, kneeboard map layer, PNG export), the hostile mission file,
-old save files, the window close guard (✕ button), and duplicate kneeboard
-filenames all passed. **Windows was explicitly waived by the user** —
-"almost all of these are just copies... trust that tauri is doing its cross
-platform job... raise a windows issue later" — see
-`feedback-windows-testing-not-required-every-time` in memory. Genuinely
-Windows-only surface (the folder-picker start point, WebView2 tile CORS) is
-still unverified, not passed; treat a future Windows report as new, not a
-reopened item.
-
-### 0.2.1 review — `docs/REVIEW_0.2.1.md` (status table at the top) — unchanged this session
-
-Still open: **M8** (NaN from a cleared Customize field — plausible, write the
-test first) and **L1–L9** (dead `mlua`/`zip`/`image`/`rusttype` and stub
-commands, unused `shell:allow-open`, `npm audit fix`, setup `expect` panics,
-CI action pinning, Linux fonts, `cargo-audit` not installed). Memory:
-`project-security-posture`.
+`v0.2.1` tagged at `f4609cb`. This is the first release run with the
+SHA-pinned `tauri-action` / `rust-toolchain`. CI result: **still running when
+these notes were written.** It builds a **draft** release, which the user
+publishes by hand after checking the artifacts.
 
 ### START OF NEXT SESSION
 
-1. **Re-test the Cmd+Q fix** in the real Tauri app (dirty mission → Cmd+Q →
-   expect the Unsaved Changes dialog; try both Discard and Save from it).
-2. Settle M8 and the Lows above. Then bump **0.2.0 → 0.2.1** in
-   `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, and
-   commit. **Ask before tagging `v0.2.1`** — the tag starts release CI.
-3. Then the banked features, in whatever order the user prefers:
-   **Live-geometry Customize** (half-planned in
-   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`; memory
-   `project-live-geometry-customize`), **multi-aircraft coordinated strike**,
-   and **shared custom IP across a flight's attacks** (memory
-   `project-shared-custom-ip` — naturally adjacent to multi-aircraft strike,
-   worth designing together).
+1. Check the `v0.2.1` release run. If it's green, the user checks the draft
+   release's installers and publishes it. If it's red, fix it first. The pinned
+   action SHAs are the new variable.
+2. Then a banked feature, whichever the user picks: **Live-geometry
+   Customize** (half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md`;
+   memory `project-live-geometry-customize`), or **multi-aircraft coordinated
+   strike together with shared custom IP** (memory `project-shared-custom-ip`).
 
 ### Adjacent, noted but not done
 
+- The npm `uuid` advisory is left alone. It only affects v3/v5/v6, the app
+  imports only `v4`, and the fix is a breaking jump to uuid 14.
+- `Shell::open` is deprecated in favour of `tauri-plugin-opener`. It's only used
+  by the button-less `reveal_profiles_dir`.
+- `ARCHITECTURE.md` still sketches the removed stubs (`MizParser`,
+  `render_kneeboard`, `mlua`). It's the original design doc, not the current
+  code.
+- `cargo audit` still shows 11 unmaintained/unsound warnings, all deep in
+  Tauri's own dependency tree.
 - `test-data/sinai_m01_v7.json` has no README entry or import test yet.
 - Missions saved before `3569a5c` read one high until re-imported.
 - `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after

@@ -2,6 +2,109 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Last session:** 2026-09-13 → 14 (Sonnet 5, user at the screen). **One
+commit so far, plus this session-notes commit, both to be pushed.** Rust
+tests steady at **74**; `npm run build` clean, `cargo build`/`cargo test`
+clean. Plan at `~/.claude/plans/what-s-the-testing-plan-cozy-falcon.md`.
+**Version is still 0.2.0** — not bumped, not tagged.
+
+| Commit | What |
+|---|---|
+| `90f3f9d` | Custom IP for attacks, plus three bugs found and fixed while testing it |
+| `690220b` | Session notes |
+
+### Custom IP for attacks — shipped and tested
+
+Attacks can now get their Initial Point from a draggable/typed custom map
+point (radial + distance off target, or drop a pin), not just Auto (prior
+waypoint) or a chosen waypoint. Resolver logic is `src/lib/ipAnchor.ts`;
+UI is a 3-way Auto/Waypoint/Custom toggle in `AttackEditor.tsx` plus a
+draggable `CustomIpMarker.tsx`. Every consumer — the map overlay, the attack
+label layer, `autoBuildAttack`, the kneeboard card, and `validateMission`'s
+shared-mission gate — reads through the same anchor. The user tested the
+whole feature by hand (toggle, place-on-map, drag, radial/distance typing,
+mode switching, labels, kneeboard rendering, multiple attacks at once) and it
+all passed.
+
+**Banked while testing it, not built:** letting a custom IP set on one attack
+be reused by others in the flight, cascading to Auto if deleted. See
+`project-shared-custom-ip` and the new Phase 5 bullet below.
+
+### Three bugs found during that testing pass, all fixed
+
+1. **Customize panel showed only common fields, missing the profile-specific
+   form, until the triangle was toggled twice.** Root cause:
+   `resetToProfile()` (called on every delivery-mode switch) cleared
+   `customized` but left `showCustomize` on — breaking the invariant that the
+   two always move together everywhere else in `AttackEditor.tsx`. A first
+   attempted fix (re-sync on `attack?.id` change) was **correctly rejected by
+   the user as not actually fixing their repro** before the real cause was
+   found — worth remembering that a plausible-looking fix still needs to be
+   checked against the user's exact repro, not just "it typechecks."
+2. **Exported kneeboard filenames for an unnamed target waypoint ended in a
+   bare trailing underscore** (`Uzi_1-2_.png`) — `kneeboardFilename()` had no
+   fallback when `targetName` is blank, which is common (see
+   `project-waypoints-are-free-text`). Now falls back to the steerpoint:
+   `Uzi_1-2_STPT2.png`.
+3. **Cmd+Q / Dock Quit on macOS bypassed the unsaved-changes guard entirely**
+   — confirmed by the user, then fixed rather than left as the documented
+   limitation. It's an app-level `RunEvent::ExitRequested` in Tauri, not a
+   window-level close, so the existing `onCloseRequested` listener never saw
+   it. `src-tauri/src/lib.rs` now intercepts it (only when
+   `code.is_none()`, i.e. user-initiated) and emits a `quit-requested` event;
+   `App.tsx` reuses the same `UnsavedChangesDialog`; a new `exit_app` Rust
+   command (carries an explicit code, so the handler doesn't re-intercept its
+   own exit) actually terminates. **Not yet re-tested** — needs the real
+   Tauri app (`npm run tauri dev` or a build), not just Vite.
+
+### Part 2 (carryover security/UX checks from last session) — all run
+
+CSP (planner map, kneeboard map layer, PNG export), the hostile mission file,
+old save files, the window close guard (✕ button), and duplicate kneeboard
+filenames all passed. **Windows was explicitly waived by the user** —
+"almost all of these are just copies... trust that tauri is doing its cross
+platform job... raise a windows issue later" — see
+`feedback-windows-testing-not-required-every-time` in memory. Genuinely
+Windows-only surface (the folder-picker start point, WebView2 tile CORS) is
+still unverified, not passed; treat a future Windows report as new, not a
+reopened item.
+
+### 0.2.1 review — `docs/REVIEW_0.2.1.md` (status table at the top) — unchanged this session
+
+Still open: **M8** (NaN from a cleared Customize field — plausible, write the
+test first) and **L1–L9** (dead `mlua`/`zip`/`image`/`rusttype` and stub
+commands, unused `shell:allow-open`, `npm audit fix`, setup `expect` panics,
+CI action pinning, Linux fonts, `cargo-audit` not installed). Memory:
+`project-security-posture`.
+
+### START OF NEXT SESSION
+
+1. **Re-test the Cmd+Q fix** in the real Tauri app (dirty mission → Cmd+Q →
+   expect the Unsaved Changes dialog; try both Discard and Save from it).
+2. Settle M8 and the Lows above. Then bump **0.2.0 → 0.2.1** in
+   `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, and
+   commit. **Ask before tagging `v0.2.1`** — the tag starts release CI.
+3. Then the banked features, in whatever order the user prefers:
+   **Live-geometry Customize** (half-planned in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`; memory
+   `project-live-geometry-customize`), **multi-aircraft coordinated strike**,
+   and **shared custom IP across a flight's attacks** (memory
+   `project-shared-custom-ip` — naturally adjacent to multi-aircraft strike,
+   worth designing together).
+
+### Adjacent, noted but not done
+
+- `test-data/sinai_m01_v7.json` has no README entry or import test yet.
+- Missions saved before `3569a5c` read one high until re-imported.
+- `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after
+  its airfield.
+- DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
+- Red statics and planes are never scanned.
+- Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;
+  loft geometry.
+
+---
+
 **Last session:** 2026-09-12 → 13 (Opus 5, user at the screen). **Two commits,
 pushed.** Gates moved **156 → 189 geo-checks** and **60 → 74 Rust tests**;
 `npm run build` clean, `cargo build` zero warnings. Plan at
