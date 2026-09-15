@@ -81,6 +81,33 @@ source via CMake instead (see the release CI section below).
 
 ## Release Process
 
+### RELEASE CHECKLIST
+**When the user says "release X.Y.Z" (or "ship" / "cut" / "launch" it), that
+means the whole list below, through publishing.** The installers build on
+their own the moment the tag is pushed; the user never has to ask for them
+separately.
+
+1. **Pull and check the tree is clean:** `git pull origin main`, `git status`.
+2. **Run the gates:** `npm run geo-check`, `cargo test --manifest-path
+   src-tauri/Cargo.toml`, `npm run build`. All must pass. Stop and report if not.
+3. **Bump the version** in all three: `package.json`, `src-tauri/Cargo.toml`,
+   `src-tauri/tauri.conf.json`, plus the two top `version` lines of
+   `package-lock.json`. Then `cargo build` so `Cargo.lock` follows.
+4. **Commit and push** "Bump version to X.Y.Z".
+5. **Tag and push the tag:** `git tag vX.Y.Z && git push origin vX.Y.Z`. This
+   starts release CI, which builds every installer (macOS, Windows, Linux).
+6. **Watch CI** until all three platforms go green (`gh run watch`). If one
+   fails, fix, and re-tag only after asking.
+7. **Check the draft release** has every installer attached (`.dmg`,
+   `-setup.exe`, `.msi`, `.deb`, `.rpm`, `.AppImage`, `.app.tar.gz`).
+8. **Write release notes** on the draft in plain language, from the commits
+   since the last tag.
+9. **Ask the user, then publish** the draft and mark it Latest. Publishing is
+   the only point that is public, so this is the one confirmation stop.
+10. **Record it** in the Session Pickup Notes (version, CI run id, published).
+
+### How the release build works
+
 `.github/workflows/release.yml` builds installers for all three platforms on
 every `v*` tag push (macOS: `.dmg`, Windows: NSIS `.exe`, Linux: `.deb`/`.rpm`/
 `.AppImage`) via `tauri-apps/tauri-action`, and attaches them to a **draft**
