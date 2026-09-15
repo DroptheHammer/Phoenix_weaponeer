@@ -256,15 +256,16 @@ Plan at `~/.claude/plans/what-s-next-in-this-structured-crystal.md`.
 ### Release
 
 `v0.2.1` tagged at `f4609cb`. This is the first release run with the
-SHA-pinned `tauri-action` / `rust-toolchain`. CI result: **still running when
-these notes were written.** It builds a **draft** release, which the user
-publishes by hand after checking the artifacts.
+SHA-pinned `tauri-action` / `rust-toolchain`. **CI passed on all three
+platforms** (run `34933050169`). The **draft** release has
+`Phoenix.Weaponeer_0.2.1_aarch64.dmg`, `_x64-setup.exe`, `_x64_en-US.msi`,
+`_amd64.deb`, `-1.x86_64.rpm`, `_amd64.AppImage` and the macOS `.app.tar.gz`.
+**It's still a draft**, waiting for the user to check it and publish.
 
 ### START OF NEXT SESSION
 
-1. Check the `v0.2.1` release run. If it's green, the user checks the draft
-   release's installers and publishes it. If it's red, fix it first. The pinned
-   action SHAs are the new variable.
+1. The `v0.2.1` release CI is green. The user checks the draft release's
+   installers on GitHub and publishes it.
 2. Then a banked feature, whichever the user picks: **Live-geometry
    Customize** (half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md`;
    memory `project-live-geometry-customize`), or **multi-aircraft coordinated
