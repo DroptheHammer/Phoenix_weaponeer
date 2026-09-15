@@ -242,79 +242,46 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-14, continued (Opus 5, user at the screen). **Three
-commits, all pushed, plus this session-notes commit.** Gates: **246 geo-checks**
-(was 232), **83 Rust tests** (was 75), `npm run build` clean, `cargo build`
-**zero warnings**. Plan at `~/.claude/plans/ok-what-s-next-bubbly-moth.md`.
-**Released as v0.2.2 on 2026-09-15** (commit `a84c32a`, CI run `35025480810`
-green on all three platforms, all seven installers attached, published and
-marked Latest at the user's request). The release checklist now lives at the
-top of "Release Process" above.
+**Last session:** 2026-09-15 (Opus 5, user at the screen). **Released and
+published v0.2.2.** Two commits and a tag, all pushed, plus this session-notes
+commit. Gates at release: **246 geo-checks**, **83 Rust tests**, `npm run build`
+clean, `cargo build` zero warnings. No code changed this session.
 
 | Commit | What |
 |---|---|
-| `a20b11d` | Sinai M01 V7 fixture test and README entry |
-| `e0ad7fe` | Name unnamed airfield waypoints after their airfield |
-| `3b8cfe1` | Hide threats the mission author hid |
+| `a84c32a` | Bump version to 0.2.2; add release checklist — tagged `v0.2.2` |
+| `2d431cd` | Session notes: v0.2.2 published |
 | (next) | Session notes |
 
-### Sinai V7 fixture
+### v0.2.2 release
 
-Same wire shape as V6. `sinai_m01_v7_fixture_imports` pins the content
-changes: the new SA-13 (`Strela-10M3`) maps to `9K35 Strela-10`, and Spectre
-numbers 0..4. The README lists the full V6→V7 diff.
+- Ships the three changes from 2026-09-14 (hidden threats, airfield names on
+  waypoint 0, Sinai V7 fixture). Notes on the release are plain-language and
+  cover only the two user-visible changes.
+- CI run `35025480810` green on macOS, Windows and Linux. All seven assets
+  attached: `.dmg`, `.app.tar.gz`, `-setup.exe`, `.msi`, `.deb`, `.rpm`,
+  `.AppImage`. **Published and marked Latest at the user's request.**
+- A draft release's URL reads `releases/tag/untagged-…` until published. That's
+  normal, not a broken tag.
 
-### Airfield names for waypoint 0
+### Release checklist (new)
 
-- `RoutePoint` now reads `airdromeId`. An unnamed point tied to an airfield
-  takes the airfield's name (Barak waypoint 0 reads **"Ramat David"**). The
-  creator's own text always wins, and air starts (id 0) stay blank.
-- The table in `src-tauri/src/parsers/airfields_data.rs` is **generated**:
-  `npm run gen-airfields` (`scripts/gen-airfields.mjs`), from pydcs pinned at
-  `55dc18a`. It covers 11 maps. **Iraq and Afghanistan are absent** (pydcs has
-  no terrain for them), so their points stay unnamed.
-- **Correction:** the old notes said Barak spawns at "Ramon". **Sinai airfield
-  50 is Ramat David.** Every airfield start in both fixtures sits 0.2–3.4 km
-  from its pydcs entry, and Barak's 89 NM first leg fits Ramat David, not
-  Ramon. `fixture_airfield_ids_sit_at_their_airfields` now guards this for
-  Sinai and Nevada. Other maps' ids are pydcs's word only.
-- Missions saved earlier keep a blank waypoint 0 until re-imported.
-
-### Hidden enemy threats
-
-Rules are in memory `project-hidden-threats-policy`; don't reopen them. In
-short: `hiddenOnPlanner` **or** `hidden` hides a threat from map, list,
-auto-build and cards. Planners get a "Probable threats — location unknown"
-count. ⚙ Settings → Admin has one session-only switch per flag, and a revealed
-threat counts fully. **The user checked it on screen:** Sinai M01 import, both
-switches, and relaunch resets them. The one gate is `useVisibleMission()`
-(`src/hooks/`) → `src/lib/threatVisibility.ts`. Any new threat consumer must use
-it.
-
-**Break-tests (every new test shown to fail):**
-
-| Test | Broken how | Result |
-|---|---|---|
-| V7 Strela / Spectre asserts | pointed at the V6 file (Strela removed to reach Spectre) | FAIL each |
-| Barak "Ramat David", `known_ids_resolve…` | Ramon's name on Sinai id 50 | FAIL |
-| NTTR `LAND` stays `LAND` | airfield name overrides the creator's | FAIL |
-| `fixture_airfield_ids_sit_at_their_airfields` | Hatzor/Tel Nof ids swapped | FAIL (12.5 km off) |
-| `a_hidden_duplicate_never_swallows…` | flags dropped from the dedupe key | FAIL |
-| Sinai / NTTR hide-flag tests | group `hidden` not copied onto threats | FAIL both |
-| geo-check visibility, probable, leak guard | reveal check inverted; `visibleMission` returns the raw mission | 8 FAIL; 2 FAIL |
-
-**Not directly tested:** the BVR "stays blank" assert (the id-0 guard is
-redundant, so no break shows it); the card-level leak (covered only through
-`useVisibleMission` at the call site; the lib leak guard tests
-`nearestThreatSide`).
+- The user asked for one word that covers the whole release, installers
+  included, with step-by-step rules like the end-of-session ones. It's now the
+  **RELEASE CHECKLIST** at the top of "Release Process" above. Memory:
+  `feedback-release-means-full-checklist`. "Release / ship / cut / launch
+  X.Y.Z" runs it end to end. **The only stop is asking before publishing.**
+- **Found while releasing:** `package-lock.json` also carries the version (its
+  two top `version` lines). The old three-file list missed it. It's in the
+  checklist now.
 
 ### START OF NEXT SESSION
 
-1. `v0.2.2` is released and published. Nothing is pending on it.
-2. A banked feature, whichever the user picks: **Live-geometry
-   Customize** (half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md`;
-   memory `project-live-geometry-customize`), or **multi-aircraft coordinated
-   strike together with shared custom IP** (memory `project-shared-custom-ip`).
+1. The user was asked which banked feature comes next and hasn't answered:
+   **Live-geometry Customize** (half-planned in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`; memory
+   `project-live-geometry-customize`), or **multi-aircraft coordinated strike
+   together with shared custom IP** (memory `project-shared-custom-ip`). Ask.
 
 ### Adjacent, noted but not done
 

@@ -2,6 +2,100 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Last session:** 2026-09-14, continued (Opus 5, user at the screen). **Three
+commits, all pushed, plus this session-notes commit.** Gates: **246 geo-checks**
+(was 232), **83 Rust tests** (was 75), `npm run build` clean, `cargo build`
+**zero warnings**. Plan at `~/.claude/plans/ok-what-s-next-bubbly-moth.md`.
+**Version is still 0.2.1.** Everything below is unreleased, on `main`.
+(Released as v0.2.2 the next day, 2026-09-15.)
+
+| Commit | What |
+|---|---|
+| `a20b11d` | Sinai M01 V7 fixture test and README entry |
+| `e0ad7fe` | Name unnamed airfield waypoints after their airfield |
+| `3b8cfe1` | Hide threats the mission author hid |
+| `b281df3` | Session notes |
+
+### Sinai V7 fixture
+
+Same wire shape as V6. `sinai_m01_v7_fixture_imports` pins the content
+changes: the new SA-13 (`Strela-10M3`) maps to `9K35 Strela-10`, and Spectre
+numbers 0..4. The README lists the full V6→V7 diff.
+
+### Airfield names for waypoint 0
+
+- `RoutePoint` now reads `airdromeId`. An unnamed point tied to an airfield
+  takes the airfield's name (Barak waypoint 0 reads **"Ramat David"**). The
+  creator's own text always wins, and air starts (id 0) stay blank.
+- The table in `src-tauri/src/parsers/airfields_data.rs` is **generated**:
+  `npm run gen-airfields` (`scripts/gen-airfields.mjs`), from pydcs pinned at
+  `55dc18a`. It covers 11 maps. **Iraq and Afghanistan are absent** (pydcs has
+  no terrain for them), so their points stay unnamed.
+- **Correction:** the old notes said Barak spawns at "Ramon". **Sinai airfield
+  50 is Ramat David.** Every airfield start in both fixtures sits 0.2–3.4 km
+  from its pydcs entry, and Barak's 89 NM first leg fits Ramat David, not
+  Ramon. `fixture_airfield_ids_sit_at_their_airfields` now guards this for
+  Sinai and Nevada. Other maps' ids are pydcs's word only.
+- Missions saved earlier keep a blank waypoint 0 until re-imported.
+
+### Hidden enemy threats
+
+Rules are in memory `project-hidden-threats-policy`; don't reopen them. In
+short: `hiddenOnPlanner` **or** `hidden` hides a threat from map, list,
+auto-build and cards. Planners get a "Probable threats — location unknown"
+count. ⚙ Settings → Admin has one session-only switch per flag, and a revealed
+threat counts fully. **The user checked it on screen:** Sinai M01 import, both
+switches, and relaunch resets them. The one gate is `useVisibleMission()`
+(`src/hooks/`) → `src/lib/threatVisibility.ts`. Any new threat consumer must use
+it.
+
+**Break-tests (every new test shown to fail):**
+
+| Test | Broken how | Result |
+|---|---|---|
+| V7 Strela / Spectre asserts | pointed at the V6 file (Strela removed to reach Spectre) | FAIL each |
+| Barak "Ramat David", `known_ids_resolve…` | Ramon's name on Sinai id 50 | FAIL |
+| NTTR `LAND` stays `LAND` | airfield name overrides the creator's | FAIL |
+| `fixture_airfield_ids_sit_at_their_airfields` | Hatzor/Tel Nof ids swapped | FAIL (12.5 km off) |
+| `a_hidden_duplicate_never_swallows…` | flags dropped from the dedupe key | FAIL |
+| Sinai / NTTR hide-flag tests | group `hidden` not copied onto threats | FAIL both |
+| geo-check visibility, probable, leak guard | reveal check inverted; `visibleMission` returns the raw mission | 8 FAIL; 2 FAIL |
+
+**Not directly tested:** the BVR "stays blank" assert (the id-0 guard is
+redundant, so no break shows it); the card-level leak (covered only through
+`useVisibleMission` at the call site; the lib leak guard tests
+`nearestThreatSide`).
+
+### START OF NEXT SESSION
+
+1. `main` has three user-facing changes since `v0.2.1`. Ask whether to cut
+   **0.2.2** (bump the three version fields, tag, verify the draft release).
+2. Then a banked feature, whichever the user picks: **Live-geometry
+   Customize** (half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md`;
+   memory `project-live-geometry-customize`), or **multi-aircraft coordinated
+   strike together with shared custom IP** (memory `project-shared-custom-ip`).
+
+### Adjacent, noted but not done
+
+- The npm `uuid` advisory is left alone. It only affects v3/v5/v6, the app
+  imports only `v4`, and the fix is a breaking jump to uuid 14.
+- `Shell::open` is deprecated in favour of `tauri-plugin-opener`. It's only used
+  by the button-less `reveal_profiles_dir`.
+- `ARCHITECTURE.md` still sketches the removed stubs (`MizParser`,
+  `render_kneeboard`, `mlua`). It's the original design doc, not the current
+  code.
+- `cargo audit` still shows 11 unmaintained/unsound warnings, all deep in
+  Tauri's own dependency tree.
+- Missions saved before `3569a5c` read one high until re-imported.
+- DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
+- Red statics and planes are never scanned. Sinai V7 has 23 red statics and
+  4 red planes; NTTR has 35 red planes. If they are added, they must carry the
+  hide flags too.
+- Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;
+  loft geometry.
+
+---
+
 **Last session:** 2026-09-14 (Opus 5, user at the screen). **Two commits and
 a tag, all pushed, plus this session-notes commit.** Gates: **232 geo-checks**
 (was 224), **75 Rust tests** (74 − 1 dead stub test + 2 new), `npm run build`
