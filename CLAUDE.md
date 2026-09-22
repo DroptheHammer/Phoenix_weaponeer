@@ -178,46 +178,69 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-15 (Opus 5, user at the screen). **Released and
-published v0.2.2.** Two commits and a tag, all pushed, plus this session-notes
-commit. Gates at release: **246 geo-checks**, **83 Rust tests**, `npm run build`
-clean, `cargo build` zero warnings. No code changed this session.
+**Last session:** 2026-09-22 (Opus 5.5, user at the screen). **Built
+FragOrders URL import.** Two commits plus this session-notes commit, all pushed.
+Gates: **249 geo-checks** (was 246), **99 Rust tests + 1 ignored live test**
+(was 83), `npm run build` clean, `cargo build` zero warnings. Plan at
+`~/.claude/plans/what-s-next-on-our-elegant-mango.md`. **Version is still
+0.2.2. Everything below is unreleased, on `main`.**
 
 | Commit | What |
 |---|---|
-| `a84c32a` | Bump version to 0.2.2; add release checklist — tagged `v0.2.2` |
-| `2d431cd` | Session notes: v0.2.2 published |
+| `1cdaee0` | Saved the 2026-09-15 evening work: link fixtures, shelved request to the FragOrders author, CLAUDE.md trim |
+| `fbe807c` | Import a mission from a FragOrders public link |
 | (next) | Session notes |
 
-### v0.2.2 release
+### FragOrders URL import
 
-- Ships the three changes from 2026-09-14 (hidden threats, airfield names on
-  waypoint 0, Sinai V7 fixture). Notes on the release are plain-language and
-  cover only the two user-visible changes.
-- CI run `35025480810` green on macOS, Windows and Linux. All seven assets
-  attached: `.dmg`, `.app.tar.gz`, `-setup.exe`, `.msi`, `.deb`, `.rpm`,
-  `.AppImage`. **Published and marked Latest at the user's request.**
-- A draft release's URL reads `releases/tag/untagged-…` until published. That's
-  normal, not a broken tag.
+- **The user's decision:** import what the public link carries, and that's it.
+  Author- or publisher-withheld units are intended to be missing. The FragOrders author
+  endpoint request was never sent and is shelved. Memory:
+  `project-fragorders-publish-varies`.
+- **How the link resolves** (`src-tauri/src/fragorders_link.rs`):
+  1. Firestore `PublishManifests/{id}` gives the bundle address, the title and
+     `showGroups`.
+  2. The CloudFront bundle gives the `TaskingState` JSON.
+  The fetch is https only, never follows redirects, and only takes a bundle
+  from `*.cloudfront.net`. It uses `ureq` with rustls, running in Rust, so the
+  CSP and the capabilities list are unchanged.
+- **Parser:** `parsers/tasking_state.rs`. The **Paste JSON** tab now accepts
+  either shape.
+- **Import:** `process_tasking_state` in `commands/mod.rs`. It shares
+  `convert_route` with the CLI import. FragOrders fills unnamed points with
+  their own number ("0"); those are blanked so the airfield-name fallback still
+  works.
+- **Theater aliases:** each theater entry has a `fragorders_names` list
+  (`SINAI`, `PG`, `MARIANAS`, `SOUTH_ATLANTIC`, `GERMANY_COLD_WAR`,
+  `Normandy2`). FragOrders' Channel name is unknown.
+- **Empty laydown:** the result gets a blue *notice*, not a warning. The
+  wording is specific when `showGroups` is off.
+- **Mission notes** record the frag order's title and link
+  (`src/lib/importNotes.ts`).
+- **Parity test:** Sinai M01 V7 imports identically from the link and the CLI
+  for every flight. The CLI's "Uzi11 1-1" and the link's "Uzi11" both render as
+  "Uzi 1-1" via `formatCallsign`.
+- **Checked on screen by the user** with the Neon Mirror and Arctic Fury links.
+- **Live test:** `cargo test -- --ignored` hits the real service (NTTR_DTC,
+  Neon Mirror).
 
-### Release checklist (new)
+### Build note
 
-- The user asked for one word that covers the whole release, installers
-  included, with step-by-step rules like the end-of-session ones. It's now the
-  **RELEASE CHECKLIST** at the top of "Release Process" above. Memory:
-  `feedback-release-means-full-checklist`. "Release / ship / cut / launch
-  X.Y.Z" runs it end to end. **The only stop is asking before publishing.**
-- **Found while releasing:** `package-lock.json` also carries the version (its
-  two top `version` lines). The old three-file list missed it. It's in the
-  checklist now.
+Homebrew upgraded `proj` from 9.8.1 to 9.9.0 on 2026-09-15, and the cached
+`proj-sys` build still linked the old Cellar path ("library 'proj' not found").
+Fixed with `cargo clean -p proj-sys`. If that error returns after a
+`brew upgrade`, do the same.
 
 ### START OF NEXT SESSION
 
-1. The user was asked which banked feature comes next and hasn't answered:
-   **Live-geometry Customize** (half-planned in
-   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`; memory
-   `project-live-geometry-customize`), or **multi-aircraft coordinated strike
-   together with shared custom IP** (memory `project-shared-custom-ip`). Ask.
+1. **Release v0.2.3 when the user says so.** It would ship link import (the
+   first user-visible change since v0.2.2). Follow the RELEASE CHECKLIST, and
+   watch the new `ureq`/rustls dependency build on Windows and Linux CI.
+2. Then pick the next banked feature. **Live-geometry Customize** is
+   half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md` (memory
+   `project-live-geometry-customize`). The other candidate is **multi-aircraft
+   coordinated strike together with shared custom IP** (memory
+   `project-shared-custom-ip`). Ask.
 
 ### Adjacent, noted but not done
 
@@ -235,5 +258,10 @@ clean, `cargo build` zero warnings. No code changed this session.
 - Red statics and planes are never scanned. Sinai V7 has 23 red statics and
   4 red planes; NTTR has 35 red planes. If they are added, they must carry the
   hide flags too.
-- Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;
-  loft geometry.
+- **Link payloads could verify Kola.** The `airbases` on a link carry both DCS
+  X/Z *and* Lat/Lon. The Arctic Fury fixture is on Kola, so it could give the
+  ground-truth pairs Kola needs without reading the F10 map. Not done.
+- The link import also skips things it could use: the per-flight
+  FP/HA/ST/IP points (`navTargetPoints`), tankers and AWACS
+  (`supportAssets`), and loadouts (`payload` as store names).
+- Kola / Afghanistan / Channel projections; PDF export; loft geometry.

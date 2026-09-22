@@ -2,6 +2,74 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Last session:** 2026-09-15 (Opus 5, user at the screen). **Released and
+published v0.2.2.** Two commits and a tag, all pushed, plus this session-notes
+commit. Gates at release: **246 geo-checks**, **83 Rust tests**, `npm run build`
+clean, `cargo build` zero warnings. No code changed this session.
+
+*(Added 2026-09-22: a later session that evening investigated FragOrders public
+links. It captured four link payloads into `test-data/fragorders-links/` and
+drafted a request to the FragOrders author in `docs/fragorders/`. None of it was committed or
+written into these notes until `1cdaee0` on 2026-09-22.)*
+
+| Commit | What |
+|---|---|
+| `a84c32a` | Bump version to 0.2.2; add release checklist — tagged `v0.2.2` |
+| `2d431cd` | Session notes: v0.2.2 published |
+| `c9afd6e` | Session notes |
+
+### v0.2.2 release
+
+- Ships the three changes from 2026-09-14 (hidden threats, airfield names on
+  waypoint 0, Sinai V7 fixture). Notes on the release are plain-language and
+  cover only the two user-visible changes.
+- CI run `35025480810` green on macOS, Windows and Linux. All seven assets
+  attached: `.dmg`, `.app.tar.gz`, `-setup.exe`, `.msi`, `.deb`, `.rpm`,
+  `.AppImage`. **Published and marked Latest at the user's request.**
+- A draft release's URL reads `releases/tag/untagged-…` until published. That's
+  normal, not a broken tag.
+
+### Release checklist (new)
+
+- The user asked for one word that covers the whole release, installers
+  included, with step-by-step rules like the end-of-session ones. It's now the
+  **RELEASE CHECKLIST** at the top of "Release Process" in CLAUDE.md. Memory:
+  `feedback-release-means-full-checklist`. "Release / ship / cut / launch
+  X.Y.Z" runs it end to end. **The only stop is asking before publishing.**
+- **Found while releasing:** `package-lock.json` also carries the version (its
+  two top `version` lines). The old three-file list missed it. It's in the
+  checklist now.
+
+### START OF NEXT SESSION
+
+1. The user was asked which banked feature comes next and hasn't answered:
+   **Live-geometry Customize** (half-planned in
+   `~/.claude/plans/foamy-sauteeing-hejlsberg.md`; memory
+   `project-live-geometry-customize`), or **multi-aircraft coordinated strike
+   together with shared custom IP** (memory `project-shared-custom-ip`). Ask.
+   *(2026-09-22: the user picked FragOrders URL import instead.)*
+
+### Adjacent, noted but not done
+
+- The npm `uuid` advisory is left alone. It only affects v3/v5/v6, the app
+  imports only `v4`, and the fix is a breaking jump to uuid 14.
+- `Shell::open` is deprecated in favour of `tauri-plugin-opener`. It's only used
+  by the button-less `reveal_profiles_dir`.
+- `ARCHITECTURE.md` still sketches the removed stubs (`MizParser`,
+  `render_kneeboard`, `mlua`). It's the original design doc, not the current
+  code.
+- `cargo audit` still shows 11 unmaintained/unsound warnings, all deep in
+  Tauri's own dependency tree.
+- Missions saved before `3569a5c` read one high until re-imported.
+- DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
+- Red statics and planes are never scanned. Sinai V7 has 23 red statics and
+  4 red planes; NTTR has 35 red planes. If they are added, they must carry the
+  hide flags too.
+- Kola / Afghanistan / Channel projections; PDF export; FragOrders URL import;
+  loft geometry.
+
+---
+
 **Last session:** 2026-09-14, continued (Opus 5, user at the screen). **Three
 commits, all pushed, plus this session-notes commit.** Gates: **246 geo-checks**
 (was 232), **83 Rust tests** (was 75), `npm run build` clean, `cargo build`
