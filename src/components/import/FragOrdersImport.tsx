@@ -25,21 +25,14 @@ export function FragOrdersImport({ onClose, onImport }: FragOrdersImportProps) {
       return;
     }
 
-    // Validate URL format
-    if (!urlInput.includes('fragorders.com')) {
-      setError('Please enter a valid FragOrders URL (e.g., https://fragorders.com/public_frag_order/...)');
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
 
     try {
-      // TODO: Once the FragOrders author provides API access, this will call:
-      // const data = await invoke<FragOrdersData>('fetch_fragorders_url', { url: urlInput });
-
-      // For now, show a message that API access is pending
-      setError('URL import coming soon! The FragOrders author is setting up API access. For now, use JSON paste or file upload.');
+      // The backend checks the link and says in plain words what's wrong
+      // with it, so there's no second copy of that rule here.
+      const data = await invoke<FragOrdersData>('fetch_fragorders_url', { url: urlInput });
+      setParsedData(data);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -150,7 +143,8 @@ export function FragOrdersImport({ onClose, onImport }: FragOrdersImportProps) {
                   <div className="bg-dcs-dark rounded-lg p-4">
                     <h3 className="font-medium mb-2">Import from FragOrders URL</h3>
                     <p className="text-sm text-gray-300">
-                      Paste your FragOrders mission link to import waypoints and threat data directly.
+                      Paste the frag order's public link to import its flights,
+                      waypoints and whatever threats the publisher shared.
                     </p>
                   </div>
 
@@ -160,6 +154,9 @@ export function FragOrdersImport({ onClose, onImport }: FragOrdersImportProps) {
                       type="url"
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !isLoading && urlInput.trim()) handleFetchUrl();
+                      }}
                       placeholder="https://fragorders.com/public_frag_order/..."
                       className="w-full bg-dcs-dark text-white px-3 py-2 rounded-lg border border-gray-700 focus:border-dcs-accent focus:outline-none"
                     />
@@ -168,7 +165,7 @@ export function FragOrdersImport({ onClose, onImport }: FragOrdersImportProps) {
                   {/* Error display */}
                   {error && (
                     <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 text-red-300">
-                      <span className="font-medium">Note:</span> {error}
+                      <span className="font-medium">Error:</span> {error}
                     </div>
                   )}
 
@@ -188,7 +185,8 @@ export function FragOrdersImport({ onClose, onImport }: FragOrdersImportProps) {
                   <div className="bg-dcs-dark rounded-lg p-4">
                     <h3 className="font-medium mb-2">Import from JSON</h3>
                     <p className="text-sm text-gray-300 mb-2">
-                      For development/testing, use the FragOrders CLI to parse a .miz file:
+                      Takes a saved copy of a public link's mission, or FragOrders CLI
+                      output from a .miz file:
                     </p>
                     <code className="block bg-gray-800 px-2 py-1 rounded text-sm text-green-400">
                       fragorders parse mission.miz &gt; mission.json

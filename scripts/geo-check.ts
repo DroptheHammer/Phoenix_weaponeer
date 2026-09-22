@@ -36,6 +36,7 @@ import { visibleArcSpans } from '../src/lib/arcClip';
 import { compareThreatsForCard } from '../src/lib/cardThreats';
 import { applyFlank, applyEgress } from '../src/lib/attackFlank';
 import { useUiStore } from '../src/stores/uiStore';
+import { importNotes } from '../src/lib/importNotes';
 import {
   lonLatToTile,
   tileNwCorner,
@@ -1200,3 +1201,22 @@ ok('validateMission: a non-boolean hide flag is rejected',
    !validateMission({ ...goodMission, threats: [{ ...goodMission.threats[0], hiddenOnMap: 'yes' }] }).ok);
 ok('validateMission: boolean hide flags pass',
    validateMission({ ...goodMission, threats: [{ ...goodMission.threats[0], hiddenOnPlanner: true, hiddenOnMap: false }] }).ok);
+
+// ---------------------------------------------------------------------------
+// Import notes: a link import records where it came from; a CLI import reads
+// exactly as it always has.
+// ---------------------------------------------------------------------------
+const notesGroup = { name: 'Barak', callsign: 'Springfield11', aircraft_type: 'F-16C_50', units: [], waypoints: [] };
+const notesData = { threats: [{}, {}, {}], source: null };
+ok('importNotes: a CLI import is unchanged',
+   importNotes(notesData as never, notesGroup, 2) === 'Imported from FragOrders\nAircraft: F-16C_50\nThreats detected: 3 (2 identified)',
+   importNotes(notesData as never, notesGroup, 2));
+const linkNotes = importNotes(
+  { ...notesData, source: { title: 'Sinai M01 V7', link: 'https://fragorders.com/public_frag_order/ExampleLinkId0000004' } } as never,
+  notesGroup, 2);
+ok('importNotes: a link import names the frag order and keeps its link',
+   linkNotes.startsWith('Imported from FragOrders link: Sinai M01 V7\nhttps://fragorders.com/public_frag_order/ExampleLinkId0000004\n')
+     && linkNotes.endsWith('Aircraft: F-16C_50\nThreats detected: 3 (2 identified)'),
+   linkNotes);
+ok('importNotes: an untitled frag order still says so',
+   importNotes({ ...notesData, source: { title: null, link: 'L' } } as never, notesGroup, 0).startsWith('Imported from FragOrders link: untitled mission\nL\n'));

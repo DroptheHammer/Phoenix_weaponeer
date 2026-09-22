@@ -89,7 +89,7 @@ pub struct Assets {
 }
 
 /// Custom deserializer that treats null as an empty Vec
-fn deserialize_null_as_empty_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+pub(crate) fn deserialize_null_as_empty_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: serde::Deserialize<'de>,
@@ -103,7 +103,7 @@ where
 /// `#[serde(default)]` only covers a *missing* key. A coordinate written as
 /// `"x": null` would otherwise abort the whole mission parse, since these
 /// fields are plain `f64` rather than `Option<f64>`.
-fn deserialize_null_as_zero<'de, D>(deserializer: D) -> Result<f64, D::Error>
+pub(crate) fn deserialize_null_as_zero<'de, D>(deserializer: D) -> Result<f64, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -326,6 +326,20 @@ pub struct ProcessedFragOrdersData {
     /// zones). Empty on a clean import. Surfaced in the UI so a partial import
     /// cannot masquerade as a complete one.
     pub warnings: Vec<String>,
+    /// Information about the import that is not a failure, such as a public
+    /// link carrying no air defences. Empty for a CLI import.
+    pub notices: Vec<String>,
+    /// Where a link import came from. `None` for pasted or loaded JSON.
+    pub source: Option<ImportSource>,
+}
+
+/// The public link a mission was imported from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportSource {
+    /// The mission's title as FragOrders publishes it, when there is one.
+    pub title: Option<String>,
+    /// The link as the pilot pasted it, cleaned up to its canonical form.
+    pub link: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

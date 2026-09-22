@@ -2,11 +2,12 @@
 //!
 //! This library provides the backend functionality for the DCS Attack Planner:
 //! mission file I/O, the threat/weapon/aircraft database, FragOrders import with
-//! coordinate conversion, the delivery profile library, and settings. Kneeboard
+//! coordinate conversion (from CLI output or a public link), the delivery profile library, and settings. Kneeboard
 //! cards are rendered in the frontend; the backend only writes the PNG.
 
 pub mod commands;
 pub mod db;
+pub mod fragorders_link;
 pub mod parsers;
 pub mod profiles;
 pub mod settings;
@@ -83,6 +84,7 @@ pub fn run() {
             commands::get_fuze_options,
             // Import commands
             commands::parse_fragorders_json,
+            commands::fetch_fragorders_url,
             // Export commands
             commands::save_kneeboard_png,
             // Settings

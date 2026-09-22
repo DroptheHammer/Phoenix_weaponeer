@@ -104,7 +104,8 @@ history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
 
 - [ ] PDF export option (optional)
 - [ ] Loft geometry (LABS, F-16 loft) — profiles ship hidden, geometry unbuilt
-- [ ] FragOrders URL import (when API access provided)
+- [x] FragOrders URL import — built 2026-09-22 on the public link as it is
+      (`src-tauri/src/fragorders_link.rs`); no endpoint or key coming
 
 ### Phase 5: The banked features (NEXT)
 - [ ] **Live-geometry Customize** — sliders over a map that redraws as you

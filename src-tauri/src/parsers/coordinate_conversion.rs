@@ -16,6 +16,12 @@ pub struct TheaterCoordParams {
     /// at import even when the projection below is perfect — which is exactly
     /// what happened to Sinai (`SinaiMap`, not `Sinai`).
     pub dcs_name: &'static str,
+    /// Other names the same map arrives under, matched ignoring case.
+    ///
+    /// A FragOrders public link sends its own theater enum (`SINAI`, `PG`, …)
+    /// rather than DCS's string. Six of those equal `dcs_name` ignoring case
+    /// and need nothing here; the rest are listed on their entry.
+    pub fragorders_names: &'static [&'static str],
     /// Normalized name for Phoenix Weaponeer
     pub normalized_name: &'static str,
     /// Human-readable name shown in the UI
@@ -43,6 +49,7 @@ pub struct TheaterCoordParams {
 pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     TheaterCoordParams {
         dcs_name: "Caucasus",
+        fragorders_names: &[],
         normalized_name: "caucasus",
         display_name: "Caucasus",
         proj4_string: "+proj=tmerc +lon_0=33 +k_0=0.9996 +x_0=-99517 +y_0=-4998115",
@@ -51,6 +58,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "Nevada",
+        fragorders_names: &[],
         normalized_name: "nevada",
         display_name: "Nevada (NTTR)",
         proj4_string: "+proj=tmerc +lon_0=-117 +k_0=0.9996 +x_0=-193996 +y_0=-4410028",
@@ -59,6 +67,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "Syria",
+        fragorders_names: &[],
         normalized_name: "syria",
         display_name: "Syria",
         proj4_string: "+proj=tmerc +lon_0=39 +k_0=0.9996 +x_0=282801 +y_0=-3879865",
@@ -67,6 +76,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "PersianGulf",
+        fragorders_names: &["PG"],
         normalized_name: "persian_gulf",
         display_name: "Persian Gulf",
         proj4_string: "+proj=tmerc +lon_0=57 +k_0=0.9996 +x_0=75757 +y_0=-2894931",
@@ -75,6 +85,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "Normandy",
+        fragorders_names: &["Normandy2"],
         normalized_name: "normandy",
         display_name: "Normandy",
         // FragOrders carries float noise here (-195526.00000000204 /
@@ -85,6 +96,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "MarianaIslands",
+        fragorders_names: &["MARIANAS"],
         normalized_name: "marianas",
         display_name: "Marianas",
         proj4_string: "+proj=tmerc +lon_0=147 +k_0=0.9996 +x_0=238418 +y_0=-1491840",
@@ -96,6 +108,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
         // named "SouthAtlantic" — an entry for it used to sit here and could
         // never have matched a real mission.
         dcs_name: "Falklands",
+        fragorders_names: &["SOUTH_ATLANTIC"],
         normalized_name: "south_atlantic",
         display_name: "South Atlantic",
         proj4_string: "+proj=tmerc +lon_0=-57 +k_0=0.9996 +x_0=147640 +y_0=5815417",
@@ -104,6 +117,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "GermanyCW",
+        fragorders_names: &["GERMANY_COLD_WAR"],
         normalized_name: "germany_cw",
         display_name: "Germany Cold War",
         proj4_string: "+proj=tmerc +lon_0=21 +k_0=0.9996 +x_0=35427.62 +y_0=-6061633.128",
@@ -112,6 +126,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "Iraq",
+        fragorders_names: &[],
         normalized_name: "iraq",
         display_name: "Iraq",
         proj4_string: "+proj=tmerc +lon_0=45 +k_0=0.9996 +x_0=72290 +y_0=-3680057",
@@ -125,6 +140,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     // say anything about them either way.
     TheaterCoordParams {
         dcs_name: "SinaiMap",
+        fragorders_names: &["SINAI"],
         normalized_name: "sinai",
         display_name: "Sinai",
         proj4_string: "+proj=tmerc +lon_0=33 +k_0=0.9996 +x_0=169222 +y_0=-3325313",
@@ -133,6 +149,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "Kola",
+        fragorders_names: &[],
         normalized_name: "kola",
         display_name: "Kola Peninsula",
         proj4_string: "+proj=tmerc +lon_0=21 +k_0=0.9996 +x_0=-62702 +y_0=-7543625",
@@ -141,6 +158,7 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
     TheaterCoordParams {
         dcs_name: "Afghanistan",
+        fragorders_names: &[],
         normalized_name: "afghanistan",
         display_name: "Afghanistan",
         proj4_string: "+proj=tmerc +lon_0=63 +k_0=0.9996 +x_0=-300150 +y_0=-3759657",
@@ -152,6 +170,8 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
         // The only map FragOrders did not supply. Deriving it needs ground-truth
         // (DCS x/y <-> lat/lon) pairs read off the F10 map by someone who owns it.
         dcs_name: "TheChannel",
+        // FragOrders' enum value for this map is not known yet.
+        fragorders_names: &[],
         normalized_name: "channel",
         display_name: "The Channel",
         proj4_string: "",
@@ -160,11 +180,13 @@ pub static THEATER_PARAMS: &[TheaterCoordParams] = &[
     },
 ];
 
-/// Get theater parameters by DCS theater name
+/// Get theater parameters by DCS theater name, or by the name a FragOrders
+/// public link sends for the same map (`SINAI` for `SinaiMap`).
 pub fn get_theater_params(theater_name: &str) -> Option<&'static TheaterCoordParams> {
-    THEATER_PARAMS
-        .iter()
-        .find(|p| p.dcs_name.eq_ignore_ascii_case(theater_name))
+    THEATER_PARAMS.iter().find(|p| {
+        p.dcs_name.eq_ignore_ascii_case(theater_name)
+            || p.fragorders_names.iter().any(|n| n.eq_ignore_ascii_case(theater_name))
+    })
 }
 
 /// Get theater parameters by normalized name
@@ -205,8 +227,10 @@ pub fn normalize_theater_name(dcs_theater: &str) -> String {
 /// Convert DCS map coordinates to lat/lon using proj4 projection
 ///
 /// DCS uses a local Cartesian coordinate system where:
-/// - x increases to the East
-/// - y increases to the North
+/// - x increases to the North
+/// - y increases to the East
+///
+/// (`test_dcs_axis_order_is_x_northing_y_easting` pins this.)
 ///
 /// # Arguments
 /// * `x` - DCS x coordinate (meters)
@@ -372,6 +396,49 @@ mod tests {
                 params.dcs_name
             );
             assert!(!params.display_name.is_empty(), "{} needs a display name", params.dcs_name);
+        }
+    }
+
+    /// Every theater enum value a FragOrders public link can send resolves to
+    /// the right map. Six of these match the DCS name ignoring case; the other
+    /// six only resolve through `fragorders_names`, and without them the whole
+    /// map is rejected at import (Sinai was, on a real link).
+    #[test]
+    fn test_fragorders_link_theater_names_resolve() {
+        let cases = [
+            ("CAUCASUS", "caucasus"),
+            ("SYRIA", "syria"),
+            ("NEVADA", "nevada"),
+            ("KOLA", "kola"),
+            ("AFGHANISTAN", "afghanistan"),
+            ("IRAQ", "iraq"),
+            ("PG", "persian_gulf"),
+            ("SINAI", "sinai"),
+            ("MARIANAS", "marianas"),
+            ("SOUTH_ATLANTIC", "south_atlantic"),
+            ("GERMANY_COLD_WAR", "germany_cw"),
+            ("NORMANDY", "normandy"),
+            ("Normandy2", "normandy"),
+        ];
+        for (sent, expected) in cases {
+            let params = get_theater_params(sent).unwrap_or_else(|| panic!("{sent} should resolve"));
+            assert_eq!(params.normalized_name, expected, "{sent}");
+            assert_eq!(normalize_theater_name(sent), expected, "{sent}");
+        }
+
+        // An alias must never shadow another map's name, or a mission would be
+        // projected onto the wrong theater.
+        for params in THEATER_PARAMS {
+            for alias in params.fragorders_names {
+                let hits = THEATER_PARAMS
+                    .iter()
+                    .filter(|p| {
+                        p.dcs_name.eq_ignore_ascii_case(alias)
+                            || p.fragorders_names.iter().any(|n| n.eq_ignore_ascii_case(alias))
+                    })
+                    .count();
+                assert_eq!(hits, 1, "alias {alias} matches more than one theater");
+            }
         }
     }
 

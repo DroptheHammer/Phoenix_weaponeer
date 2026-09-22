@@ -1,12 +1,14 @@
 //! File parsers module
 //!
 //! Handles the FragOrders import: DCS coordinate conversion per theater, the
-//! FragOrders mission JSON, and mapping DCS unit names onto threat systems.
+//! FragOrders mission JSON (CLI output, or the payload a public link serves),
+//! and mapping DCS unit names onto threat systems.
 
 pub mod airfields;
 mod airfields_data;
 pub mod coordinate_conversion;
 pub mod fragorders;
+pub mod tasking_state;
 pub mod threat_mapping;
 
 pub use coordinate_conversion::{

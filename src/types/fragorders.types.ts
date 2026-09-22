@@ -23,6 +23,22 @@ export interface FragOrdersData {
    * cannot look like a complete one.
    */
   warnings: string[];
+  /**
+   * Information that is not a failure, such as a public link carrying no air
+   * defences. Empty for a CLI import.
+   */
+  notices: string[];
+  /** The public link this came from; null for pasted or loaded JSON. */
+  source: FragOrdersSource | null;
+}
+
+/**
+ * The FragOrders public link a mission was imported from.
+ */
+export interface FragOrdersSource {
+  /** The mission's title as FragOrders publishes it. */
+  title: string | null;
+  link: string;
 }
 
 /**

@@ -78,6 +78,14 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
         </div>
       )}
 
+      {data.source && (
+        <div className="bg-dcs-dark rounded-lg p-3">
+          <h4 className="text-sm text-gray-400 mb-1">Frag order</h4>
+          <p className="font-medium">{data.source.title ?? 'Untitled mission'}</p>
+          <p className="text-xs text-gray-500 break-all">{data.source.link}</p>
+        </div>
+      )}
+
       {/* Theater and Bullseye */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-dcs-dark rounded-lg p-3">
@@ -181,9 +189,17 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
               </tbody>
             </table>
           </div>
-        ) : hiddenCount === 0 ? (
+        ) : hiddenCount === 0 && data.notices.length === 0 ? (
           <p className="text-gray-400 text-sm">No threats detected in mission.</p>
         ) : null}
+
+        {/* Information, not a warning: a public link carries what its
+            publisher chose to share. */}
+        {data.notices.map((notice, i) => (
+          <p key={i} className="text-sky-300 text-sm">
+            {notice}
+          </p>
+        ))}
 
         {probable.length > 0 && (
           <div className="mt-3 text-sm">

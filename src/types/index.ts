@@ -94,6 +94,7 @@ export type {
 // FragOrders Import
 export type {
   FragOrdersData,
+  FragOrdersSource,
   FragOrdersPlayerGroup,
   FragOrdersUnit,
   FragOrdersWaypoint,

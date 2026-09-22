@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizeImportedCallsign } from '../lib/callsign';
+import { importNotes } from '../lib/importNotes';
 import { useUiStore } from './uiStore';
 import type {
   Mission,
@@ -227,7 +228,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       threats,
       flightMembers,
       attacks: [],
-      notes: `Imported from FragOrders\nAircraft: ${group.aircraft_type}\nThreats detected: ${data.threats.length} (${threats.length} identified)`,
+      notes: importNotes(data, group, threats.length),
       createdAt: now,
       updatedAt: now,
     };
