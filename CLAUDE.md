@@ -30,40 +30,6 @@ A cross-platform desktop application for planning F-16 (and other aircraft) atta
 4. **Select weapons and delivery parameters**
 5. **Generate kneeboard cards** in DCS-compatible format (768x1024 PNG)
 
-## Coding Conventions
-
-### TypeScript/React
-- Use functional components with hooks
-- Define interfaces for all data structures in `src/types/`
-- Use Zustand for global state (mission data, UI state)
-- Prefer `const` and arrow functions
-- Use descriptive variable names (no single letters except loop indices)
-
-### Rust
-- Use `Result<T, E>` for fallible operations
-- Implement `serde::Serialize` and `serde::Deserialize` for data structures
-- Use `thiserror` for custom error types
-- Document public functions with `///` doc comments
-
-### File Naming
-- React components: PascalCase (`AttackCard.tsx`)
-- Utilities/hooks: camelCase (`useAttackCalculator.ts`)
-- Types: PascalCase with `.types.ts` suffix (`Mission.types.ts`)
-- Rust modules: snake_case (`attack_calculator.rs`)
-
-## Key Data Models
-
-See `docs/ARCHITECTURE.md` for full schemas. Summary:
-
-- **Mission** - Container for all planning data
-- **Waypoint** - Steerpoint with coordinates, elevation, type
-- **ThreatSystem** - SAM/AAA definition with engagement envelope
-- **ThreatInstance** - Placed threat on the map
-- **Aircraft** - Aircraft type with loadout options and delivery modes
-- **FlightMember** - Pilot in the flight with assigned loadout
-- **AttackProfile** - Attack parameters (type, altitudes, headings, weapon settings)
-- **KneeboardCard** - Generated briefing card data
-
 ## Development Setup (macOS)
 
 The project requires system libraries for coordinate projection. On macOS, install via Homebrew:
@@ -119,15 +85,10 @@ only works because `proj-sys` ≥0.25 bundles PROJ ≥9.4.0, whose
 by older `proj-sys`, does not — that mismatch is what silently broke macOS and
 Windows CI until 2026-09-12, see `docs/SESSION_HISTORY.md`).
 
-**Before tagging a release**, bump the version number in all three of:
-- `package.json` (`version`)
-- `src-tauri/Cargo.toml` (`[package] version`)
-- `src-tauri/tauri.conf.json` (`version`)
-
-then commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`. There's no sync
-script — these three fields are kept in sync by hand, on purpose (release
-cadence is low; see `docs/INSTALLING.md` for user-facing install notes,
-including the unsigned-binary SmartScreen/Gatekeeper workarounds).
+There's no version-sync script — the version fields in checklist step 3 are
+kept in sync by hand, on purpose (release cadence is low). See
+`docs/INSTALLING.md` for user-facing install notes, including the
+unsigned-binary SmartScreen/Gatekeeper workarounds.
 
 ## DCS Kneeboard Format
 
@@ -138,31 +99,10 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
 
 ## Development Phases
 
-### Phase 1: Foundation ✅ COMPLETE
-- [x] Initialize Tauri + React + TypeScript project
-- [x] Set up SQLite with threat and weapon databases
-- [x] FragOrders JSON import (CLI or paste/file)
-- [x] Basic waypoint data structures
-- [x] GitHub Actions for cross-platform releases
+Phases 1–3 (foundation, core planning, output) and most of Phase 4 are done —
+history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
 
-### Phase 2: Core Planning ✅ COMPLETE
-- [x] **Map view** - Leaflet map showing waypoints and threat envelopes
-- [x] **Threat management** - Import from mission, add planning threats, visual distinction
-- [x] **Map interaction** - Click-to-add threats, drag to reposition planning threats
-- [x] **Coordinate conversion** - Accurate DCS to lat/lon using proj4 transformations
-- [x] **Attack profile calculator** - Popup CCIP with geometry visualization
-- [x] **Flight roster management** - Assign pilots and loadouts
-
-### Phase 3: Output ✅ MOSTLY COMPLETE
-- [x] Kneeboard card renderer (768x1024 PNG)
-- [x] Export single card to user-selected location
-- [x] Batch export with proper folder picker
-- [x] Export to DCS — per-aircraft kneeboard folders, user-chosen once and remembered (⚙ Settings)
 - [ ] PDF export option (optional)
-
-### Phase 4: Polish
-- [x] Additional aircraft modules — 62 delivery profiles across ten aircraft
-- [x] Level CCRP and dive bomb geometry
 - [ ] Loft geometry (LABS, F-16 loft) — profiles ship hidden, geometry unbuilt
 - [ ] FragOrders URL import (when API access provided)
 
@@ -205,15 +145,10 @@ including the unsigned-binary SmartScreen/Gatekeeper workarounds).
   and the `.miz`, so this is honor-system. Sinai M01 hides its entire red
   laydown. Checked on screen by the user 2026-09-14. Memory:
   `project-hidden-threats-policy`.
-- The old Rust stubs (`render_kneeboard`, `export_to_dcs_kneeboard`,
-  `parse_miz_file`, `new_mission`, the `exporters` module, `MizParser`) and
-  their crates (`mlua`, `zip`, `image`, `rusttype`) were removed 2026-09-14
-  (review L2/L3). Cards render in the frontend; the only export command is
-  `save_kneeboard_png`. `.miz` import goes through FragOrders CLI output.
 - [x] **Coordinate conversion** — ✅ FIXED, and cleared of suspicion twice
   since. proj4 Transverse Mercator per theater, pinned by landmark and
-  axis-order tests. **Read the warning in the 2026-07-26 notes below before
-  suspecting it a third time.**
+  axis-order tests. **Read the warning in the 2026-07-26 notes in
+  `docs/SESSION_HISTORY.md` before suspecting it a third time.**
 
 ## Important Context
 
