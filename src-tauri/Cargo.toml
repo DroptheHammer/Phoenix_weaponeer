@@ -3,6 +3,7 @@ name = "phoenix-weaponeer"
 version = "0.2.3"
 description = "Phoenix Weaponeer - DCS tactical mission planning and kneeboard generation"
 authors = ["Phoenix Squadron"]
+license = "PolyForm-Strict-1.0.0"
 edition = "2021"
 
 [lib]

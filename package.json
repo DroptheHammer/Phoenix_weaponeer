@@ -2,6 +2,7 @@
   "name": "phoenix-weaponeer",
   "private": true,
   "version": "0.2.3",
+  "license": "PolyForm-Strict-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
