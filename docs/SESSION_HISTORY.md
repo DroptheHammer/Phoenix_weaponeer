@@ -2,7 +2,36 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
-**Last session:** 2026-09-22 (Opus 5.5, user at the screen). **Built
+**Last session:** 2026-09-22, late (Opus 5.5, user at the screen). **Released
+and published v0.2.3.** It ships FragOrders link import, built the session
+before (see below). One version-bump commit, a tag, and the session-notes
+commits, all pushed. No code changed. Gates at release: **249 geo-checks**,
+**99 Rust tests + 1 ignored**, `npm run build` clean.
+
+| Commit | What |
+|---|---|
+| `e038278` | Bump version to 0.2.3, tagged `v0.2.3` |
+| `292debf` | Session notes: v0.2.3 published |
+| `8b43672` | Session notes, archive of the link-import session |
+
+### v0.2.3 release
+
+- Release CI run `35822594387` passed on macOS, Windows and Linux. That was the
+  first CI build of the new `ureq`/rustls dependency, and it built cleanly
+  everywhere.
+- All 7 assets are attached: `.dmg`, `.app.tar.gz`, `-setup.exe`, `.msi`,
+  `.deb`, `.rpm`, `.AppImage`. **Published and marked Latest at the user's
+  request.**
+- The notes are plain-language. They point to the **From URL** tab and say
+  that an empty threat list means the mission maker withheld the threats on
+  purpose. I also wrote the user a Discord hype message for the squadron.
+- **Sandbox note:** under the Bash sandbox, `git pull`/`push` (gh credential
+  helper), `gh`, and `cargo` all have to run unsandboxed. Memory:
+  `feedback-commands-that-dont-prompt`.
+
+---
+
+**Session:** 2026-09-22 (Opus 5.5, user at the screen). **Built
 FragOrders URL import.** Two commits plus a session-notes commit (`d4ad394`),
 all pushed. Gates: **249 geo-checks** (was 246), **99 Rust tests + 1 ignored
 live test** (was 83), `npm run build` clean, `cargo build` zero warnings. Plan

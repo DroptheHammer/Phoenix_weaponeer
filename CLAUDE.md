@@ -178,42 +178,81 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-22, late (Opus 5.5, user at the screen). **Released
-and published v0.2.3.** It ships FragOrders link import, built the session
-before (see the top of `docs/SESSION_HISTORY.md`). One version-bump commit, a
-tag, and the session-notes commits, all pushed. No code changed. Gates at
-release: **249 geo-checks**, **99 Rust tests + 1 ignored**, `npm run build`
-clean.
+**Last session:** 2026-09-22 → 23 (Opus 5.5, user at the screen). **Built
+all of Phase 5**: live-geometry Customize, then multi-ship coordinated strikes
+with a shared IP. The user checked both on screen ("badass", "seems to work
+well"). Both are committed and pushed; **neither is released yet**. Gates at
+the end: **301 geo-checks** (was 249), **100 Rust tests + 1 ignored**,
+`npm run build` clean.
 
 | Commit | What |
 |---|---|
-| `e038278` | Bump version to 0.2.3, tagged `v0.2.3` |
-| `292debf` | Session notes: v0.2.3 published |
-| (next) | Session notes, archive of the link-import session |
+| `8c1f969` | Live-geometry Customize: sliders beside a live map and side view |
+| `6d486f4` | Multi-ship coordinated strikes with a shared IP |
+| (next) | Session notes |
 
-### v0.2.3 release
+Tag **`pre-multiship`** (on GitHub) sits just before `6d486f4`, as the
+rollback point.
 
-- Release CI run `35822594387` passed on macOS, Windows and Linux. That was the
-  first CI build of the new `ureq`/rustls dependency, and it built cleanly
-  everywhere.
-- All 7 assets are attached: `.dmg`, `.app.tar.gz`, `-setup.exe`, `.msi`,
-  `.deb`, `.rpm`, `.AppImage`. **Published and marked Latest at the user's
-  request.**
-- The notes are plain-language. They point to the **From URL** tab and say
-  that an empty threat list means the mission maker withheld the threats on
-  purpose. I also wrote the user a Discord hype message for the squadron.
-- **Sandbox note:** under the Bash sandbox, `git pull`/`push` (gh credential
-  helper), `gh`, and `cargo` all have to run unsandboxed. Memory:
-  `feedback-commands-that-dont-prompt`.
+### Live-geometry Customize (`8c1f969`)
+
+- **Layout:** the attack editor is now nearly full screen. Controls are on
+  the left; on the right is `AttackPreviewMap` (its own small map, not a
+  second `MapView`, framed once then held), then a run-in readout strip, then
+  a live `SideProfileView` drawn with the card's own `drawSideProfile`.
+- **Controls:** every number is a `SliderField` (slider + number box, with an
+  Auto chip for optional fields). Ranges live in `src/lib/customizeKnobs.ts`,
+  and geo-check holds them to the 12/9/13 knob counts and to the library's
+  values. All 37 knobs are kept.
+- **Behaviour changes:**
+  - Customize freezes auto-build on the first edit, not on opening.
+  - The custom IP is placed and dragged on the editor's own map, so
+    `uiStore.ipDraft` is gone.
+- **Bug fixed (`moveIp` / `reanchorProfile` in `attackFlank.ts`):** moving the
+  IP on a customized attack left the *stored* heading stale. The picture was
+  always right, because it re-solves from the live IP. The card's Attack HDG,
+  Ingress HDG and egress heading, and the straight-in check, were wrong.
+
+### Multi-ship strike (`6d486f4`)
+
+- **Data:** `Strike` (`src/types/strike.types.ts`) lives in
+  `mission.strikes`, with Rust `#[serde(default)]` and a round-trip test.
+  Each attack gets `strikeId` and `totOffset_s`.
+- **Logic:**
+  - `src/lib/strike.ts`: shared IP via `applyStrikeIp`, cascades, group
+    edits, frag clear time, the split readout, and the card info.
+  - `src/lib/strikeDraft.ts`: the editor's Group operations.
+  - `src/lib/attackDraft.ts`: one jet's editor state, as pure data.
+- **UI:**
+  - The editor has a Group tab plus one tab per jet (`JetPanel`,
+    `GroupPanel`, `JetStrip`, `IpPicker`).
+  - The attack list shows a strike block with Edit and Ungroup.
+  - The main map draws one IP marker per strike.
+  - The card draws the other jets faint and adds a blue strike line.
+- **Decisions (the user's):**
+  - mirror flanks (#2 opposite; #3 and #4 repeat the pair);
+  - one target per strike, but any jet can pick its own;
+  - TOT offsets from the lead only, no clock times;
+  - the card shows wingmen faint.
+- **Estimates, labelled "est.":** frag clear time is `2·√(2h/g)` rounded up
+  to 5 s; IP push time is path length ÷ speed. See the "Coordinated strikes"
+  section of `docs/DELIVERY_PLANNING.md`.
+- **Also fixed:** the main-map custom IP drag now re-derives the stored
+  headings, and deleting an attack renumbers the rest.
 
 ### START OF NEXT SESSION
 
-1. Pick the next banked feature. **Live-geometry Customize** is
-   half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md` (memory
-   `project-live-geometry-customize`). The other candidate is **multi-aircraft
-   coordinated strike together with shared custom IP** (memory
-   `project-shared-custom-ip`). Ask.
-2. If a `brew upgrade` brings back "library 'proj' not found", run
+1. `git pull origin main`.
+2. **Probably release v0.3.0.** Both features are squadron-visible and
+   untested outside this Mac. Ask first; "release" means the full checklist
+   above.
+3. Things the user may notice on the next test:
+   - Changing a jet's attacker on its tab doesn't re-sort the jets. On
+     reopen, `strikeMembers` sorts by flight position, so the lead could
+     change.
+   - The wingman tracks on the card don't widen the frame; this jet keeps the
+     space, and the others are cut off at the edge.
+4. If a `brew upgrade` brings back "library 'proj' not found", run
    `cargo clean -p proj-sys` (memory `project-proj-brew-upgrade-breaks-link`).
 
 ### Adjacent, noted but not done
@@ -238,4 +277,6 @@ clean.
 - The link import also skips things it could use: the per-flight
   FP/HA/ST/IP points (`navTargetPoints`), tankers and AWACS
   (`supportAssets`), and loadouts (`payload` as store names).
+- A shared IP for attacks *not* in a strike was not built (the strike covers
+  the flight case).
 - Kola / Afghanistan / Channel projections; PDF export; loft geometry.
