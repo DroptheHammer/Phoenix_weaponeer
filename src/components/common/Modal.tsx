@@ -5,15 +5,14 @@ interface ModalProps {
   title: string;
   onClose: () => void;
   children: ReactNode;
-  /** Tailwind width class for the panel. Defaults to a compact dialog. */
+  /** Tailwind width class for the panel. Defaults to a compact dialog. Ignored when `fill` is set. */
   widthClass?: string;
   /**
-   * CSS-hide rather than unmount, and skip the Escape handler, while true.
-   * For a modal that arms a map click (AttackEditor's custom-IP picker): the
-   * map must become visible and clickable, but the form underneath — and
-   * everything the planner has typed into it — must survive the trip.
+   * Nearly full screen, and the panel does not scroll: the children fill a
+   * fixed-height body and lay out their own scrolling areas. For the attack
+   * editor, whose controls scroll beside a map that must stay put.
    */
-  hidden?: boolean;
+  fill?: boolean;
 }
 
 /**
@@ -26,29 +25,28 @@ interface ModalProps {
  * still carry their own copy of this markup; folding them in is a mechanical
  * change left for its own commit.
  */
-export function Modal({ title, onClose, children, widthClass = 'w-[440px]', hidden = false }: ModalProps) {
+export function Modal({ title, onClose, children, widthClass = 'w-[440px]', fill = false }: ModalProps) {
   // Nothing in the app handled Escape before this component existed.
-  // Skipped while hidden: an Escape meant for "cancel the map click" must not
-  // also close the editor underneath it.
   useEffect(() => {
-    if (hidden) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose, hidden]);
+  }, [onClose]);
+
+  const panel = fill ? 'w-[96vw] h-[92vh] flex flex-col' : `${widthClass} max-h-[90vh] overflow-y-auto`;
 
   return createPortal(
-    <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000] ${hidden ? 'hidden' : ''}`}>
-      <div className={`bg-dcs-navy text-white rounded-lg p-6 ${widthClass} max-h-[90vh] overflow-y-auto`}>
-        <div className="flex justify-between items-center mb-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]">
+      <div className={`bg-dcs-navy text-white rounded-lg ${fill ? 'p-4' : 'p-6'} ${panel}`}>
+        <div className={`flex justify-between items-center ${fill ? 'mb-3' : 'mb-4'}`}>
           <h2 className="text-xl font-semibold">{title}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">
             ×
           </button>
         </div>
-        {children}
+        {fill ? <div className="flex-1 min-h-0">{children}</div> : children}
       </div>
     </div>,
     document.body

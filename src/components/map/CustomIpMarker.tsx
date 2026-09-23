@@ -23,10 +23,10 @@ interface CustomIpMarkerProps {
 
 /**
  * A custom attack IP, draggable on the map — the same drag-to-reposition
- * pattern `ThreatList`'s planning threats use. Two callers in `MapView`: the
- * editor's live draft (`uiStore.ipDraft`, one point for whichever attack is
- * open) and a saved attack's resolved custom point (`App.tsx`'s
- * `handleMoveCustomIp`, which writes straight to the mission).
+ * pattern `ThreatList`'s planning threats use. Two callers: `MapView`, for a
+ * saved attack's resolved custom point (`App.tsx`'s `handleMoveCustomIp`,
+ * which writes straight to the mission), and the attack editor's
+ * `AttackPreviewMap`, for the draft being edited.
  */
 export function CustomIpMarker({ position, onMove, interactive = true }: CustomIpMarkerProps) {
   return (

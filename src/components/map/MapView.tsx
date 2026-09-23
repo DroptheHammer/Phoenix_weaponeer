@@ -13,7 +13,8 @@ import { CustomIpMarker } from './CustomIpMarker';
 import { MapLegend } from './MapLegend';
 import { buildAttackPicture, pictureFitPoints } from '../../lib/attackPicture';
 import { attackIpAnchor } from '../../lib/ipAnchor';
-import { leaderLine, type PlacedLabel } from '../../lib/labelLayout';
+import type { PlacedLabel } from '../../lib/labelLayout';
+import { PlacedLabelsOverlay } from './PlacedLabelsOverlay';
 import { MARKER_Z } from './mapLayers';
 import { applyDisplayFilter } from '../../lib/displayFilter';
 import { useUiStore } from '../../stores/uiStore';
@@ -297,14 +298,12 @@ export function MapView({
   const center = theaterInfo?.default_center ?? { lat: 0, lon: 0 };
   const [placedLabels, setPlacedLabels] = useState<PlacedLabel[]>([]);
 
-  // What the map is waiting for a click on — armed by ThreatList or by
-  // AttackEditor's custom-IP picker. See uiStore.ts's MapPick.
+  // What the map is waiting for a click on — armed by ThreatList. See
+  // uiStore.ts's MapPick.
   const mapPick = useUiStore((s) => s.mapPick);
   const deliverMapPick = useUiStore((s) => s.deliverMapPick);
   const cancelMapPick = useUiStore((s) => s.cancelMapPick);
   const isPlacementMode = !!mapPick;
-  // AttackEditor's live custom-IP draft, drawn draggable while it's open.
-  const ipDraft = useUiStore((s) => s.ipDraft);
 
   // Map display filter — a view-time control only. Applied here, at the draw
   // sites, and NOT fed into MapController/FocusController below: those two
@@ -528,9 +527,9 @@ export function MapView({
 
           if (!targetWaypoint) return null;
           const ipAnchor = attackIpAnchor(waypoints, attack);
-          // Suppressed while this attack's custom IP is the editor's live
-          // draft (rendered separately below) — never draw both at once.
-          const showSavedIpMarker = ipAnchor?.source === 'custom' && ipDraft?.attackId !== attack.id;
+          // The editor's draft IP is dragged on the editor's own preview map,
+          // which covers this one while it is open, so no draft marker here.
+          const showSavedIpMarker = ipAnchor?.source === 'custom';
 
           return (
             <Fragment key={`${attack.id}-${isPlacementMode}`}>
@@ -551,43 +550,12 @@ export function MapView({
             </Fragment>
           );
         })}
-
-        {/* The attack editor's live custom-IP draft, for a new or currently-open attack. */}
-        {ipDraft && <CustomIpMarker position={ipDraft.point} onMove={ipDraft.onMove} interactive={!isPlacementMode} />}
       </MapContainer>
 
       {/* Attack-picture labels, laid out collision-aware over every visible attack. */}
-      <div className="absolute inset-0 z-[900] pointer-events-none">
-        <svg className="absolute inset-0 w-full h-full">
-          {placedLabels
-            .filter((l) => l.leader)
-            .map((l, i) => {
-              const line = leaderLine(l);
-              if (!line) return null;
-              const [[x1, y1], [x2, y2]] = [line.from, line.to];
-              return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#374151" strokeWidth={1} />;
-            })}
-        </svg>
-        {placedLabels.map((l, i) => (
-          <div
-            key={i}
-            className="absolute rounded text-xs font-semibold px-1.5 py-1 shadow-lg leading-tight whitespace-nowrap"
-            style={{
-              left: l.rect.x,
-              top: l.rect.y,
-              background: l.style?.bg ?? '#ffffff',
-              color: l.style?.fg ?? '#111827',
-              border: `1px solid ${l.style?.border ?? '#374151'}`,
-            }}
-          >
-            {l.lines.map((line, j) => (
-              <div key={j}>{line}</div>
-            ))}
-          </div>
-        ))}
-      </div>
+      <PlacedLabelsOverlay labels={placedLabels} />
 
-      {/* Placement mode indicator — the prompt names whatever ThreatList or AttackEditor armed. */}
+      {/* Placement mode indicator — the prompt names whatever ThreatList armed. */}
       {mapPick && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-dcs-accent text-white px-6 py-3 rounded-lg shadow-lg z-[1000] font-medium flex items-center gap-3">
           <span>{mapPick.prompt}</span>

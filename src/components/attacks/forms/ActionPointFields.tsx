@@ -1,4 +1,6 @@
-import { DEFAULT_ACTION_RANGE_NM, MAX_OFFSET_LEG_RATIO, solveOffsetLeg, offsetLegRatioFor, type Side } from '../../../lib/attackGeometry';
+import { DEFAULT_ACTION_RANGE_NM, solveOffsetLeg, offsetLegRatioFor, type Side } from '../../../lib/attackGeometry';
+import { KNOB_RANGES, type KnobProfileType } from '../../../lib/customizeKnobs';
+import { SliderField } from '../../common/SliderField';
 
 export interface ActionPointValue {
   actionRange_nm?: number;
@@ -8,6 +10,8 @@ export interface ActionPointValue {
 }
 
 interface ActionPointFieldsProps {
+  /** Which profile's slider ranges to use. */
+  profileType: KnobProfileType;
   value: ActionPointValue;
   /** What the pilot does at the join point — "roll in", "pull down", "run in". */
   joinLabel: string;
@@ -36,6 +40,7 @@ const fmtHdg = (h: number | undefined) =>
  * heading follows from them and is shown, not typed.
  */
 export function ActionPointFields({
+  profileType,
   value,
   joinLabel,
   joinRange_nm,
@@ -100,57 +105,10 @@ export function ActionPointFields({
     warnings.push(`Angle-off ${Math.round(solution.angleOff_deg)}° — past the BEM's indirect-attack threshold (>90°).`);
   }
 
+  const ranges = KNOB_RANGES[profileType];
+
   return (
     <>
-      {showLeg && (
-        <div>
-          <label className={label}>Offset leg (× run-in)</label>
-          <input
-            type="number"
-            step="0.05"
-            min={0.2}
-            max={MAX_OFFSET_LEG_RATIO}
-            className={fieldClass}
-            disabled={!enabled}
-            value={shownRatio != null ? Math.round(shownRatio * 100) / 100 : ''}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (Number.isFinite(v)) setLeg(v);
-            }}
-          />
-        </div>
-      )}
-      <div>
-        <label className={label}>Action point (nm from target)</label>
-        <input
-          type="number"
-          step="0.5"
-          min={1}
-          className={fieldClass}
-          disabled={!enabled}
-          value={value.actionRange_nm ?? DEFAULT_ACTION_RANGE_NM}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) setActionRange(v);
-          }}
-        />
-      </div>
-      <div>
-        <label className={label}>Check turn (°)</label>
-        <input
-          type="number"
-          step="5"
-          min={0}
-          max={90}
-          className={fieldClass}
-          disabled={!enabled}
-          value={value.offsetTurn_deg ?? ''}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) set({ offsetTurn_deg: v });
-          }}
-        />
-      </div>
       <div>
         <label className={label}>Ingress from</label>
         <select
@@ -164,7 +122,31 @@ export function ActionPointFields({
           <option value="right">Right — turn right, up the target's right flank, final turn left</option>
         </select>
       </div>
-      <div className="col-span-3 text-xs text-gray-400 -mt-2">
+      <SliderField
+        label="Check turn"
+        range={ranges.offsetAngle_deg}
+        value={value.offsetTurn_deg}
+        disabled={!enabled}
+        onChange={(v) => set({ offsetTurn_deg: v })}
+      />
+      {showLeg && (
+        <SliderField
+          label="Offset leg (× run-in)"
+          range={KNOB_RANGES.level_ccrp.offsetLegRatio}
+          value={shownRatio != null ? Math.round(shownRatio * 100) / 100 : undefined}
+          disabled={!enabled}
+          onChange={setLeg}
+        />
+      )}
+      <SliderField
+        label="Action point (nm from target)"
+        range={ranges.actionRange_nm}
+        value={value.actionRange_nm}
+        autoValue={DEFAULT_ACTION_RANGE_NM}
+        disabled={!enabled}
+        onChange={setActionRange}
+      />
+      <div className="text-xs text-gray-400">
         <div>{hint}</div>
         {legLines.map((line) => (
           <div key={line}>{line}</div>

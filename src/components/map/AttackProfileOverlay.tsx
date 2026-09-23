@@ -1,5 +1,6 @@
+import { useMemo } from 'react';
 import { Polyline, Marker } from 'react-leaflet';
-import { divIcon } from 'leaflet';
+import { divIcon, type DivIcon } from 'leaflet';
 import type { Attack, Waypoint } from '../../types';
 import type { LineStyleKey, MarkerKind } from '../../types/attackPicture.types';
 import { MARKER_Z } from './mapLayers';
@@ -32,7 +33,7 @@ const ll = (c: { lat: number; lon: number }): [number, number] => [c.lat, c.lon]
  * short leg) never stack on top of each other.
  */
 export function AttackProfileOverlay({ attack, ipAnchor, targetWaypoint, isSelected = false, isPlacementMode = false }: AttackProfileOverlayProps) {
-  const picture = buildAttackPicture(attack, ipAnchor, targetWaypoint);
+  const picture = useMemo(() => buildAttackPicture(attack, ipAnchor, targetWaypoint), [attack, ipAnchor, targetWaypoint]);
   if (!picture) return null;
 
   const pathFor = (style: LineStyleKey) => {
@@ -65,7 +66,20 @@ export function AttackProfileOverlay({ attack, ipAnchor, targetWaypoint, isSelec
   );
 }
 
+// One icon per kind, reused: a fresh divIcon each render makes Leaflet swap
+// every marker's DOM, which the editor's live preview does on every slider tick.
+const iconCache = new Map<MarkerKind, DivIcon>();
+
 function createLabelIcon(kind: MarkerKind) {
+  let icon = iconCache.get(kind);
+  if (!icon) {
+    icon = buildLabelIcon(kind);
+    iconCache.set(kind, icon);
+  }
+  return icon;
+}
+
+function buildLabelIcon(kind: MarkerKind) {
   return divIcon({
     html: `<div class="flex flex-col items-center">
       <div class="${MARKER_TAILWIND[kind]} text-white font-bold rounded-full w-10 h-10 flex items-center justify-center shadow-lg border-2 border-white text-sm">

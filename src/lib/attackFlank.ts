@@ -1,6 +1,10 @@
-import type { AttackProfile } from '../types/attack.types';
+import type { AttackProfile, IpAnchorFields } from '../types/attack.types';
+import type { Waypoint } from '../types/waypoint.types';
 import type { Side } from './attackGeometry';
 import { describeRunIn } from './runIn';
+import { applyPopupPlan } from './popupPlanning';
+import { resolveIpAnchor } from './ipAnchor';
+import { calculateBearing } from './coordinates';
 
 /** The delivery profiles that fly a run-in from a flank. Loft and standoff do not. */
 type FlankedProfile = Extract<AttackProfile, { type: 'dive_ccip' | 'level_ccrp' | 'popup_ccip' }>;
@@ -39,6 +43,36 @@ export function applyFlank(
   return next.type === 'popup_ccip'
     ? { ...next, runInHeading_deg: heading }
     : { ...next, ingressHeading_deg: heading };
+}
+
+/**
+ * Re-derive the headings after the IP moves, keeping every other number.
+ *
+ * The attack heading hangs off the IP→target bearing, but a customized profile
+ * stores it. Moving the IP only rewrote the IP fields: the picture re-solves
+ * the heading from the live IP and drew correctly, but the card's Attack HDG,
+ * its egress heading and the straight-in check all read the stored one, which
+ * still pointed from the old IP until some other field was touched. Pop-up
+ * recomputes its whole plan, dive and level re-solve the heading the way a
+ * flank change does. Same fallback as `applyFlank`: no usable bearing, no
+ * change.
+ */
+export function reanchorProfile(profile: AttackProfile, directBearing_deg: number | undefined, targetElevation_ft = 0): AttackProfile {
+  if (!isFlanked(profile) || directBearing_deg == null || !Number.isFinite(directBearing_deg)) return profile;
+  if (profile.type === 'popup_ccip') return applyPopupPlan(profile, directBearing_deg);
+  return applyFlank(profile, profile.offsetDirection ?? 'right', directBearing_deg, targetElevation_ft);
+}
+
+/**
+ * Point a customized profile at a new IP — a waypoint, a custom point, or
+ * neither (the prior waypoint) — and re-derive its headings from the new
+ * IP→target bearing, the same bearing auto-build measures.
+ */
+export function moveIp(profile: AttackProfile, ip: IpAnchorFields, waypoints: Waypoint[], target: Waypoint): AttackProfile {
+  const next = { ...profile, ipWaypointId: ip.ipWaypointId, customIp: ip.customIp } as AttackProfile;
+  const anchor = resolveIpAnchor(waypoints, target, ip);
+  const bearing = anchor ? calculateBearing(anchor.point, target.coordinates) : undefined;
+  return reanchorProfile(next, bearing, target.elevation_ft ?? 0);
 }
 
 /**

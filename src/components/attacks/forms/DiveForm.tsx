@@ -1,7 +1,10 @@
 import type { DiveCCIPProfile } from '../../../types';
 import { resolveEgressHeading, diveGroundRange_nm } from '../../../lib/attackGeometry';
 import { actionPointHeading } from '../../../lib/runIn';
+import { KNOB_RANGES } from '../../../lib/customizeKnobs';
+import { SliderField } from '../../common/SliderField';
 import { ActionPointFields } from './ActionPointFields';
+import { FormSection } from './FormSection';
 
 interface DiveFormProps {
   profile: DiveCCIPProfile;
@@ -12,6 +15,7 @@ interface DiveFormProps {
 
 const field = 'w-full bg-gray-700 text-white p-2 rounded border border-gray-600';
 const label = 'block text-sm font-medium mb-1';
+const ranges = KNOB_RANGES.dive_ccip;
 
 /** The numbers behind a dive delivery, for planners who want to change them. */
 export function DiveForm({ profile, onChange, directBearing_deg }: DiveFormProps) {
@@ -21,87 +25,75 @@ export function DiveForm({ profile, onChange, directBearing_deg }: DiveFormProps
     const heading = actionPointHeading(next, directBearing_deg, diveGroundRange_nm(next.rollInAltitude_ft, next.diveAngle_deg));
     return heading != null ? { ...next, ingressHeading_deg: heading } : next;
   };
-  // A cleared optional field goes back to Auto; a cleared required field keeps
-  // its last value rather than storing NaN.
-  const num = (key: keyof DiveCCIPProfile, optional = false) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = parseFloat(e.target.value);
-    if (Number.isFinite(v)) onChange(withHeading({ ...profile, [key]: v }));
-    else if (optional) onChange(withHeading({ ...profile, [key]: undefined }));
-  };
+  const set = (key: keyof DiveCCIPProfile) => (v: number | undefined) => onChange(withHeading({ ...profile, [key]: v }));
   const joinRange_nm = diveGroundRange_nm(profile.rollInAltitude_ft, profile.diveAngle_deg);
   const computedHeading = actionPointHeading(profile, directBearing_deg, joinRange_nm);
+  const heading = profile.ingressHeading_deg != null ? Math.round(profile.ingressHeading_deg) : undefined;
 
   return (
-    <div className="grid grid-cols-3 gap-4">
-      <div>
-        <label className={label}>Attack heading (°)</label>
-        <input
-          type="number"
-          className={field}
-          value={profile.ingressHeading_deg != null ? Math.round(profile.ingressHeading_deg) : ''}
-          onChange={(e) => {
-            // Clearing the override hands the heading back to the geometry.
-            const v = parseFloat(e.target.value);
-            onChange(Number.isFinite(v) ? { ...profile, ingressHeading_deg: v } : withHeading(profile));
-          }}
+    <div className="space-y-4">
+      <FormSection title="Run-in">
+        <SliderField
+          label="Attack heading"
+          range={ranges.ingressHeading_deg}
+          value={heading}
+          autoValue={computedHeading}
+          // Auto: the heading the geometry below produces. Dragging overrides it
+          // until the next change to the geometry re-derives it.
+          isAuto={computedHeading != null && heading === Math.round(computedHeading)}
+          onAuto={() => onChange(withHeading(profile))}
+          onChange={(v) => onChange({ ...profile, ingressHeading_deg: v })}
         />
-        <div className="text-xs text-gray-400 mt-1">Set by the geometry below; type to override</div>
-      </div>
-      <ActionPointFields
-        value={{ actionRange_nm: profile.actionRange_nm, offsetTurn_deg: profile.offsetAngle_deg, side: profile.offsetDirection }}
-        joinLabel="roll in"
-        joinRange_nm={joinRange_nm}
-        attackHeading={computedHeading}
-        directBearing_deg={directBearing_deg}
-        onChange={(v) => onChange(withHeading({ ...profile, actionRange_nm: v.actionRange_nm, offsetAngle_deg: v.offsetTurn_deg, offsetDirection: v.side }))}
-      />
-      <div>
-        <label className={label}>Ingress altitude (ft AGL)</label>
-        <input type="number" className={field} value={profile.ingressAltitude_ft ?? ''} placeholder={`${profile.rollInAltitude_ft}`} onChange={num('ingressAltitude_ft', true)} />
-      </div>
-      <div>
-        <label className={label}>Roll-in altitude (ft AGL)</label>
-        <input type="number" className={field} value={profile.rollInAltitude_ft ?? ''} onChange={num('rollInAltitude_ft')} />
-      </div>
-      <div>
-        <label className={label}>Dive angle (°)</label>
-        <input type="number" className={field} value={profile.diveAngle_deg ?? ''} onChange={num('diveAngle_deg')} />
-      </div>
-      <div>
-        <label className={label}>Release altitude (ft AGL)</label>
-        <input type="number" className={field} value={profile.releaseAltitude_ft ?? ''} onChange={num('releaseAltitude_ft')} />
-      </div>
-      <div>
-        <label className={label}>Release speed (KTAS)</label>
-        <input type="number" className={field} value={profile.releaseSpeed_ktas ?? ''} onChange={num('releaseSpeed_ktas')} />
-      </div>
-      <div>
-        <label className={label}>Pull-out (G)</label>
-        <input type="number" step="0.5" className={field} value={profile.pulloutG ?? ''} onChange={num('pulloutG')} />
-      </div>
-      <div>
-        <label className={label}>Egress</label>
-        <select
-          className={field}
-          style={{ colorScheme: 'dark' }}
-          value={profile.egressDirection}
-          onChange={(e) => onChange({ ...profile, egressDirection: e.target.value as DiveCCIPProfile['egressDirection'] })}
-        >
-          <option value="left">Left</option>
-          <option value="right">Right</option>
-          <option value="straight">Straight ahead</option>
-        </select>
-      </div>
-      <div>
-        <label className={label}>Egress heading (°)</label>
-        <input
-          type="number"
-          className={field}
-          value={profile.egressHeading_deg ?? ''}
-          placeholder={`Auto: ${Math.round(resolveEgressHeading(profile, profile.ingressHeading_deg))}°`}
-          onChange={num('egressHeading_deg', true)}
+        <ActionPointFields
+          profileType="dive_ccip"
+          value={{ actionRange_nm: profile.actionRange_nm, offsetTurn_deg: profile.offsetAngle_deg, side: profile.offsetDirection }}
+          joinLabel="roll in"
+          joinRange_nm={joinRange_nm}
+          attackHeading={computedHeading}
+          directBearing_deg={directBearing_deg}
+          onChange={(v) => onChange(withHeading({ ...profile, actionRange_nm: v.actionRange_nm, offsetAngle_deg: v.offsetTurn_deg, offsetDirection: v.side }))}
         />
-      </div>
+        <SliderField
+          label="Ingress altitude (ft AGL)"
+          range={ranges.ingressAltitude_ft}
+          value={profile.ingressAltitude_ft}
+          autoValue={profile.rollInAltitude_ft}
+          onAuto={() => set('ingressAltitude_ft')(undefined)}
+          onChange={set('ingressAltitude_ft')}
+        />
+      </FormSection>
+
+      <FormSection title="Dive">
+        <SliderField label="Roll-in altitude (ft AGL)" range={ranges.rollInAltitude_ft} value={profile.rollInAltitude_ft} onChange={set('rollInAltitude_ft')} />
+        <SliderField label="Dive angle" range={ranges.diveAngle_deg} value={profile.diveAngle_deg} onChange={set('diveAngle_deg')} />
+        <SliderField label="Release altitude (ft AGL)" range={ranges.releaseAltitude_ft} value={profile.releaseAltitude_ft} onChange={set('releaseAltitude_ft')} />
+        <SliderField label="Release speed (KTAS)" range={ranges.releaseSpeed_ktas} value={profile.releaseSpeed_ktas} onChange={set('releaseSpeed_ktas')} />
+        <SliderField label="Pull-out" range={ranges.pulloutG} value={profile.pulloutG} onChange={set('pulloutG')} />
+      </FormSection>
+
+      <FormSection title="Egress">
+        <div>
+          <label className={label}>Egress</label>
+          <select
+            className={field}
+            style={{ colorScheme: 'dark' }}
+            value={profile.egressDirection}
+            onChange={(e) => onChange({ ...profile, egressDirection: e.target.value as DiveCCIPProfile['egressDirection'] })}
+          >
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+            <option value="straight">Straight ahead</option>
+          </select>
+        </div>
+        <SliderField
+          label="Egress heading"
+          range={ranges.egressHeading_deg}
+          value={profile.egressHeading_deg}
+          autoValue={Math.round(resolveEgressHeading({ ...profile, egressHeading_deg: undefined }, profile.ingressHeading_deg))}
+          onAuto={() => set('egressHeading_deg')(undefined)}
+          onChange={set('egressHeading_deg')}
+        />
+      </FormSection>
     </div>
   );
 }

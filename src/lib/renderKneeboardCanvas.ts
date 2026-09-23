@@ -520,7 +520,8 @@ function drawPlanView(
 
 // ─── Side view ────────────────────────────────────────────────────────────────
 
-function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile, box: Rect) {
+/** The card's side view. Exported for the attack editor, which draws the same picture live as the numbers change. */
+export function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile, box: Rect) {
   fillRect(ctx, box.x, box.y, box.w, box.h, C.diagramBg);
   const padL = 28, padR = 28, padTop = 44, padBottom = 44;
   const dists = side.points.map((p) => p.dist_nm);

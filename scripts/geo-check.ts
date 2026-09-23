@@ -34,7 +34,8 @@ import { flightGroupOf } from '../src/lib/callsign';
 import { applyDisplayFilter } from '../src/lib/displayFilter';
 import { visibleArcSpans } from '../src/lib/arcClip';
 import { compareThreatsForCard } from '../src/lib/cardThreats';
-import { applyFlank, applyEgress } from '../src/lib/attackFlank';
+import { applyFlank, applyEgress, reanchorProfile, moveIp } from '../src/lib/attackFlank';
+import { KNOB_RANGES, KNOB_CHOICES, IP_KNOB_RANGES, type KnobRange } from '../src/lib/customizeKnobs';
 import { useUiStore } from '../src/stores/uiStore';
 import { importNotes } from '../src/lib/importNotes';
 import {
@@ -55,7 +56,7 @@ import { validateMission } from '../src/lib/validateMission';
 import { isThreatVisible, visibleMission, probableThreats, hiddenCounts, type HideFlags } from '../src/lib/threatVisibility';
 import { escapeHtml } from '../src/lib/html';
 import { runAttackChecks, hasErrors } from '../src/lib/attackChecks';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -1220,3 +1221,121 @@ ok('importNotes: a link import names the frag order and keeps its link',
    linkNotes);
 ok('importNotes: an untitled frag order still says so',
    importNotes({ ...notesData, source: { title: null, link: 'L' } } as never, notesGroup, 0).startsWith('Imported from FragOrders link: untitled mission\nL\n'));
+
+// ---------------------------------------------------------------------------
+// Moving the IP on a customized attack re-derives its headings. The live
+// editor map draws from the stored heading, so before `moveIp` a dragged IP
+// drew the run-in from where the IP used to be.
+// ---------------------------------------------------------------------------
+const oldBearing = calculateBearing(wpIp.coordinates, tgt);
+const movedIpPoint = calculateDestination(tgt, 300, 10);
+const newBearing = calculateBearing(movedIpPoint, tgt);
+const bearingSwing = signedHeadingDelta(oldBearing, newBearing);
+const hdgOf = (p: unknown) => (p as { ingressHeading_deg?: number; runInHeading_deg?: number }).ingressHeading_deg ?? (p as { runInHeading_deg: number }).runInHeading_deg;
+
+// Dive: start from a customized profile whose heading matches the old IP.
+const diveOnOldIp = applyFlank(customDive as never, 'right', oldBearing, wpTgt.elevation_ft);
+const diveMoved = moveIp(diveOnOldIp, { customIp: movedIpPoint }, [wpIp, wpTgt] as never, wpTgt as never) as typeof customDive & { customIp?: { lat: number; lon: number } };
+ok('moveIp (dive): the attack heading swings with the IP→target bearing',
+   Math.abs(signedHeadingDelta(hdgOf(diveOnOldIp), hdgOf(diveMoved)) - bearingSwing) < 0.5 && Math.abs(bearingSwing) > 10,
+   `bearing swung ${r(bearingSwing)}°, heading ${r(hdgOf(diveOnOldIp))} → ${r(hdgOf(diveMoved))}`);
+ok('moveIp (dive): the custom point is written and every hand-typed number kept',
+   diveMoved.customIp != null && calculateDistance(diveMoved.customIp, movedIpPoint) < 0.001 && diveMoved.ipWaypointId === undefined &&
+   diveMoved.diveAngle_deg === 37 && diveMoved.rollInAltitude_ft === 9200 && diveMoved.releaseAltitude_ft === 5100);
+const movedPic = buildAttackPicture({ id: 'm', targetWaypointId: wpTgt.id, profileType: 'dive_ccip', profile: diveMoved } as never,
+  resolveIpAnchor([wpIp, wpTgt] as never, wpTgt as never, { customIp: movedIpPoint }), wpTgt as never)!;
+// The picture re-solves the heading from the live IP on its own, so the map
+// was always right. The card's "Attack HDG" / "Ingress HDG" lines, its egress
+// heading and the straight-in check read the STORED heading — which is what
+// has to agree with the picture after a move.
+ok('moveIp (dive): the stored heading the card prints agrees with the drawn picture',
+   Math.abs(signedHeadingDelta(hdgOf(diveMoved), movedPic.attackHeading)) < 0.5,
+   `stored ${r(hdgOf(diveMoved))}° vs drawn ${r(movedPic.attackHeading)}°`);
+
+// Level: back to a waypoint IP.
+const levelOnOldIp = levelBuild.attack!.profile;
+const wpSide = { ...wpIp, id: 'w-side', steerpoint: 3, coordinates: movedIpPoint };
+const levelMoved = moveIp(levelOnOldIp, { ipWaypointId: wpSide.id }, [wpSide, wpIp, wpTgt] as never, wpTgt as never);
+ok('moveIp (level): moving to another waypoint swings the heading by the bearing change',
+   Math.abs(signedHeadingDelta(hdgOf(levelOnOldIp), hdgOf(levelMoved)) - bearingSwing) < 0.5,
+   `${r(hdgOf(levelOnOldIp))} → ${r(hdgOf(levelMoved))}, bearing swung ${r(bearingSwing)}`);
+ok('moveIp (level): the leg ratio and release numbers are kept',
+   (levelMoved as { offsetLegRatio?: number }).offsetLegRatio === (levelOnOldIp as { offsetLegRatio?: number }).offsetLegRatio &&
+   (levelMoved as { releaseAltitude_ft: number }).releaseAltitude_ft === (levelOnOldIp as { releaseAltitude_ft: number }).releaseAltitude_ft);
+
+// Pop-up: the whole plan is re-run; only the headings depend on the bearing.
+const popupParams = f16cProfiles.find((p: { id: string }) => p.id === 'f16c.popup.std').params;
+const popupOnOldIp = applyPopupPlan({ type: 'popup_ccip', egressDirection: 'left', offsetDirection: 'right', actionRange_nm: 6, ...popupParams } as never, oldBearing);
+const popupMoved = reanchorProfile(popupOnOldIp as never, newBearing);
+ok('reanchorProfile (pop-up): run-in and approach headings swing with the bearing',
+   Math.abs(signedHeadingDelta(hdgOf(popupOnOldIp), hdgOf(popupMoved)) - bearingSwing) < 0.01 &&
+   Math.abs(signedHeadingDelta((popupOnOldIp as { approachHeading_deg: number }).approachHeading_deg, (popupMoved as { approachHeading_deg: number }).approachHeading_deg) - bearingSwing) < 0.01,
+   `${r(hdgOf(popupOnOldIp))} → ${r(hdgOf(popupMoved))}`);
+ok('reanchorProfile: no usable bearing leaves the profile alone',
+   reanchorProfile(diveOnOldIp, undefined) === diveOnOldIp && reanchorProfile(diveOnOldIp, NaN) === diveOnOldIp);
+
+// ---------------------------------------------------------------------------
+// Customize slider ranges (lib/customizeKnobs.ts). Every knob stays in
+// Customize (12 dive, 9 level, 13 pop-up), each slider is wired to its form,
+// and nothing in the profile library opens with its slider pinned at an end.
+// ---------------------------------------------------------------------------
+const knobCount = (t: keyof typeof KNOB_RANGES) => Object.keys(KNOB_RANGES[t]).length + KNOB_CHOICES[t].length;
+ok('customizeKnobs: 12 dive, 9 level and 13 pop-up knobs',
+   knobCount('dive_ccip') === 12 && knobCount('level_ccrp') === 9 && knobCount('popup_ccip') === 13,
+   `${knobCount('dive_ccip')} / ${knobCount('level_ccrp')} / ${knobCount('popup_ccip')}`);
+
+const formSource: Record<keyof typeof KNOB_RANGES, string> = {
+  dive_ccip: readFileSync('src/components/attacks/forms/DiveForm.tsx', 'utf8'),
+  level_ccrp: readFileSync('src/components/attacks/forms/LevelForm.tsx', 'utf8'),
+  popup_ccip: readFileSync('src/components/attacks/forms/PopupCCIPForm.tsx', 'utf8'),
+};
+const actionPointSource = readFileSync('src/components/attacks/forms/ActionPointFields.tsx', 'utf8');
+for (const type of Object.keys(KNOB_RANGES) as (keyof typeof KNOB_RANGES)[]) {
+  const unwired = Object.keys(KNOB_RANGES[type]).filter((key) => {
+    const slider = new RegExp(`range=\\{[\\w.]*\\.${key}\\}`);
+    return !slider.test(formSource[type]) && !slider.test(actionPointSource);
+  });
+  ok(`customizeKnobs: every ${type} range drives a slider in its form`, unwired.length === 0, unwired.join(', ') || '');
+}
+
+const allRanges: [string, KnobRange][] = [
+  ...Object.entries(KNOB_RANGES).flatMap(([t, ranges]) => Object.entries(ranges).map(([k, v]) => [`${t}.${k}`, v] as [string, KnobRange])),
+  ...Object.entries(IP_KNOB_RANGES).map(([k, v]) => [`ip.${k}`, v] as [string, KnobRange]),
+];
+const badRanges = allRanges.filter(([, v]) => {
+  const steps = (v.max - v.min) / v.step;
+  return !(v.min < v.max) || !(v.step > 0) || Math.abs(steps - Math.round(steps)) > 1e-9;
+});
+ok('customizeKnobs: every range runs min < max in whole steps', badRanges.length === 0, badRanges.map(([k]) => k).join(', '));
+
+const inRange = (v: number, range: KnobRange) => v >= range.min && v <= range.max;
+const geometryType = { dive: 'dive_ccip', level: 'level_ccrp', popup: 'popup_ccip' } as const;
+// Level ranges are MSL; the library stores AGL. Allow for the highest DCS terrain a target could sit on.
+const HIGHEST_TARGET_FT = 13000;
+const outOfRange: string[] = [];
+for (const file of readdirSync('src-tauri/resources/profiles')) {
+  for (const p of JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}`, 'utf8')) as { id: string; geometry: string; params: Record<string, unknown> }[]) {
+    const type = geometryType[p.geometry as keyof typeof geometryType];
+    if (!type) continue;
+    const ranges = KNOB_RANGES[type] as Record<string, KnobRange>;
+    for (const [key, value] of Object.entries(p.params)) {
+      if (typeof value !== 'number' || !ranges[key]) continue;
+      const msl = type === 'level_ccrp' && key === 'releaseAltitude_ft';
+      const ok_ = msl ? inRange(value, ranges[key]) && inRange(value + HIGHEST_TARGET_FT, ranges[key]) : inRange(value, ranges[key]);
+      if (!ok_) outOfRange.push(`${p.id}.${key}=${value}`);
+    }
+    if (type === 'level_ccrp') {
+      // Auto-build's 1.5× leg at a 30° check turn pushes the action point out with the time of fall.
+      const agl = p.params.releaseAltitude_ft as number, kt = p.params.releaseSpeed_ktas as number;
+      const ap = solveOffsetLeg(levelReleaseRange_nm(agl, kt) + LEVEL_RUN_IN_NM, 30, 1.5)?.actionRange_nm;
+      if (ap == null || !inRange(ap, KNOB_RANGES.level_ccrp.actionRange_nm)) outOfRange.push(`${p.id} action point ${ap}`);
+    }
+  }
+}
+ok('customizeKnobs: every library profile opens inside its sliders', outOfRange.length === 0, outOfRange.join('; '));
+
+// And the numbers auto-build actually writes, on the NTTR fixture.
+const builtOutOfRange = Object.entries(levelBuild.attack!.profile)
+  .filter(([k, v]) => typeof v === 'number' && (KNOB_RANGES.level_ccrp as Record<string, KnobRange>)[k] && !inRange(v, (KNOB_RANGES.level_ccrp as Record<string, KnobRange>)[k]))
+  .map(([k, v]) => `${k}=${v}`);
+ok('customizeKnobs: the auto-built NTTR level attack opens inside its sliders', builtOutOfRange.length === 0, builtOutOfRange.join(', '));

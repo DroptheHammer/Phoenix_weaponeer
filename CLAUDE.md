@@ -108,8 +108,10 @@ history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
       (`src-tauri/src/fragorders_link.rs`); no endpoint or key coming
 
 ### Phase 5: The banked features (NEXT)
-- [ ] **Live-geometry Customize** — sliders over a map that redraws as you
-      drag. Reference: `Other Items/offset-leg-geometry.html` (git-ignored).
+- [x] **Live-geometry Customize** — built 2026-09-22: full-screen editor,
+      slider + number box per knob (`src/lib/customizeKnobs.ts`), live
+      `AttackPreviewMap` + side view. Reference was
+      `Other Items/offset-leg-geometry.html` (git-ignored).
 - [ ] **Multi-aircraft coordinated strike** — 1–4 aircraft on a joint strike,
       adjusted as a group or per aircraft. `split_deg` on `RunInSummary` is
       retained for this.

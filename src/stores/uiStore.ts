@@ -47,13 +47,13 @@ interface Selection {
 
 /**
  * What the map is waiting for a click on — a threat being placed from
- * `ThreatList`, or a custom attack IP being placed from `AttackEditor`. One
- * shared slot rather than a callback per feature: `MapView`'s click handler
- * and its "interactive={false}" guards on every marker only need to know
- * whether a pick is armed at all, not which feature armed it.
+ * `ThreatList`. One shared slot rather than a callback per feature: `MapView`'s
+ * click handler and its "interactive={false}" guards on every marker only need
+ * to know whether a pick is armed at all, not which feature armed it. (The
+ * attack editor's custom IP is placed on the editor's own preview map.)
  */
 export interface MapPick {
-  kind: 'threat' | 'customIp';
+  kind: 'threat';
   /** Shown in the map's placement banner. */
   prompt: string;
   onPick: (position: Coordinates) => void;
@@ -88,20 +88,6 @@ interface UiState extends DisplayFilter, Selection {
   /** The map calls this on click while a pick is armed: delivers the position and disarms. */
   deliverMapPick: (position: Coordinates) => void;
 
-/**
-   * The custom IP `AttackEditor` is live-editing, drawn draggable on the map
-   * while the editor is open. `attackId: null` means a new, unsaved attack.
-   * Separate from `mapPick`: the draft is live for the whole time the editor
-   * is open, not just the moment a click is being waited on.
-   *
-   * `onMove` — not a raw point the map writes back — is deliberate: a drag
-   * calls straight into the editor's own `setCustomIp`, so there is exactly
-   * one direction of data flow (editor → store → marker → editor's callback)
-   * rather than two components both writing the same store field and racing.
-   */
-  ipDraft: { attackId: string | null; point: Coordinates; onMove: (point: Coordinates) => void } | null;
-  setIpDraft: (draft: UiState['ipDraft']) => void;
-
   /**
    * Which author-hidden threats are revealed (⚙ Settings → Admin). Session
    * only: both start false on every launch and never reach a mission file.
@@ -127,7 +113,6 @@ export const useUiStore = create<UiState>((set, get) => ({
   ...emptyFilter,
   ...emptySelection,
   mapPick: null,
-  ipDraft: null,
 
   kneeboardMap: true,
   toggleKneeboardMap: () => set((state) => ({ kneeboardMap: !state.kneeboardMap })),
@@ -169,7 +154,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     })),
 
   showAll: () => set({ ...emptyFilter }),
-  resetFilter: () => set({ ...emptyFilter, ...emptySelection, mapPick: null, ipDraft: null }),
+  resetFilter: () => set({ ...emptyFilter, ...emptySelection, mapPick: null }),
 
   requestMapPick: (pick) => set({ mapPick: pick }),
   cancelMapPick: () => set({ mapPick: null }),
@@ -178,7 +163,6 @@ export const useUiStore = create<UiState>((set, get) => ({
     set({ mapPick: null });
     pick?.onPick(position);
   },
-  setIpDraft: (draft) => set({ ipDraft: draft }),
 
   revealHidden: { onPlanner: false, onMap: false },
   setRevealHidden: (change) =>
