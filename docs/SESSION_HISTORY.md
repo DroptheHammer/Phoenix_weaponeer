@@ -2,6 +2,70 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Last session:** 2026-09-22 (Opus 5.5, user at the screen). **Built
+FragOrders URL import.** Two commits plus a session-notes commit (`d4ad394`),
+all pushed. Gates: **249 geo-checks** (was 246), **99 Rust tests + 1 ignored
+live test** (was 83), `npm run build` clean, `cargo build` zero warnings. Plan
+at `~/.claude/plans/what-s-next-on-our-elegant-mango.md`. Released as v0.2.3
+the next session.
+
+| Commit | What |
+|---|---|
+| `1cdaee0` | Saved the 2026-09-15 evening work: link fixtures, shelved request to the FragOrders author, CLAUDE.md trim |
+| `fbe807c` | Import a mission from a FragOrders public link |
+| `d4ad394` | Session notes |
+
+### FragOrders URL import
+
+- **The user's decision:** import what the public link carries, and that's it.
+  Author- or publisher-withheld units are intended to be missing. The FragOrders author
+  endpoint request was never sent and is shelved. Memory:
+  `project-fragorders-publish-varies`.
+- **How the link resolves** (`src-tauri/src/fragorders_link.rs`):
+  1. Firestore `PublishManifests/{id}` gives the bundle address, the title and
+     `showGroups`.
+  2. The CloudFront bundle gives the `TaskingState` JSON.
+  The fetch is https only, never follows redirects, and only takes a bundle
+  from `*.cloudfront.net`. It uses `ureq` with rustls, running in Rust, so the
+  CSP and the capabilities list are unchanged.
+- **Parser:** `parsers/tasking_state.rs`. The **Paste JSON** tab now accepts
+  either shape.
+- **Import:** `process_tasking_state` in `commands/mod.rs`. It shares
+  `convert_route` with the CLI import. FragOrders fills unnamed points with
+  their own number ("0"); those are blanked so the airfield-name fallback still
+  works.
+- **Theater aliases:** each theater entry has a `fragorders_names` list
+  (`SINAI`, `PG`, `MARIANAS`, `SOUTH_ATLANTIC`, `GERMANY_COLD_WAR`,
+  `Normandy2`). FragOrders' Channel name is unknown.
+- **Empty laydown:** the result gets a blue *notice*, not a warning. The
+  wording is specific when `showGroups` is off.
+- **Mission notes** record the frag order's title and link
+  (`src/lib/importNotes.ts`).
+- **Parity test:** Sinai M01 V7 imports identically from the link and the CLI
+  for every flight. The CLI's "Uzi11 1-1" and the link's "Uzi11" both render as
+  "Uzi 1-1" via `formatCallsign`.
+- **Checked on screen by the user** with the Neon Mirror and Arctic Fury links.
+- **Live test:** `cargo test -- --ignored` hits the real service (NTTR_DTC,
+  Neon Mirror).
+
+### Build note
+
+Homebrew upgraded `proj` from 9.8.1 to 9.9.0 on 2026-09-15, and the cached
+`proj-sys` build still linked the old Cellar path ("library 'proj' not found").
+Fixed with `cargo clean -p proj-sys`. If that error returns after a
+`brew upgrade`, do the same.
+
+### START OF NEXT SESSION (as written then)
+
+1. Release v0.2.3 when the user says so.
+2. Then pick the next banked feature: live-geometry Customize, or multi-aircraft
+   coordinated strike together with shared custom IP. Ask.
+
+The "Adjacent, noted but not done" list from this session carried forward
+unchanged into the next session's notes.
+
+---
+
 **Last session:** 2026-09-15 (Opus 5, user at the screen). **Released and
 published v0.2.2.** Two commits and a tag, all pushed, plus this session-notes
 commit. Gates at release: **246 geo-checks**, **83 Rust tests**, `npm run build`

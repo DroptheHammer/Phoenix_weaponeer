@@ -178,72 +178,43 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-22 (Opus 5.5, user at the screen). **Built
-FragOrders URL import.** Two commits plus this session-notes commit, all pushed.
-Gates: **249 geo-checks** (was 246), **99 Rust tests + 1 ignored live test**
-(was 83), `npm run build` clean, `cargo build` zero warnings. Plan at
-`~/.claude/plans/what-s-next-on-our-elegant-mango.md`.
-
-**Released v0.2.3 on 2026-09-22** (session after the one below). It ships
-link import. The bump commit is `e038278` and the tag is `v0.2.3`. Release CI
-run `35822594387` was green on macOS, Windows and Linux, including the new
-`ureq`/rustls dependency. All 7 installers are attached, and the release is
-**published and marked Latest**.
+**Last session:** 2026-09-22, late (Opus 5.5, user at the screen). **Released
+and published v0.2.3.** It ships FragOrders link import, built the session
+before (see the top of `docs/SESSION_HISTORY.md`). One version-bump commit, a
+tag, and the session-notes commits, all pushed. No code changed. Gates at
+release: **249 geo-checks**, **99 Rust tests + 1 ignored**, `npm run build`
+clean.
 
 | Commit | What |
 |---|---|
-| `1cdaee0` | Saved the 2026-09-15 evening work: link fixtures, shelved request to the FragOrders author, CLAUDE.md trim |
-| `fbe807c` | Import a mission from a FragOrders public link |
-| (next) | Session notes |
+| `e038278` | Bump version to 0.2.3, tagged `v0.2.3` |
+| `292debf` | Session notes: v0.2.3 published |
+| (next) | Session notes, archive of the link-import session |
 
-### FragOrders URL import
+### v0.2.3 release
 
-- **The user's decision:** import what the public link carries, and that's it.
-  Author- or publisher-withheld units are intended to be missing. The FragOrders author
-  endpoint request was never sent and is shelved. Memory:
-  `project-fragorders-publish-varies`.
-- **How the link resolves** (`src-tauri/src/fragorders_link.rs`):
-  1. Firestore `PublishManifests/{id}` gives the bundle address, the title and
-     `showGroups`.
-  2. The CloudFront bundle gives the `TaskingState` JSON.
-  The fetch is https only, never follows redirects, and only takes a bundle
-  from `*.cloudfront.net`. It uses `ureq` with rustls, running in Rust, so the
-  CSP and the capabilities list are unchanged.
-- **Parser:** `parsers/tasking_state.rs`. The **Paste JSON** tab now accepts
-  either shape.
-- **Import:** `process_tasking_state` in `commands/mod.rs`. It shares
-  `convert_route` with the CLI import. FragOrders fills unnamed points with
-  their own number ("0"); those are blanked so the airfield-name fallback still
-  works.
-- **Theater aliases:** each theater entry has a `fragorders_names` list
-  (`SINAI`, `PG`, `MARIANAS`, `SOUTH_ATLANTIC`, `GERMANY_COLD_WAR`,
-  `Normandy2`). FragOrders' Channel name is unknown.
-- **Empty laydown:** the result gets a blue *notice*, not a warning. The
-  wording is specific when `showGroups` is off.
-- **Mission notes** record the frag order's title and link
-  (`src/lib/importNotes.ts`).
-- **Parity test:** Sinai M01 V7 imports identically from the link and the CLI
-  for every flight. The CLI's "Uzi11 1-1" and the link's "Uzi11" both render as
-  "Uzi 1-1" via `formatCallsign`.
-- **Checked on screen by the user** with the Neon Mirror and Arctic Fury links.
-- **Live test:** `cargo test -- --ignored` hits the real service (NTTR_DTC,
-  Neon Mirror).
-
-### Build note
-
-Homebrew upgraded `proj` from 9.8.1 to 9.9.0 on 2026-09-15, and the cached
-`proj-sys` build still linked the old Cellar path ("library 'proj' not found").
-Fixed with `cargo clean -p proj-sys`. If that error returns after a
-`brew upgrade`, do the same.
+- Release CI run `35822594387` passed on macOS, Windows and Linux. That was the
+  first CI build of the new `ureq`/rustls dependency, and it built cleanly
+  everywhere.
+- All 7 assets are attached: `.dmg`, `.app.tar.gz`, `-setup.exe`, `.msi`,
+  `.deb`, `.rpm`, `.AppImage`. **Published and marked Latest at the user's
+  request.**
+- The notes are plain-language. They point to the **From URL** tab and say
+  that an empty threat list means the mission maker withheld the threats on
+  purpose. I also wrote the user a Discord hype message for the squadron.
+- **Sandbox note:** under the Bash sandbox, `git pull`/`push` (gh credential
+  helper), `gh`, and `cargo` all have to run unsandboxed. Memory:
+  `feedback-commands-that-dont-prompt`.
 
 ### START OF NEXT SESSION
 
-1. ~~Release v0.2.3~~. Done and published (see above).
-2. Pick the next banked feature. **Live-geometry Customize** is
+1. Pick the next banked feature. **Live-geometry Customize** is
    half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md` (memory
    `project-live-geometry-customize`). The other candidate is **multi-aircraft
    coordinated strike together with shared custom IP** (memory
    `project-shared-custom-ip`). Ask.
+2. If a `brew upgrade` brings back "library 'proj' not found", run
+   `cargo clean -p proj-sys` (memory `project-proj-brew-upgrade-breaks-link`).
 
 ### Adjacent, noted but not done
 
