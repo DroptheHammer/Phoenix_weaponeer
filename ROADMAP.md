@@ -144,7 +144,7 @@ fix verified by hand in the running app against the real NTTR Red Flag mission.
 - [x] Portal-rendered modals inherited near-black text on a navy panel
 
 ### 3.5.5 Test Data & Regression Cover ✅
-- [x] Real FragOrders export promoted to `test-data/nttr_redflag_viper1.json`
+- [x] Real FragOrders export promoted to `test-data/private/nttr_redflag_viper1.json`
 - [x] `test_fragorders.json` marked as synthetic — its coordinates land 300+ km
       off the NTTR map, and it caused two separate false hunts for a
       coordinate-conversion bug that never existed
@@ -157,7 +157,7 @@ fix verified by hand in the running app against the real NTTR Red Flag mission.
 
 Only Nevada and Caucasus had proj4 projections, so every other map was rejected
 at import. The FragOrders author supplied FragOrders' full theater table
-(`docs/fragorders-response-maps.txt`), taking coverage from 2 maps to 12 of 13.
+(shared privately, not in this repo), taking coverage from 2 maps to 12 of 13.
 
 ### 3.6.1 Projections ✅
 - [x] 10 new proj4 strings: Syria, Persian Gulf, Normandy, Marianas, Falklands,

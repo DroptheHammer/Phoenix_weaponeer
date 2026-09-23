@@ -83,8 +83,8 @@ mod tests {
     #[test]
     fn fixture_airfield_ids_sit_at_their_airfields() {
         let fixtures = [
-            ("sinai_m01_v7", include_str!("../../../test-data/sinai_m01_v7.json"), "sinai"),
-            ("nttr_redflag_viper1", include_str!("../../../test-data/nttr_redflag_viper1.json"), "nevada"),
+            ("sinai_m01_v7", crate::private_fixture!("sinai_m01_v7.json"), "sinai"),
+            ("nttr_redflag_viper1", crate::private_fixture!("nttr_redflag_viper1.json"), "nevada"),
         ];
         for (file, json, theater) in fixtures {
             let mission = parse_fragorders_json(json).expect("fixture parses");

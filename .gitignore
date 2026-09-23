@@ -49,3 +49,7 @@ coverage/
 
 # Scratch drop-zone for files the user wants Claude to inspect (exports, saved missions)
 Other Items/
+
+# Real missions (squadron and FragOrders): local only, never public.
+# Tests that need them skip when this folder is missing.
+test-data/private/

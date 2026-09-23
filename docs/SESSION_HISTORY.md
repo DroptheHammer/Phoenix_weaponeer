@@ -101,8 +101,8 @@ commit. Gates at release: **246 geo-checks**, **83 Rust tests**, `npm run build`
 clean, `cargo build` zero warnings. No code changed this session.
 
 *(Added 2026-09-22: a later session that evening investigated FragOrders public
-links. It captured four link payloads into `test-data/fragorders-links/` and
-drafted a request to the FragOrders author in `docs/fragorders/`. None of it was committed or
+links. It captured four link payloads into `test-data/private/fragorders-links/` and
+drafted a request to the FragOrders author (never sent; kept out of the repo). None of it was committed or
 written into these notes until `1cdaee0` on 2026-09-22.)*
 
 | Commit | What |
@@ -332,7 +332,7 @@ platforms** (run `34933050169`). The **draft** release has
   code.
 - `cargo audit` still shows 11 unmaintained/unsound warnings, all deep in
   Tauri's own dependency tree.
-- `test-data/sinai_m01_v7.json` has no README entry or import test yet.
+- `test-data/private/sinai_m01_v7.json` has no README entry or import test yet.
 - Missions saved before `3569a5c` read one high until re-imported.
 - `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after
   its airfield.
@@ -435,7 +435,7 @@ CI action pinning, Linux fonts, `cargo-audit` not installed). Memory:
 
 ### Adjacent, noted but not done
 
-- `test-data/sinai_m01_v7.json` has no README entry or import test yet.
+- `test-data/private/sinai_m01_v7.json` has no README entry or import test yet.
 - Missions saved before `3569a5c` read one high until re-imported.
 - `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after
   its airfield.
@@ -455,7 +455,7 @@ pushed.** Gates moved **156 → 189 geo-checks** and **60 → 74 Rust tests**;
 | Commit | What |
 |---|---|
 | `fea03ad` | Kneeboard map layer, per-aircraft DCS folders, and the 0.2.1 security sweep |
-| `72f934a` | Session notes; adds `test-data/sinai_m01_v7.json` (user-supplied, no test yet) |
+| `72f934a` | Session notes; adds `test-data/private/sinai_m01_v7.json` (user-supplied, no test yet) |
 
 ### Grey map under the card's north-up picture
 
@@ -520,7 +520,7 @@ CORS on WebView2, CSP. (Still true as of 2026-09-13 — see above.)
 
 ### Adjacent, noted but not done (as of 2026-09-13)
 
-- `test-data/sinai_m01_v7.json` has no README entry or import test yet.
+- `test-data/private/sinai_m01_v7.json` has no README entry or import test yet.
 - Missions saved before `3569a5c` read one high until re-imported.
 - `airdromeId` is dropped at deserialization, so waypoint 0 can't be named after
   its airfield.
@@ -639,7 +639,7 @@ user's authenticated `gh`. The local checkout is frozen at Jan 26. Mine a new
 binary with `go version -m` and `strings` instead. In memory:
 `reference-fragorders-cli`.
 
-`test-data/sinai_m01_v6.json` is the new reference fixture (theater `SinaiMap`,
+`test-data/private/sinai_m01_v6.json` is the new reference fixture (theater `SinaiMap`,
 86 groups, 8 client flights, 34 threats all resolving to DB rows). The old NTTR
 fixture is now covered by a test too — before this session **no test loaded any
 fixture at all**, which is how `RoutePoint.eta` sat renamed to `"ETA"` against
@@ -1287,7 +1287,7 @@ its job ends at green gates plus a written checklist).
 
 ### START OF NEXT SESSION — the eyeball checklist (items 2-6 are UNVERIFIED)
 
-Run `npm run tauri dev`, import `test-data/nttr_redflag_viper1.json`, group
+Run `npm run tauri dev`, import `test-data/private/nttr_redflag_viper1.json`, group
 Viper 1 (Hot). Items 1-8 of the last checklist passed already (panel closes on
 save, stays open on cancel, Customize re-save reframes, second attack on TGT2,
 GBU-31 level, pan-away-and-save, map/card framing agree). Still to check:
@@ -1365,7 +1365,7 @@ method the pop-up is built on) before touching attack geometry.
 session; nothing today touched geometry math or the Rust side.
 
 **How to run:** `npm run tauri dev`. Closing the app window kills the whole
-dev process; relaunch it. Import `test-data/nttr_redflag_viper1.json`, group
+dev process; relaunch it. Import `test-data/private/nttr_redflag_viper1.json`, group
 Viper 1 (Hot).
 
 ### What happened today
@@ -1498,7 +1498,7 @@ reproduces the handbook's worked example and the action-point geometry).
 
 **How to run:** `npm run tauri dev`. Closing the app window kills the whole
 dev process (Vite + cargo watcher); relaunch it. Import
-`test-data/nttr_redflag_viper1.json`, group Viper 1 (Hot). Any edit under
+`test-data/private/nttr_redflag_viper1.json`, group Viper 1 (Hot). Any edit under
 `src-tauri/` (including `resources/profiles/*.json`, which are compiled in)
 rebuilds and restarts the app and wipes the imported mission.
 
@@ -1638,7 +1638,7 @@ tarball in `Other Items/` is now redundant and can be deleted.
 
 **START OF NEXT SESSION: eyeball M1 in the running app** — it is built and
 gated but has never been seen on screen. `npm run tauri dev`, then:
-1. Import `test-data/nttr_redflag_viper1.json`, group Viper 1 (Hot). First
+1. Import `test-data/private/nttr_redflag_viper1.json`, group Viper 1 (Hot). First
    launch prints "Reference database is v1, rebuilding as v2" — expected.
 2. Attacks → Add Attack. Pick TGT1, Viper 1-1, then Mk-82 LDGP (the pilots
    have no loadout yet, so the weapon list is every A/G store). Expect the
@@ -1772,7 +1772,7 @@ done.
 
 **Completed this session — Phase 3.6, theater projections for 12 of 13 maps**
 
-The FragOrders author answered the data request. His table is in `docs/fragorders-response-maps.txt`.
+The FragOrders author answered the data request with FragOrders' theater table (kept out of the repo).
 Gates: `npm run build` clean, **30 Rust tests** pass (was 27).
 
 **His Caucasus and Nevada strings are identical to ours, character for
@@ -1850,7 +1850,7 @@ can NEVER catch an axis swap, since swapping both directions still round-trips
 
 The actual culprit both times was **`test-data/test_fragorders.json`**: it is
 synthetic, and its waypoints land 300+ km outside the NTTR map in eastern
-Nevada. **Use `test-data/nttr_redflag_viper1.json`** (real FragOrders export,
+Nevada. **Use `test-data/private/nttr_redflag_viper1.json`** (real FragOrders export,
 group `Viper 1 (Hot)`, 14 waypoints) for anything involving map positions. See
 `test-data/README.md`.
 
@@ -1883,7 +1883,7 @@ requirement: navigation and attack symbols must always be on top, so a symbol
 under the nose is never ambiguous.
 
 **Also this session — planned projection support for all DCS maps.** See
-`docs/THEATER_DATA_REQUEST.md` (ready to send to the FragOrders author) and item 1 under "Next
+the data request to the FragOrders author (kept out of the repo) and item 1 under "Next
 up" below. Not started in code.
 
 **Manual verification — all five checks passed in-app:**

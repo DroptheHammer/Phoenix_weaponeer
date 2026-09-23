@@ -11,6 +11,16 @@ fragorders parse mission.miz > mission.json
 
 ## Files
 
+**Real missions live in `test-data/private/`, which is git-ignored.** Squadron
+missions and captured FragOrders link payloads can carry an author's hidden
+threat laydown, so they never go to the public repo. That covers
+`nttr_redflag_viper1.json`, `sinai_m01_v6.json`, `sinai_m01_v7.json` and
+`fragorders-links/`. Tests that need one of them load it at run time
+(`private_fixture!` in `src-tauri/src/lib.rs`) and print "skipped" when it is
+missing, so the suite still passes on a fresh clone. To run them in full, copy
+the folder over from a machine that has it. The private archive repo
+(`Phoenix_weaponeer-archive`) has them too.
+
 ### `nttr_redflag_viper1.json` — ✅ the original reference
 
 Real `fragorders parse` output from `NTTR_Training_RF_v13.miz` (NTTR Red Flag

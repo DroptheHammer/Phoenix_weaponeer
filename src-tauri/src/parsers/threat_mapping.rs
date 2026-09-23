@@ -333,7 +333,7 @@ mod tests {
         }
     }
 
-    /// Every SAM and AAA unit type name in test-data/nttr_redflag_viper1.json,
+    /// Every SAM and AAA unit type name in test-data/private/nttr_redflag_viper1.json,
     /// spelled exactly as DCS writes it.
     #[test]
     fn real_nttr_unit_names_resolve() {

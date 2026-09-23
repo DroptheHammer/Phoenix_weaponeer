@@ -42,7 +42,7 @@ pub struct TheaterCoordParams {
 
 /// All DCS theaters, with the proj4 projection used to convert their map grid.
 ///
-/// Projection strings come from FragOrders (`docs/fragorders-response-maps.txt`).
+/// Projection strings come from FragOrders' theater table, supplied by its author.
 /// Caucasus and Nevada additionally match our own ground-truth work exactly.
 /// FragOrders writes `+k` for four of these; it is a PROJ alias for `+k_0` and
 /// is normalized here so every string in this table reads the same way.
@@ -555,7 +555,7 @@ mod tests {
     /// Ground truth for Sinai, read off the DCS Mission Editor.
     ///
     /// These are not clicked map positions: each is a single-unit group in
-    /// `test-data/sinai_m01_v6.json`, so the DCS x/y comes from the mission file
+    /// `test-data/private/sinai_m01_v6.json`, so the DCS x/y comes from the mission file
     /// itself and only the lat/lon was read on screen. That removes any pointing
     /// error and makes the pair exact to the arcsecond the ME displays.
     ///

@@ -284,13 +284,18 @@ mod tests {
         }
     }
 
-    /// The whole fetch against the live service. Run by hand:
-    /// `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored`.
+    /// The whole fetch against the live service. Run by hand with the NTTR_DTC
+    /// and Neon Mirror public links (kept out of the repo, in
+    /// test-data/private/fragorders-links/README.md):
+    /// `PHOENIX_LIVE_LINK=<url> PHOENIX_LIVE_NEON_LINK=<url> cargo test --manifest-path src-tauri/Cargo.toml -- --ignored`.
     #[test]
     #[ignore = "needs the network and a live FragOrders link"]
     fn live_nttr_dtc_link_fetches() {
-        let payload = fetch("https://fragorders.com/public_frag_order/ExampleLinkId0000003")
-            .expect("live link should fetch");
+        let Ok(link) = std::env::var("PHOENIX_LIVE_LINK") else {
+            eprintln!("skipped: set PHOENIX_LIVE_LINK to the NTTR_DTC public link");
+            return;
+        };
+        let payload = fetch(&link).expect("live link should fetch");
         assert!(crate::parsers::tasking_state::looks_like_tasking_state(&payload.bundle_json));
         let db = crate::db::Database::open_in_memory().expect("db");
         let data = crate::commands::process_tasking_state(&payload.bundle_json, &db)
@@ -300,8 +305,11 @@ mod tests {
         assert_eq!(payload.show_groups, Some(true));
 
         // Neon Mirror was published with "show groups" off; the manifest says so.
-        let neon = fetch("https://fragorders.com/public_frag_order/ExampleLinkId0000001")
-            .expect("live link should fetch");
+        let Ok(neon_link) = std::env::var("PHOENIX_LIVE_NEON_LINK") else {
+            eprintln!("skipped the Neon Mirror half: set PHOENIX_LIVE_NEON_LINK");
+            return;
+        };
+        let neon = fetch(&neon_link).expect("live link should fetch");
         assert_eq!(neon.show_groups, Some(false));
         assert!(neon.title.is_some(), "the manifest carries the mission's title");
     }

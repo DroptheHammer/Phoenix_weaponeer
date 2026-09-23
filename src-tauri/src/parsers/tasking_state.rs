@@ -9,7 +9,7 @@
 //! payload is whatever the mission's publisher chose to share. Author-hidden
 //! groups are usually stripped before we see them, and that is intended.
 //! Fixtures and the publish options behind each are in
-//! `test-data/fragorders-links/`.
+//! `test-data/private/fragorders-links/`.
 
 use serde::Deserialize;
 
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn a_cli_export_is_not_a_tasking_state() {
-        let cli = include_str!("../../../test-data/sinai_m01_v7.json");
+        let cli = crate::private_fixture!("sinai_m01_v7.json");
         assert!(!looks_like_tasking_state(cli));
         assert!(
             parse_tasking_state(cli).is_err(),
@@ -152,10 +152,10 @@ mod tests {
     #[test]
     fn every_captured_link_payload_is_recognised() {
         for json in [
-            include_str!("../../../test-data/fragorders-links/kola_arcticfury_threats-visible.json"),
-            include_str!("../../../test-data/fragorders-links/nttr_dtc_threats-visible.json"),
-            include_str!("../../../test-data/fragorders-links/sinai_m01v7_all-red-hidden-in-miz.json"),
-            include_str!("../../../test-data/fragorders-links/syria_neonmirror_showgroups-off.json"),
+            crate::private_fixture!("fragorders-links/kola_arcticfury_threats-visible.json"),
+            crate::private_fixture!("fragorders-links/nttr_dtc_threats-visible.json"),
+            crate::private_fixture!("fragorders-links/sinai_m01v7_all-red-hidden-in-miz.json"),
+            crate::private_fixture!("fragorders-links/syria_neonmirror_showgroups-off.json"),
         ] {
             assert!(looks_like_tasking_state(json));
             parse_tasking_state(json).expect("captured payload should parse");

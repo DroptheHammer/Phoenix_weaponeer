@@ -8,7 +8,7 @@
 - Complete ONE task at a time. Run that task's verification before moving on.
 - After each stage, run the Stage Gate commands. Do not start the next stage on a red gate.
 - Check off tasks in this file (`[ ]` → `[x]`) as you complete them, and commit after each stage with message `Bugfix Stage N: <summary>`.
-- Test data for manual checks: `test-data/nttr_redflag_viper1.json` — import it and select group **`Viper 1 (Hot)`** (14 waypoints, incl. "IP", "TGT1", "TGT2"). See `test-data/README.md`.
+- Test data for manual checks: `test-data/private/nttr_redflag_viper1.json` — import it and select group **`Viper 1 (Hot)`** (14 waypoints, incl. "IP", "TGT1", "TGT2"). See `test-data/README.md`.
   - Do NOT use `test-data/test_fragorders.json`: it is synthetic and its coordinates land 300+ km off the NTTR map.
 - Launch app with `npm run tauri dev` (NOT `npm run dev` — the plain Vite server has no Tauri backend and throws `window.__TAURI_INTERNALS__` errors).
 
@@ -52,7 +52,7 @@
 ### Stage 1 Gate
 1. `npx tsc --noEmit` — no new errors vs. before the stage.
 2. Manual repro in the app (`npm run tauri dev`):
-   - Import `test-data/nttr_redflag_viper1.json` (group `Viper 1 (Hot)`), add a flight member, create an attack: target "TGT1", IP "IP".
+   - Import `test-data/private/nttr_redflag_viper1.json` (group `Viper 1 (Hot)`), add a flight member, create an attack: target "TGT1", IP "IP".
    - In the Heading field: type `90`, then select-all and delete so it's empty. Save (calculate first if required).
    - Map view: the attack overlay (blue dashed IP leg → yellow offset leg → red attack leg → green egress) must render along the IP→Target axis. No missing/mispositioned POP/ATK/TGT markers, no console errors about invalid LatLng.
    - Reopen the attack: the Heading field is empty, overlay still correct.
@@ -152,7 +152,7 @@ Not in the original plan, but it is the root cause that makes 3.1 and 3.2 fire e
 
 ### Stage 3 Gate
 1. `cargo test --lib` — all tests pass, including the new `infer_waypoint_type` tests. ✅ 27 passing as of 2026-07-26.
-2. Manual: import `test-data/nttr_redflag_viper1.json` (group `Viper 1 (Hot)`) — "IP" renders yellow (ip), "TGT1"/"TGT2" red (target), "ARCO" plain nav (NOT tanker), and the IP/Target dropdowns in the attack editor are populated (no regression).
+2. Manual: import `test-data/private/nttr_redflag_viper1.json` (group `Viper 1 (Hot)`) — "IP" renders yellow (ip), "TGT1"/"TGT2" red (target), "ARCO" plain nav (NOT tanker), and the IP/Target dropdowns in the attack editor are populated (no regression).
 
 ---
 

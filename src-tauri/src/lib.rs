@@ -5,6 +5,27 @@
 //! coordinate conversion (from CLI output or a public link), the delivery profile library, and settings. Kneeboard
 //! cards are rendered in the frontend; the backend only writes the PNG.
 
+/// Loads a real-mission fixture from `test-data/private/`, which is git-ignored:
+/// squadron missions and captured FragOrders links stay off the public repo.
+/// When the file isn't there, the calling test prints a note and passes.
+#[cfg(test)]
+#[macro_export]
+macro_rules! private_fixture {
+    ($name:literal) => {
+        match std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test-data/private/",
+            $name
+        )) {
+            Ok(json) => &*Box::leak(json.into_boxed_str()),
+            Err(_) => {
+                eprintln!("skipped: test-data/private/{} is not present", $name);
+                return;
+            }
+        }
+    };
+}
+
 pub mod commands;
 pub mod db;
 pub mod fragorders_link;

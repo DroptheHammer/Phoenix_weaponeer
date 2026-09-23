@@ -1227,7 +1227,7 @@ mod tests {
     /// This is the regression guard for every future FragOrders schema change.
     #[test]
     fn nttr_fixture_imports_unchanged() {
-        let json = include_str!("../../../test-data/nttr_redflag_viper1.json");
+        let json = crate::private_fixture!("nttr_redflag_viper1.json");
         let db = db::Database::open_in_memory().expect("db");
         let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
 
@@ -1279,7 +1279,7 @@ mod tests {
     /// through the same path with nothing dropped.
     #[test]
     fn sinai_m01_v6_fixture_imports() {
-        let json = include_str!("../../../test-data/sinai_m01_v6.json");
+        let json = crate::private_fixture!("sinai_m01_v6.json");
         let db = db::Database::open_in_memory().expect("db");
         let data = process_fragorders_json(json, &db).expect("Sinai fixture must import");
 
@@ -1353,7 +1353,7 @@ mod tests {
     /// nothing dropped and the new SHORAD mapped.
     #[test]
     fn sinai_m01_v7_fixture_imports() {
-        let json = include_str!("../../../test-data/sinai_m01_v7.json");
+        let json = crate::private_fixture!("sinai_m01_v7.json");
         let db = db::Database::open_in_memory().expect("db");
         let data = process_fragorders_json(json, &db).expect("Sinai V7 fixture must import");
 
@@ -1412,7 +1412,7 @@ mod tests {
     /// the laydown only as probable threats.
     #[test]
     fn sinai_v7_threats_carry_the_authors_hide_flags() {
-        let json = include_str!("../../../test-data/sinai_m01_v7.json");
+        let json = crate::private_fixture!("sinai_m01_v7.json");
         let db = db::Database::open_in_memory().expect("db");
         let data = process_fragorders_json(json, &db).expect("Sinai V7 fixture must import");
 
@@ -1431,7 +1431,7 @@ mod tests {
     /// groups left visible carry neither.
     #[test]
     fn nttr_hidden_sa2_carries_only_the_map_flag() {
-        let json = include_str!("../../../test-data/nttr_redflag_viper1.json");
+        let json = crate::private_fixture!("nttr_redflag_viper1.json");
         let db = db::Database::open_in_memory().expect("db");
         let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
 
@@ -1468,16 +1468,29 @@ mod tests {
     // ---- Public-link (TaskingState) import tests -----------------------
     //
     // Fixtures are payloads captured from real public links; see
-    // test-data/fragorders-links/README.md for the publish options behind each.
+    // test-data/private/fragorders-links/README.md for the publish options
+    // behind each. Each macro skips the calling test when the file is absent.
 
-    const LINK_SINAI_V7: &str =
-        include_str!("../../../test-data/fragorders-links/sinai_m01v7_all-red-hidden-in-miz.json");
-    const LINK_NEON_MIRROR: &str =
-        include_str!("../../../test-data/fragorders-links/syria_neonmirror_showgroups-off.json");
-    const LINK_ARCTIC_FURY: &str =
-        include_str!("../../../test-data/fragorders-links/kola_arcticfury_threats-visible.json");
-    const LINK_NTTR_DTC: &str =
-        include_str!("../../../test-data/fragorders-links/nttr_dtc_threats-visible.json");
+    macro_rules! link_sinai_v7 {
+        () => {
+            crate::private_fixture!("fragorders-links/sinai_m01v7_all-red-hidden-in-miz.json")
+        };
+    }
+    macro_rules! link_neon_mirror {
+        () => {
+            crate::private_fixture!("fragorders-links/syria_neonmirror_showgroups-off.json")
+        };
+    }
+    macro_rules! link_arctic_fury {
+        () => {
+            crate::private_fixture!("fragorders-links/kola_arcticfury_threats-visible.json")
+        };
+    }
+    macro_rules! link_nttr_dtc {
+        () => {
+            crate::private_fixture!("fragorders-links/nttr_dtc_threats-visible.json")
+        };
+    }
 
     /// The strongest check on the link import: Sinai M01 V7 was captured both
     /// as CLI output and as a public link. Every flight the link offers must
@@ -1486,9 +1499,9 @@ mod tests {
     #[test]
     fn a_link_imports_every_flight_exactly_as_the_cli_does() {
         let db = db::Database::open_in_memory().expect("db");
-        let cli = process_fragorders_json(include_str!("../../../test-data/sinai_m01_v7.json"), &db)
+        let cli = process_fragorders_json(crate::private_fixture!("sinai_m01_v7.json"), &db)
             .expect("CLI fixture must import");
-        let link = process_tasking_state(LINK_SINAI_V7, &db).expect("link fixture must import");
+        let link = process_tasking_state(link_sinai_v7!(), &db).expect("link fixture must import");
 
         assert_eq!(link.theater, cli.theater);
         assert!(link.warnings.is_empty(), "nothing should be dropped: {:?}", link.warnings);
@@ -1562,7 +1575,7 @@ mod tests {
     #[test]
     fn a_link_with_no_air_defences_imports_with_a_notice() {
         let db = db::Database::open_in_memory().expect("db");
-        for (name, json) in [("Sinai M01 V7", LINK_SINAI_V7), ("Neon Mirror", LINK_NEON_MIRROR)] {
+        for (name, json) in [("Sinai M01 V7", link_sinai_v7!()), ("Neon Mirror", link_neon_mirror!())] {
             let data = process_tasking_state(json, &db).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert!(data.threats.is_empty(), "{name} publishes no red ground units");
             assert!(!data.player_groups.is_empty(), "{name} still offers its flights");
@@ -1575,7 +1588,7 @@ mod tests {
     fn a_link_with_a_laydown_imports_its_threats() {
         let db = db::Database::open_in_memory().expect("db");
 
-        let kola = process_tasking_state(LINK_ARCTIC_FURY, &db).expect("Arctic Fury must import");
+        let kola = process_tasking_state(link_arctic_fury!(), &db).expect("Arctic Fury must import");
         assert_eq!(kola.theater, "kola");
         assert!(!kola.projection_verified, "Kola is still unverified; the amber banner must fire");
         assert_eq!(kola.player_groups.len(), 5);
@@ -1586,13 +1599,13 @@ mod tests {
         );
         assert!(kola.notices.is_empty(), "no notice when threats came through");
 
-        let nttr = process_tasking_state(LINK_NTTR_DTC, &db).expect("NTTR_DTC must import");
+        let nttr = process_tasking_state(link_nttr_dtc!(), &db).expect("NTTR_DTC must import");
         assert_eq!(nttr.theater, "nevada");
         assert!(nttr.projection_verified);
         assert_eq!(nttr.player_groups.len(), 10);
         assert!(!nttr.threats.is_empty(), "NTTR_DTC publishes its red laydown");
 
-        let syria = process_tasking_state(LINK_NEON_MIRROR, &db).expect("Neon Mirror must import");
+        let syria = process_tasking_state(link_neon_mirror!(), &db).expect("Neon Mirror must import");
         assert_eq!(syria.theater, "syria");
         assert_eq!(syria.player_groups.len(), 14);
     }
@@ -1632,11 +1645,11 @@ mod tests {
     #[test]
     fn the_two_payload_shapes_are_not_confused() {
         let db = db::Database::open_in_memory().expect("db");
-        let cli = include_str!("../../../test-data/sinai_m01_v7.json");
+        let cli = crate::private_fixture!("sinai_m01_v7.json");
         let err = process_tasking_state(cli, &db).expect_err("CLI output is not a link payload");
         assert!(err.contains("CLI output"), "say what it is: {err}");
         assert!(
-            process_fragorders_json(LINK_SINAI_V7, &db).is_err(),
+            process_fragorders_json(link_sinai_v7!(), &db).is_err(),
             "a link payload must not import as an empty CLI mission"
         );
     }
@@ -1662,7 +1675,7 @@ mod tests {
     /// FragOrders waypoint n.
     #[test]
     fn barak_numbering_matches_fragorders() {
-        let json = include_str!("../../../test-data/sinai_m01_v6.json");
+        let json = crate::private_fixture!("sinai_m01_v6.json");
         let db = db::Database::open_in_memory().expect("db");
         let data = process_fragorders_json(json, &db).expect("Sinai fixture must import");
 
@@ -1718,7 +1731,7 @@ mod tests {
     /// either. A flight that spawns airborne has a real, flyable waypoint 0.
     #[test]
     fn air_start_flights_also_number_from_zero() {
-        let json = include_str!("../../../test-data/nttr_redflag_viper1.json");
+        let json = crate::private_fixture!("nttr_redflag_viper1.json");
         let db = db::Database::open_in_memory().expect("db");
         let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
 
@@ -1747,7 +1760,7 @@ mod tests {
     /// the file nor the fix. Both are .json and both sit in test-data/.
     #[test]
     fn opening_a_fragorders_export_says_to_import_it_instead() {
-        let json = include_str!("../../../test-data/sinai_m01_v6.json");
+        let json = crate::private_fixture!("sinai_m01_v6.json");
         let err = parse_saved_mission(json).expect_err("a FragOrders export is not a saved mission");
         assert!(
             err.contains("FragOrders export") && err.contains("Import"),
