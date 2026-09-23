@@ -182,8 +182,13 @@ not here — this section is a snapshot for resuming work, not a journal.
 FragOrders URL import.** Two commits plus this session-notes commit, all pushed.
 Gates: **249 geo-checks** (was 246), **99 Rust tests + 1 ignored live test**
 (was 83), `npm run build` clean, `cargo build` zero warnings. Plan at
-`~/.claude/plans/what-s-next-on-our-elegant-mango.md`. **Version is still
-0.2.2. Everything below is unreleased, on `main`.**
+`~/.claude/plans/what-s-next-on-our-elegant-mango.md`.
+
+**Released v0.2.3 on 2026-09-22** (session after the one below). It ships
+link import. The bump commit is `e038278` and the tag is `v0.2.3`. Release CI
+run `35822594387` was green on macOS, Windows and Linux, including the new
+`ureq`/rustls dependency. All 7 installers are attached, and the release is
+**published and marked Latest**.
 
 | Commit | What |
 |---|---|
@@ -233,10 +238,8 @@ Fixed with `cargo clean -p proj-sys`. If that error returns after a
 
 ### START OF NEXT SESSION
 
-1. **Release v0.2.3 when the user says so.** It would ship link import (the
-   first user-visible change since v0.2.2). Follow the RELEASE CHECKLIST, and
-   watch the new `ureq`/rustls dependency build on Windows and Linux CI.
-2. Then pick the next banked feature. **Live-geometry Customize** is
+1. ~~Release v0.2.3~~. Done and published (see above).
+2. Pick the next banked feature. **Live-geometry Customize** is
    half-planned in `~/.claude/plans/foamy-sauteeing-hejlsberg.md` (memory
    `project-live-geometry-customize`). The other candidate is **multi-aircraft
    coordinated strike together with shared custom IP** (memory
