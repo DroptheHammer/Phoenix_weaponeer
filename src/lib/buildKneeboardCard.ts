@@ -10,6 +10,7 @@ import { attackIpAnchor } from './ipAnchor';
 import { runAttackChecks } from './attackChecks';
 import { getTheaterInfo } from '../stores/theaterStore';
 import { compareThreatsForCard, CARD_THREAT_POOL } from './cardThreats';
+import { strikeCardInfo } from './strike';
 
 // Minimal threat system shape (matches what App.tsx gets from the DB)
 export interface ThreatSystemInfo {
@@ -251,6 +252,7 @@ function buildDiagramData(mission: Mission, attack: Attack, target: Mission['way
     egressDirection: picture?.egressDirection ?? egress.direction,
     egressHeading_deg: picture?.egressHeading ?? egress.heading,
     sightDepression_mils: attack.deliveryMode === 'MAN' ? attack.sightDepression_mils : undefined,
+    wingmen: strikeCardInfo(mission, attack)?.wingmen,
   };
 }
 
@@ -381,6 +383,7 @@ export function buildKneeboardCard(
       targetName: targetWp.name,
       targetSteerpoint: targetWp.steerpoint,
       cautions: cautions.length ? cautions : undefined,
+      strikeLine: strikeCardInfo(mission, attack)?.strikeLine,
     },
     targetSection: {
       name: targetWp.name,

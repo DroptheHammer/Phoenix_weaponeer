@@ -36,6 +36,13 @@ import { visibleArcSpans } from '../src/lib/arcClip';
 import { compareThreatsForCard } from '../src/lib/cardThreats';
 import { applyFlank, applyEgress, reanchorProfile, moveIp } from '../src/lib/attackFlank';
 import { KNOB_RANGES, KNOB_CHOICES, IP_KNOB_RANGES, type KnobRange } from '../src/lib/customizeKnobs';
+import { draftFromAttack, resolveDraft, draftAttackData } from '../src/lib/attackDraft';
+import { newJet, assignFlanks, respace, groupEdit } from '../src/lib/strikeDraft';
+import {
+  applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
+  fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo,
+} from '../src/lib/strike';
+import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
 import { importNotes } from '../src/lib/importNotes';
 import {
@@ -1339,3 +1346,155 @@ const builtOutOfRange = Object.entries(levelBuild.attack!.profile)
   .filter(([k, v]) => typeof v === 'number' && (KNOB_RANGES.level_ccrp as Record<string, KnobRange>)[k] && !inRange(v, (KNOB_RANGES.level_ccrp as Record<string, KnobRange>)[k]))
   .map(([k, v]) => `${k}=${v}`);
 ok('customizeKnobs: the auto-built NTTR level attack opens inside its sliders', builtOutOfRange.length === 0, builtOutOfRange.join(', '));
+
+// ---------------------------------------------------------------------------
+// The editor's state as data (lib/attackDraft.ts): a fresh draft on the NTTR
+// fixture must resolve to exactly what auto-build writes, and Save must write
+// exactly what the editor shows.
+// ---------------------------------------------------------------------------
+const v11 = { ...pilot, position: 1 };
+const v12 = { ...pilot, id: 'p2', callsign: 'Viper 1-2', position: 2 };
+const v13 = { ...pilot, id: 'p3', callsign: 'Viper 1-3', position: 3 };
+const sMission = {
+  id: 'sm', name: 'Strike test', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '',
+  waypoints: [wpIp, wpTgt], threats: [], flightMembers: [v11, v12, v13], attacks: [], strikes: [],
+} as never as Parameters<typeof resolveDraft>[1]['mission'];
+const sCtx = { mission: sMission, weapons: [gbu31] as never, profiles: [jdamLevel], threatSystems: [] };
+const freshDraft = { ...draftFromAttack(undefined, sMission), attackerId: v11.id, targetWaypointId: wpTgt.id };
+const freshResolved = resolveDraft(freshDraft, sCtx);
+ok('attackDraft: a fresh draft resolves to exactly the auto-built profile',
+   JSON.stringify(freshResolved.profile) === JSON.stringify(levelBuild.attack!.profile) && freshResolved.canSave,
+   freshResolved.problems.join('; '));
+const freshData = draftAttackData(freshDraft, freshResolved, undefined, 1)!;
+ok('attackDraft: Save writes the profile, weapon and source the editor shows',
+   freshData.profile === freshResolved.profile && freshData.weaponId === 'gbu31' && freshData.sourceProfileId === jdamLevel.id && freshData.customized === undefined);
+ok('attackDraft: resolving the same draft twice is cached (the strike editor resolves every jet each render)',
+   resolveDraft(freshDraft, sCtx) === freshResolved);
+
+// ---------------------------------------------------------------------------
+// Coordinated strikes (lib/strike.ts, lib/strikeDraft.ts).
+// ---------------------------------------------------------------------------
+const jetsFor = (ids: string[]) => ids.map((id) => newJet(sMission, id, wpTgt.id, {}));
+const pair = assignFlanks(respace(jetsFor([v11.id, v12.id]), 30), sCtx);
+const pairR = pair.map((j) => resolveDraft(j.draft, sCtx));
+const pairHdg = pairR.map((x) => x.profile!.ingressHeading_deg as number);
+const pairDirect = pairR[0].build.directBearing!;
+ok('strike: #2 runs in on the other flank from the lead',
+   pairR[0].runIn!.offsetTurn.direction !== pairR[1].runIn!.offsetTurn.direction,
+   `${pairR[0].runIn!.offsetTurn.direction} / ${pairR[1].runIn!.offsetTurn.direction}`);
+ok('strike: the pair are mirror images about the direct bearing',
+   Math.abs(signedHeadingDelta(pairDirect, pairHdg[0]) + signedHeadingDelta(pairDirect, pairHdg[1])) < 0.5,
+   `${r(signedHeadingDelta(pairDirect, pairHdg[0]))} / ${r(signedHeadingDelta(pairDirect, pairHdg[1]))}`);
+const pairSplit = Math.abs(signedHeadingDelta(pairHdg[0], pairHdg[1]));
+ok('strike: the azimuth split is the 2φ ≈ 97° the offset leg was built for, and equals split_deg',
+   Math.abs(pairSplit - 97.2) < 1 && Math.abs(pairSplit - pairR[0].runIn!.split_deg!) < 1,
+   `split ${r(pairSplit)}°, split_deg ${r(pairR[0].runIn!.split_deg!)}`);
+ok('strike: spacing puts #2 30 s behind the lead', pair[0].totOffset_s === 0 && pair[1].totOffset_s === 30);
+ok('strike: a 4-ship is two mirrored pairs (L R L R)', [0, 1, 2, 3].map((i) => strikeFlank(i, 'left')).join() === 'left,right,left,right');
+
+// Group edit: the lead's release altitude reaches #2, on #2's own flank.
+const leadProfile = pairR[0].profile as { releaseAltitude_ft: number };
+const raised = { ...pairR[0].profile!, releaseAltitude_ft: leadProfile.releaseAltitude_ft + 2000 } as never;
+const grouped = groupEdit(pair, raised, sCtx);
+const groupedR = grouped.map((j) => resolveDraft(j.draft, sCtx));
+const g2 = groupedR[1].profile as { releaseAltitude_ft: number; offsetDirection: string; ingressHeading_deg: number };
+ok('group edit: a lead number reaches #2', g2.releaseAltitude_ft === leadProfile.releaseAltitude_ft + 2000, String(g2.releaseAltitude_ft));
+ok('group edit: #2 keeps its own flank', g2.offsetDirection === pairR[1].runIn!.offsetTurn.direction, g2.offsetDirection);
+// The Group form also shows the lead's "Ingress from"; flipping it there moves
+// the lead only. #3 flies the lead's side, so it is the jet that would be
+// dragged across if the flank were copied.
+const trioForFlip = assignFlanks(respace(jetsFor([v11.id, v12.id, v13.id]), 30), sCtx);
+const trioFlipR = trioForFlip.map((j) => resolveDraft(j.draft, sCtx));
+const leadFlipped = { ...trioFlipR[0].profile!, offsetDirection: trioFlipR[1].runIn!.offsetTurn.direction } as never;
+const flippedR = groupEdit(trioForFlip, leadFlipped, sCtx).map((j) => resolveDraft(j.draft, sCtx));
+ok('group edit: flipping the lead\'s side in the Group form never drags #3 across with it',
+   (flippedR[2].profile as { offsetDirection: string }).offsetDirection === trioFlipR[2].runIn!.offsetTurn.direction,
+   `${trioFlipR[2].runIn!.offsetTurn.direction} → ${(flippedR[2].profile as { offsetDirection: string }).offsetDirection}`);
+ok('group edit: #2 is re-derived on its flank — still the mirror of the lead',
+   Math.abs(signedHeadingDelta(pairDirect, (groupedR[0].profile as { ingressHeading_deg: number }).ingressHeading_deg) + signedHeadingDelta(pairDirect, g2.ingressHeading_deg)) < 0.5);
+ok('group edit: a jet flying another delivery is left alone',
+   applyGroupEdit(pairR[0].profile!, raised, customDive as never, pairDirect) === (customDive as never));
+
+// Saved: the strike and its members in one step, then the shared IP.
+const sId = 'strike-1';
+const sStrike = { id: sId, name: 'Viper 1 strike', ip: {}, spacing_s: 30 };
+const trio = assignFlanks(respace(jetsFor([v11.id, v12.id, v13.id]), 30), sCtx);
+let idSeq = 0;
+const saved3 = saveStrikeTo(
+  sMission as never,
+  sStrike,
+  trio.map((j) => ({ data: draftAttackData(j.draft, resolveDraft(j.draft, sCtx), undefined, 1)!, totOffset_s: j.totOffset_s })),
+  () => `a${++idSeq}`,
+).mission;
+ok('saveStrike: three members, lead first, offsets 0/30/60',
+   strikeMembers(saved3, sId).map((a) => `${a.attackerId}@${a.totOffset_s}`).join() === 'p1@0,p2@30,p3@60',
+   strikeMembers(saved3, sId).map((a) => `${a.attackerId}@${a.totOffset_s}`).join());
+ok('saveStrike: members get distinct sequence numbers', new Set(saved3.attacks.map((a) => a.sequenceNumber)).size === 3);
+
+const sharedPt = calculateDestination(tgt, 300, 12);
+const withIp = applyStrikeIp(saved3, sId, { customIp: sharedPt });
+const ipAnchors = strikeMembers(withIp, sId).map((a) => attackIpAnchor(withIp.waypoints, a));
+ok('shared IP: every jet runs in from it',
+   ipAnchors.every((x) => x?.source === 'custom' && calculateDistance(x.point, sharedPt) < 0.001) && withIp.strikes![0].ip.customIp === sharedPt);
+const movedBearing = calculateBearing(sharedPt, tgt);
+ok('shared IP: every jet keeps its side and re-anchors on the new bearing (still mirrored)',
+   Math.abs(signedHeadingDelta(movedBearing, (strikeMembers(withIp, sId)[0].profile as { ingressHeading_deg: number }).ingressHeading_deg) +
+            signedHeadingDelta(movedBearing, (strikeMembers(withIp, sId)[1].profile as { ingressHeading_deg: number }).ingressHeading_deg)) < 0.5);
+const cleared = applyStrikeIp(withIp, sId, {});
+ok('shared IP cleared: every jet falls back to Auto (the waypoint before its target)',
+   strikeMembers(cleared, sId).every((a) => attackIpAnchor(cleared.waypoints, a)?.source === 'auto' && !(a.profile as { customIp?: unknown }).customIp));
+const draggedOne = moveAttackCustomIp(withIp, strikeMembers(withIp, sId)[2].id, sharedPt && calculateDestination(tgt, 320, 14));
+ok('dragging one member\'s IP on the main map moves the whole strike\'s',
+   strikeMembers(draggedOne, sId).every((a) => calculateDistance((a.profile as { customIp: { lat: number; lon: number } }).customIp, calculateDestination(tgt, 320, 14)) < 0.001));
+
+// Removing.
+const leadGone = removeAttackFrom(withIp, strikeMembers(withIp, sId)[0].id);
+ok('removing the lead re-bases the offsets on the new lead (0/30)',
+   strikeMembers(leadGone, sId).map((a) => a.totOffset_s).join() === '0,30', strikeMembers(leadGone, sId).map((a) => a.totOffset_s).join());
+ok('removing the lead renumbers the attacks 1..n', leadGone.attacks.map((a) => a.sequenceNumber).sort().join() === '1,2');
+const oneLeft = removeAttackFrom(leadGone, strikeMembers(leadGone, sId)[0].id);
+ok('a strike left with one jet is ungrouped, and the jet keeps its attack',
+   (oneLeft.strikes ?? []).length === 0 && oneLeft.attacks.length === 1 && oneLeft.attacks[0].strikeId === undefined);
+const ungrouped = removeStrikeFrom(withIp, sId);
+ok('ungroup: every jet stays, unlinked, with its numbers',
+   ungrouped.attacks.length === 3 && ungrouped.attacks.every((a) => a.strikeId === undefined && a.totOffset_s === undefined) &&
+   ungrouped.attacks[1].profile === withIp.attacks[1].profile);
+const dangling = { ...withIp, strikes: [] };
+ok('a dangling strikeId is a plain attack: no card strike line, no crash',
+   strikeCardInfo(dangling, dangling.attacks[0]) === undefined && strikeMembers(dangling, sId).length === 3);
+ok('renumberAttacks closes gaps: 1,3,4 → 1,2,3',
+   renumberAttacks([3, 1, 4].map((n) => ({ sequenceNumber: n }) as never)).map((a: { sequenceNumber: number }) => a.sequenceNumber).join() === '1,2,3');
+
+// A plain attack's custom IP dragged on the main map re-derives its heading.
+const plainCustom = { ...saved3.attacks[0], strikeId: undefined, profile: { ...saved3.attacks[0].profile, customIp: sharedPt } };
+const plainMission = { ...saved3, attacks: [plainCustom], strikes: [] };
+const plainMoved = moveAttackCustomIp(plainMission, plainCustom.id, calculateDestination(tgt, 20, 12));
+const plainPic = buildAttackPicture(plainMoved.attacks[0], attackIpAnchor(plainMoved.waypoints, plainMoved.attacks[0]), wpTgt as never)!;
+ok('main-map IP drag: the stored heading the card prints follows the IP',
+   Math.abs(signedHeadingDelta((plainMoved.attacks[0].profile as { ingressHeading_deg: number }).ingressHeading_deg, plainPic.attackHeading)) < 0.5);
+
+// Timing and the card.
+ok('fragClearTime_s: 1,500 ft frag clears in ~20 s (est.)', fragClearTime_s({ frag_min_safe_alt_ft: 1500 }) === 20, String(fragClearTime_s({ frag_min_safe_alt_ft: 1500 })));
+ok('fragClearTime_s: no frag data, no floor', fragClearTime_s({ frag_min_safe_alt_ft: null }) === 0);
+const tightJets = [
+  { label: '#1', picture: undefined, speed_ktas: 420, totOffset_s: 0, weapon: { frag_min_safe_alt_ft: 1500 } },
+  { label: '#2', picture: undefined, speed_ktas: 420, totOffset_s: 10, weapon: { frag_min_safe_alt_ft: 1500 } },
+] as never[];
+ok('strikeReadout: 10 s spacing inside 20 s of frag is warned', strikeReadout(tightJets).warnings.some((w) => w.includes('inside #1')));
+ok('strikeReadout: 20 s spacing is not', strikeReadout(tightJets.map((j: { totOffset_s: number }, i) => ({ ...j, totOffset_s: i * 20 })) as never).warnings.length === 0);
+ok('coneGrade: 97° good, 45° marginal, 20° inside one cone', coneGrade(97) === 'good' && coneGrade(45) === 'marginal' && coneGrade(20) === 'inside');
+const card2 = strikeCardInfo(withIp, strikeMembers(withIp, sId)[1])!;
+ok('card: #2 carries the other two jets to draw faint', card2.wingmen.length === 2 && card2.wingmen.map((w) => w.label).join() === '#1,#3');
+ok('card: #2\'s strike line names its seat, flank and TOT', card2.strikeLine.includes('#2 of 3') && card2.strikeLine.includes('TOT T+0:30') && card2.strikeLine.includes('push IP T-'),
+   card2.strikeLine);
+
+// The file gate.
+ok('validateMission: a save without strikes still passes', validateMission(goodMission).ok);
+ok('validateMission: a well-formed strike passes',
+   validateMission({ ...goodMission, strikes: [{ id: 's1', name: 'Viper 1 strike', ip: { customIp: { lat: 31, lon: 34 } }, spacing_s: 30 }] }).ok);
+ok('validateMission: a strike whose shared IP carries HTML is refused',
+   !validateMission({ ...goodMission, strikes: [{ id: 's1', name: 'x', ip: { customIp: { lat: payload, lon: 34 } }, spacing_s: 30 }] }).ok);
+ok('validateMission: a strike name that is not text is refused',
+   !validateMission({ ...goodMission, strikes: [{ id: 's1', name: { html: payload }, ip: {}, spacing_s: 30 }] }).ok);
+ok('validateMission: a non-numeric TOT offset is refused',
+   !validateMission({ ...goodMission, attacks: [{ ...goodMission.attacks[0], strikeId: 's1', totOffset_s: '30' }] }).ok);

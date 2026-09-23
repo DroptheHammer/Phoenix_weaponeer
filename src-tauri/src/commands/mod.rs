@@ -40,6 +40,9 @@ pub struct Mission {
     pub threats: Vec<Value>,
     pub flight_members: Vec<Value>,
     pub attacks: Vec<Value>,
+    /// Coordinated multi-ship strikes (2026-09-23). Defaulted so earlier saves still load.
+    #[serde(default)]
+    pub strikes: Vec<Value>,
     pub notes: String,
     pub created_at: String,
     pub updated_at: String,
@@ -1034,6 +1037,7 @@ mod tests {
             threats: vec![],
             flight_members: vec![],
             attacks: vec![],
+            strikes: vec![],
             notes: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
@@ -1771,5 +1775,31 @@ mod tests {
             "notes":"","createdAt":"2026-09-11T00:00:00Z","updatedAt":"2026-09-11T00:00:00Z"
         }"#;
         assert_eq!(parse_saved_mission(json).expect("should parse").id, "m1");
+    }
+
+    /// A save from before strikes existed has no `strikes` key and must load
+    /// with none; a save with strikes must write them back out. Without
+    /// `#[serde(default)]` the first fails, and without the field at all serde
+    /// silently drops the second.
+    #[test]
+    fn strikes_default_when_absent_and_survive_a_round_trip() {
+        let old = r#"{
+            "id":"m1","name":"Test","date":"2026-09-11","theater":"nevada",
+            "bullseye":{"lat":31.0,"lon":34.0},
+            "waypoints":[],"threats":[],"flightMembers":[],"attacks":[],
+            "notes":"","createdAt":"x","updatedAt":"x"
+        }"#;
+        assert!(parse_saved_mission(old).expect("old save loads").strikes.is_empty());
+
+        let with_strike = old.replace(
+            r#""attacks":[],"#,
+            r#""attacks":[],"strikes":[{"id":"s1","name":"Viper 1 strike","ip":{},"spacing_s":30}],"#,
+        );
+        let mission = parse_saved_mission(&with_strike).expect("save with a strike loads");
+        assert_eq!(mission.strikes.len(), 1);
+        let path = scratch_dir("strike_round_trip").join("m.json");
+        save_mission(mission, path.to_string_lossy().to_string()).expect("save");
+        let back = load_mission(path.to_string_lossy().to_string()).expect("load");
+        assert_eq!(back.strikes[0]["name"], "Viper 1 strike");
     }
 }

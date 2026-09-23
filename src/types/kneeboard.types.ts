@@ -27,6 +27,8 @@ export interface KneeboardHeader {
   targetSteerpoint?: number;
   /** Each drawn as an amber strip under the header: unverified map, estimated profile… */
   cautions?: string[];
+  /** In a strike: "STRIKE Viper 1 · #2 of 2 · R flank · TOT +0:30 · push IP T-2:05 (est)". */
+  strikeLine?: string;
 }
 
 export interface KneeboardTargetSection {
@@ -69,6 +71,8 @@ export interface KneeboardDiagramData {
   egressHeading_deg: number;
   /** Manual deliveries: the one number a legacy pilot needs at the roll-in. */
   sightDepression_mils?: number;
+  /** The rest of the strike, drawn thin and grey under this jet's attack. */
+  wingmen?: { label: string; picture: AttackPicture }[];
 }
 
 export interface KneeboardAttackSection {

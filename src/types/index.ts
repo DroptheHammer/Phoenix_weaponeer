@@ -1,5 +1,6 @@
 // Mission
 export type { Mission, Theater } from './mission.types';
+export type { Strike } from './strike.types';
 
 // Waypoints
 export type {

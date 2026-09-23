@@ -334,6 +334,9 @@ export function MapView({
     return visibleWaypoints.map((wp) => [wp.coordinates.lat, wp.coordinates.lon] as [number, number]);
   }, [visibleWaypoints]);
 
+  // Strikes whose shared IP marker is already drawn this render.
+  const ipMarkerStrikes = new Set<string>();
+
   const handleThreatDragEnd = (threatId: string, e: DragEndEvent) => {
     const latlng = e.target.getLatLng();
     if (onMoveThreat) {
@@ -529,7 +532,11 @@ export function MapView({
           const ipAnchor = attackIpAnchor(waypoints, attack);
           // The editor's draft IP is dragged on the editor's own preview map,
           // which covers this one while it is open, so no draft marker here.
-          const showSavedIpMarker = ipAnchor?.source === 'custom';
+          // A strike's jets share one IP: one marker, and dragging it moves
+          // every jet (the store routes a member's drag to the strike).
+          const sharedIpDrawn = attack.strikeId != null && ipMarkerStrikes.has(attack.strikeId);
+          if (attack.strikeId != null) ipMarkerStrikes.add(attack.strikeId);
+          const showSavedIpMarker = ipAnchor?.source === 'custom' && !sharedIpDrawn;
 
           return (
             <Fragment key={`${attack.id}-${isPlacementMode}`}>

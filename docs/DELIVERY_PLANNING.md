@@ -209,3 +209,41 @@ release floors) was considered and deliberately closed — see the note there.
    is deliberate. **Do not reopen this without asking.**
 4. The map should mark **PUP, pull-down point, track point (MAP) and AOD**;
    the card should print tracking time and AOD.
+
+## Coordinated strikes (built 2026-09-23)
+
+Two to four jets of the flight on one attack, planned together
+(`src/lib/strike.ts`, `src/lib/strikeDraft.ts`). None of this is from the BEM.
+It is squadron practice, built on the level offset leg (see the
+`project-level-offset-leg-decision` memory note). Every number below is a
+planning default the planner can change, and the timing figures print as
+estimates.
+
+- **The split.** The lead runs in on the side away from the nearest threat
+  (the same rule a single attack uses). #2 mirrors it: the same check turn and
+  leg, on the other flank. A 4-ship is two such pairs, so #3 flies the lead's
+  side and #4 flies #2's. For a level 1.5 × leg at a 30° check turn, the pair
+  arrives **97°** apart in azimuth. That is the `split_deg` (2φ) the offset
+  leg was sized for.
+- **Grading the split.** The split is measured as the angle between two jets'
+  attack axes at the target. A fire-control radar has roughly a **40° cone**:
+  ≥ 55° is shown green, 40–55° amber, and under 40° red ("inside one cone").
+- **Timing.** Each jet has a time-over-target offset from the lead. The
+  default is `(n − 1) × spacing`, with spacing starting at 30 s. There are no
+  clock times, only offsets.
+- **Frag clear time (ESTIMATED).** This is how long a jet's bombs keep the air
+  over the target dangerous. The model is fragments thrown up to the weapon's
+  frag min-safe height and falling back, in vacuum: `2·√(2h/g)`, rounded up to
+  5 s. That gives 20 s at 1,500 ft, 30 s for a Mk-82 (3,000 ft) and 35 s for a
+  Mk-84 (4,500 ft). Spacing below it is warned, never blocked. The warning
+  says so when the two jets are also within 15° of the same axis.
+- **IP push time (ESTIMATED).** This is when a jet leaves the IP, relative to
+  the lead's TOT. It is the drawn path length from the IP to the bomb's impact
+  divided by the attack speed. It has no allowance for turns or acceleration.
+- **The shared IP.** The strike owns one IP (Auto, a waypoint, or a custom
+  point) and writes it through to every jet with `moveIp`, headings and all.
+  Clearing it puts every jet back on Auto: each runs in from the waypoint
+  before its own target.
+- **Group edits.** A number changed on the Group tab is copied to every jet
+  flying the same delivery. Each jet then re-derives its own headings on its
+  own flank. Side, headings, IP and egress are never copied.

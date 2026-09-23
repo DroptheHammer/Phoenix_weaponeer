@@ -39,6 +39,9 @@ const C = {
   ground: '#888888',
   threatRing: 'rgba(239, 68, 68, 0.55)',
   leader: '#374151',
+  strike: '#0B3C5D',
+  strikeBg: '#DCEBF5',
+  wingman: 'rgba(80, 80, 80, 0.55)',
 };
 
 const MONO = "'Courier New', Courier, monospace";
@@ -108,6 +111,13 @@ function drawHeader(ctx: CanvasRenderingContext2D, card: KneeboardCard): number 
   txt(ctx, card.header.missionDate, KNEEBOARD_WIDTH - 10, 50, { color: '#667788', size: 11, family: MONO, align: 'right' });
   hLine(ctx, 58, '#334455', 2);
   return 60;
+}
+
+/** Blue strip under the header for a strike member: seat, side, TOT, push. */
+function drawStrikeStrip(ctx: CanvasRenderingContext2D, line: string, y: number): number {
+  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, C.strikeBg);
+  txt(ctx, line, 10, y + 14, { size: 12, bold: true, family: SANS, color: C.strike, maxW: KNEEBOARD_WIDTH - 20 });
+  return y + 20;
 }
 
 /** Amber strip directly under the header, e.g. "coordinates unverified". */
@@ -363,6 +373,7 @@ function drawPlanView(
   threats: KneeboardThreatItem[],
   box: Rect,
   basemap?: BasemapTiles,
+  wingmen: { label: string; picture: AttackPicture }[] = [],
 ): BasemapReport | undefined {
   fillRect(ctx, box.x, box.y, box.w, box.h, C.diagramBg);
   const view = planViewTransform(picture, box);
@@ -403,6 +414,23 @@ function drawPlanView(
       ctx.beginPath();
       ctx.arc(px, py, r, a0, a1);
       ctx.stroke();
+    }
+  }
+
+  // The rest of the strike, thin and grey under this jet: where the others
+  // come from and leave by, without competing with the numbers this pilot
+  // flies. The frame stays fitted to this jet's attack.
+  for (const w of wingmen) {
+    for (const line of w.picture.lines) {
+      if (line.style === 'bomb') continue;
+      const dashed = line.style === 'route' || line.style === 'egressLeg';
+      strokePath(ctx, line.points.map(toPx), { color: C.wingman, width: 1.5, dash: dashed ? [6, 6] : undefined });
+    }
+    // Name the track where that jet turns in on the target.
+    const joinPoint = w.picture.lines.find((l) => l.style === 'pullDown' || l.style === 'attack')?.points[0];
+    if (joinPoint) {
+      const [x, y] = toPx(joinPoint);
+      if (insideBox([x, y])) txt(ctx, w.label, x + 6, y - 6, { size: 11, bold: true, family: SANS, color: C.textGray });
     }
   }
 
@@ -648,6 +676,7 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
   fillRect(ctx, 0, 0, KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, C.bg);
 
   let y = drawHeader(ctx, card);
+  if (card.header.strikeLine) y = drawStrikeStrip(ctx, card.header.strikeLine, y);
   for (const caution of card.header.cautions ?? []) y = drawCautionStrip(ctx, caution, y);
   y = drawTargetSection(ctx, card, y);
   y = drawWeaponSection(ctx, card, y);
@@ -665,7 +694,7 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
     const headingText = `ATTACK HDG ${fmtHdg(diagram.attackHeading_deg)}   ·   EGRESS ${diagram.egressDirection.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}`;
     if (diagram.picture) {
       y = sectionStrip(ctx, 'ATTACK — NORTH UP', y, headingText);
-      report = drawPlanView(ctx, diagram.picture, card.threatSection.threats.slice(0, CARD_THREAT_ROWS), { x: 0, y, w: KNEEBOARD_WIDTH, h: planH }, basemap);
+      report = drawPlanView(ctx, diagram.picture, card.threatSection.threats.slice(0, CARD_THREAT_ROWS), { x: 0, y, w: KNEEBOARD_WIDTH, h: planH }, basemap, diagram.wingmen);
       y += planH;
       hLine(ctx, y, C.divider);
       y += 1;

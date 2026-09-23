@@ -112,15 +112,13 @@ history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
       slider + number box per knob (`src/lib/customizeKnobs.ts`), live
       `AttackPreviewMap` + side view. Reference was
       `Other Items/offset-leg-geometry.html` (git-ignored).
-- [ ] **Multi-aircraft coordinated strike** — 1–4 aircraft on a joint strike,
-      adjusted as a group or per aircraft. `split_deg` on `RunInSummary` is
-      retained for this.
-- [ ] **Shared custom IP across a flight's attacks** — let a custom IP set on
-      one attack be picked by other attacks in the flight (so #2/#3 can fly
-      the same IP as #1), instead of each attack only carrying its own. If the
-      shared IP is deleted, every attack using it needs to fall back to Auto
-      rather than break. Not designed yet — flagged 2026-09-13 while testing
-      the per-attack custom IP feature (`src/lib/ipAnchor.ts`).
+- [x] **Multi-aircraft coordinated strike** — built 2026-09-23: `Strike`
+      (`src/lib/strike.ts`, `strikeDraft.ts`), Group + per-jet tabs in the
+      editor, mirrored split, TOT spacing, faint wingmen on the card. Rollback
+      tag `pre-multiship`. Tactics and estimates: `docs/DELIVERY_PLANNING.md`.
+- [x] **Shared custom IP across a flight's attacks** — folded into the strike:
+      the strike owns one IP, written through to every jet; clearing it drops
+      every jet back to Auto.
 
 ## Known Issues / Future Testing
 

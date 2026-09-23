@@ -43,7 +43,7 @@ const toolbarButton =
   'px-3 py-1.5 rounded-lg text-sm font-medium bg-dcs-blue hover:bg-blue-600 transition-colors';
 
 function App() {
-  const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat, updateAttack, focusAttackId, setFocusAttackId } =
+  const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat, moveAttackCustomIp, focusAttackId, setFocusAttackId } =
     useMissionStore();
   const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
   const resetDisplayFilter = useUiStore((state) => state.resetFilter);
@@ -284,9 +284,7 @@ function App() {
 
   // A saved attack's custom IP, dragged on the map — mirrors handleMoveThreat.
   const handleMoveCustomIp = (attackId: string, position: { lat: number; lon: number }) => {
-    const target = mission?.attacks.find((a) => a.id === attackId);
-    if (!target) return;
-    updateAttack(attackId, { profile: { ...target.profile, customIp: position } });
+    moveAttackCustomIp(attackId, position);
   };
 
   return (

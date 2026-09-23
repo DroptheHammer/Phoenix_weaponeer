@@ -15,10 +15,19 @@ import { CustomIpMarker } from './CustomIpMarker';
 import { PlacedLabelsOverlay } from './PlacedLabelsOverlay';
 import { MARKER_Z } from './mapLayers';
 
-interface AttackPreviewMapProps {
-  /** The attack as it would save right now. Undefined until the picks are made. */
-  attack: Attack | undefined;
+/** One jet's attack as it would save right now. */
+export interface PreviewAttack {
+  attack: Attack;
   ipAnchor: IpAnchor | undefined;
+  /** Drawn in full, with labels. The others are thin tracks in `color`. */
+  selected: boolean;
+  color?: string;
+}
+
+interface AttackPreviewMapProps {
+  /** Every jet being edited. Empty until the picks are made. */
+  attacks: PreviewAttack[];
+  /** The selected jet's target: what the map frames on. */
   targetWaypoint: Waypoint | undefined;
   waypoints: Waypoint[];
   /** Already filtered for author-hidden threats (`useVisibleMission`). */
@@ -91,8 +100,7 @@ function ClickToPick({ picking, onPick }: { picking: boolean; onPick: (point: Co
  * `mapPick`) that two maps would race on.
  */
 export function AttackPreviewMap({
-  attack,
-  ipAnchor,
+  attacks: previews,
   targetWaypoint,
   waypoints,
   threats,
@@ -107,8 +115,21 @@ export function AttackPreviewMap({
   const [placedLabels, setPlacedLabels] = useState<PlacedLabel[]>([]);
   const [reframes, setReframes] = useState(0);
 
+  const selected = previews.find((p) => p.selected);
+  const attack = selected?.attack;
+  const ipAnchor = selected?.ipAnchor;
   const attacks = useMemo(() => (attack ? [attack] : []), [attack]);
   const route = useMemo(() => waypoints.map((wp) => ll(wp.coordinates)), [waypoints]);
+  const wingmen = useMemo(
+    () =>
+      previews
+        .filter((p) => !p.selected)
+        .map((p) => {
+          const target = waypoints.find((wp) => wp.id === p.attack.targetWaypointId);
+          return { color: p.color ?? '#9ca3af', picture: target ? buildAttackPicture(p.attack, p.ipAnchor, target) : undefined };
+        }),
+    [previews, waypoints],
+  );
   // Built once per route, not per render, so a slider tick doesn't swap every marker's DOM.
   const waypointIcons = useMemo(() => new Map(waypoints.map((wp) => [wp.id, waypointIcon(String(wp.steerpoint))])), [waypoints]);
   const rangeOf = useMemo(() => new Map(threatSystems.map((s) => [s.id, s.max_range_nm])), [threatSystems]);
@@ -116,9 +137,14 @@ export function AttackPreviewMap({
   const fitPoints = useMemo(() => {
     if (!targetWaypoint) return waypoints.map((wp) => wp.coordinates);
     const picture = attack ? buildAttackPicture(attack, ipAnchor, targetWaypoint) : undefined;
-    return [targetWaypoint.coordinates, ...(picture ? pictureFitPoints(picture) : []), ...(ipAnchor ? [ipAnchor.point] : [])];
-  }, [attack, ipAnchor, targetWaypoint, waypoints]);
-  const fitKey = `${targetWaypoint?.id ?? '-'}|${attack?.profileType ?? '-'}|${reframes}`;
+    return [
+      targetWaypoint.coordinates,
+      ...(picture ? pictureFitPoints(picture) : []),
+      ...(ipAnchor ? [ipAnchor.point] : []),
+      ...wingmen.flatMap((w) => (w.picture ? pictureFitPoints(w.picture) : [])),
+    ];
+  }, [attack, ipAnchor, targetWaypoint, waypoints, wingmen]);
+  const fitKey = `${targetWaypoint?.id ?? '-'}|${attack?.profileType ?? '-'}|${previews.length}|${reframes}`;
 
   const center = targetWaypoint?.coordinates ?? waypoints[0]?.coordinates ?? { lat: 0, lon: 0 };
 
@@ -157,6 +183,20 @@ export function AttackPreviewMap({
             />
           );
         })}
+
+        {/* The other jets: their track only, thin, in the jet's colour, under the selected one. */}
+        {wingmen.map((w, i) =>
+          w.picture?.lines
+            .filter((line) => line.style !== 'bomb')
+            .map((line, j) => (
+              <Polyline
+                key={`w${i}-${j}`}
+                positions={line.points.map(ll)}
+                interactive={false}
+                pathOptions={{ color: w.color, weight: 2, opacity: 0.85, dashArray: line.style === 'route' || line.style === 'egressLeg' ? '6, 8' : undefined }}
+              />
+            )),
+        )}
 
         {attack && targetWaypoint && (
           <AttackProfileOverlay attack={attack} ipAnchor={ipAnchor} targetWaypoint={targetWaypoint} isSelected isPlacementMode={picking} />

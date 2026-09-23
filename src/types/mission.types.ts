@@ -2,6 +2,7 @@ import { Coordinates, Waypoint } from './waypoint.types';
 import { ThreatInstance } from './threat.types';
 import { FlightMember } from './flight.types';
 import { Attack } from './attack.types';
+import type { Strike } from './strike.types';
 
 export interface Mission {
   id: string;
@@ -14,6 +15,8 @@ export interface Mission {
   threats: ThreatInstance[];
   flightMembers: FlightMember[];
   attacks: Attack[];
+  /** Coordinated multi-ship attacks. Optional: saves from before strikes existed load without it. */
+  strikes?: Strike[];
 
   notes: string;
   createdAt: string; // ISO timestamp

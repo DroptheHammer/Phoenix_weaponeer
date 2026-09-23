@@ -38,6 +38,11 @@ export interface Attack {
   procedure?: string[];
   /** The planner changed numbers after auto-build */
   customized?: boolean;
+
+  /** Member of this coordinated strike (see strike.types.ts). A dangling id is ignored. */
+  strikeId?: string;
+  /** Seconds after the strike lead over the target; 0 for the lead. */
+  totOffset_s?: number;
 }
 
 export type AttackProfileType =

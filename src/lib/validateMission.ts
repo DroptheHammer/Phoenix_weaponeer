@@ -109,6 +109,29 @@ export function validateMission(raw: unknown): MissionCheck {
       if (attack.profile.customIp != null) position(attack.profile.customIp, `${where} custom IP`);
       if (attack.profile.releasePoint != null) position(attack.profile.releasePoint, `${where} release point`);
     }
+    if (attack.strikeId != null) text(attack, 'strikeId', where);
+    if (attack.totOffset_s != null && !(typeof attack.totOffset_s === 'number' && Number.isFinite(attack.totOffset_s))) {
+      problems.push(`${where}: totOffset_s must be a number (got ${show(attack.totOffset_s)})`);
+    }
+  }
+
+  // Strikes are optional: saves from before 2026-09-23 have none.
+  if (raw.strikes != null) {
+    for (const [strike, n] of entries('strikes')) {
+      const where = `Strike ${n}`;
+      text(strike, 'id', where);
+      text(strike, 'name', where);
+      if (!(typeof strike.spacing_s === 'number' && Number.isFinite(strike.spacing_s))) {
+        problems.push(`${where}: spacing_s must be a number (got ${show(strike.spacing_s)})`);
+      }
+      if (!isObject(strike.ip)) {
+        problems.push(`${where}: ip must be an object (got ${show(strike.ip)})`);
+      } else {
+        // The shared IP is drawn on the map like any custom IP.
+        if (strike.ip.customIp != null) position(strike.ip.customIp, `${where} custom IP`);
+        if (strike.ip.ipWaypointId != null) text(strike.ip, 'ipWaypointId', `${where} IP`);
+      }
+    }
   }
 
   if (problems.length === 0) return { ok: true, mission: raw as unknown as Mission };

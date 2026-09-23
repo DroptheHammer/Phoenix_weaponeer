@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizeImportedCallsign } from '../lib/callsign';
 import { importNotes } from '../lib/importNotes';
+import { removeAttackFrom, moveAttackCustomIp } from '../lib/missionOps';
+import { saveStrikeTo, removeStrikeFrom } from '../lib/strike';
 import { useUiStore } from './uiStore';
 import type {
   Mission,
@@ -11,7 +13,9 @@ import type {
   ThreatInstance,
   FlightMember,
   Attack,
+  Coordinates,
   FragOrdersData,
+  Strike,
 } from '../types';
 
 /**
@@ -95,6 +99,17 @@ interface MissionState {
   addAttack: (attack: Omit<Attack, 'id'>) => string;
   updateAttack: (id: string, attack: Partial<Attack>) => void;
   removeAttack: (id: string) => void;
+  /** A saved attack's custom IP dragged on the map; re-derives its headings. A strike member's moves the whole strike's. */
+  moveAttackCustomIp: (id: string, position: Coordinates) => void;
+
+  // Strike actions (see lib/strike.ts)
+  /** Write a strike and its members in one step; returns the member attack ids, lead first. */
+  saveStrike: (
+    strike: Strike,
+    members: { id?: string; data: Omit<Attack, 'id' | 'strikeId' | 'totOffset_s'>; totOffset_s: number }[],
+  ) => string[];
+  /** Ungroup: members stay as plain attacks. */
+  removeStrike: (id: string) => void;
 
   // State management
   markClean: () => void;
@@ -137,7 +152,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   },
 
   loadMission: (mission: Mission, filePath?: string) => {
-    set({ mission, isDirty: false, filePath: filePath ?? null });
+    set({ mission: { ...mission, strikes: mission.strikes ?? [] }, isDirty: false, filePath: filePath ?? null });
   },
 
   closeMission: () => {
@@ -413,11 +428,30 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const { mission } = get();
     if (!mission) return;
     set({
-      mission: {
-        ...mission,
-        attacks: mission.attacks.filter((a) => a.id !== id),
-        updatedAt: new Date().toISOString(),
-      },
+      mission: { ...removeAttackFrom(mission, id), updatedAt: new Date().toISOString() },
+      isDirty: true,
+    });
+  },
+
+  saveStrike: (strike, members) => {
+    const { mission } = get();
+    if (!mission) return [];
+    const saved = saveStrikeTo(mission, strike, members, uuidv4);
+    set({ mission: { ...saved.mission, updatedAt: new Date().toISOString() }, isDirty: true });
+    return saved.attackIds;
+  },
+
+  removeStrike: (id) => {
+    const { mission } = get();
+    if (!mission) return;
+    set({ mission: { ...removeStrikeFrom(mission, id), updatedAt: new Date().toISOString() }, isDirty: true });
+  },
+
+  moveAttackCustomIp: (id, position) => {
+    const { mission } = get();
+    if (!mission) return;
+    set({
+      mission: { ...moveAttackCustomIp(mission, id, position), updatedAt: new Date().toISOString() },
       isDirty: true,
     });
   },
