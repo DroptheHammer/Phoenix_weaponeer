@@ -18,6 +18,34 @@
 
 This workflow ensures GitHub is always the source of truth and work can be resumed from any device (Windows, Linux, macOS, iPhone) with full context, and keeps CLAUDE.md itself from growing without bound.
 
+## Privacy (IMPORTANT — this repo is public)
+
+Everything committed here — files, history, commit messages, file metadata —
+is readable by anyone, forever. Before every commit, check that it carries
+**no personal data about the user or any other person**.
+
+- **The user:** no real name, username, email, machine name, location or time
+  zone. Copyright and credit say "DroptheHammer" only. Commit with
+  `TZ=UTC git commit …` (all history is UTC).
+- **Other people** — correspondents, contributors, squadron members, mission
+  authors, anyone the user talks to: never by name or handle. Refer to them
+  by role ("the FragOrders author", "a squadron member", "the mission
+  author"). Their messages, code and files never go in the repo; keep them in
+  `Other Items/` (git-ignored). This applies to session notes and commit
+  messages too.
+- **Published sources are the exception:** a public guide or manual keeps its
+  normal citation, author credit included (Chuck's Guides, the Falcon BMS
+  pop-up attack manual).
+- **Their data:** real missions and captured FragOrders links go in
+  git-ignored `test-data/private/` (tests load them with `private_fixture!`
+  and skip when absent). Never hardcode a real FragOrders link id, not even
+  split or partial.
+- **Binaries:** never commit a PDF, image or document without checking and
+  stripping its metadata. Text searches skip binaries; a PDF's Author field
+  once leaked the user's real name.
+- **When in doubt, leave it out and ask.** A leak can only be fixed by
+  rewriting history and replacing the repo.
+
 ## Project Overview
 
 A cross-platform desktop application for planning F-16 (and other aircraft) attack runs against defended targets in DCS World. The tool helps squadron members plan tactical attacks, weaponeer targets, and generate pilot briefing cards (kneeboards).
@@ -158,7 +186,7 @@ history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
 - **Output goal:** Kneeboard cards that fit DCS format with employment parameters
 - **Aircraft focus:** F-16C initially, expandable to F/A-18C, A-10C II
 - **`Other Items/`** at the repo root is a git-ignored drop zone for screenshots, exported cards, and scratch reference pages the user wants read (e.g. `offset-leg-geometry.html`, a design reference — do not delete it). Never commit it. Private correspondence with the FragOrders author lives in `Other Items/fragorders-author-private/`.
-- **This repo is public; nothing private goes in it** (licensed PolyForm Strict, copyright "DroptheHammer" — no real names). Real squadron missions and FragOrders link captures live in git-ignored `test-data/private/`; tests load them via `private_fixture!` and skip when absent. Never hardcode a real FragOrders link id, not even split or partial. **Commit with `TZ=UTC git commit …`** so commits don't record the user's time zone (all history is UTC). **Never commit a PDF, screenshot or document without stripping its metadata first** — a PDF's Author field is how the user's real name leaked once. Nothing may identify the user: no real name, username, email, machine name or location, in files, metadata or commit messages. The full unscrubbed history is the private repo `DroptheHammer/Phoenix_weaponeer-archive`; this repo's history was rewritten on 2026-09-23, so **any clone older than that must be re-cloned, never merged** (a `git pull` there fails with "unrelated histories" — that's the signal).
+- **This repo is public** — see "Privacy" at the top. The full unscrubbed history is the private repo `DroptheHammer/Phoenix_weaponeer-archive`; this repo's history was rewritten on 2026-09-23, so **any clone older than that must be re-cloned, never merged** (a `git pull` there fails with "unrelated histories" — that's the signal). Commit hashes quoted in notes from before that date refer to the archive's history.
 - **Permissions run through the macOS Bash sandbox (auto-allow)**, configured in `.claude/settings.json`: commands inside the project run unprompted; outside folders need `/add-dir`, new sites prompt once per session. Use the Edit/Write/Read tools for files — never python/sed heredoc edits, `cd` prefixes, or loops/globs over outside folders (memory: `feedback-commands-that-dont-prompt`).
 - **Durable lessons and decisions belong in the memory system**, not just in session notes — see `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`.
 
@@ -179,105 +207,48 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-**Last session:** 2026-09-22 → 23 (Opus 5.5, user at the screen). **Built
-all of Phase 5**: live-geometry Customize, then multi-ship coordinated strikes
-with a shared IP. The user checked both on screen ("badass", "seems to work
-well"). Both are committed and pushed; **neither is released yet**. Gates at
-the end: **301 geo-checks** (was 249), **100 Rust tests + 1 ignored**,
-`npm run build` clean.
 
-| Commit | What |
-|---|---|
-| `8c1f969` | Live-geometry Customize: sliders beside a live map and side view |
-| `6d486f4` | Multi-ship coordinated strikes with a shared IP |
-| (next) | Session notes |
+**Last session:** 2026-09-23, evening (Opus 5.5, user at the screen). **No
+feature work: made the project public and scrubbed it of personal data.** An
+end user had reported a 404 on the v0.2.3 download: the repo was private.
 
-Tag **`pre-multiship`** (on GitHub) sits just before `6d486f4`, as the
-rollback point.
+What changed:
 
-### Live-geometry Customize (`8c1f969`)
-
-- **Layout:** the attack editor is now nearly full screen. Controls are on
-  the left; on the right is `AttackPreviewMap` (its own small map, not a
-  second `MapView`, framed once then held), then a run-in readout strip, then
-  a live `SideProfileView` drawn with the card's own `drawSideProfile`.
-- **Controls:** every number is a `SliderField` (slider + number box, with an
-  Auto chip for optional fields). Ranges live in `src/lib/customizeKnobs.ts`,
-  and geo-check holds them to the 12/9/13 knob counts and to the library's
-  values. All 37 knobs are kept.
-- **Behaviour changes:**
-  - Customize freezes auto-build on the first edit, not on opening.
-  - The custom IP is placed and dragged on the editor's own map, so
-    `uiStore.ipDraft` is gone.
-- **Bug fixed (`moveIp` / `reanchorProfile` in `attackFlank.ts`):** moving the
-  IP on a customized attack left the *stored* heading stale. The picture was
-  always right, because it re-solves from the live IP. The card's Attack HDG,
-  Ingress HDG and egress heading, and the straight-in check, were wrong.
-
-### Multi-ship strike (`6d486f4`)
-
-- **Data:** `Strike` (`src/types/strike.types.ts`) lives in
-  `mission.strikes`, with Rust `#[serde(default)]` and a round-trip test.
-  Each attack gets `strikeId` and `totOffset_s`.
-- **Logic:**
-  - `src/lib/strike.ts`: shared IP via `applyStrikeIp`, cascades, group
-    edits, frag clear time, the split readout, and the card info.
-  - `src/lib/strikeDraft.ts`: the editor's Group operations.
-  - `src/lib/attackDraft.ts`: one jet's editor state, as pure data.
-- **UI:**
-  - The editor has a Group tab plus one tab per jet (`JetPanel`,
-    `GroupPanel`, `JetStrip`, `IpPicker`).
-  - The attack list shows a strike block with Edit and Ungroup.
-  - The main map draws one IP marker per strike.
-  - The card draws the other jets faint and adds a blue strike line.
-- **Decisions (the user's):**
-  - mirror flanks (#2 opposite; #3 and #4 repeat the pair);
-  - one target per strike, but any jet can pick its own;
-  - TOT offsets from the lead only, no clock times;
-  - the card shows wingmen faint.
-- **Estimates, labelled "est.":** frag clear time is `2·√(2h/g)` rounded up
-  to 5 s; IP push time is path length ÷ speed. See the "Coordinated strikes"
-  section of `docs/DELIVERY_PLANNING.md`.
-- **Also fixed:** the main-map custom IP drag now re-derives the stored
-  headings, and deleting an attack renumbers the rest.
+- **License:** PolyForm Strict 1.0.0, copyright "DroptheHammer" (`LICENSE`,
+  new `README.md`, license fields in `package.json`, `Cargo.toml` and the
+  installer config). Free for noncommercial use and for reading the source;
+  no commercial use, modification or redistribution without permission.
+- **Repo split:** the original private repo is now
+  `DroptheHammer/Phoenix_weaponeer-archive` (full, unscrubbed history, stays
+  private). `DroptheHammer/Phoenix_weaponeer` is a fresh **public** repo made
+  from a rewritten history. Releases v0.2.0–v0.2.3 were copied into it, with
+  all installers. **Every clone made before 2026-09-23 must be re-cloned.**
+- **Removed from all history:** the FragOrders author's correspondence (the
+  theater table they sent, our requests to them), real mission files, the four
+  real FragOrders link ids (replaced with `ExampleLinkId000000N`), the Mac
+  username, a PDF whose metadata carried the user's real name, and every
+  mention of the FragOrders author's name. All commit time zones were set to
+  UTC.
+- **Tests:** real missions moved to git-ignored `test-data/private/`, loaded by
+  `private_fixture!` (`src-tauri/src/lib.rs`), which skips when the file is
+  missing. The live-link test reads `PHOENIX_LIVE_LINK` /
+  `PHOENIX_LIVE_NEON_LINK`. Gates: **301 geo-checks**, **100 Rust tests +
+  1 ignored**, `npm run build` clean, both with and without the private files.
+- **Audited clean:** every stored object, commit metadata, image metadata, the
+  unpacked v0.2.x installers, and the GitHub account's public footprint.
+  The rules are in the Privacy section at the top of this file.
 
 ### START OF NEXT SESSION
 
-1. `git pull origin main`.
-2. **Probably release v0.3.0.** Both features are squadron-visible and
-   untested outside this Mac. Ask first; "release" means the full checklist
-   above.
-3. Things the user may notice on the next test:
-   - Changing a jet's attacker on its tab doesn't re-sort the jets. On
-     reopen, `strikeMembers` sorts by flight position, so the lead could
-     change.
-   - The wingman tracks on the card don't widen the frame; this jet keeps the
-     space, and the others are cut off at the edge.
-4. If a `brew upgrade` brings back "library 'proj' not found", run
-   `cargo clean -p proj-sys` (memory `project-proj-brew-upgrade-breaks-link`).
-
-### Adjacent, noted but not done
-
-- The npm `uuid` advisory is left alone. It only affects v3/v5/v6, the app
-  imports only `v4`, and the fix is a breaking jump to uuid 14.
-- `Shell::open` is deprecated in favour of `tauri-plugin-opener`. It's only used
-  by the button-less `reveal_profiles_dir`.
-- `ARCHITECTURE.md` still sketches the removed stubs (`MizParser`,
-  `render_kneeboard`, `mlua`). It's the original design doc, not the current
-  code.
-- `cargo audit` still shows 11 unmaintained/unsound warnings, all deep in
-  Tauri's own dependency tree.
-- Missions saved before `3569a5c` read one high until re-imported.
-- DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
-- Red statics and planes are never scanned. Sinai V7 has 23 red statics and
-  4 red planes; NTTR has 35 red planes. If they are added, they must carry the
-  hide flags too.
-- **Link payloads could verify Kola.** The `airbases` on a link carry both DCS
-  X/Z *and* Lat/Lon. The Arctic Fury fixture is on Kola, so it could give the
-  ground-truth pairs Kola needs without reading the F10 map. Not done.
-- The link import also skips things it could use: the per-flight
-  FP/HA/ST/IP points (`navTargetPoints`), tankers and AWACS
-  (`supportAssets`), and loadouts (`payload` as store names).
-- A shared IP for attacks *not* in a strike was not built (the strike covers
-  the flight case).
-- Kola / Afghanistan / Channel projections; PDF export; loft geometry.
+1. `git pull origin main`. On any machine other than the main Mac, **delete
+   the old clone and clone fresh** first. Copy `test-data/private/` over from
+   the main Mac to run the full test suite.
+2. **The user still has to delete** the private throwaway repos
+   `Phoenix_weaponeer-discard2` and `Phoenix_weaponeer-discard3` (earlier
+   scrub attempts; the token lacks `delete_repo`). Keep `-archive`.
+3. **Probably release v0.3.0** (Phase 5: live Customize, multi-ship strikes;
+   built and pushed, never released). Ask first; "release" means the full
+   checklist. It will be the first release built from the public repo.
+4. Still open from the Phase 5 session (details in `docs/SESSION_HISTORY.md`):
+   changing a jet's attacker doesn't re-sort the jets, and wingman tracks on
+   the card don't widen its frame.

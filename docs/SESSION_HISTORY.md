@@ -1,6 +1,111 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+**Last session:** 2026-09-22 → 23 (Opus 5.5, user at the screen). **Built
+all of Phase 5**: live-geometry Customize, then multi-ship coordinated strikes
+with a shared IP. The user checked both on screen ("badass", "seems to work
+well"). Both are committed and pushed; **neither is released yet**. Gates at
+the end: **301 geo-checks** (was 249), **100 Rust tests + 1 ignored**,
+`npm run build` clean.
+
+| Commit | What |
+|---|---|
+| `8c1f969` | Live-geometry Customize: sliders beside a live map and side view |
+| `6d486f4` | Multi-ship coordinated strikes with a shared IP |
+| (next) | Session notes |
+
+Tag **`pre-multiship`** (on GitHub) sits just before `6d486f4`, as the
+rollback point.
+
+### Live-geometry Customize (`8c1f969`)
+
+- **Layout:** the attack editor is now nearly full screen. Controls are on
+  the left; on the right is `AttackPreviewMap` (its own small map, not a
+  second `MapView`, framed once then held), then a run-in readout strip, then
+  a live `SideProfileView` drawn with the card's own `drawSideProfile`.
+- **Controls:** every number is a `SliderField` (slider + number box, with an
+  Auto chip for optional fields). Ranges live in `src/lib/customizeKnobs.ts`,
+  and geo-check holds them to the 12/9/13 knob counts and to the library's
+  values. All 37 knobs are kept.
+- **Behaviour changes:**
+  - Customize freezes auto-build on the first edit, not on opening.
+  - The custom IP is placed and dragged on the editor's own map, so
+    `uiStore.ipDraft` is gone.
+- **Bug fixed (`moveIp` / `reanchorProfile` in `attackFlank.ts`):** moving the
+  IP on a customized attack left the *stored* heading stale. The picture was
+  always right, because it re-solves from the live IP. The card's Attack HDG,
+  Ingress HDG and egress heading, and the straight-in check, were wrong.
+
+### Multi-ship strike (`6d486f4`)
+
+- **Data:** `Strike` (`src/types/strike.types.ts`) lives in
+  `mission.strikes`, with Rust `#[serde(default)]` and a round-trip test.
+  Each attack gets `strikeId` and `totOffset_s`.
+- **Logic:**
+  - `src/lib/strike.ts`: shared IP via `applyStrikeIp`, cascades, group
+    edits, frag clear time, the split readout, and the card info.
+  - `src/lib/strikeDraft.ts`: the editor's Group operations.
+  - `src/lib/attackDraft.ts`: one jet's editor state, as pure data.
+- **UI:**
+  - The editor has a Group tab plus one tab per jet (`JetPanel`,
+    `GroupPanel`, `JetStrip`, `IpPicker`).
+  - The attack list shows a strike block with Edit and Ungroup.
+  - The main map draws one IP marker per strike.
+  - The card draws the other jets faint and adds a blue strike line.
+- **Decisions (the user's):**
+  - mirror flanks (#2 opposite; #3 and #4 repeat the pair);
+  - one target per strike, but any jet can pick its own;
+  - TOT offsets from the lead only, no clock times;
+  - the card shows wingmen faint.
+- **Estimates, labelled "est.":** frag clear time is `2·√(2h/g)` rounded up
+  to 5 s; IP push time is path length ÷ speed. See the "Coordinated strikes"
+  section of `docs/DELIVERY_PLANNING.md`.
+- **Also fixed:** the main-map custom IP drag now re-derives the stored
+  headings, and deleting an attack renumbers the rest.
+
+### START OF NEXT SESSION
+
+1. `git pull origin main`.
+2. **Probably release v0.3.0.** Both features are squadron-visible and
+   untested outside this Mac. Ask first; "release" means the full checklist
+   above.
+3. Things the user may notice on the next test:
+   - Changing a jet's attacker on its tab doesn't re-sort the jets. On
+     reopen, `strikeMembers` sorts by flight position, so the lead could
+     change.
+   - The wingman tracks on the card don't widen the frame; this jet keeps the
+     space, and the others are cut off at the edge.
+4. If a `brew upgrade` brings back "library 'proj' not found", run
+   `cargo clean -p proj-sys` (memory `project-proj-brew-upgrade-breaks-link`).
+
+### Adjacent, noted but not done
+
+- The npm `uuid` advisory is left alone. It only affects v3/v5/v6, the app
+  imports only `v4`, and the fix is a breaking jump to uuid 14.
+- `Shell::open` is deprecated in favour of `tauri-plugin-opener`. It's only used
+  by the button-less `reveal_profiles_dir`.
+- `ARCHITECTURE.md` still sketches the removed stubs (`MizParser`,
+  `render_kneeboard`, `mlua`). It's the original design doc, not the current
+  code.
+- `cargo audit` still shows 11 unmaintained/unsound warnings, all deep in
+  Tauri's own dependency tree.
+- Missions saved before `3569a5c` read one high until re-imported.
+- DTC data (threat/target/nav points, beacons, loadouts) is reachable and unused.
+- Red statics and planes are never scanned. Sinai V7 has 23 red statics and
+  4 red planes; NTTR has 35 red planes. If they are added, they must carry the
+  hide flags too.
+- **Link payloads could verify Kola.** The `airbases` on a link carry both DCS
+  X/Z *and* Lat/Lon. The Arctic Fury fixture is on Kola, so it could give the
+  ground-truth pairs Kola needs without reading the F10 map. Not done.
+- The link import also skips things it could use: the per-flight
+  FP/HA/ST/IP points (`navTargetPoints`), tankers and AWACS
+  (`supportAssets`), and loadouts (`payload` as store names).
+- A shared IP for attacks *not* in a strike was not built (the strike covers
+  the flight case).
+- Kola / Afghanistan / Channel projections; PDF export; loft geometry.
+
+---
+
 
 **Last session:** 2026-09-22, late (Opus 5.5, user at the screen). **Released
 and published v0.2.3.** It ships FragOrders link import, built the session
