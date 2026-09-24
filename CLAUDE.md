@@ -246,9 +246,12 @@ What changed:
 2. **The user still has to delete** the private throwaway repos
    `Phoenix_weaponeer-discard2` and `Phoenix_weaponeer-discard3` (earlier
    scrub attempts; the token lacks `delete_repo`). Keep `-archive`.
-3. **Probably release v0.3.0** (Phase 5: live Customize, multi-ship strikes;
-   built and pushed, never released). Ask first; "release" means the full
-   checklist. It will be the first release built from the public repo.
+3. ~~Release v0.3.0~~ **Done 2026-09-24 (UTC): v0.3.0 published as Latest**
+   (Phase 5: live Customize, multi-ship strikes). Bump commit `c56c227`, CI
+   run 35939977522 green on all three platforms, all 7 installers attached,
+   logged-out download checked. First release from the public repo. The
+   full-history privacy scan and the installer scan both ran clean
+   beforehand (scripts in git-ignored `Other Items/privacy-scan/`).
 4. Still open from the Phase 5 session (details in `docs/SESSION_HISTORY.md`):
    changing a jet's attacker doesn't re-sort the jets, and wingman tracks on
    the card don't widen its frame.
