@@ -1,6 +1,56 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+**Last session:** 2026-09-23, evening (Opus 5.5, user at the screen). **No
+feature work: made the project public and scrubbed it of personal data.** An
+end user had reported a 404 on the v0.2.3 download: the repo was private.
+
+What changed:
+
+- **License:** PolyForm Strict 1.0.0, copyright "DroptheHammer" (`LICENSE`,
+  new `README.md`, license fields in `package.json`, `Cargo.toml` and the
+  installer config). Free for noncommercial use and for reading the source;
+  no commercial use, modification or redistribution without permission.
+- **Repo split:** the original private repo is now
+  `DroptheHammer/Phoenix_weaponeer-archive` (full, unscrubbed history, stays
+  private). `DroptheHammer/Phoenix_weaponeer` is a fresh **public** repo made
+  from a rewritten history. Releases v0.2.0–v0.2.3 were copied into it, with
+  all installers. **Every clone made before 2026-09-23 must be re-cloned.**
+- **Removed from all history:** the FragOrders author's correspondence (the
+  theater table they sent, our requests to them), real mission files, the four
+  real FragOrders link ids (replaced with `ExampleLinkId000000N`), the Mac
+  username, a PDF whose metadata carried the user's real name, and every
+  mention of the FragOrders author's name. All commit time zones were set to
+  UTC.
+- **Tests:** real missions moved to git-ignored `test-data/private/`, loaded by
+  `private_fixture!` (`src-tauri/src/lib.rs`), which skips when the file is
+  missing. The live-link test reads `PHOENIX_LIVE_LINK` /
+  `PHOENIX_LIVE_NEON_LINK`. Gates: **301 geo-checks**, **100 Rust tests +
+  1 ignored**, `npm run build` clean, both with and without the private files.
+- **Audited clean:** every stored object, commit metadata, image metadata, the
+  unpacked v0.2.x installers, and the GitHub account's public footprint.
+  The rules are in the Privacy section at the top of this file.
+
+### START OF NEXT SESSION
+
+1. `git pull origin main`. On any machine other than the main Mac, **delete
+   the old clone and clone fresh** first. Copy `test-data/private/` over from
+   the main Mac to run the full test suite.
+2. **The user still has to delete** the private throwaway repos
+   `Phoenix_weaponeer-discard2` and `Phoenix_weaponeer-discard3` (earlier
+   scrub attempts; the token lacks `delete_repo`). Keep `-archive`.
+3. ~~Release v0.3.0~~ **Done 2026-09-24 (UTC): v0.3.0 published as Latest**
+   (Phase 5: live Customize, multi-ship strikes). Bump commit `c56c227`, CI
+   run 35939977522 green on all three platforms, all 7 installers attached,
+   logged-out download checked. First release from the public repo. The
+   full-history privacy scan and the installer scan both ran clean
+   beforehand (scripts in git-ignored `Other Items/privacy-scan/`).
+4. Still open from the Phase 5 session (details in `docs/SESSION_HISTORY.md`):
+   changing a jet's attacker doesn't re-sort the jets, and wingman tracks on
+   the card don't widen its frame.
+
+---
+
 **Last session:** 2026-09-22 → 23 (Opus 5.5, user at the screen). **Built
 all of Phase 5**: live-geometry Customize, then multi-ship coordinated strikes
 with a shared IP. The user checked both on screen ("badass", "seems to work

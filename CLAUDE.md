@@ -208,50 +208,36 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-23, evening (Opus 5.5, user at the screen). **No
-feature work: made the project public and scrubbed it of personal data.** An
-end user had reported a 404 on the v0.2.3 download: the repo was private.
+**Last session:** 2026-09-23 → 24 UTC (Opus 5.5, user at the screen).
+**Released v0.3.0.** No code changes beyond the version bump.
 
-What changed:
-
-- **License:** PolyForm Strict 1.0.0, copyright "DroptheHammer" (`LICENSE`,
-  new `README.md`, license fields in `package.json`, `Cargo.toml` and the
-  installer config). Free for noncommercial use and for reading the source;
-  no commercial use, modification or redistribution without permission.
-- **Repo split:** the original private repo is now
-  `DroptheHammer/Phoenix_weaponeer-archive` (full, unscrubbed history, stays
-  private). `DroptheHammer/Phoenix_weaponeer` is a fresh **public** repo made
-  from a rewritten history. Releases v0.2.0–v0.2.3 were copied into it, with
-  all installers. **Every clone made before 2026-09-23 must be re-cloned.**
-- **Removed from all history:** the FragOrders author's correspondence (the
-  theater table they sent, our requests to them), real mission files, the four
-  real FragOrders link ids (replaced with `ExampleLinkId000000N`), the Mac
-  username, a PDF whose metadata carried the user's real name, and every
-  mention of the FragOrders author's name. All commit time zones were set to
-  UTC.
-- **Tests:** real missions moved to git-ignored `test-data/private/`, loaded by
-  `private_fixture!` (`src-tauri/src/lib.rs`), which skips when the file is
-  missing. The live-link test reads `PHOENIX_LIVE_LINK` /
-  `PHOENIX_LIVE_NEON_LINK`. Gates: **301 geo-checks**, **100 Rust tests +
-  1 ignored**, `npm run build` clean, both with and without the private files.
-- **Audited clean:** every stored object, commit metadata, image metadata, the
-  unpacked v0.2.x installers, and the GitHub account's public footprint.
-  The rules are in the Privacy section at the top of this file.
+- **Pre-release checks:** gates passed (301 geo-checks; 100 Rust tests +
+  1 ignored; `npm run build` clean, with the private fixtures present).
+  A full-history privacy scan came back clean: every git object, commit
+  metadata (DroptheHammer / Claude / GitHub only, all UTC), and PNG and icon
+  metadata. The scripts are in git-ignored `Other Items/privacy-scan/`
+  (memory `reference-privacy-scan-scripts`). They hold the strings they
+  search for, so never commit them.
+- **Release:** bump commit `c56c227`, tag `v0.3.0`, CI run 35939977522 green
+  on all three platforms. All 7 installers are attached. This was the first
+  release built from the public repo, and Actions worked with no setup. The
+  unpacked Mac, Linux and `.msi` installers scanned clean. Harmless hits:
+  `/Users/runner` (the CI machine), PROJ's "Hammer–Aitoff" projection, and
+  third-party library credits. Published as Latest on 2026-09-24 01:08 UTC;
+  a logged-out download returns 200.
 
 ### START OF NEXT SESSION
 
-1. `git pull origin main`. On any machine other than the main Mac, **delete
-   the old clone and clone fresh** first. Copy `test-data/private/` over from
-   the main Mac to run the full test suite.
+1. `git pull origin main`. On any machine other than the main Mac, delete any
+   clone older than 2026-09-23 and **clone fresh**. Copy `test-data/private/`
+   over from the main Mac to run the full test suite.
 2. **The user still has to delete** the private throwaway repos
-   `Phoenix_weaponeer-discard2` and `Phoenix_weaponeer-discard3` (earlier
-   scrub attempts; the token lacks `delete_repo`). Keep `-archive`.
-3. ~~Release v0.3.0~~ **Done 2026-09-24 (UTC): v0.3.0 published as Latest**
-   (Phase 5: live Customize, multi-ship strikes). Bump commit `c56c227`, CI
-   run 35939977522 green on all three platforms, all 7 installers attached,
-   logged-out download checked. First release from the public repo. The
-   full-history privacy scan and the installer scan both ran clean
-   beforehand (scripts in git-ignored `Other Items/privacy-scan/`).
-4. Still open from the Phase 5 session (details in `docs/SESSION_HISTORY.md`):
-   changing a jet's attacker doesn't re-sort the jets, and wingman tracks on
-   the card don't widen its frame.
+   `Phoenix_weaponeer-discard2` and `Phoenix_weaponeer-discard3` (the token
+   lacks `delete_repo`). Keep `-archive`.
+3. Open multi-ship rough edges (details in `docs/SESSION_HISTORY.md`, in the
+   Phase 5 entry):
+   - Changing a jet's attacker doesn't re-sort the jets.
+   - The wingman tracks on the card don't widen its frame.
+4. Still unbuilt: loft geometry (LABS / F-16 loft), optional PDF export.
+   Still unverified: the Channel, Kola and Afghanistan projections, and the
+   kneeboard export on Windows.
