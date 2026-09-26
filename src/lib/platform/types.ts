@@ -23,6 +23,17 @@ export type CoreCommand =
   | 'parse_fragorders_json'
   | 'fetch_fragorders_url';
 
+/**
+ * How a `shareFiles` call ended:
+ * - `shared`: the share sheet took the files.
+ * - `downloaded`: no share sheet for files here, so each was downloaded instead.
+ * - `cancelled`: the planner closed the share sheet. Not an error.
+ * - `blocked`: the browser wants a fresh tap first (the one that asked went
+ *   stale while the cards were drawn). Asking again works.
+ * - `unsupported`: this platform has no sharing (the desktop app).
+ */
+export type ShareResult = 'shared' | 'downloaded' | 'cancelled' | 'blocked' | 'unsupported';
+
 export interface Platform {
   /** The browser build: no file paths, no folders, no DCS install. */
   readonly isWeb: boolean;
@@ -56,6 +67,12 @@ export interface Platform {
   pathInFolder(folder: string, filename: string): Promise<string>;
   /** Write a card (PNG as base64) to a path from the two choosers above. */
   writeCard(path: string, base64Png: string): Promise<void>;
+  /**
+   * Hand files to the system share sheet, all in one go (Messages, AirDrop,
+   * Files, Photos…). Must be called from a tap. The desktop app keeps its
+   * export buttons and answers `unsupported`.
+   */
+  shareFiles(files: { name: string; blob: Blob }[], title: string): Promise<ShareResult>;
 
   // ---- DCS kneeboard folders (desktop only; the web build never asks) ----
   folderExists(path: string): Promise<boolean>;

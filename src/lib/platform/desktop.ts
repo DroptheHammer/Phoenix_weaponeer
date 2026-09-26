@@ -71,6 +71,8 @@ export const platform: Platform = {
   },
   pathInFolder: (folder, filename) => join(folder, filename),
   writeCard: (path, base64Png) => invoke<void>('save_kneeboard_png', { path, base64Data: base64Png }),
+  // The desktop exports into folders instead; the phone layout never shows here.
+  shareFiles: async () => 'unsupported',
 
   folderExists: (path) => invoke<boolean>('folder_exists', { path }),
   suggestKneeboardFolder: (kneeboardPath) => invoke<string | null>('suggest_kneeboard_folder', { kneeboardPath }),

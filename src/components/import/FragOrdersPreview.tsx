@@ -3,6 +3,7 @@ import type { FragOrdersData, FragOrdersPlayerGroup, FragOrdersThreat } from '..
 import { getConfidenceClass } from '../../types';
 import { useUiStore } from '../../stores/uiStore';
 import { isHiddenByAuthor, isThreatVisible, probableThreats } from '../../lib/threatVisibility';
+import { useIsPhone } from '../../hooks/useIsPhone';
 
 /** The importer's snake_case flags, in the shape the visibility rule reads. */
 const flagsOf = (threat: FragOrdersThreat) => ({
@@ -18,6 +19,7 @@ interface FragOrdersPreviewProps {
 
 export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewProps) {
   const [selectedGroupIndex, setSelectedGroupIndex] = useState(0);
+  const isPhone = useIsPhone();
 
   const selectedGroup = data.player_groups[selectedGroupIndex];
   const reveal = useUiStore((state) => state.revealHidden);
@@ -122,7 +124,7 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
           )}
 
           {selectedGroup && (
-            <PlayerGroupDetails group={selectedGroup} />
+            <PlayerGroupDetails group={selectedGroup} asCards={isPhone} />
           )}
         </div>
       ) : (
@@ -152,7 +154,26 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
           )}
         </h3>
 
-        {shownThreats.length > 0 ? (
+        {shownThreats.length > 0 && isPhone ? (
+          // A phone gets one card per threat: the table's three columns don't fit.
+          <ul className="space-y-2">
+            {shownThreats.slice(0, 20).map((threat, idx) => (
+              <li key={idx} className="bg-dcs-navy rounded-lg px-3 py-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="flex-1 min-w-0 break-words">
+                    {threat.system_name || <span className="text-gray-500 italic">Unknown</span>}
+                  </span>
+                  <span className={`shrink-0 text-sm ${getConfidenceClass(threat.confidence)}`}>{threat.confidence}</span>
+                </div>
+                <p className="font-mono text-xs text-gray-400 break-all">{threat.unit_type}</p>
+                {isHiddenByAuthor(flagsOf(threat)) && <p className="text-purple-400 text-xs">hidden by author</p>}
+              </li>
+            ))}
+            {shownThreats.length > 20 && (
+              <li className="py-1 text-gray-400 text-sm text-center">... and {shownThreats.length - 20} more</li>
+            )}
+          </ul>
+        ) : shownThreats.length > 0 ? (
           <div className="max-h-48 overflow-y-auto">
             <table className="w-full text-sm">
               <thead className="text-gray-400 text-left">
@@ -256,11 +277,12 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
   );
 }
 
-function PlayerGroupDetails({ group }: { group: FragOrdersPlayerGroup }) {
+/** `asCards`: one card per waypoint instead of a table, for a phone. */
+function PlayerGroupDetails({ group, asCards = false }: { group: FragOrdersPlayerGroup; asCards?: boolean }) {
   return (
     <div className="space-y-3">
       {/* Group Info */}
-      <div className="flex gap-4 text-sm">
+      <div className={`flex gap-4 text-sm ${asCards ? 'flex-wrap gap-y-1' : ''}`}>
         <div>
           <span className="text-gray-400">Callsign:</span>{' '}
           <span className="font-medium">{group.callsign}</span>
@@ -280,6 +302,25 @@ function PlayerGroupDetails({ group }: { group: FragOrdersPlayerGroup }) {
         <h4 className="text-sm text-gray-400 mb-2">
           Waypoints ({group.waypoints.length})
         </h4>
+        {asCards ? (
+          // The whole list, in the page's own scroll: a short inner scroller
+          // inside a full-screen page is hard to hit with a thumb.
+          <ul className="space-y-2">
+            {group.waypoints.map((wp) => (
+              <li key={wp.steerpoint} className="bg-dcs-navy rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-gray-400 shrink-0">{wp.steerpoint}</span>
+                  <span className="flex-1 min-w-0 break-words">{wp.name}</span>
+                  <WaypointTypeBadge type={wp.wp_type} />
+                </div>
+                <p className="font-mono text-xs text-gray-400">
+                  {Math.round(wp.altitude_ft).toLocaleString()} ft
+                  {wp.speed_ktas ? ` · ${Math.round(wp.speed_ktas)} kts` : ''}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
         <div className="max-h-40 overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="text-gray-400 text-left sticky top-0 bg-dcs-dark">
@@ -310,6 +351,7 @@ function PlayerGroupDetails({ group }: { group: FragOrdersPlayerGroup }) {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );
