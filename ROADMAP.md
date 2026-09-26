@@ -70,13 +70,12 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       planner in a phone layout, plus autosave, kneeboard mode, share all and
       "Strike near me". Branch `claude/mobile-app-distribution-b6uo76`. The
       plan and the rolling handoff log are in `docs/MOBILE_WEB_PLAN.md`.
-      Built and tested in the browser. The layout choices are made (walkthrough
-      2026-09-26: 1A 2B 3A). Still to do:
-      - A real FragOrders link test.
-      - A desktop click-through.
-      - Merge to main.
-      - Enable Pages (the go-public step).
+      **Live since 2026-09-26** at https://dropthehammer.github.io/Phoenix_weaponeer/
+      (republish: Actions → "Web app (GitHub Pages)" → Run workflow).
+      Still to do:
       - Real-phone checks.
+      - A FragOrders link import from the live site.
+      - A desktop click-through.
 
 ---
 

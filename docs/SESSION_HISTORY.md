@@ -1,6 +1,46 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+**Last session:** 2026-09-26 UTC, morning (Opus 5.5, user at the screen).
+**Released v0.3.1** — first outside bug report fixed, plus a to-do sweep.
+
+- **GitHub issue #1** (from an outside user): the FragOrders share button
+  gives `http://` links and the importer took only `https://`. Fixed in
+  `fragorders_link.rs` (only the id is used; every fetch stays HTTPS);
+  checked on screen by the user with several links. The issue closed itself
+  on push. A reply pointing at v0.3.1 was posted on the issue with the
+  user's approval.
+- **Shipped in 0.3.1:**
+  - Quit button in the header.
+  - **Strike lead = jet first on target**: `strikeMembers` sorts by TOT
+    offset, then flight position. The test found a worse bug too: after a
+    pilot swap, removing a jet shifted every TOT by 30 s.
+  - Card "Map background" switch remembered (`settings.json` `kneeboardMap`,
+    default on).
+  - Recent missions on the front page (last 8; `settings.json`
+    `recentMissions`; `load_mission` says "moved or deleted" — that exact
+    text is shared with `missionFile.ts` and pinned by a Rust test).
+  - **Strafe and rockets reachable** — DB v4: 4 guns + 4 rocket types,
+    names checked by the user, mapped per aircraft in `aircraft_weapons`
+    (`Weapon.carried_by`); picker `weaponChoicesFor`; rocket passes drop the
+    Mk-82 sight; cards say "Fire by" / "gun/rocket attack". New Rust test:
+    every weapon class a profile needs has a weapon.
+- **Docs:** `ROADMAP.md` rewritten as the ONE to-do list (open / in progress /
+  shipped by release / decided-not-doing). BUGFIX_PLAN, REVIEW_0.2.1,
+  REVAMP_PLAN, ARCHITECTURE moved to `docs/archive/`. 14 unused root scripts
+  deleted. Decided: wingman tracks stay clipped on the card (memory
+  `closed-decisions-do-not-reopen`).
+- **Release:** gates 312 geo-checks / 106 Rust tests / build clean; privacy
+  scan clean (known false positives only); bump `5dbd2c6`, tag `v0.3.1`,
+  CI run 36221932870 green on all three; 7 installers; Mac/Linux/`.msi`
+  unpacked and scanned clean. Published as Latest 2026-09-26 06:02 UTC;
+  logged-out download 200.
+- **Not done:** the user did not confirm the full on-screen checklist for
+  recent missions / map switch / jet order / strafe before asking to
+  release. If a squadron member reports a problem there, start there.
+
+---
+
 **Last session:** 2026-09-23 → 24 UTC (Opus 5.5, user at the screen).
 **Released v0.3.0.** No code changes beyond the version bump.
 
