@@ -44,6 +44,51 @@ body {
   }
 }
 
+/* A slider for a thumb (SliderField on a phone): the default knob is about
+   16px, too small to grab and too small to see under a finger. The input is
+   44px tall so the whole row takes the touch, not just the thin track. */
+.range-lg {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 44px;
+  background: transparent;
+}
+.range-lg::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #4b5563; /* gray-600 */
+}
+.range-lg::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -11px; /* centre the knob on the 6px track */
+  border-radius: 50%;
+  background: #e94560; /* dcs-accent */
+  border: 2px solid #f1f5f9;
+}
+.range-lg::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #4b5563;
+}
+.range-lg::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e94560;
+  border: 2px solid #f1f5f9;
+}
+
+/* A sideways chip row that scrolls by swipe; the scrollbar would only eat
+   height on a phone. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Leaflet map container */
 .leaflet-container {
   width: 100%;
