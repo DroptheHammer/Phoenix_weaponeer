@@ -957,6 +957,16 @@ pub fn set_kneeboard_folder(
     Ok(next)
 }
 
+/// Turn the kneeboard card's map layer on or off for good. Returns the
+/// settings as now saved.
+#[tauri::command]
+pub fn set_kneeboard_map(app: AppHandle, on: bool) -> Result<settings::Settings, String> {
+    let path = settings_path(&app)?;
+    let next = settings::Settings { kneeboard_map: on, ..settings::read_settings(&path).settings };
+    settings::write_settings(&path, &next)?;
+    Ok(next)
+}
+
 /// Whether a remembered folder is still there — a reinstalled or moved DCS
 /// means asking again rather than recreating a dead path.
 #[tauri::command]

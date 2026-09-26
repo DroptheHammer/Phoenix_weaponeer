@@ -111,6 +111,7 @@ pub fn run() {
             // Settings
             commands::get_settings,
             commands::set_kneeboard_folder,
+            commands::set_kneeboard_map,
             commands::folder_exists,
             commands::suggest_kneeboard_folder,
             commands::exit_app,

@@ -14,13 +14,28 @@ use std::path::{Path, PathBuf};
 pub const SETTINGS_FILE: &str = "settings.json";
 
 /// Everything the settings file holds. Every field needs `#[serde(default)]`,
-/// or a settings file written before that field existed stops loading.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// or a settings file written before that field existed stops loading — and
+/// its default must match `Default` below.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// Aircraft id (`f16c`) → the DCS kneeboard folder the user chose for that type.
     #[serde(default)]
     pub kneeboard_folders: BTreeMap<String, String>,
+    /// The grey map layer behind the kneeboard card's plan view. On unless the
+    /// user turned it off.
+    #[serde(default = "on")]
+    pub kneeboard_map: bool,
+}
+
+fn on() -> bool {
+    true
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { kneeboard_folders: BTreeMap::new(), kneeboard_map: true }
+    }
 }
 
 /// Settings as loaded, plus why they are defaults when the file was unusable.
@@ -180,6 +195,20 @@ mod tests {
         let load = read_settings(&path);
         assert!(load.warning.is_none());
         assert!(load.settings.kneeboard_folders.is_empty());
+    }
+
+    #[test]
+    fn the_card_map_is_on_unless_turned_off_even_for_an_older_settings_file() {
+        assert!(Settings::default().kneeboard_map);
+
+        let path = scratch("map_old_file").join(SETTINGS_FILE);
+        std::fs::write(&path, r#"{ "kneeboardFolders": {} }"#).unwrap();
+        assert!(read_settings(&path).settings.kneeboard_map, "a file from before the switch keeps the map");
+
+        let off = Settings { kneeboard_map: false, ..Settings::default() };
+        write_settings(&path, &off).unwrap();
+        assert!(std::fs::read_to_string(&path).unwrap().contains("\"kneeboardMap\": false"));
+        assert!(!read_settings(&path).settings.kneeboard_map);
     }
 
     #[test]

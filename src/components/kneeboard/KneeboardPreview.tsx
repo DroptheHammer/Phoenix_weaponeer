@@ -52,7 +52,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
   // reaches a card unless it was revealed in ⚙ Settings → Admin.
   const mission = useVisibleMission();
   const kneeboardMap = useUiStore((state) => state.kneeboardMap);
-  const toggleKneeboardMap = useUiStore((state) => state.toggleKneeboardMap);
+  const setKneeboardMap = useSettingsStore((state) => state.setKneeboardMap);
   const kneeboardFolders = useSettingsStore((state) => state.settings.kneeboardFolders);
   const setKneeboardFolder = useSettingsStore((state) => state.setKneeboardFolder);
 
@@ -347,7 +347,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
 
       {/* Map under the north-up picture */}
       <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-        <input type="checkbox" checked={kneeboardMap} onChange={toggleKneeboardMap} />
+        <input type="checkbox" checked={kneeboardMap} onChange={(e) => void setKneeboardMap(e.target.checked)} />
         Map background
         {mapNote && <span className="text-gray-500">· {mapNote}</span>}
       </label>

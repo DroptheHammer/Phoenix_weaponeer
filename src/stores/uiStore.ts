@@ -60,9 +60,13 @@ export interface MapPick {
 }
 
 interface UiState extends DisplayFilter, Selection {
-  /** Grey map under the kneeboard card's north-up picture. A view preference, never reset by Open/Import. */
+  /**
+   * Grey map under the kneeboard card's north-up picture. A view preference,
+   * never reset by Open/Import. Saved between launches by `settingsStore`
+   * (this store stays free of `invoke`, so geo-check can load it under Node).
+   */
   kneeboardMap: boolean;
-  toggleKneeboardMap: () => void;
+  setKneeboardMap: (on: boolean) => void;
   selectAttack: (id: string | null) => void;
   /** Select a threat and ask the map to fly to it. */
   selectThreat: (id: string | null) => void;
@@ -115,7 +119,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   mapPick: null,
 
   kneeboardMap: true,
-  toggleKneeboardMap: () => set((state) => ({ kneeboardMap: !state.kneeboardMap })),
+  setKneeboardMap: (on) => set({ kneeboardMap: on }),
 
   selectAttack: (id) => set({ selectedAttackId: id, selectedThreatId: null }),
   selectThreat: (id) => set({ selectedThreatId: id, selectedAttackId: null, focusThreatId: id }),
