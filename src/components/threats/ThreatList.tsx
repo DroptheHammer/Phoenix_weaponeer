@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Modal } from '../common/Modal';
 import { useMissionStore } from '../../stores/missionStore';
 import { useUiStore } from '../../stores/uiStore';
 import { useVisibleMission } from '../../hooks/useVisibleMission';
@@ -230,19 +230,8 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
       </div>
 
       {/* Add Threat Modal */}
-      {showAddModal && createPortal(
-        <div
-          className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 z-[2000] flex items-center justify-center"
-          style={{ position: 'fixed', zIndex: 2000 }}
-          onClick={() => setShowAddModal(false)}
-        >
-          <div
-            className="bg-dcs-navy text-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-2xl"
-            style={{ maxWidth: '90vw' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-semibold mb-4 text-white">Add Planning Threat</h3>
-
+      {showAddModal && (
+        <Modal title="Add Planning Threat" onClose={() => setShowAddModal(false)} widthClass="w-[500px] max-w-[90vw]">
             {/* Threat system selector */}
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2 text-white">Threat System</label>
@@ -337,9 +326,7 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
                 Add Threat
               </button>
             </div>
-          </div>
-        </div>,
-        document.body
+        </Modal>
       )}
     </div>
   );

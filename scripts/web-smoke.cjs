@@ -30,13 +30,24 @@ fs.mkdirSync(out, { recursive: true });
   process.on('exit', () => console.log(`FAILED REQUEST HOSTS: ${[...failedHosts].join(', ') || 'none'}`));
   const shot = (name) => page.screenshot({ path: path.join(out, `${name}.png`) });
   const step = (s) => console.log(`STEP ${s}`);
+  // The phone layout (see src/hooks/useIsPhone.ts) keeps file actions in the ⋯ menu.
+  const phone = +w < 768 || +h < 500;
+  const fileAction = async (desktopButton, menuItem) => {
+    if (phone) {
+      await page.getByRole('button', { name: 'Menu' }).click();
+      await page.getByRole('menuitem', { name: menuItem }).click();
+    } else {
+      await page.getByRole('button', { name: desktopButton, exact: true }).click();
+    }
+  };
+  step(`layout: ${phone ? 'phone' : 'desktop'} ${w}x${h}`);
 
   await page.goto(base);
-  await page.getByRole('button', { name: 'Import', exact: true }).waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Import FragOrders' }).waitFor({ timeout: 15000 });
   step('landing loaded');
   await shot('01-landing');
 
-  await page.getByRole('button', { name: 'Import', exact: true }).click();
+  await page.getByRole('button', { name: 'Import FragOrders' }).click();
   await page.getByRole('button', { name: 'From JSON' }).click();
   await page.getByPlaceholder('Or paste FragOrders JSON here...').fill(fixture);
   await page.getByRole('button', { name: 'Parse JSON' }).click();
@@ -55,21 +66,31 @@ fs.mkdirSync(out, { recursive: true });
   const threatText = await page.locator('body').innerText();
   step(`threat panel mentions Kub: ${/Kub/.test(threatText)}, Shilka: ${/Shilka/.test(threatText)}`);
 
-  // Save = a download of the mission JSON, which Open must read back.
+  // Export = a download of the mission JSON, which Open must read back.
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 10000 }),
-    page.getByRole('button', { name: 'Save As' }).click(),
+    fileAction('Export .json', 'Export .json'),
   ]);
   const saved = path.join(out, download.suggestedFilename());
   await download.saveAs(saved);
   const savedJson = JSON.parse(fs.readFileSync(saved, 'utf8'));
-  step(`saved ${download.suggestedFilename()} with ${savedJson.waypoints.length} waypoints, ${savedJson.threats.length} threats`);
+  step(`exported ${download.suggestedFilename()} with ${savedJson.waypoints.length} waypoints, ${savedJson.threats.length} threats`);
 
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('button', { name: 'Open', exact: true }).waitFor();
+  // Closing loses nothing: the mission was autosaved to "My missions".
+  await fileAction('Close', 'Close mission');
+  await page.getByText('My missions').waitFor({ timeout: 10000 });
+  const listed = await page.getByRole('button', { name: new RegExp(savedJson.name) }).count();
+  step(`closed; My missions lists "${savedJson.name}": ${listed > 0}`);
+  await shot('05a-my-missions');
+  await page.getByRole('button', { name: new RegExp(savedJson.name) }).first().click();
+  await page.getByRole('button', { name: /^Threats/ }).waitFor({ timeout: 10000 });
+  step('reopened from My missions');
+  await fileAction('Close', 'Close mission');
+
+  await page.getByRole('button', { name: 'Open .json File' }).waitFor();
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser', { timeout: 10000 }),
-    page.getByRole('button', { name: 'Open', exact: true }).click(),
+    page.getByRole('button', { name: 'Open .json File' }).click(),
   ]);
   await chooser.setFiles(saved);
   await page.getByRole('button', { name: /^Threats/ }).waitFor({ timeout: 10000 });

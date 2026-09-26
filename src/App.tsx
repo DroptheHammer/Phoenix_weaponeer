@@ -16,7 +16,11 @@ import { UnsavedChangesDialog } from "./components/mission/UnsavedChangesDialog"
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { useSettingsStore } from "./stores/settingsStore";
 import { RecentMissions } from "./components/mission/RecentMissions";
-import { MISSION_FILE_GONE, openMission, openMissionAt, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
+import { MyMissions } from "./components/mission/MyMissions";
+import { PhoneShell, type PhoneMenuItem, type PhoneTab } from "./components/phone/PhoneShell";
+import { useIsPhone } from "./hooks/useIsPhone";
+import { flushAutosave, isAutosaved, useAutosave } from "./stores/localMissionStore";
+import { MISSION_FILE_GONE, openLocalMission, openMission, openMissionAt, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
 import type { FragOrdersData, DbWeapon, FuzeOption } from "./types";
 
 interface ThreatSystem {
@@ -66,6 +70,10 @@ function App() {
   // Action held back by the unsaved-changes guard, with the phrase shown to the user.
   const [pendingAction, setPendingAction] = useState<{ label: string; run: () => void } | null>(null);
   const [fileMsg, setFileMsg] = useState<string | null>(null);
+  // The web build's phone layout (the desktop window can never be this small).
+  const isPhone = useIsPhone();
+  // The web build keeps every mission in this browser as it changes ("My missions").
+  useAutosave(platform.isWeb);
 
   const handleFragOrdersImport = (data: FragOrdersData, groupIndex: number) => {
     importFromFragOrders(data, groupIndex);
@@ -82,6 +90,16 @@ function App() {
    * attack profiles vanishes on a single click.
    */
   const guardUnsaved = (label: string, action: () => void) => {
+    if (platform.isWeb) {
+      // The web build autosaves, so leaving a mission loses nothing once the
+      // last change is stored. Only a failed autosave still asks.
+      void flushAutosave().then(() => {
+        const { mission: current, isDirty: dirty } = useMissionStore.getState();
+        if (current && dirty && !isAutosaved(current)) setPendingAction({ label, run: action });
+        else action();
+      });
+      return;
+    }
     if (mission && isDirty) {
       setPendingAction({ label, run: action });
       return;
@@ -98,7 +116,7 @@ function App() {
       platform.guardClose(
         () => {
           const { mission: current, isDirty: dirty } = useMissionStore.getState();
-          return Boolean(current && dirty);
+          return Boolean(current && dirty && !(platform.isWeb && isAutosaved(current)));
         },
         (finish) =>
           setPendingAction({
@@ -153,6 +171,14 @@ function App() {
         void useSettingsStore.getState().forgetRecentMission(path);
       }
       afterOpen(result);
+    });
+  };
+
+  // A mission autosaved in this browser (web build).
+  const handleOpenLocal = (id: string) => {
+    guardUnsaved('open another mission', async () => {
+      setFileMsg(null);
+      afterOpen(await openLocalMission(id));
     });
   };
 
@@ -258,6 +284,199 @@ function App() {
     moveAttackCustomIp(attackId, position);
   };
 
+  // ---- Shared by the desktop and phone layouts ----
+
+  const mapView = mission && (
+    <MapView
+      theater={mission.theater}
+      waypoints={mission.waypoints}
+      threats={visibleMission?.threats ?? []}
+      attacks={mission.attacks}
+      bullseye={mission.bullseye}
+      threatSystems={threatSystemMap}
+      flightMembers={mission.flightMembers}
+      selectedAttackId={selectedAttackId}
+      focusAttackId={focusAttackId}
+      onAttackFocused={() => setFocusAttackId(null)}
+      onMoveThreat={handleMoveThreat}
+      onRemoveThreat={handleRemoveThreat}
+      onMoveCustomIp={handleMoveCustomIp}
+    />
+  );
+
+  /*
+    Unverified projection warning.
+
+    Positions on these maps are believed correct but have never been
+    checked against a known landmark, so they could be systematically
+    offset while still looking entirely plausible. Say so rather than
+    letting a planner assume the coordinates are trustworthy.
+  */
+  const unverifiedBanner = theaterInfo && !theaterInfo.verified && (
+    <div className="flex items-start gap-3 rounded-lg border border-amber-500/60 bg-amber-950/95 px-4 py-3 shadow-lg">
+      <svg
+        className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+        />
+      </svg>
+      <div className="text-sm">
+        <p className="font-semibold text-amber-200">
+          {theaterInfo.display_name}: coordinates unverified
+        </p>
+        <p className="text-amber-100/90">
+          This map's projection has not been checked against a known
+          landmark. Confirm a waypoint against the DCS F10 map before
+          flying these cards.
+        </p>
+      </div>
+    </div>
+  );
+
+  const renderPanel = (panel: PanelType) => {
+    switch (panel) {
+      case 'waypoints':
+        return <WaypointList />;
+      case 'threats':
+        return <ThreatList threatSystems={threatSystemMap} availableThreats={threats} />;
+      case 'flight':
+        return <FlightRoster aircraft={aircraft} />;
+      case 'attacks':
+        return <AttackList weapons={weapons} fuzeOptions={fuzeOptions} aircraft={aircraft} threatSystems={threats} onAttackSaved={() => setActivePanel(null)} />;
+      case 'kneeboards':
+        return (
+          <KneeboardPreview
+            weapons={weapons}
+            fuzeOptions={fuzeOptions}
+            threatSystems={threats}
+            aircraft={aircraft}
+            onOpenSettings={() => setShowSettings(true)}
+          />
+        );
+    }
+  };
+
+  const dialogs = (
+    <>
+      {showSettings && <SettingsModal aircraft={aircraft} onClose={() => setShowSettings(false)} />}
+
+      {showImportModal && (
+        <FragOrdersImport
+          onClose={() => setShowImportModal(false)}
+          onImport={handleFragOrdersImport}
+        />
+      )}
+
+      {pendingAction && (
+        <UnsavedChangesDialog
+          actionLabel={pendingAction.label}
+          onProceed={() => {
+            const { run } = pendingAction;
+            setPendingAction(null);
+            run();
+          }}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
+    </>
+  );
+
+  // A thumb-sized target on a phone.
+  const startPad = isPhone ? 'py-3' : 'py-2';
+  const startButtons = (
+    <>
+      <button
+        onClick={handleNewMission}
+        className={`bg-dcs-accent hover:bg-red-600 text-white px-6 ${startPad} rounded-lg transition-colors`}
+      >
+        Create New Mission
+      </button>
+      <button
+        onClick={handleImportClick}
+        className={`bg-dcs-blue hover:bg-blue-600 text-white px-6 ${startPad} rounded-lg transition-colors`}
+      >
+        Import FragOrders
+      </button>
+      <button
+        onClick={handleOpen}
+        className={`bg-dcs-blue hover:bg-blue-600 text-white px-6 ${startPad} rounded-lg transition-colors`}
+      >
+        {platform.isWeb ? 'Open .json File' : 'Open Saved Mission'}
+      </button>
+    </>
+  );
+
+  // In the browser "Save" hands over a file, so it says so.
+  const saveLabel = platform.isWeb ? 'Export .json' : 'Save';
+
+  // ---- Phone layout (web build only) ----
+
+  if (isPhone) {
+    const phoneTabs: PhoneTab<PanelType>[] = mission
+      ? [
+          { id: 'waypoints', label: 'Route', badge: String(mission.waypoints.length) },
+          { id: 'threats', label: 'Threats', badge: String(visibleMission?.threats.length ?? 0) },
+          { id: 'flight', label: 'Flight', badge: String(mission.flightMembers.length) },
+          { id: 'attacks', label: 'Attacks', badge: hiddenAttackCount > 0 ? `${mission.attacks.length} · ${hiddenAttackCount} hid` : String(mission.attacks.length) },
+          { id: 'kneeboards', label: 'Cards' },
+        ]
+      : [];
+    const phoneMenu: PhoneMenuItem[] = [
+      { label: 'New mission', onClick: handleNewMission },
+      { label: 'Import FragOrders', onClick: handleImportClick },
+      { label: 'Open .json file', onClick: handleOpen },
+      ...(mission
+        ? [
+            { label: 'Export .json', onClick: () => void handleSaveAs() },
+            { label: 'Close mission', onClick: handleCloseMission },
+          ]
+        : []),
+      { label: 'Settings', onClick: () => setShowSettings(true) },
+    ];
+
+    return (
+      <>
+        <PhoneShell<PanelType>
+          title={mission?.name ?? 'Phoenix Weaponeer'}
+          dirty={Boolean(mission && isDirty)}
+          menu={phoneMenu}
+          message={fileMsg}
+          onDismissMessage={() => setFileMsg(null)}
+          banner={mission ? unverifiedBanner : undefined}
+          tabs={mission ? phoneTabs : undefined}
+          activeTab={activePanel}
+          onTab={setActivePanel}
+          panel={activePanel ? renderPanel(activePanel) : undefined}
+          hidePanel={Boolean(mapPick)}
+        >
+          {loading ? (
+            <p className="text-center text-gray-400 py-12">Loading…</p>
+          ) : error ? (
+            <p className="text-center text-red-400 py-12 px-4">Error: {error}</p>
+          ) : mission ? (
+            <div className="absolute inset-0">{mapView}</div>
+          ) : (
+            <div className="h-full overflow-y-auto px-4 py-6" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
+              <p className="text-gray-400 text-sm mb-4 text-center">DCS attack planning and kneeboard cards</p>
+              <div className="flex flex-col gap-3 max-w-md mx-auto">{startButtons}</div>
+              <MyMissions onOpen={handleOpenLocal} />
+            </div>
+          )}
+        </PhoneShell>
+        {dialogs}
+      </>
+    );
+  }
+
+  // ---- Desktop layout (and the web build on a large screen) ----
+
   return (
     <div className="min-h-screen bg-dcs-dark text-white">
       <header className="bg-dcs-navy px-4 py-3 shadow-lg flex items-center justify-between gap-4">
@@ -303,13 +522,16 @@ function App() {
                   onClick={handleSave}
                   disabled={!isDirty}
                   className={`${toolbarButton} disabled:opacity-40 disabled:hover:bg-dcs-blue`}
-                  title="Save (Cmd/Ctrl+S)"
+                  title={platform.isWeb ? 'Download the mission as a .json file' : 'Save (Cmd/Ctrl+S)'}
                 >
-                  Save
+                  {saveLabel}
                 </button>
-                <button onClick={handleSaveAs} className={toolbarButton}>
-                  Save As
-                </button>
+                {/* In the browser every save is a fresh download, so Save As would be the same button. */}
+                {!platform.isWeb && (
+                  <button onClick={handleSaveAs} className={toolbarButton}>
+                    Save As
+                  </button>
+                )}
                 <button onClick={handleCloseMission} className={toolbarButton}>
                   Close
                 </button>
@@ -346,60 +568,10 @@ function App() {
         ) : mission ? (
           <div className="relative h-[calc(100vh-120px)]">
             {/* Map - always visible as background */}
-            <div className="absolute inset-0">
-              <MapView
-                theater={mission.theater}
-                waypoints={mission.waypoints}
-                threats={visibleMission?.threats ?? []}
-                attacks={mission.attacks}
-                bullseye={mission.bullseye}
-                threatSystems={threatSystemMap}
-                flightMembers={mission.flightMembers}
-                selectedAttackId={selectedAttackId}
-                focusAttackId={focusAttackId}
-                onAttackFocused={() => setFocusAttackId(null)}
-                onMoveThreat={handleMoveThreat}
-                onRemoveThreat={handleRemoveThreat}
-                onMoveCustomIp={handleMoveCustomIp}
-              />
-            </div>
+            <div className="absolute inset-0">{mapView}</div>
 
-            {/*
-              Unverified projection warning.
-
-              Positions on these maps are believed correct but have never been
-              checked against a known landmark, so they could be systematically
-              offset while still looking entirely plausible. Say so rather than
-              letting a planner assume the coordinates are trustworthy.
-            */}
-            {theaterInfo && !theaterInfo.verified && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-2xl">
-                <div className="flex items-start gap-3 rounded-lg border border-amber-500/60 bg-amber-950/95 px-4 py-3 shadow-lg">
-                  <svg
-                    className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-                    />
-                  </svg>
-                  <div className="text-sm">
-                    <p className="font-semibold text-amber-200">
-                      {theaterInfo.display_name}: coordinates unverified
-                    </p>
-                    <p className="text-amber-100/90">
-                      This map's projection has not been checked against a known
-                      landmark. Confirm a waypoint against the DCS F10 map before
-                      flying these cards.
-                    </p>
-                  </div>
-                </div>
-              </div>
+            {unverifiedBanner && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-2xl">{unverifiedBanner}</div>
             )}
 
             {/* Panel toggle buttons - floating on left side */}
@@ -474,21 +646,7 @@ function App() {
                 </div>
 
                 {/* Panel content */}
-                <div className="p-4">
-                  {activePanel === 'waypoints' && <WaypointList />}
-                  {activePanel === 'threats' && <ThreatList threatSystems={threatSystemMap} availableThreats={threats} />}
-                  {activePanel === 'flight' && <FlightRoster aircraft={aircraft} />}
-                  {activePanel === 'attacks' && <AttackList weapons={weapons} fuzeOptions={fuzeOptions} aircraft={aircraft} threatSystems={threats} onAttackSaved={() => setActivePanel(null)} />}
-                  {activePanel === 'kneeboards' && (
-                    <KneeboardPreview
-                      weapons={weapons}
-                      fuzeOptions={fuzeOptions}
-                      threatSystems={threats}
-                      aircraft={aircraft}
-                      onOpenSettings={() => setShowSettings(true)}
-                    />
-                  )}
-                </div>
+                <div className="p-4">{renderPanel(activePanel)}</div>
               </div>
             )}
           </div>
@@ -496,27 +654,8 @@ function App() {
           <div className="space-y-6">
             <div className="text-center py-8">
               <p className="text-gray-400 mb-4">No mission loaded</p>
-              <div className="flex gap-4 justify-center">
-                <button
-                  onClick={handleNewMission}
-                  className="bg-dcs-accent hover:bg-red-600 text-white px-6 py-2 rounded-lg transition-colors"
-                >
-                  Create New Mission
-                </button>
-                <button
-                  onClick={handleImportClick}
-                  className="bg-dcs-blue hover:bg-blue-600 text-white px-6 py-2 rounded-lg transition-colors"
-                >
-                  Import FragOrders
-                </button>
-                <button
-                  onClick={handleOpen}
-                  className="bg-dcs-blue hover:bg-blue-600 text-white px-6 py-2 rounded-lg transition-colors"
-                >
-                  Open Saved Mission
-                </button>
-              </div>
-              <RecentMissions onOpen={handleOpenRecent} />
+              <div className="flex gap-4 justify-center">{startButtons}</div>
+              {platform.isWeb ? <MyMissions onOpen={handleOpenLocal} /> : <RecentMissions onOpen={handleOpenRecent} />}
             </div>
 
             <div className="grid grid-cols-2 gap-6">
@@ -553,26 +692,7 @@ function App() {
         )}
       </main>
 
-      {showSettings && <SettingsModal aircraft={aircraft} onClose={() => setShowSettings(false)} />}
-
-      {showImportModal && (
-        <FragOrdersImport
-          onClose={() => setShowImportModal(false)}
-          onImport={handleFragOrdersImport}
-        />
-      )}
-
-      {pendingAction && (
-        <UnsavedChangesDialog
-          actionLabel={pendingAction.label}
-          onProceed={() => {
-            const { run } = pendingAction;
-            setPendingAction(null);
-            run();
-          }}
-          onCancel={() => setPendingAction(null)}
-        />
-      )}
+      {dialogs}
     </div>
   );
 }

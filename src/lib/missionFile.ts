@@ -1,7 +1,9 @@
 import { platform } from '@platform';
+import { useLocalMissionStore } from '../stores/localMissionStore';
 import { useMissionStore } from '../stores/missionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { Mission } from '../types/mission.types';
+import { loadLocalMission } from './localMissions';
 import { validateMission } from './validateMission';
 
 /**
@@ -82,6 +84,25 @@ export async function openMission(): Promise<FileResult> {
   if (!picked) return { status: 'cancelled' };
 
   return openMissionAt(picked);
+}
+
+/** Opens a mission autosaved in this browser ("My missions", web build). */
+export async function openLocalMission(id: string): Promise<FileResult> {
+  try {
+    const loaded = await loadLocalMission(id);
+    if (loaded === null) return { status: 'error', message: 'That mission is no longer saved in this browser.' };
+    // Checked like a file: storage can outlive the app version that wrote it.
+    const check = validateMission(loaded);
+    if (!check.ok) {
+      return { status: 'error', message: `That saved mission can't be used — ${check.problems.join('; ')}` };
+    }
+    useMissionStore.getState().loadMission(check.mission);
+    // Just read from storage, so it is already saved there.
+    useLocalMissionStore.setState({ savedMission: useMissionStore.getState().mission });
+    return { status: 'ok', path: check.mission.name };
+  } catch (error) {
+    return { status: 'error', message: String(error) };
+  }
 }
 
 /** Loads a mission file already chosen — from the picker, or the recent list. */

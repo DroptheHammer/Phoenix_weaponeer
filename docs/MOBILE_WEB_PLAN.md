@@ -253,6 +253,51 @@ today's desktop layout from the web build.
 
 ## Handoff log (newest first; keep this current)
 
+### 2026-09-26 (late): M2 done, the phone shell
+
+- **Built:**
+  - `src/hooks/useIsPhone.ts`: `(max-width: 767px), (max-height: 500px)`, the same query as
+    the phone rules in `index.css` (16px inputs, no overscroll).
+  - `src/components/phone/PhoneShell.tsx`:
+    - The top bar holds the title, a dirty dot and the ⋯ menu (New, Import, Open .json,
+      Export .json, Close, Settings).
+    - The message bar dismisses on tap.
+    - The map fills the screen.
+    - The tab bar reads Route · Threats · Flight · Attacks · Cards, with counts.
+  - `src/components/phone/BottomSheet.tsx`: half or full height, switched by tap or drag
+    on the handle; a drag low down closes it.
+  - `App.tsx` builds the shared pieces once (`mapView`, `unverifiedBanner`, `renderPanel`,
+    `dialogs`, `startButtons`) and renders either `PhoneShell` or the unchanged desktop layout.
+  - **Autosave (web only):**
+    - `lib/localMissions.ts` (IndexedDB) and `stores/localMissionStore.ts` (`useAutosave`,
+      `flushAutosave`, `isAutosaved`).
+    - Writes 400 ms after a change, and at once on visibility-hidden or pagehide.
+    - On the web, `guardUnsaved` and the close guard only ask if autosave failed.
+  - `components/mission/MyMissions.tsx`: on the web landing page (both layouts) instead of
+    the recent-files list. Opening goes through `openLocalMission` (validated like a file);
+    deleting asks first.
+  - On the web, the header "Save" reads "Export .json" and "Save As" is hidden.
+  - `common/Modal.tsx` is full screen on a phone. The five hand-rolled overlays now use it:
+    FlightMemberEditor, LoadoutEditor, the ThreatList add form, FragOrdersImport and
+    SettingsModal.
+    - Desktop side effects: slightly different title sizes, and the Loadout dialog no longer
+      closes on a backdrop click (Escape and × do).
+  - `tailwind.config.js` defines `dcs-darker` (the hover/selected rows had no colour before).
+- **Verified:** `scripts/web-smoke.cjs` runs at 390×844 (phone) and 1280×800. It now covers
+  Export → Close → My missions lists it → reopen from My missions → Open the exported file.
+  All steps pass.
+- **Known issue (M3):** the Attack editor on a phone still uses the desktop two-column layout.
+  Its preview map gets no width, which throws a Leaflet `_leaflet_pos` page error at 390×844.
+  Fixing this is the first M3 item.
+- **Next action: M3.** In order:
+  1. The phone AttackEditor layout: pinned map, then the run-in chip strip, the side view
+     toggle and scrolling controls; JetStrip chips with swipe.
+  2. SliderField −/+ steps and `inputmode`.
+  3. The crosshair map pick (`uiStore.mapPick`) for IpPicker, Add Threat and Move.
+  4. The Layers button replacing MapLegend.
+  5. Tooltips to taps.
+  6. FragOrdersPreview tables as cards.
+
 ### 2026-09-26 (night): M1 done, the web build runs the whole app
 
 - **M1c done:**

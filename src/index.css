@@ -27,6 +27,23 @@ body {
   min-height: 100vh;
 }
 
+/* ---- Phones (the web build's phone layout; see useIsPhone) ---- */
+@media (max-width: 767px), (max-height: 500px) {
+  /* iOS zooms the page into any field whose text is under 16px, and does not
+     zoom back out. */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Dragging the map must never pull-to-refresh the page or bounce it. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+}
+
 /* Leaflet map container */
 .leaflet-container {
   width: 100%;
