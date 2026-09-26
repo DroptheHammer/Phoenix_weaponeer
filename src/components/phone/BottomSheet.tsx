@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode, type PointerEvent } from 'react';
 
-type Snap = 'half' | 'full';
+export type Snap = 'half' | 'full';
 
 /** Share of the space above the tab bar the sheet covers at each height. */
 const HEIGHT: Record<Snap, number> = { half: 0.55, full: 1 };
@@ -11,6 +11,8 @@ interface BottomSheetProps {
   children: ReactNode;
   /** Kept mounted but out of sight, e.g. while the map waits for a crosshair pick. */
   hidden?: boolean;
+  /** Height the sheet opens at. Some tabs (e.g. Cards) start full instead of half. */
+  initialSnap?: Snap;
 }
 
 /**
@@ -21,8 +23,8 @@ interface BottomSheetProps {
  * switch, or drag it — let go near the top for full, the middle for half, or
  * low down to close.
  */
-export function BottomSheet({ title, onClose, children, hidden = false }: BottomSheetProps) {
-  const [snap, setSnap] = useState<Snap>('half');
+export function BottomSheet({ title, onClose, children, hidden = false, initialSnap = 'half' }: BottomSheetProps) {
+  const [snap, setSnap] = useState<Snap>(initialSnap);
   const [dragHeight, setDragHeight] = useState<number | null>(null);
   const drag = useRef<{ startY: number; startHeight: number; container: number; moved: boolean } | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);

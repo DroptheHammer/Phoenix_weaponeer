@@ -500,6 +500,7 @@ function App() {
           onTab={setActivePanel}
           panel={activePanel ? renderPanel(activePanel) : undefined}
           hidePanel={Boolean(mapPick)}
+          fullTabs={['kneeboards']}
         >
           {loading ? (
             <p className="text-center text-gray-400 py-12">Loading…</p>

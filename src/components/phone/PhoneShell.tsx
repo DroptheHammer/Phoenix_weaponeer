@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet, type Snap } from './BottomSheet';
 
 export interface PhoneMenuItem {
   label: string;
@@ -35,6 +35,8 @@ interface PhoneShellProps<Id extends string> {
   panel?: ReactNode;
   /** Keep the sheet mounted but hidden (the map is waiting for a crosshair pick). */
   hidePanel?: boolean;
+  /** Tabs whose sheet opens straight at full height instead of half (e.g. Cards, for full-width card viewing). */
+  fullTabs?: Id[];
 }
 
 /**
@@ -58,6 +60,7 @@ export function PhoneShell<Id extends string>({
   onTab,
   panel,
   hidePanel = false,
+  fullTabs,
 }: PhoneShellProps<Id>) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -73,6 +76,10 @@ export function PhoneShell<Id extends string>({
   }, [menuOpen]);
 
   const openTab = tabs?.find((t) => t.id === activeTab);
+  // Some tabs (e.g. Cards) open straight at full height; a `key` forces a
+  // remount on every tab switch so this applies fresh each time, even when
+  // switching directly from one open tab to another.
+  const initialSnap: Snap = activeTab != null && fullTabs?.includes(activeTab) ? 'full' : 'half';
 
   return (
     <div className="h-[100dvh] flex flex-col bg-dcs-dark text-white overflow-hidden">
@@ -131,7 +138,13 @@ export function PhoneShell<Id extends string>({
         {/* Stops short of the map's Layers button at the top right (MapLegend). */}
         {banner && <div className="absolute top-2 left-2 right-28 z-[1050]">{banner}</div>}
         {openTab && panel && (
-          <BottomSheet title={openTab.label} onClose={() => onTab?.(null)} hidden={hidePanel}>
+          <BottomSheet
+            key={String(activeTab)}
+            title={openTab.label}
+            onClose={() => onTab?.(null)}
+            hidden={hidePanel}
+            initialSnap={initialSnap}
+          >
             {panel}
           </BottomSheet>
         )}
