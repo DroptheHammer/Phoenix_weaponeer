@@ -377,6 +377,36 @@ mod tests {
         }
     }
 
+    /// A profile nobody can pick is dead weight: auto-build only offers a
+    /// profile when the chosen weapon is of one of its classes. The strafe and
+    /// rocket profiles shipped for months with no gun or rocket in the weapons
+    /// table. Guns and rockets are aircraft-specific, so each must also be
+    /// mapped to the aircraft that flies the profile.
+    #[test]
+    fn every_weapon_class_a_profile_needs_has_a_weapon_to_choose() {
+        let db = crate::db::Database::open_in_memory().expect("db");
+        let weapons = db.get_all_weapons().unwrap();
+        for p in bundled_profiles().unwrap() {
+            for class in &p.weapon_classes {
+                let category_ok = |w: &crate::db::Weapon| match class.as_str() {
+                    "gun" | "rocket" => w.category == *class && w.carried_by.contains(&p.aircraft_id),
+                    "bomb_ld" | "bomb_hd" => w.category == "bomb_unguided",
+                    "lgb" => w.category == "bomb_guided" && w.guidance != "gps",
+                    "jdam" => w.category == "bomb_gps" || (w.category == "bomb_guided" && w.guidance == "gps"),
+                    "cluster" => w.category == "cluster",
+                    "agm" => w.category == "missile_agm" || w.category == "standoff",
+                    other => panic!("{}: unknown weapon class {other}", p.id),
+                };
+                assert!(
+                    weapons.iter().any(category_ok),
+                    "{} needs a {class} weapon{} — none in the db seed",
+                    p.id,
+                    if class == "gun" || class == "rocket" { format!(" carried by {}", p.aircraft_id) } else { String::new() }
+                );
+            }
+        }
+    }
+
     /// Auto-build picks "the default for this class"; two of them would make
     /// that pick arbitrary. And every class an aircraft's profiles mention
     /// should have one, or auto-build silently falls back to "whichever came

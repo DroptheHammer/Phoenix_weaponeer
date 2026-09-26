@@ -4,7 +4,7 @@ import type { DbWeapon } from '../types/weapon.types';
 import type { Coordinates, Waypoint } from '../types/waypoint.types';
 import type { DeliveryProfile, WeaponClass } from '../types/profile.types';
 import { SUPPORTED_GEOMETRIES, diveParams, levelParams, popupParams } from '../types/profile.types';
-import { weaponClassOf, WEAPON_CLASS_LABEL } from './weaponClass';
+import { weaponClassOf, offeredTo, WEAPON_CLASS_LABEL } from './weaponClass';
 import { calculateBearing, calculateDistance } from './coordinates';
 import { runAttackChecks, type AttackCheck } from './attackChecks';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, type IpAnchor } from './ipAnchor';
@@ -121,6 +121,19 @@ export function loadoutWeapons(attacker: Mission['flightMembers'][number] | unde
   return attacker.loadout
     .map((item) => weapons.find((w) => w.name === item.weaponType))
     .filter((w): w is DbWeapon => !!w);
+}
+
+/**
+ * What the weapon picker offers: the loadout when there is one, else every
+ * air-to-ground store the aircraft can carry — plus its internal gun, which no
+ * loadout lists.
+ */
+export function weaponChoicesFor(attacker: Mission['flightMembers'][number] | undefined, weapons: DbWeapon[]): DbWeapon[] {
+  const aircraftId = attacker?.aircraftId;
+  const carried = loadoutWeapons(attacker, weapons);
+  const stores = carried.length ? carried : weapons.filter((w) => weaponClassOf(w) !== 'gun' && offeredTo(w, aircraftId));
+  const guns = weapons.filter((w) => weaponClassOf(w) === 'gun' && offeredTo(w, aircraftId) && !stores.includes(w));
+  return [...stores, ...guns];
 }
 
 /**
@@ -532,7 +545,10 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     sourceProfileName: profile.name,
     deliveryMode: profile.deliveryMode,
     estimated: !profile.verified,
-    sightDepression_mils: profile.sight?.depression_mils,
+    // The profiles' sight settings are worked out for a Mk-82; a rocket or a
+    // gun needs its own table, so no number beats a wrong one.
+    sightDepression_mils: weaponClass === 'bomb_ld' || weaponClass === 'bomb_hd' ? profile.sight?.depression_mils : undefined,
+    weaponClass,
     procedure: profile.procedure?.length ? [...profile.procedure] : undefined,
   };
 

@@ -11,6 +11,7 @@ import { runAttackChecks } from './attackChecks';
 import { getTheaterInfo } from '../stores/theaterStore';
 import { compareThreatsForCard, CARD_THREAT_POOL } from './cardThreats';
 import { strikeCardInfo } from './strike';
+import { isFired } from './weaponClass';
 
 // Minimal threat system shape (matches what App.tsx gets from the DB)
 export interface ThreatSystemInfo {
@@ -277,6 +278,10 @@ export function buildKneeboardCard(
   // Weapon & fuze lookup
   const weapon = weapons.find((w) => w.id === attack.weaponId);
   const weaponName = weapon?.name ?? 'Unknown';
+  // "Mk-84 attack", but "gun attack" / "rocket attack": the first word of
+  // "Mk 12 20 mm" or '2.75" FFAR' says nothing.
+  const fired = isFired(attack.weaponClass);
+  const weaponWord = attack.weaponClass === 'gun' ? 'gun' : attack.weaponClass === 'rocket' ? 'rocket' : weaponName.split(' ')[0];
 
   let fuzeName = 'N/A';
   if (attack.fuzeId && weapon) {
@@ -378,7 +383,7 @@ export function buildKneeboardCard(
     header: {
       callsign: attacker.callsign,
       // "Viper 1-1 — 30° Dive CCIP, Mk-84 attack on STPT 8 (TGT1)"
-      title: `${attacker.callsign} — ${attack.sourceProfileName ?? getProfileLabel(attack)}, ${weaponName.split(' ')[0]} attack on STPT ${targetWp.steerpoint} (${targetWp.name})`,
+      title: `${attacker.callsign} — ${attack.sourceProfileName ?? getProfileLabel(attack)}, ${weaponWord} attack on STPT ${targetWp.steerpoint} (${targetWp.name})`,
       missionDate: mission.date,
       targetName: targetWp.name,
       targetSteerpoint: targetWp.steerpoint,
@@ -403,6 +408,7 @@ export function buildKneeboardCard(
       quantity: attack.releaseQuantity,
       fuze: fuzeName,
       releaseMode,
+      fired: fired || undefined,
       minSafeAlt_ft: minSafeAlt,
       warnings: checkWarnings.length ? checkWarnings : undefined,
     },

@@ -17,8 +17,7 @@ import {
   type DraftContext,
   type ResolvedDraft,
 } from '../../lib/attackDraft';
-import { loadoutWeapons } from '../../lib/autoBuildAttack';
-import { weaponClassOf } from '../../lib/weaponClass';
+import { loadoutWeapons, weaponChoicesFor } from '../../lib/autoBuildAttack';
 import { formatCallsign } from '../../lib/callsign';
 import { targetCandidates, ipCandidates, waypointLabel } from '../../lib/waypointOptions';
 import { SliderField } from '../common/SliderField';
@@ -77,9 +76,8 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
   const targetWaypoints = targetCandidates(mission.waypoints);
   const attacker = mission.flightMembers.find((fm) => fm.id === draft.attackerId);
   const ipWaypoints = ipCandidates(mission.waypoints, target?.id);
-  // Weapon choices: what the attacker carries, else every A/G store.
   const carried = loadoutWeapons(attacker, weapons);
-  const weaponChoices: DbWeapon[] = carried.length ? carried : weapons.filter((w) => weaponClassOf(w));
+  const weaponChoices: DbWeapon[] = weaponChoicesFor(attacker, weapons);
 
   const profile = resolved.profile;
   const runIn = resolved.runIn;

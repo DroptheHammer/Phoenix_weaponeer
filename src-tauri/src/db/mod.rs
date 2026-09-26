@@ -52,6 +52,40 @@ pub struct Weapon {
     pub frag_min_safe_alt_ft: Option<f64>,
     pub dcs_weapon_name: Option<String>,
     pub notes: Option<String>,
+    /// Aircraft ids mapped to this weapon in `aircraft_weapons`. The picker
+    /// uses it for guns and rockets, which only their own aircraft carry.
+    #[serde(default)]
+    pub carried_by: Vec<String>,
+}
+
+/// Every weapon query selects these, in this order, from `weapons w`, for
+/// `weapon_from_row`. The last column lists the aircraft that carry it.
+const WEAPON_COLUMNS: &str = "w.id, w.name, w.category, w.weight_lbs, w.drag_index, w.guidance,
+    w.min_release_alt_ft, w.max_release_alt_ft, w.min_release_speed_ktas, w.max_release_speed_ktas,
+    w.frag_lethal_radius_ft, w.frag_effective_radius_ft, w.frag_min_safe_alt_ft,
+    w.dcs_weapon_name, w.notes,
+    (SELECT GROUP_CONCAT(DISTINCT aw.aircraft_id) FROM aircraft_weapons aw WHERE aw.weapon_id = w.id)";
+
+fn weapon_from_row(row: &rusqlite::Row) -> SqliteResult<Weapon> {
+    let carried_by: Option<String> = row.get(15)?;
+    Ok(Weapon {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        category: row.get(2)?,
+        weight_lbs: row.get(3)?,
+        drag_index: row.get(4)?,
+        guidance: row.get(5)?,
+        min_release_alt_ft: row.get(6)?,
+        max_release_alt_ft: row.get(7)?,
+        min_release_speed_ktas: row.get(8)?,
+        max_release_speed_ktas: row.get(9)?,
+        frag_lethal_radius_ft: row.get(10)?,
+        frag_effective_radius_ft: row.get(11)?,
+        frag_min_safe_alt_ft: row.get(12)?,
+        dcs_weapon_name: row.get(13)?,
+        notes: row.get(14)?,
+        carried_by: carried_by.map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default(),
+    })
 }
 
 /// Fuze option from database
@@ -85,7 +119,7 @@ pub struct Aircraft {
 /// and rebuilt from the seed; there is nothing in it to migrate. Without this,
 /// new seed rows (say, an aircraft) never reach a database that already
 /// exists, because seeding only runs on empty tables.
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 impl Database {
     /// Open or create the database at the given path
@@ -306,6 +340,21 @@ impl Database {
                 ('agm88c', 'AGM-88C HARM', 'missile_agm', 800, NULL, 'radar', 1000, 45000, 400, 600, 50, 150, NULL, 'AGM_88', 'Anti-radiation missile'),
                 ('agm154a', 'AGM-154A JSOW', 'standoff', 1000, NULL, 'gps', 5000, 40000, 400, 550, NULL, 800, NULL, 'AGM_154A', 'GPS glide weapon with submunitions'),
                 ('agm154c', 'AGM-154C JSOW', 'standoff', 1100, NULL, 'gps', 5000, 40000, 400, 550, 200, 600, NULL, 'AGM_154C', 'GPS glide weapon with unitary warhead');
+
+                -- Guns and rockets (DB v4), for the strafe and rocket profiles.
+                -- Name and class only: every release, speed and frag column is
+                -- NULL, so the delivery profile's own numbers stand, and weight 0
+                -- means "not tracked". Which aircraft carries which is in
+                -- aircraft_weapons below.
+                INSERT INTO weapons (id, name, category, weight_lbs, drag_index, guidance, min_release_alt_ft, max_release_alt_ft, min_release_speed_ktas, max_release_speed_ktas, frag_lethal_radius_ft, frag_effective_radius_ft, frag_min_safe_alt_ft, dcs_weapon_name, notes) VALUES
+                ('gau8', 'GAU-8/A 30 mm', 'gun', 0, NULL, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'A-10C internal gun'),
+                ('mk12gun', 'Mk 12 20 mm', 'gun', 0, NULL, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'A-4E-C internal guns'),
+                ('defa553', 'DEFA 553 30 mm', 'gun', 0, NULL, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Mirage F1 internal guns'),
+                ('m39', 'M39A2 20 mm', 'gun', 0, NULL, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'F-5E internal guns'),
+                ('hydra70', 'Hydra 70 2.75" rockets', 'rocket', 0, NULL, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'LAU-68 / LAU-131 pods'),
+                ('ffar275', '2.75" FFAR rockets (LAU-3/A)', 'rocket', 0, NULL, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Mk 4 FFAR in LAU-3/A pods'),
+                ('zuni', 'Zuni 5" rockets (LAU-10)', 'rocket', 0, NULL, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'LAU-10 pods'),
+                ('sneb68', 'SNEB 68 mm rockets', 'rocket', 0, NULL, 'none', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Matra pods');
             "#)?;
 
             // Seed fuze options
@@ -358,6 +407,15 @@ impl Database {
                 ('f16c', 'agm88c', 3, 1), ('f16c', 'agm88c', 4, 1), ('f16c', 'agm88c', 6, 1), ('f16c', 'agm88c', 7, 1),
                 ('f16c', 'agm154a', 3, 1), ('f16c', 'agm154a', 7, 1),
                 ('f16c', 'agm154c', 3, 1), ('f16c', 'agm154c', 7, 1);
+
+                -- Guns and rockets per aircraft (DB v4). Station 0 = not
+                -- modelled; the row only says the aircraft carries it.
+                INSERT INTO aircraft_weapons (aircraft_id, weapon_id, station) VALUES
+                ('a10c', 'gau8', 0), ('a10c', 'hydra70', 0),
+                ('a4ec', 'mk12gun', 0), ('a4ec', 'ffar275', 0), ('a4ec', 'zuni', 0),
+                ('f1', 'defa553', 0), ('f1', 'sneb68', 0),
+                ('f5e', 'm39', 0), ('f5e', 'hydra70', 0),
+                ('f4e', 'hydra70', 0), ('f4e', 'ffar275', 0), ('f4e', 'zuni', 0);
             "#)?;
         }
 
@@ -480,106 +538,31 @@ impl Database {
     /// Get all weapons
     pub fn get_all_weapons(&self) -> SqliteResult<Vec<Weapon>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, name, category, weight_lbs, drag_index, guidance,
-                    min_release_alt_ft, max_release_alt_ft, min_release_speed_ktas, max_release_speed_ktas,
-                    frag_lethal_radius_ft, frag_effective_radius_ft, frag_min_safe_alt_ft,
-                    dcs_weapon_name, notes
-             FROM weapons ORDER BY category, name"
-        )?;
-
-        let weapons = stmt.query_map([], |row| {
-            Ok(Weapon {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                category: row.get(2)?,
-                weight_lbs: row.get(3)?,
-                drag_index: row.get(4)?,
-                guidance: row.get(5)?,
-                min_release_alt_ft: row.get(6)?,
-                max_release_alt_ft: row.get(7)?,
-                min_release_speed_ktas: row.get(8)?,
-                max_release_speed_ktas: row.get(9)?,
-                frag_lethal_radius_ft: row.get(10)?,
-                frag_effective_radius_ft: row.get(11)?,
-                frag_min_safe_alt_ft: row.get(12)?,
-                dcs_weapon_name: row.get(13)?,
-                notes: row.get(14)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
-
+        let mut stmt = conn.prepare(&format!("SELECT {WEAPON_COLUMNS} FROM weapons w ORDER BY w.category, w.name"))?;
+        let weapons = stmt.query_map([], weapon_from_row)?.collect::<Result<Vec<_>, _>>()?;
         Ok(weapons)
     }
 
     /// Get a specific weapon by ID
     pub fn get_weapon_by_id(&self, id: &str) -> SqliteResult<Option<Weapon>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, name, category, weight_lbs, drag_index, guidance,
-                    min_release_alt_ft, max_release_alt_ft, min_release_speed_ktas, max_release_speed_ktas,
-                    frag_lethal_radius_ft, frag_effective_radius_ft, frag_min_safe_alt_ft,
-                    dcs_weapon_name, notes
-             FROM weapons WHERE id = ?1"
-        )?;
-
+        let mut stmt = conn.prepare(&format!("SELECT {WEAPON_COLUMNS} FROM weapons w WHERE w.id = ?1"))?;
         let mut rows = stmt.query([id])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(Weapon {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                category: row.get(2)?,
-                weight_lbs: row.get(3)?,
-                drag_index: row.get(4)?,
-                guidance: row.get(5)?,
-                min_release_alt_ft: row.get(6)?,
-                max_release_alt_ft: row.get(7)?,
-                min_release_speed_ktas: row.get(8)?,
-                max_release_speed_ktas: row.get(9)?,
-                frag_lethal_radius_ft: row.get(10)?,
-                frag_effective_radius_ft: row.get(11)?,
-                frag_min_safe_alt_ft: row.get(12)?,
-                dcs_weapon_name: row.get(13)?,
-                notes: row.get(14)?,
-            }))
-        } else {
-            Ok(None)
+        match rows.next()? {
+            Some(row) => Ok(Some(weapon_from_row(row)?)),
+            None => Ok(None),
         }
     }
 
     /// Get weapons for a specific aircraft
     pub fn get_weapons_for_aircraft(&self, aircraft_id: &str) -> SqliteResult<Vec<Weapon>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT w.id, w.name, w.category, w.weight_lbs, w.drag_index, w.guidance,
-                    w.min_release_alt_ft, w.max_release_alt_ft, w.min_release_speed_ktas, w.max_release_speed_ktas,
-                    w.frag_lethal_radius_ft, w.frag_effective_radius_ft, w.frag_min_safe_alt_ft,
-                    w.dcs_weapon_name, w.notes
-             FROM weapons w
-             INNER JOIN aircraft_weapons aw ON w.id = aw.weapon_id
-             WHERE aw.aircraft_id = ?
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {WEAPON_COLUMNS} FROM weapons w
+             WHERE w.id IN (SELECT weapon_id FROM aircraft_weapons WHERE aircraft_id = ?)
              ORDER BY w.category, w.name"
-        )?;
-
-        let weapons = stmt.query_map([aircraft_id], |row| {
-            Ok(Weapon {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                category: row.get(2)?,
-                weight_lbs: row.get(3)?,
-                drag_index: row.get(4)?,
-                guidance: row.get(5)?,
-                min_release_alt_ft: row.get(6)?,
-                max_release_alt_ft: row.get(7)?,
-                min_release_speed_ktas: row.get(8)?,
-                max_release_speed_ktas: row.get(9)?,
-                frag_lethal_radius_ft: row.get(10)?,
-                frag_effective_radius_ft: row.get(11)?,
-                frag_min_safe_alt_ft: row.get(12)?,
-                dcs_weapon_name: row.get(13)?,
-                notes: row.get(14)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
-
+        ))?;
+        let weapons = stmt.query_map([aircraft_id], weapon_from_row)?.collect::<Result<Vec<_>, _>>()?;
         Ok(weapons)
     }
 

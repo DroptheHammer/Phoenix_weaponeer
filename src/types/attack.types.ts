@@ -1,5 +1,5 @@
 import { Coordinates } from './waypoint.types';
-import type { DeliveryModeCode } from './profile.types';
+import type { DeliveryModeCode, WeaponClass } from './profile.types';
 
 export interface Attack {
   id: string;
@@ -32,8 +32,13 @@ export interface Attack {
   deliveryMode?: DeliveryModeCode;
   /** The profile had not been flown in DCS when this attack was built — the card says so */
   estimated?: boolean;
-  /** Fixed-sight depression for manual deliveries (F-4E, A-4, F-5, Mirage F1) */
+  /**
+   * Fixed-sight depression for manual deliveries (F-4E, A-4, F-5, Mirage F1).
+   * Bombs only: the profiles' numbers are Mk-82 settings.
+   */
   sightDepression_mils?: number;
+  /** The weapon's class when built. A gun or rocket attack is fired, not released, on the card. */
+  weaponClass?: WeaponClass;
   /** Aircraft-specific setup lines from the profile, printed as the first step */
   procedure?: string[];
   /** The planner changed numbers after auto-build */

@@ -24,7 +24,7 @@ import {
   applyPopupPlan,
 } from '../src/lib/popupPlanning';
 import { describeRunIn } from '../src/lib/runIn';
-import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide } from '../src/lib/autoBuildAttack';
+import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
@@ -501,6 +501,52 @@ if (diveProfiles.length) {
   const dcp = diveCustomBuild.attack?.profile as { customIp?: { lat: number; lon: number }; ipWaypointId?: string } | undefined;
   ok('dive: the custom point is written onto the built profile, ipWaypointId cleared',
      dcp?.ipWaypointId === undefined && dcp?.customIp != null && calculateDistance(dcp.customIp as never, diveCustomIp) < 0.001);
+}
+
+// ─── Guns and rockets (DB v4) ────────────────────────────────────────────────
+// The strafe and rocket profiles were unreachable: no gun or rocket existed to
+// pick. Rows shaped as get_all_weapons returns them, carried_by included.
+{
+  const lib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8'));
+  const gau8 = { id: 'gau8', name: 'GAU-8/A 30 mm', category: 'gun', guidance: 'none', weight_lbs: 0, carried_by: ['a10c'] };
+  const hydra = { id: 'hydra70', name: 'Hydra 70 2.75" rockets', category: 'rocket', guidance: 'none', weight_lbs: 0, carried_by: ['a10c', 'f5e', 'f4e'] };
+  const ffar = { id: 'ffar275', name: '2.75" FFAR rockets (LAU-3/A)', category: 'rocket', guidance: 'none', weight_lbs: 0, carried_by: ['a4ec', 'f4e'] };
+  const mk82 = { id: 'mk82', name: 'Mk-82 LDGP', category: 'bomb_unguided', guidance: 'none', weight_lbs: 500, carried_by: ['f16c'] };
+  const all = [mk82, gau8, hydra, ffar];
+  const hog = { id: 'h1', callsign: 'Hawg 1-1', aircraftId: 'a10c', position: 1, loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 4 }] };
+  const scooter = { id: 's1', callsign: 'Scooter 1-1', aircraftId: 'a4ec', position: 1, loadout: [] };
+  const ids = (ws: { id: string }[]) => ws.map((w) => w.id).join();
+
+  ok('weapon picker: the A-10 is offered its gun even when the loadout lists only bombs',
+     ids(weaponChoicesFor(hog as never, all as never)) === 'mk82,gau8', ids(weaponChoicesFor(hog as never, all as never)));
+  ok('weapon picker: an A-4 with no loadout gets its own rockets, not the A-10\'s gun or Hydras',
+     ids(weaponChoicesFor(scooter as never, all as never)) === 'mk82,ffar275', ids(weaponChoicesFor(scooter as never, all as never)));
+  ok('weapon picker: an F-16 is offered no gun or rockets',
+     ids(weaponChoicesFor({ ...pilot, loadout: [] } as never, all as never)) === 'mk82');
+
+  const build = (attacker: { id: string }, weaponId: string, profiles: unknown[]) =>
+    autoBuildAttack({
+      mission: { waypoints: [wpIp, wpTgt], flightMembers: [hog, scooter], threats: [], attacks: [] },
+      targetWaypointId: wpTgt.id, attackerId: attacker.id, weapons: all, profiles, threatSystems: [],
+      overrides: { weaponId },
+    } as never);
+
+  const strafe = build(hog, 'gau8', lib('a10c'));
+  ok('strafe: the GAU-8 builds the A-10 strafe profile',
+     strafe.attack?.sourceProfileId === 'a10c.dive.strafe' && strafe.attack?.weaponClass === 'gun', strafe.problems.join('; '));
+  const strafeText = JSON.stringify(buildAttackPicture(strafe.attack as never, anchorOf(wpIp, wpTgt), wpTgt as never)?.markers);
+  ok('strafe: the picture says "Fire by", never "Release by" or "Pickle by"',
+     strafeText.includes('Fire by') && !strafeText.includes('Release by') && !strafeText.includes('Pickle by'));
+  ok('rockets: Hydras build the A-10 rocket profile', build(hog, 'hydra70', lib('a10c')).attack?.sourceProfileId === 'a10c.dive.rockets');
+
+  // The A-4's manual dive profile carries a sight setting worked out for a Mk-82.
+  const a4Bombs = build(scooter, 'mk82', lib('a4ec'));
+  const a4Rockets = build(scooter, 'ffar275', lib('a4ec'));
+  ok('manual dive: the Mk-82 sight setting stays on a bomb attack',
+     a4Bombs.attack?.sightDepression_mils === 100, String(a4Bombs.attack?.sightDepression_mils));
+  ok('manual dive: a rocket attack on the same profile carries no (Mk-82) sight setting',
+     a4Rockets.attack?.sourceProfileId === 'a4ec.dive.man30' && a4Rockets.attack?.sightDepression_mils === undefined,
+     `${a4Rockets.attack?.sourceProfileId} / ${a4Rockets.attack?.sightDepression_mils}`);
 }
 
 // ─── Map display filter ──────────────────────────────────────────────────────

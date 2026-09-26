@@ -78,4 +78,6 @@ export interface DbWeapon {
   frag_min_safe_alt_ft?: number | null;
   dcs_weapon_name?: string | null;
   notes?: string | null;
+  /** Aircraft ids that carry it (the database's aircraft_weapons). */
+  carried_by?: string[];
 }

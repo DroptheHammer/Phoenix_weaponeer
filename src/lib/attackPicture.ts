@@ -37,6 +37,7 @@ import {
   type Turn,
 } from './attackGeometry';
 import { popupActionOf, FT_PER_NM } from './popupPlanning';
+import { isFired } from './weaponClass';
 
 // ─── The one palette ──────────────────────────────────────────────────────────
 
@@ -181,7 +182,9 @@ function divePicture(attack: Attack, profile: DiveCCIPProfile, ipAnchor: IpAncho
     ipPoint: ipAnchor?.point,
     action: actionOf(profile, ipAnchor, targetWaypoint),
   });
-  const releaseLabel = attack.deliveryMode === 'DTOS' ? 'System release ~' : attack.deliveryMode === 'MAN' ? 'Pickle by' : 'Release by';
+  const releaseLabel = isFired(attack.weaponClass)
+    ? 'Fire by'
+    : attack.deliveryMode === 'DTOS' ? 'System release ~' : attack.deliveryMode === 'MAN' ? 'Pickle by' : 'Release by';
   const lines: PictureLine[] = g.actionPoint
     ? [
         { style: 'route', points: [g.ingressStart, g.actionPoint] },
@@ -382,7 +385,7 @@ export function buildSideProfile(attack: Attack, targetElevation_ft: number): Si
     const ingressAlt = p.ingressAltitude_ft ?? p.rollInAltitude_ft;
     const start = add({ kind: 'AP', dist_nm: p.actionRange_nm ?? rollIn + 3, alt_ft: ingressAlt, label: p.actionRange_nm != null ? `${p.actionRange_nm}nm: ACTION` : undefined, side: 'top' });
     const roll = add({ kind: 'ROLL', dist_nm: rollIn, alt_ft: p.rollInAltitude_ft, label: `${nm1(rollIn)}nm · ${ft(p.rollInAltitude_ft)}ft · ${p.diveAngle_deg}° dive`, side: 'top' });
-    const rel = add({ kind: 'REL', dist_nm: release, alt_ft: p.releaseAltitude_ft, label: `Release by ${ft(p.releaseAltitude_ft)}ft AGL`, side: 'bottom' });
+    const rel = add({ kind: 'REL', dist_nm: release, alt_ft: p.releaseAltitude_ft, label: `${isFired(attack.weaponClass) ? 'Fire' : 'Release'} by ${ft(p.releaseAltitude_ft)}ft AGL`, side: 'bottom' });
     const tgt = add({ kind: 'TGT', dist_nm: 0, alt_ft: 0 });
     const out = add({ kind: 'EGRESS', dist_nm: release - 1.2, alt_ft: p.releaseAltitude_ft + 1500 });
     seg({ style: p.actionRange_nm != null ? 'leg' : 'route', from: start, to: roll });

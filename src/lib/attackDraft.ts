@@ -215,7 +215,10 @@ export function draftAttackData(
     sourceProfileName: base?.sourceProfileName ?? original?.sourceProfileName,
     deliveryMode: base?.deliveryMode ?? original?.deliveryMode,
     estimated: base?.estimated ?? original?.estimated,
-    sightDepression_mils: base?.sightDepression_mils ?? original?.sightDepression_mils,
+    // A fresh build decides both outright: switching Mk-82 → rockets must
+    // drop the Mk-82 sight, not keep the saved one.
+    sightDepression_mils: base ? base.sightDepression_mils : original?.sightDepression_mils,
+    weaponClass: base ? base.weaponClass : original?.weaponClass,
     procedure: base?.procedure ?? original?.procedure,
     customized: draft.customized || undefined,
   };

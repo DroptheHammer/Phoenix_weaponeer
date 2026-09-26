@@ -88,11 +88,15 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
                   className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
                 >
                   <option value="">— Select weapon —</option>
-                  {weapons.map((w) => (
-                    <option key={w.id} value={w.name}>
-                      {w.name} ({w.weight_lbs} lbs)
-                    </option>
-                  ))}
+                  {/* Guns are built in: the attack editor always offers the aircraft's own. */}
+                  {weapons
+                    .filter((w) => w.category !== 'gun')
+                    .map((w) => (
+                      <option key={w.id} value={w.name}>
+                        {w.name}
+                        {w.weight_lbs > 0 ? ` (${w.weight_lbs} lbs)` : ''}
+                      </option>
+                    ))}
                 </select>
 
                 <input

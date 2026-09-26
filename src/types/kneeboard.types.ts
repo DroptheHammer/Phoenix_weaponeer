@@ -87,6 +87,8 @@ export interface KneeboardWeaponSection {
   fuze: string;
   armingDelay?: string;
   releaseMode: string;
+  /** A gun or rockets: the card names the weapon only — no count, release mode or fuze. */
+  fired?: boolean;
   minSafeAlt_ft?: number;
   /** Sanity-check failures from attackChecks, drawn as red ⚠ lines under the weapon */
   warnings?: string[];

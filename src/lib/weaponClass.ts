@@ -32,6 +32,24 @@ export function weaponClassOf(weapon: Pick<DbWeapon, 'category' | 'guidance' | '
   }
 }
 
+/** A gun or rockets: fired on the pass, not released as a store. */
+export function isFired(weaponClass: WeaponClass | undefined): boolean {
+  return weaponClass === 'gun' || weaponClass === 'rocket';
+}
+
+/**
+ * Whether the weapon picker offers this weapon for an aircraft. Guns and
+ * rockets belong to particular aircraft (`carried_by`, from the database's
+ * aircraft_weapons); every other air-to-ground store is offered to all, as
+ * it always has been.
+ */
+export function offeredTo(weapon: Pick<DbWeapon, 'category' | 'guidance' | 'name' | 'carried_by'>, aircraftId: string | undefined): boolean {
+  const weaponClass = weaponClassOf(weapon);
+  if (!weaponClass) return false;
+  if (!isFired(weaponClass)) return true;
+  return !!aircraftId && (weapon.carried_by ?? []).includes(aircraftId);
+}
+
 export const WEAPON_CLASS_LABEL: Record<WeaponClass, string> = {
   bomb_ld: 'Low-drag bombs',
   bomb_hd: 'High-drag bombs',

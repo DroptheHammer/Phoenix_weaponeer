@@ -143,7 +143,8 @@ function drawTargetSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y
 function drawWeaponSection(ctx: CanvasRenderingContext2D, card: KneeboardCard, y: number): number {
   y = sectionStrip(ctx, 'WEAPON', y);
   const w = card.weaponSection;
-  txt(ctx, `${w.quantity}× ${w.weaponName}   ${w.releaseMode}   ${w.fuze}`, 10, y + 17, { size: 13, bold: true, family: MONO, maxW: 480 });
+  const line = w.fired ? w.weaponName : `${w.quantity}× ${w.weaponName}   ${w.releaseMode}   ${w.fuze}`;
+  txt(ctx, line, 10, y + 17, { size: 13, bold: true, family: MONO, maxW: 480 });
   if (w.minSafeAlt_ft != null) {
     txt(ctx, `⚠ MIN SAFE ${w.minSafeAlt_ft.toLocaleString()}ft AGL`, KNEEBOARD_WIDTH - 10, y + 17, { size: 12, bold: true, family: SANS, color: C.accent, align: 'right' });
   }
