@@ -405,13 +405,20 @@ function PhoneEditorLayout({ map, readout, sideView, jetStrip, strikeReadout, co
     if (next >= 0 && next < tabs.length) onTab(tabs[next]);
   };
 
-  // Held sideways there is no height to stack in, so the same two halves sit
-  // side by side: the picture on the left, the controls on the right.
+  // Held sideways there is little height to spare, so the map shrinks to a
+  // short strip (still enough to read a slider's effect) and everything
+  // else stays the same single column as portrait.
   return (
-    <div className="h-full flex flex-col landscape:flex-row">
+    <div className="h-full flex flex-col">
       {/* ── The attack, live ── */}
-      <div className="shrink-0 flex flex-col landscape:w-1/2 landscape:border-r border-gray-700">
-        <div className="shrink-0 h-[35dvh] min-h-[160px] landscape:h-auto landscape:min-h-0 landscape:flex-1 border-b border-gray-700">{map}</div>
+      <div className="shrink-0 flex flex-col border-gray-700">
+        <div className="relative shrink-0 h-[35dvh] min-h-[160px] landscape:h-[30dvh] landscape:min-h-[100px] border-b border-gray-700">
+          {map}
+          {/* Landscape has no height to spare to stack the side view below the
+              map like portrait does — it would push Save/Cancel off the
+              bottom of the screen — so it overlays the map slot instead. */}
+          {showSide && <div className="hidden landscape:block absolute inset-0 z-[2000]">{sideView}</div>}
+        </div>
 
         <div className="shrink-0 flex items-center gap-2 pl-3 pr-2 py-1 border-b border-gray-700">
           <div className="flex-1 min-w-0">{readout ?? <span className="text-xs text-gray-500">No run-in yet</span>}</div>
@@ -426,7 +433,7 @@ function PhoneEditorLayout({ map, readout, sideView, jetStrip, strikeReadout, co
             Side view {showSide ? '▾' : '▸'}
           </button>
         </div>
-        {showSide && <div className="shrink-0 h-[150px] border-b border-gray-700">{sideView}</div>}
+        {showSide && <div className="landscape:hidden shrink-0 h-[150px] border-b border-gray-700">{sideView}</div>}
       </div>
 
       {/* ── Controls ── */}
