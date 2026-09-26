@@ -192,6 +192,23 @@ export const platform: Platform = {
     const bytes = Uint8Array.from(atob(base64Png), (c) => c.charCodeAt(0));
     download(new Blob([bytes], { type: 'image/png' }), basename(path));
   },
+  async shareFiles(files, title) {
+    // iOS Safari and Android Chrome share PNG files; most desktop browsers can't.
+    const shareable = files.map((f) => new File([f.blob], f.name, { type: f.blob.type || 'image/png' }));
+    if (typeof navigator.canShare === 'function' && navigator.canShare({ files: shareable })) {
+      try {
+        await navigator.share({ files: shareable, title });
+        return 'shared';
+      } catch (error) {
+        const name = error instanceof DOMException ? error.name : '';
+        if (name === 'AbortError') return 'cancelled';
+        if (name === 'NotAllowedError') return 'blocked';
+        // Anything else (too many files for this share target, say): download them.
+      }
+    }
+    for (const f of files) download(f.blob, f.name);
+    return 'downloaded';
+  },
 
   folderExists: async () => false,
   suggestKneeboardFolder: async () => null,

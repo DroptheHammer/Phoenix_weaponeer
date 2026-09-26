@@ -16,6 +16,9 @@ import {
   type MapStatus,
 } from '../../lib/renderKneeboardCanvas';
 import { cachedBasemapTiles, loadBasemapTiles } from '../../lib/kneeboardBasemap';
+import { useIsPhone } from '../../hooks/useIsPhone';
+import { attackCardLabel, exportMapNote, previewMapNote } from './cardText';
+import { PhoneCards } from './PhoneCards';
 import type { KneeboardCard } from '../../types/kneeboard.types';
 import type { DbWeapon, FuzeOption } from '../../types';
 
@@ -31,21 +34,13 @@ interface KneeboardPreviewProps {
 const PREVIEW_WIDTH = 384;
 const PREVIEW_HEIGHT = 512;
 
-/** The preview's one-line map status, or nothing when there is nothing to say. */
-function previewMapNote(status: MapStatus): string | null {
-  if (status === 'unavailable') return 'map unavailable (offline?)';
-  if (status === 'partial') return 'map incomplete';
-  return null;
+/** The Cards panel: a swipeable carousel on a phone, the picker and export buttons otherwise. */
+export function KneeboardPreview(props: KneeboardPreviewProps) {
+  const isPhone = useIsPhone();
+  return isPhone ? <PhoneCards {...props} /> : <DesktopKneeboardPreview {...props} />;
 }
 
-/** Appended to an export message when a card went out without all of its map. */
-function exportMapNote(statuses: MapStatus[]): string {
-  if (statuses.includes('unavailable')) return ' — map tiles unavailable, saved without map';
-  if (statuses.includes('partial')) return ' — map incomplete on some cards';
-  return '';
-}
-
-export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft, onOpenSettings }: KneeboardPreviewProps) {
+function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft, onOpenSettings }: KneeboardPreviewProps) {
   // Cards are built from what this planner may see: no author-hidden threat
   // reaches a card unless it was revealed in ⚙ Settings → Admin.
   const mission = useVisibleMission();
@@ -286,17 +281,6 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     );
   }
 
-  const getAttackLabel = (attackId: string) => {
-    const attack = mission.attacks.find((a) => a.id === attackId);
-    if (!attack) return attackId;
-    const attacker = mission.flightMembers.find((m) => m.id === attack.attackerId);
-    const target = mission.waypoints.find((w) => w.id === attack.targetWaypointId);
-    const callsign = attacker?.callsign ?? '?';
-    const targetName = target?.name ?? '?';
-    const profile = attack.profileType.replace(/_/g, ' ').toUpperCase();
-    return `${callsign} → ${targetName} (${profile})`;
-  };
-
   return (
     <div className="space-y-3">
       {/* Hidden full-res canvas for rendering */}
@@ -317,7 +301,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
         >
           {mission.attacks.map((attack) => (
             <option key={attack.id} value={attack.id}>
-              {getAttackLabel(attack.id)}
+              {attackCardLabel(mission, attack.id)}
             </option>
           ))}
         </select>
