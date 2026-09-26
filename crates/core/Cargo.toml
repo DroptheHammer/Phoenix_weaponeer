@@ -1,0 +1,15 @@
+[package]
+name = "weaponeer-core"
+version = "0.3.1"
+description = "Phoenix Weaponeer's platform-free core: FragOrders import, DCS coordinate conversion, reference data and delivery profiles"
+authors = ["Phoenix Squadron"]
+license = "PolyForm-Strict-1.0.0"
+edition = "2021"
+publish = false
+
+# Pure Rust with no file system, network or C dependencies, so the same code
+# serves the Tauri desktop app (src-tauri) and the browser build (crates/wasm).
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

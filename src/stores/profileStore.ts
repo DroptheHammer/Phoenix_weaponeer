@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { platform } from '@platform';
 import type { DeliveryProfile, ProfileLibrary, WeaponClass } from '../types/profile.types';
 import { SUPPORTED_GEOMETRIES } from '../types/profile.types';
 
@@ -14,9 +14,9 @@ interface ProfileState {
 /**
  * The delivery profile library, fetched once at startup.
  *
- * The Rust side (`src-tauri/src/profiles`) owns parsing and validation of both
- * the bundled files and the squadron's overrides; this store just holds the
- * merged result. Same pattern as `theaterStore`.
+ * The Rust side (`crates/core/src/profiles.rs`) owns parsing and validation of
+ * both the bundled files and the squadron's overrides; this store just holds
+ * the merged result. Same pattern as `theaterStore`.
  */
 export const useProfileStore = create<ProfileState>((set) => ({
   profiles: [],
@@ -24,7 +24,7 @@ export const useProfileStore = create<ProfileState>((set) => ({
   loaded: false,
 
   loadProfiles: async () => {
-    const library = await invoke<ProfileLibrary>('list_delivery_profiles');
+    const library = await platform.call<ProfileLibrary>('list_delivery_profiles');
     set({ profiles: library.profiles, warnings: library.warnings, loaded: true });
   },
 }));

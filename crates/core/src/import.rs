@@ -1,0 +1,1315 @@
+//! The FragOrders import: a mission from the FragOrders CLI (`.miz` → JSON)
+//! or from a public link, turned into what the planner imports.
+//!
+//! Both sources go through the same steps: resolve the theater, convert every
+//! DCS x/y to lat/lon, pick out the player flights with their routes, map each
+//! red ground unit onto a threat system, and collapse a site's units into one
+//! threat per system. Anything dropped on the way is reported, never silent.
+
+use crate::fragorders_link::LinkPayload;
+use crate::mission::looks_like_fragorders_export;
+use crate::parsers::{
+    self, dcs_to_latlon, get_theater_params, get_threat_info, meters_to_feet, mps_to_ktas,
+    normalize_theater_name, ProcessedCoordinates, ProcessedFragOrdersData, ProcessedPlayerGroup,
+    ProcessedThreat, ProcessedTriggerZone, ProcessedUnit, ProcessedWaypoint, ThreatMatchConfidence,
+};
+use crate::refdata::RefData;
+
+/// Import FragOrders JSON: the CLI's output for a `.miz`, or the payload a
+/// public link serves (pasted, or loaded from a saved copy, so a link can be
+/// imported offline). Which one it is, is told from its shape.
+///
+/// The steps:
+/// 1. Normalize the theater name
+/// 2. Convert DCS coordinates to lat/lon
+/// 3. Extract player-flyable groups with waypoints
+/// 4. Identify threat units and map them to reference threat systems
+/// 5. Extract trigger zones
+pub fn import_json(json_str: &str, data: &RefData) -> Result<ProcessedFragOrdersData, String> {
+    if parsers::tasking_state::looks_like_tasking_state(json_str) {
+        process_tasking_state(json_str, data)
+    } else {
+        process_fragorders_json(json_str, data)
+    }
+}
+
+/// Import what a fetched public link carries: the same import a pasted link
+/// payload goes through, plus what only the manifest can say.
+pub fn import_link(link: LinkPayload, data: &RefData) -> Result<ProcessedFragOrdersData, String> {
+    let mut imported = process_tasking_state(&link.bundle_json, data)?;
+    if link.show_groups == Some(false) && imported.threats.is_empty() {
+        // Say why, rather than the generic "no air defences" line: the
+        // publisher's choice is the one cause we can actually see.
+        imported.notices = vec![
+            "This link doesn't include enemy ground units: the publisher left them \
+             out. Add known threats by hand if you have them."
+                .to_string(),
+        ];
+    }
+    imported.source = Some(parsers::fragorders::ImportSource {
+        title: link.title,
+        link: link.link,
+    });
+    Ok(imported)
+}
+
+/// The theater's projection, or a plain error for a map we can't place.
+fn resolve_theater(theater_name: &str) -> Result<&'static parsers::TheaterCoordParams, String> {
+    let theater_params = get_theater_params(theater_name)
+        .ok_or_else(|| format!("Unknown theater: {}", theater_name))?;
+
+    // A known theater with no projection string is worse than an unknown one:
+    // every dcs_to_latlon call would fail, so the import would "succeed"
+    // with a (0,0) bullseye, no waypoints and no threats. Fail loudly instead.
+    if theater_params.proj4_string.is_empty() {
+        return Err(format!(
+            "Theater {} is recognized but has no coordinate projection defined yet, \
+             so waypoints and threats cannot be positioned. Supported theaters: {}.",
+            theater_name,
+            parsers::supported_theater_names().join(", ")
+        ));
+    }
+    Ok(theater_params)
+}
+
+/// The whole import, minus Tauri. Split out so tests can drive it against a
+/// real fixture and an in-memory database instead of a `State<AppState>`.
+pub fn process_fragorders_json(
+    json_str: &str,
+    db: &RefData,
+) -> Result<ProcessedFragOrdersData, String> {
+    // Parse the JSON
+    let mission = parsers::parse_fragorders_json(json_str)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    // Get theater and coordinate parameters
+    let theater_name = mission.theater.as_deref().unwrap_or("Unknown");
+    let normalized_theater = normalize_theater_name(theater_name);
+    let theater_params = resolve_theater(theater_name)?;
+
+    // Anything dropped below goes in here and is returned to the UI. Previously
+    // these were `eprintln!` only, so a partial import looked like a clean one.
+    let mut warnings: Vec<String> = Vec::new();
+
+    // Process bullseye. Unlike waypoints, a missing bullseye is normal (not every
+    // mission defines one) — but a conversion *failure* is not, so it is reported
+    // rather than quietly becoming (0,0) off the coast of Africa.
+    let bullseye = match mission
+        .coalition
+        .blue
+        .as_ref()
+        .and_then(|b| b.bullseye.as_ref())
+    {
+        Some(be) => match dcs_to_latlon(be.x, be.y, theater_params) {
+            Ok((lat, lon)) => ProcessedCoordinates { lat, lon },
+            Err(e) => {
+                return Err(format!("Failed to convert bullseye coordinates: {}", e));
+            }
+        },
+        None => ProcessedCoordinates { lat: 0.0, lon: 0.0 },
+    };
+
+    // Extract player groups from blue coalition
+    let mut player_groups = Vec::new();
+    if let Some(blue) = &mission.coalition.blue {
+        for country in &blue.country {
+            // Check planes
+            if let Some(planes) = &country.plane {
+                for group in &planes.group {
+                    if group.has_player() {
+                        if let Some(processed) = process_player_group(group, theater_params, &mut warnings) {
+                            player_groups.push(processed);
+                        }
+                    }
+                }
+            }
+            // Check helicopters
+            if let Some(helis) = &country.helicopter {
+                for group in &helis.group {
+                    if group.has_player() {
+                        if let Some(processed) = process_player_group(group, theater_params, &mut warnings) {
+                            player_groups.push(processed);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Extract threats from red coalition
+    let mut threats = Vec::new();
+    if let Some(red) = &mission.coalition.red {
+        for country in &red.country {
+            // Check vehicles (ground threats)
+            if let Some(vehicles) = &country.vehicle {
+                for group in &vehicles.group {
+                    let group_name = group.name.clone().unwrap_or_default();
+                    // The author's hide flags are per group, so every threat in
+                    // the group carries them. `hiddenOnMFD` is not used.
+                    let hidden_on_planner = group.hidden_on_planner.unwrap_or(false);
+                    let hidden_on_map = group.hidden.unwrap_or(false);
+                    for unit in &group.units {
+                        if let Some(unit_type) = &unit.unit_type {
+                            if parsers::is_threat_unit(unit_type) {
+                                if let Some(mut threat) = process_threat_unit(
+                                    &group_name,
+                                    unit.name.as_deref(),
+                                    (unit.x, unit.y),
+                                    unit_type,
+                                    theater_params,
+                                    db,
+                                    &mut warnings,
+                                ) {
+                                    threat.hidden_on_planner = hidden_on_planner;
+                                    threat.hidden_on_map = hidden_on_map;
+                                    threats.push(threat);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Deduplicate threats by position (keep one per approximate location)
+    threats = deduplicate_threats(threats);
+
+    // Extract trigger zones
+    let mut trigger_zones = Vec::new();
+    if let Some(triggers) = &mission.triggers {
+        for zone in &triggers.zones {
+            let name = zone
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("Zone {}", zone.zone_id.unwrap_or(0)));
+            match dcs_to_latlon(zone.x, zone.y, theater_params) {
+                Ok((lat, lon)) => trigger_zones.push(ProcessedTriggerZone {
+                    name,
+                    center: ProcessedCoordinates { lat, lon },
+                    radius_m: zone.radius,
+                }),
+                Err(e) => warnings.push(format!("Dropped trigger zone {:?}: {}", name, e)),
+            }
+        }
+    }
+
+    Ok(ProcessedFragOrdersData {
+        theater: normalized_theater,
+        theater_display_name: theater_params.display_name.to_string(),
+        projection_verified: theater_params.verified,
+        bullseye,
+        player_groups,
+        threats,
+        trigger_zones,
+        warnings,
+        notices: Vec::new(),
+        source: None,
+    })
+}
+
+/// The import for a FragOrders public-link payload (`TaskingState`).
+///
+/// Produces the same output as the CLI import, so the preview and the mission
+/// store treat both alike. It takes what the link carries: the publisher and
+/// the mission's author decide what that is, and groups they hid are usually
+/// gone before we see them. Those that do arrive flagged keep their flags.
+pub fn process_tasking_state(
+    json_str: &str,
+    db: &RefData,
+) -> Result<ProcessedFragOrdersData, String> {
+    let mission = parsers::tasking_state::parse_tasking_state(json_str).map_err(|e| {
+        if looks_like_fragorders_export(json_str) {
+            "This is FragOrders CLI output, not a public-link payload.".to_string()
+        } else {
+            format!("Not a FragOrders link payload: {e}")
+        }
+    })?;
+
+    let theater_name = mission.theater.as_deref().unwrap_or("Unknown");
+    let theater_params = resolve_theater(theater_name)?;
+    let mut warnings: Vec<String> = Vec::new();
+
+    let bullseye = match &mission.bullseye {
+        Some(be) => match dcs_to_latlon(be.x, be.y, theater_params) {
+            Ok((lat, lon)) => ProcessedCoordinates { lat, lon },
+            Err(e) => return Err(format!("Failed to convert bullseye coordinates: {}", e)),
+        },
+        None => ProcessedCoordinates { lat: 0.0, lon: 0.0 },
+    };
+
+    let mut player_groups = Vec::new();
+    for group in mission.planned_groups.iter().filter(|g| g.is_player_flight()) {
+        let name = group.name.clone().unwrap_or_else(|| "Unknown".to_string());
+        let Some(lead) = group.units.first() else { continue };
+
+        let units: Vec<ProcessedUnit> = group
+            .units
+            .iter()
+            .map(|u| ProcessedUnit {
+                name: u.name.clone().unwrap_or_default(),
+                callsign: u
+                    .callsign
+                    .as_ref()
+                    .map(|c| c.to_string_representation())
+                    .unwrap_or_default(),
+                onboard_num: u.tail_number.as_ref().map(|n| n.as_string()),
+            })
+            .collect();
+
+        // FragOrders fills an unnamed point's name with its own number ("0",
+        // "1", ...), where the CLI leaves it blank. Blank it again, so an
+        // unnamed ramp start still takes its airfield's name and both imports
+        // name every waypoint alike.
+        let points: Vec<parsers::fragorders::RoutePoint> = group
+            .waypoints
+            .iter()
+            .enumerate()
+            .map(|(i, pt)| {
+                let mut pt = pt.clone();
+                if pt.name.as_deref().map(str::trim) == Some(i.to_string().as_str()) {
+                    pt.name = Some(String::new());
+                }
+                pt
+            })
+            .collect();
+
+        player_groups.push(ProcessedPlayerGroup {
+            callsign: lead
+                .callsign
+                .as_ref()
+                .map(|c| c.to_string_representation())
+                .unwrap_or_else(|| name.clone()),
+            aircraft_type: lead.unit_type.clone().unwrap_or_else(|| "Unknown".to_string()),
+            units,
+            waypoints: convert_route(&points, &name, theater_params, &mut warnings),
+            name,
+        });
+    }
+
+    let mut threats = Vec::new();
+    for group in &mission.opfor_vehicles {
+        let group_name = group.name.clone().unwrap_or_default();
+        // Per group, exactly as the CLI import reads them.
+        let hidden_on_planner = group.hidden_on_planner.unwrap_or(false);
+        let hidden_on_map = group.hidden.unwrap_or(false);
+        for unit in &group.units {
+            let Some(unit_type) = unit.unit_type.as_deref() else { continue };
+            if !parsers::is_threat_unit(unit_type) {
+                continue;
+            }
+            if let Some(mut threat) = process_threat_unit(
+                &group_name,
+                unit.name.as_deref(),
+                (unit.x, unit.y),
+                unit_type,
+                theater_params,
+                db,
+                &mut warnings,
+            ) {
+                threat.hidden_on_planner = hidden_on_planner;
+                threat.hidden_on_map = hidden_on_map;
+                threats.push(threat);
+            }
+        }
+    }
+    let threats = deduplicate_threats(threats);
+
+    // Information, not a warning: the link carries what its publisher chose.
+    let notices = if threats.is_empty() {
+        vec!["This link shows no enemy air defences. The mission may have none, \
+              or its publisher chose not to share them."
+            .to_string()]
+    } else {
+        Vec::new()
+    };
+
+    Ok(ProcessedFragOrdersData {
+        theater: theater_params.normalized_name.to_string(),
+        theater_display_name: theater_params.display_name.to_string(),
+        projection_verified: theater_params.verified,
+        bullseye,
+        player_groups,
+        threats,
+        // A link's `zones` has never been seen populated.
+        trigger_zones: Vec::new(),
+        warnings,
+        notices,
+        source: None,
+    })
+}
+
+/// A waypoint's name: the mission creator's text verbatim when there is any;
+/// otherwise the airfield the point is tied to (a ramp start is waypoint 0 at
+/// "Ramat David", not a blank); otherwise what the file says, as before.
+///
+/// The airfield name comes from the file's own `airdromeId`, not from our
+/// inference, so it is safe to show as a name.
+fn waypoint_name(pt: &parsers::fragorders::RoutePoint, index: usize, theater: &str) -> String {
+    let has_creator_name = pt.name.as_deref().is_some_and(|n| !n.trim().is_empty());
+    if !has_creator_name {
+        if let Some(field) = pt.airdrome_id.and_then(|id| parsers::airfields::airfield(theater, id)) {
+            return field.name.to_string();
+        }
+    }
+    pt.name.clone().unwrap_or_else(|| format!("WP{}", index))
+}
+
+/// Process a player group into the output format
+fn process_player_group(
+    group: &parsers::fragorders::Group,
+    params: &parsers::TheaterCoordParams,
+    warnings: &mut Vec<String>,
+) -> Option<ProcessedPlayerGroup> {
+    let name = group.name.clone().unwrap_or_else(|| "Unknown".to_string());
+
+    // Get aircraft type from first player unit
+    let first_player = group.first_player_unit()?;
+    let aircraft_type = first_player.unit_type.clone().unwrap_or_else(|| "Unknown".to_string());
+
+    // Get callsign from first player
+    let callsign = first_player
+        .callsign
+        .as_ref()
+        .map(|c| c.to_string_representation())
+        .unwrap_or_else(|| name.clone());
+
+    // Process units
+    let units: Vec<ProcessedUnit> = group
+        .units
+        .iter()
+        .filter(|u| u.is_player())
+        .map(|u| ProcessedUnit {
+            name: u.name.clone().unwrap_or_default(),
+            callsign: u
+                .callsign
+                .as_ref()
+                .map(|c| c.to_string_representation())
+                .unwrap_or_default(),
+            onboard_num: u.onboard_num.as_ref().map(|n| n.as_string()),
+        })
+        .collect();
+
+    let waypoints = group
+        .route
+        .as_ref()
+        .map(|r| convert_route(&r.points, &name, params, warnings))
+        .unwrap_or_default();
+
+    Some(ProcessedPlayerGroup {
+        name,
+        callsign,
+        aircraft_type,
+        units,
+        waypoints,
+    })
+}
+
+/// A flight's route points as planner waypoints. Shared by the CLI import and
+/// the public-link import, which carry the same DCS route-point fields.
+fn convert_route(
+    points: &[parsers::fragorders::RoutePoint],
+    flight_name: &str,
+    params: &parsers::TheaterCoordParams,
+    warnings: &mut Vec<String>,
+) -> Vec<ProcessedWaypoint> {
+    points
+        .iter()
+        .enumerate()
+        .filter_map(|(i, pt)| {
+            // A waypoint with no usable coordinates cannot be planned
+            // against, so it is still dropped — but say so rather than
+            // letting it vanish from the route without a trace.
+            let (lat, lon) = match dcs_to_latlon(pt.x, pt.y, params) {
+                Ok(coords) => coords,
+                Err(e) => {
+                    warnings.push(format!(
+                        "Dropped waypoint {} ({}) in flight {:?}: {}",
+                        i,
+                        pt.name.as_deref().unwrap_or("unnamed"),
+                        flight_name,
+                        e
+                    ));
+                    return None;
+                }
+            };
+            let alt_ft = pt.alt.map(|a| meters_to_feet(a)).unwrap_or(0.0);
+            let speed_ktas = pt.speed.map(|s| mps_to_ktas(s));
+
+            // Infer waypoint type from name and type
+            let wp_type = infer_waypoint_type(
+                pt.name.as_deref(),
+                pt.point_type.as_deref(),
+                pt.action.as_deref(),
+            );
+
+            Some(ProcessedWaypoint {
+                // The raw 0-based route-point index, which is what
+                // FragOrders publishes and what the jet ends up with.
+                // Route point 0 is where the aircraft spawns — a ramp,
+                // a runway, or a point in the air — so it is waypoint 0
+                // and the first turnpoint is waypoint 1. Numbering it
+                // from 1 made every steerpoint the planner showed, and
+                // every `STPT n` on the kneeboard card, one too high.
+                //
+                // `i` is the pre-filter `enumerate` index deliberately:
+                // a dropped (unprojectable) point leaves a gap rather
+                // than renumbering the survivors out from under the
+                // planner. See docs/archive/BUGFIX_PLAN.md.
+                steerpoint: i as i32,
+                name: waypoint_name(pt, i, params.normalized_name),
+                wp_type,
+                position: ProcessedCoordinates { lat, lon },
+                altitude_ft: alt_ft,
+                speed_ktas,
+            })
+        })
+        .collect()
+}
+
+/// Process a threat unit into output format
+fn process_threat_unit(
+    group_name: &str,
+    unit_name: Option<&str>,
+    (x, y): (f64, f64),
+    unit_type: &str,
+    params: &parsers::TheaterCoordParams,
+    db: &RefData,
+    warnings: &mut Vec<String>,
+) -> Option<ProcessedThreat> {
+    // Previously fell back to (0.0, 0.0), which silently placed unconvertible
+    // threats in the Gulf of Guinea instead of reporting the failure.
+    let (lat, lon) = match dcs_to_latlon(x, y, params) {
+        Ok(coords) => coords,
+        Err(e) => {
+            warnings.push(format!(
+                "Dropped threat {} in group {:?} ({}): {}",
+                unit_type,
+                group_name,
+                unit_name.unwrap_or("unnamed"),
+                e
+            ));
+            return None;
+        }
+    };
+
+    // Try to map to a reference threat system
+    let (system_id, system_name, confidence) = if let Some((normalized, conf)) = get_threat_info(unit_type) {
+        match db.get_threat_by_dcs_name(normalized) {
+            Some(threat) => {
+                let confidence = if conf > 0.8 {
+                    ThreatMatchConfidence::High
+                } else if conf > 0.5 {
+                    ThreatMatchConfidence::Medium
+                } else {
+                    ThreatMatchConfidence::Low
+                };
+                (Some(threat.id), Some(threat.name), confidence)
+            }
+            _ => (None, None, ThreatMatchConfidence::Unknown),
+        }
+    } else {
+        (None, None, ThreatMatchConfidence::Unknown)
+    };
+
+    Some(ProcessedThreat {
+        unit_type: unit_type.to_string(),
+        group_name: group_name.to_string(),
+        position: ProcessedCoordinates { lat, lon },
+        system_id,
+        system_name,
+        confidence,
+        // Set by the caller, from the group's flags.
+        hidden_on_planner: false,
+        hidden_on_map: false,
+    })
+}
+
+/// Infer Phoenix waypoint type from DCS waypoint data
+fn infer_waypoint_type(name: Option<&str>, point_type: Option<&str>, action: Option<&str>) -> String {
+    let name_upper = name.unwrap_or("").to_uppercase();
+    let action_upper = action.unwrap_or("").to_uppercase();
+
+    // Match whole tokens, not substrings: "SLIP" is not an IP, "BEACH" is not a
+    // bullseye. Split on anything non-alphanumeric so "IP ALPHA", "TGT-1" and
+    // "IP/ALPHA" all tokenize the way a planner would read them.
+    let tokens: Vec<&str> = name_upper
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let has = |t: &str| tokens.iter().any(|tok| *tok == t);
+    // Numbered variants are common ("TGT1", "IP2"), so also accept a token that
+    // is the keyword followed only by digits.
+    let has_numbered = |t: &str| {
+        tokens.iter().any(|tok| {
+            tok.strip_prefix(t)
+                .map(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+                .unwrap_or(false)
+        })
+    };
+
+    // Check name patterns
+    if has("IP") || has_numbered("IP") {
+        return "ip".to_string();
+    }
+    if has("TGT") || has_numbered("TGT") || has("TARGET") || has_numbered("TARGET") {
+        return "target".to_string();
+    }
+    if has("CAP") || has_numbered("CAP") {
+        return "cap".to_string();
+    }
+    if has("MARSHAL") || has("HOLD") {
+        return "marshal".to_string();
+    }
+    // Only explicit words imply a tanker waypoint. Tanker *callsigns* (ARCO,
+    // TEXACO, SHELL) are deliberately excluded: they are also ordinary nav-fix
+    // names, and real missions do use them that way — NTTR Red Flag routes a
+    // strike package through a turnpoint named "ARCO" that is not an AAR track.
+    if has("TANKER") || has("AAR") || has("REFUEL") || has("REFUELING") {
+        return "tanker".to_string();
+    }
+    if has("BULLS") || has("BULLSEYE") || has("BE") {
+        return "bullseye".to_string();
+    }
+
+    // Check DCS point type. DCS spells these several ways across versions and
+    // export paths ("TakeOffParkingHot", "TakeOffParking", "Takeoff"), so
+    // normalize before comparing rather than listing every literal.
+    let type_norm = point_type
+        .unwrap_or("")
+        .to_uppercase()
+        .replace(|c: char| !c.is_alphanumeric(), "");
+    if type_norm == "LAND" || type_norm == "LANDING" {
+        return "divert".to_string();
+    }
+    if type_norm.starts_with("TAKEOFF") {
+        // Where the jet starts, not a place you fly to. FragOrders keeps it on
+        // the map (it draws the first leg from the field) but excludes it from
+        // the DTC, so it is never a steerpoint in the cockpit.
+        return "departure".to_string();
+    }
+
+    // Check action
+    if action_upper.contains("LAND") {
+        return "divert".to_string();
+    }
+    if action_upper.contains("ORBIT") || action_upper.contains("HOLD") {
+        return "marshal".to_string();
+    }
+
+    // Default to nav
+    "nav".to_string()
+}
+
+/// Collapse a site's many units into one marker per weapon system.
+///
+/// A Buk battery is one search radar, one command post and four launchers
+/// spread over a few hundred metres; the planner wants one Buk, not six. So
+/// units of the *same* system within ~500 m of one already kept are dropped.
+///
+/// Units of a *different* system at the same spot are kept. Sites routinely
+/// mix systems: the NTTR mission's SA15 compound is a Tor with a ZSU-57-2 and
+/// three Igla teams inside 150 m of it, and each is a different envelope a
+/// low-level attacker has to respect. Position-only dedup used to drop all of
+/// them because the Tor happened to be listed first.
+fn deduplicate_threats(threats: Vec<ProcessedThreat>) -> Vec<ProcessedThreat> {
+    let mut result: Vec<ProcessedThreat> = Vec::new();
+    let threshold = 0.005; // ~500m in degrees
+
+    for threat in threats {
+        let dominated = result.iter().any(|existing| {
+            let same_system = existing.system_id == threat.system_id;
+            // A hidden duplicate must never swallow a visible threat, or the
+            // reverse: the survivor's flags decide who gets to see the site.
+            let same_hiding = existing.hidden_on_planner == threat.hidden_on_planner
+                && existing.hidden_on_map == threat.hidden_on_map;
+            let lat_diff = (existing.position.lat - threat.position.lat).abs();
+            let lon_diff = (existing.position.lon - threat.position.lon).abs();
+            same_system && same_hiding && lat_diff < threshold && lon_diff < threshold
+        });
+
+        if !dominated {
+            result.push(threat);
+        }
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn threat(system_id: Option<&str>, unit_type: &str, lat: f64, lon: f64) -> ProcessedThreat {
+        ProcessedThreat {
+            unit_type: unit_type.to_string(),
+            group_name: "SA15".to_string(),
+            position: ProcessedCoordinates { lat, lon },
+            system_id: system_id.map(str::to_string),
+            system_name: system_id.map(str::to_string),
+            confidence: ThreatMatchConfidence::High,
+            hidden_on_planner: false,
+            hidden_on_map: false,
+        }
+    }
+
+    #[test]
+    fn dedup_collapses_one_systems_units_but_keeps_colocated_different_systems() {
+        // 0.001 deg is ~100 m: the SA15 compound's spacing.
+        let site = vec![
+            threat(Some("sa15"), "Tor 9A331", 37.149, -116.797),
+            threat(Some("zsu57"), "ZSU_57_2", 37.150, -116.797),
+            threat(Some("sa18"), "SA-18 Igla-S manpad", 37.150, -116.798),
+            threat(Some("sa18"), "SA-18 Igla-S manpad", 37.151, -116.798),
+            threat(Some("sa18"), "SA-18 Igla-S comm", 37.150, -116.797),
+        ];
+        let kept = deduplicate_threats(site);
+        let ids: Vec<Option<&str>> = kept.iter().map(|t| t.system_id.as_deref()).collect();
+        assert_eq!(ids, vec![Some("sa15"), Some("zsu57"), Some("sa18")]);
+    }
+
+    #[test]
+    fn dedup_keeps_the_same_system_when_sites_are_far_apart() {
+        let two_sites = vec![
+            threat(Some("sa11"), "SA-11 Buk SR 9S18M1", 37.45, -117.20),
+            threat(Some("sa11"), "SA-11 Buk LN 9A310M1", 37.452, -117.201), // same site
+            threat(Some("sa11"), "SA-11 Buk SR 9S18M1", 37.15, -116.81),   // 20 nm away
+        ];
+        assert_eq!(deduplicate_threats(two_sites).len(), 2);
+    }
+
+    fn infer(name: &str) -> String {
+        infer_waypoint_type(Some(name), Some("Turning Point"), Some("Turning Point"))
+    }
+
+    #[test]
+    fn infers_types_from_whole_tokens() {
+        assert_eq!(infer("IP ALPHA"), "ip");
+        assert_eq!(infer("IP"), "ip");
+        assert_eq!(infer("IP2"), "ip");
+        assert_eq!(infer("TGT WAREHOUSE"), "target");
+        assert_eq!(infer("TGT1"), "target");
+        assert_eq!(infer("TARGET"), "target");
+        assert_eq!(infer("MARSHAL"), "marshal");
+        assert_eq!(infer("BULLSEYE"), "bullseye");
+        assert_eq!(infer("TANKER"), "tanker");
+    }
+
+    #[test]
+    fn substrings_do_not_trigger_false_matches() {
+        // Previously "SLIP"/"SHIP" matched IP and "BEACH" matched bullseye.
+        assert_eq!(infer("SLIP"), "nav");
+        assert_eq!(infer("SHIP"), "nav");
+        assert_eq!(infer("BEACH"), "nav");
+        assert_eq!(infer("ABERDEEN"), "nav");
+        assert_eq!(infer("EGRESS"), "nav");
+    }
+
+    #[test]
+    fn tanker_callsigns_are_not_tanker_waypoints() {
+        // NTTR Red Flag routes the Viper package through a turnpoint named
+        // "ARCO", which is a nav fix even though ARCO is also a tanker callsign.
+        assert_eq!(infer("ARCO"), "nav");
+        assert_eq!(infer("TEXACO"), "nav");
+        assert_eq!(infer("SHELL"), "nav");
+    }
+
+    #[test]
+    fn point_type_spellings_are_normalized() {
+        assert_eq!(infer_waypoint_type(Some("LAND"), Some("Land"), Some("Landing")), "divert");
+        // DCS exports this as "TakeOffParkingHot" — no spaces.
+        assert_eq!(
+            infer_waypoint_type(None, Some("TakeOffParkingHot"), Some("From Parking Area Hot")),
+            "departure"
+        );
+        assert_eq!(infer_waypoint_type(None, Some("TakeOffParking"), None), "departure");
+        assert_eq!(infer_waypoint_type(None, Some("TakeOffGround"), None), "departure");
+        assert_eq!(infer_waypoint_type(Some("DEPART"), Some("TakeOff"), Some("From Runway")), "departure");
+    }
+
+    /// The real Viper 1 (Hot) route from NTTR_Training_RF_v13, in order.
+    #[test]
+    fn classifies_real_nttr_redflag_route() {
+        let route = [
+            ("", "TakeOffParkingHot", "departure"),
+            ("", "Turning Point", "nav"),
+            ("JUNNO", "Turning Point", "nav"),
+            ("DREAM", "Turning Point", "nav"),
+            ("MARSHAL", "Turning Point", "marshal"),
+            ("MEZ", "Turning Point", "nav"),
+            ("IP", "Turning Point", "ip"),
+            ("TGT1", "Turning Point", "target"),
+            ("TGT2", "Turning Point", "target"),
+            ("EGRESS", "Turning Point", "nav"),
+            ("ALAMO", "Turning Point", "nav"),
+            ("ARCO", "Turning Point", "nav"),
+            ("APEX", "Turning Point", "nav"),
+            ("LAND", "Land", "divert"),
+        ];
+        for (name, point_type, expected) in route {
+            assert_eq!(
+                infer_waypoint_type(Some(name), Some(point_type), None),
+                expected,
+                "waypoint {name:?} ({point_type})"
+            );
+        }
+    }
+
+    // ---- Real-fixture import tests -------------------------------------
+    //
+    // Until these existed no test loaded a fixture at all: the closest,
+    // `classifies_real_nttr_redflag_route`, transcribed the route as tuples.
+    // That is how `RoutePoint.eta` sat renamed to `"ETA"` against real data
+    // that writes `"eta"` without anything noticing.
+
+    /// The original NTTR test mission must keep importing exactly as it did.
+    /// This is the regression guard for every future FragOrders schema change.
+    #[test]
+    fn nttr_fixture_imports_unchanged() {
+        let json = crate::private_fixture!("nttr_redflag_viper1.json");
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
+
+        assert_eq!(data.theater, "nevada");
+        assert!(data.projection_verified, "Nevada is a verified projection");
+        assert!(data.warnings.is_empty(), "unexpected warnings: {:?}", data.warnings);
+
+        let viper1 = data
+            .player_groups
+            .iter()
+            .find(|g| g.name.starts_with("Viper 1"))
+            .expect("Viper 1 must be offered for import");
+        assert_eq!(viper1.waypoints.len(), 14, "Viper 1 flies 14 waypoints");
+
+        // Pinned to real geography, per test-data/README.md.
+        let takeoff = &viper1.waypoints[0];
+        assert_eq!(takeoff.steerpoint, 0, "the ramp is waypoint 0, not 1");
+        assert_eq!(takeoff.wp_type, "departure", "the ramp is not a nav waypoint");
+        assert!(
+            (takeoff.position.lat - 36.227).abs() < 0.01
+                && (takeoff.position.lon - (-115.048)).abs() < 0.01,
+            "waypoint 0 should be the Nellis ramp, got {:?}",
+            takeoff.position
+        );
+        let tgt1 = &viper1.waypoints[7];
+        assert_eq!(tgt1.steerpoint, 7, "TGT1 is waypoint 7, not 8");
+        assert!(
+            (tgt1.position.lat - 37.682).abs() < 0.01
+                && (tgt1.position.lon - (-116.623)).abs() < 0.01,
+            "waypoint 7 should be TGT1 at Tonopah, got {:?}",
+            tgt1.position
+        );
+        // Numbering is the raw route-point index, with gaps only where a point
+        // was dropped. Nothing was dropped here, so it runs 0..13.
+        let stps: Vec<i32> = viper1.waypoints.iter().map(|w| w.steerpoint).collect();
+        assert_eq!(stps, (0..14).collect::<Vec<i32>>());
+
+        // The unnamed ramp start takes its airfield's name (airdromeId 4). The
+        // landing point is tied to the same airfield but the creator named it,
+        // and the creator's text always wins.
+        assert_eq!(viper1.waypoints[0].name, "Nellis");
+        assert_eq!(viper1.waypoints[13].name, "LAND");
+
+        assert!(!data.threats.is_empty(), "NTTR carries a red laydown");
+    }
+
+    /// The mission from the rebuilt FragOrders CLI (commit a3c1ff1316dd,
+    /// 2026-09-06). Same wire shape as the January export, so it must import
+    /// through the same path with nothing dropped.
+    #[test]
+    fn sinai_m01_v6_fixture_imports() {
+        let json = crate::private_fixture!("sinai_m01_v6.json");
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, &db).expect("Sinai fixture must import");
+
+        assert_eq!(data.theater, "sinai");
+        assert!(
+            data.projection_verified,
+            "Sinai was pinned by F10 pairs; the amber banner must not fire"
+        );
+        assert!(
+            data.warnings.is_empty(),
+            "nothing should be dropped: {:?}",
+            data.warnings
+        );
+
+        // Eight client flights: Mustang, Lance, Spectre, Hawg, Archer, Saber,
+        // Barak, Ari.
+        assert_eq!(data.player_groups.len(), 8, "eight client flights");
+        for name in ["Mustang", "Spectre", "Barak", "Ari", "Hawg", "Archer"] {
+            assert!(
+                data.player_groups.iter().any(|g| g.name == name),
+                "{name} missing from {:?}",
+                data.player_groups.iter().map(|g| &g.name).collect::<Vec<_>>()
+            );
+        }
+
+        // The red laydown is the point of the mission: SA-2, SA-6, SA-8, SA-11,
+        // Shilkas and an EWR are all present in the raw file.
+        assert!(
+            data.threats.len() >= 10,
+            "expected a real threat laydown, got {}",
+            data.threats.len()
+        );
+        assert!(
+            data.threats.iter().all(|t| t.system_id.is_some()),
+            "unmapped threats: {:?}",
+            data.threats
+                .iter()
+                .filter(|t| t.system_id.is_none())
+                .map(|t| &t.unit_type)
+                .collect::<Vec<_>>()
+        );
+
+        // The whole DB v3 chain, exercised end to end on a mission that did not
+        // exist when those rows were written. `55G6 Nebo` and `P-19 Danube` are
+        // two of the twelve rows v3 added; before it they imported as Unknown
+        // and were dropped on the floor.
+        let systems: Vec<&str> = data
+            .threats
+            .iter()
+            .filter_map(|t| t.system_name.as_deref())
+            .collect();
+        for want in [
+            "S-75 Dvina",
+            "2K12 Kub",
+            "9K33 Osa",
+            "9K37 Buk",
+            "ZSU-23-4 Shilka",
+            "55G6 Nebo",
+            "P-19 Danube",
+        ] {
+            assert!(
+                systems.contains(&want),
+                "{want} missing from the Sinai laydown: {systems:?}"
+            );
+        }
+    }
+
+    /// The re-saved M01 (V7). Same wire shape as V6; the changes are content —
+    /// six new red groups including an SA-13, one fewer MiG flight, and a fifth
+    /// route point on Spectre — so it must import through the same path with
+    /// nothing dropped and the new SHORAD mapped.
+    #[test]
+    fn sinai_m01_v7_fixture_imports() {
+        let json = crate::private_fixture!("sinai_m01_v7.json");
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, &db).expect("Sinai V7 fixture must import");
+
+        assert_eq!(data.theater, "sinai");
+        assert!(data.projection_verified, "Sinai is verified; no amber banner");
+        assert!(
+            data.warnings.is_empty(),
+            "nothing should be dropped: {:?}",
+            data.warnings
+        );
+        assert_eq!(data.player_groups.len(), 8, "the same eight client flights as V6");
+
+        assert!(
+            data.threats.iter().all(|t| t.system_id.is_some()),
+            "unmapped threats: {:?}",
+            data.threats
+                .iter()
+                .filter(|t| t.system_id.is_none())
+                .map(|t| &t.unit_type)
+                .collect::<Vec<_>>()
+        );
+        let systems: Vec<&str> = data
+            .threats
+            .iter()
+            .filter_map(|t| t.system_name.as_deref())
+            .collect();
+        // V6's laydown, plus the `Strela-10M3` group V7 added.
+        for want in [
+            "S-75 Dvina",
+            "2K12 Kub",
+            "9K33 Osa",
+            "9K37 Buk",
+            "ZSU-23-4 Shilka",
+            "55G6 Nebo",
+            "P-19 Danube",
+            "9K35 Strela-10",
+        ] {
+            assert!(
+                systems.contains(&want),
+                "{want} missing from the V7 laydown: {systems:?}"
+            );
+        }
+
+        // Spectre gained a route point in V7: waypoints 0..4, where V6 had 0..3.
+        let spectre = data
+            .player_groups
+            .iter()
+            .find(|g| g.name == "Spectre")
+            .expect("Spectre must be offered for import");
+        let stps: Vec<i32> = spectre.waypoints.iter().map(|w| w.steerpoint).collect();
+        assert_eq!(stps, vec![0, 1, 2, 3, 4], "Spectre numbers 0..4 in V7");
+    }
+
+    /// Sinai M01's author hid every red ground group, with all three DCS flags
+    /// set. Every threat must carry both flags we read, so the planner shows
+    /// the laydown only as probable threats.
+    #[test]
+    fn sinai_v7_threats_carry_the_authors_hide_flags() {
+        let json = crate::private_fixture!("sinai_m01_v7.json");
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, &db).expect("Sinai V7 fixture must import");
+
+        assert!(!data.threats.is_empty());
+        let unflagged: Vec<&str> = data
+            .threats
+            .iter()
+            .filter(|t| !(t.hidden_on_planner && t.hidden_on_map))
+            .map(|t| t.group_name.as_str())
+            .collect();
+        assert!(unflagged.is_empty(), "every Sinai threat is hidden both ways: {unflagged:?}");
+    }
+
+    /// NTTR predates `hiddenOnPlanner`: its groups write only `hidden`. The
+    /// SA-2 site the author hid carries the map flag and nothing else, and
+    /// groups left visible carry neither.
+    #[test]
+    fn nttr_hidden_sa2_carries_only_the_map_flag() {
+        let json = crate::private_fixture!("nttr_redflag_viper1.json");
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
+
+        let sa2: Vec<&ProcessedThreat> =
+            data.threats.iter().filter(|t| t.group_name == "Interdiction SA2").collect();
+        assert!(!sa2.is_empty(), "the hidden SA-2 site must still import");
+        assert!(
+            sa2.iter().all(|t| t.hidden_on_map && !t.hidden_on_planner),
+            "the SA-2 site is hidden on the map only"
+        );
+        assert!(
+            data.threats.iter().any(|t| !t.hidden_on_map && !t.hidden_on_planner),
+            "groups the author left visible stay visible"
+        );
+    }
+
+    #[test]
+    fn a_hidden_duplicate_never_swallows_a_visible_threat() {
+        let threat = |hidden: bool| ProcessedThreat {
+            unit_type: "Kub 2P25 ln".into(),
+            group_name: "SAM site".into(),
+            position: ProcessedCoordinates { lat: 30.0, lon: 34.0 },
+            system_id: Some("sa6".into()),
+            system_name: Some("2K12 Kub".into()),
+            confidence: ThreatMatchConfidence::High,
+            hidden_on_planner: hidden,
+            hidden_on_map: hidden,
+        };
+        let kept = deduplicate_threats(vec![threat(true), threat(false), threat(false)]);
+        assert_eq!(kept.len(), 2, "one hidden and one visible launcher survive, not one of either");
+        assert!(kept.iter().any(|t| !t.hidden_on_map), "the visible site must survive");
+    }
+
+    // ---- Public-link (TaskingState) import tests -----------------------
+    //
+    // Fixtures are payloads captured from real public links; see
+    // test-data/private/fragorders-links/README.md for the publish options
+    // behind each. Each macro skips the calling test when the file is absent.
+
+    macro_rules! link_sinai_v7 {
+        () => {
+            crate::private_fixture!("fragorders-links/sinai_m01v7_all-red-hidden-in-miz.json")
+        };
+    }
+    macro_rules! link_neon_mirror {
+        () => {
+            crate::private_fixture!("fragorders-links/syria_neonmirror_showgroups-off.json")
+        };
+    }
+    macro_rules! link_arctic_fury {
+        () => {
+            crate::private_fixture!("fragorders-links/kola_arcticfury_threats-visible.json")
+        };
+    }
+    macro_rules! link_nttr_dtc {
+        () => {
+            crate::private_fixture!("fragorders-links/nttr_dtc_threats-visible.json")
+        };
+    }
+
+    /// The strongest check on the link import: Sinai M01 V7 was captured both
+    /// as CLI output and as a public link. Every flight the link offers must
+    /// come out exactly as the CLI import makes it: same numbering, names,
+    /// types, positions, altitudes and crews.
+    #[test]
+    fn a_link_imports_every_flight_exactly_as_the_cli_does() {
+        let db = crate::refdata::reference();
+        let cli = process_fragorders_json(crate::private_fixture!("sinai_m01_v7.json"), &db)
+            .expect("CLI fixture must import");
+        let link = process_tasking_state(link_sinai_v7!(), &db).expect("link fixture must import");
+
+        assert_eq!(link.theater, cli.theater);
+        assert!(link.warnings.is_empty(), "nothing should be dropped: {:?}", link.warnings);
+        assert_eq!(link.player_groups.len(), cli.player_groups.len(), "same flights offered");
+
+        // The CLI writes a callsign as a table and we format it "Uzi11 1-1";
+        // the link sends the plain "Uzi11". The frontend's `formatCallsign`
+        // (src/lib/callsign.ts) turns both into "Uzi 1-1", so compare them the
+        // way it does: drop the redundant suffix after a compact name.
+        let shown = |cs: &str| -> String {
+            match cs.split_once(' ') {
+                Some((compact, suffix))
+                    if compact.ends_with(|c: char| c.is_ascii_digit())
+                        && suffix.split_once('-').is_some_and(|(a, b)| {
+                            !a.is_empty()
+                                && !b.is_empty()
+                                && a.chars().chain(b.chars()).all(|c| c.is_ascii_digit())
+                        }) =>
+                {
+                    compact.to_string()
+                }
+                _ => cs.to_string(),
+            }
+        };
+
+        for lg in &link.player_groups {
+            let cg = cli
+                .player_groups
+                .iter()
+                .find(|g| g.name == lg.name)
+                .unwrap_or_else(|| panic!("{} is on the link but not in the CLI import", lg.name));
+            assert_eq!(shown(&lg.callsign), shown(&cg.callsign), "{} callsign", lg.name);
+            assert_eq!(lg.aircraft_type, cg.aircraft_type, "{} type", lg.name);
+
+            let crew = |g: &ProcessedPlayerGroup| {
+                g.units
+                    .iter()
+                    .map(|u| (u.name.clone(), shown(&u.callsign), u.onboard_num.clone()))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(crew(lg), crew(cg), "{} crew", lg.name);
+
+            assert_eq!(lg.waypoints.len(), cg.waypoints.len(), "{} route length", lg.name);
+            for (lw, cw) in lg.waypoints.iter().zip(&cg.waypoints) {
+                let at = format!("{} waypoint {}", lg.name, cw.steerpoint);
+                assert_eq!(lw.steerpoint, cw.steerpoint, "{at}");
+                assert_eq!(lw.name, cw.name, "{at} name");
+                assert_eq!(lw.wp_type, cw.wp_type, "{at} type");
+                // 1e-5 degrees is about a metre.
+                assert!(
+                    (lw.position.lat - cw.position.lat).abs() < 1e-5
+                        && (lw.position.lon - cw.position.lon).abs() < 1e-5,
+                    "{at} position {:?} vs {:?}",
+                    lw.position,
+                    cw.position
+                );
+                assert!((lw.altitude_ft - cw.altitude_ft).abs() < 0.5, "{at} altitude");
+            }
+        }
+
+        // The unnamed ramp start still takes its airfield's name, rather than
+        // the "0" FragOrders writes into it.
+        let barak = link.player_groups.iter().find(|g| g.name == "Barak").expect("Barak");
+        assert_ne!(barak.waypoints[0].name, "0");
+        assert!(!barak.waypoints[0].name.is_empty(), "the ramp is named after its airfield");
+    }
+
+    /// The Sinai author hid the whole red laydown in DCS, so the link carries
+    /// none of it. That is the author's intent: the import says so, quietly,
+    /// and imports everything else.
+    #[test]
+    fn a_link_with_no_air_defences_imports_with_a_notice() {
+        let db = crate::refdata::reference();
+        for (name, json) in [("Sinai M01 V7", link_sinai_v7!()), ("Neon Mirror", link_neon_mirror!())] {
+            let data = process_tasking_state(json, &db).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(data.threats.is_empty(), "{name} publishes no red ground units");
+            assert!(!data.player_groups.is_empty(), "{name} still offers its flights");
+            assert_eq!(data.notices.len(), 1, "{name} says why the threat list is empty");
+            assert!(data.warnings.is_empty(), "{name}: a notice is not a warning");
+        }
+    }
+
+    #[test]
+    fn a_link_with_a_laydown_imports_its_threats() {
+        let db = crate::refdata::reference();
+
+        let kola = process_tasking_state(link_arctic_fury!(), &db).expect("Arctic Fury must import");
+        assert_eq!(kola.theater, "kola");
+        assert!(!kola.projection_verified, "Kola is still unverified; the amber banner must fire");
+        assert_eq!(kola.player_groups.len(), 5);
+        assert!(
+            kola.threats.iter().any(|t| t.system_name.as_deref() == Some("9K33 Osa")),
+            "Ground-4's SA-8s: {:?}",
+            kola.threats.iter().map(|t| &t.unit_type).collect::<Vec<_>>()
+        );
+        assert!(kola.notices.is_empty(), "no notice when threats came through");
+
+        let nttr = process_tasking_state(link_nttr_dtc!(), &db).expect("NTTR_DTC must import");
+        assert_eq!(nttr.theater, "nevada");
+        assert!(nttr.projection_verified);
+        assert_eq!(nttr.player_groups.len(), 10);
+        assert!(!nttr.threats.is_empty(), "NTTR_DTC publishes its red laydown");
+
+        let syria = process_tasking_state(link_neon_mirror!(), &db).expect("Neon Mirror must import");
+        assert_eq!(syria.theater, "syria");
+        assert_eq!(syria.player_groups.len(), 14);
+    }
+
+    /// Hide flags rarely survive a publish, but when a group does arrive
+    /// flagged, its threats carry the flags just as a CLI import's do.
+    #[test]
+    fn a_flagged_group_on_a_link_keeps_its_hide_flags() {
+        let json = r#"{
+            "theater": "NEVADA",
+            "bullseye": {"x": -400000, "y": -20000},
+            "plannedGroups": [],
+            "opforVehicles": [
+                {"name": "Hidden SA-6", "category": "vehicle", "hidden": true, "hiddenOnPlanner": true,
+                 "units": [{"name": "h-1", "type": "Kub 2P25 ln", "x": -300000, "y": -50000}]},
+                {"name": "Map-only SA-6", "category": "vehicle", "hidden": true,
+                 "units": [{"name": "m-1", "type": "Kub 2P25 ln", "x": -320000, "y": -50000}]},
+                {"name": "Visible SA-8", "category": "vehicle", "hidden": false,
+                 "units": [{"name": "v-1", "type": "Osa 9A33 ln", "x": -340000, "y": -50000}]}
+            ]
+        }"#;
+        let db = crate::refdata::reference();
+        let data = process_tasking_state(json, &db).expect("should import");
+        let flags = |group: &str| {
+            let t = data
+                .threats
+                .iter()
+                .find(|t| t.group_name == group)
+                .unwrap_or_else(|| panic!("{group} missing"));
+            (t.hidden_on_map, t.hidden_on_planner)
+        };
+        assert_eq!(flags("Hidden SA-6"), (true, true));
+        assert_eq!(flags("Map-only SA-6"), (true, false));
+        assert_eq!(flags("Visible SA-8"), (false, false));
+    }
+
+    #[test]
+    fn the_two_payload_shapes_are_not_confused() {
+        let db = crate::refdata::reference();
+        let cli = crate::private_fixture!("sinai_m01_v7.json");
+        let err = process_tasking_state(cli, &db).expect_err("CLI output is not a link payload");
+        assert!(err.contains("CLI output"), "say what it is: {err}");
+        assert!(
+            process_fragorders_json(link_sinai_v7!(), &db).is_err(),
+            "a link payload must not import as an empty CLI mission"
+        );
+    }
+
+    #[test]
+    fn a_link_on_an_unknown_map_is_refused() {
+        let json = r#"{"theater": "MOON", "plannedGroups": []}"#;
+        let db = crate::refdata::reference();
+        let err = process_tasking_state(json, &db).expect_err("no projection for MOON");
+        assert!(err.contains("Unknown theater"), "{err}");
+    }
+
+    /// The bug that prompted all of this: Barak's route was numbered 1..5, so
+    /// every steerpoint the planner showed — and every `STPT n` on the
+    /// kneeboard card — was one higher than what the squadron reads on
+    /// FragOrders and what the pilot dials into the jet.
+    ///
+    /// FragOrders numbers route points by raw 0-based index (its own bundle:
+    /// `push({...pt, number: idx})`, guarded by a sequence check that requires
+    /// sorted index N to carry number N), and its DTC generator skips number 0
+    /// and writes `Sequence: r` from `SteerpointStart: 1`. So the ramp is
+    /// waypoint 0 and is never loaded into the jet, and cockpit STPT n is
+    /// FragOrders waypoint n.
+    #[test]
+    fn barak_numbering_matches_fragorders() {
+        let json = crate::private_fixture!("sinai_m01_v6.json");
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, &db).expect("Sinai fixture must import");
+
+        let barak = data
+            .player_groups
+            .iter()
+            .find(|g| g.name == "Barak")
+            .expect("Barak must be offered for import");
+
+        let stps: Vec<i32> = barak.waypoints.iter().map(|w| w.steerpoint).collect();
+        assert_eq!(stps, vec![0, 1, 2, 3, 4], "Barak numbers 0..4, not 1..5");
+
+        // Point 0 is `TakeOffParking` / `From Parking Area` at Ramat David
+        // (airdromeId 50), alt 31 m — the ramp elevation, not a flyable
+        // altitude. It is unnamed in the file, so it takes the airfield's name.
+        let ramp = &barak.waypoints[0];
+        assert_eq!(ramp.wp_type, "departure");
+        assert_eq!(ramp.name, "Ramat David");
+        assert!(
+            (ramp.altitude_ft - 102.0).abs() < 1.0,
+            "ramp should be ~102 ft, got {}",
+            ramp.altitude_ft
+        );
+
+        // Ground truth read straight off the FragOrders map popup for this
+        // mission: "Barak Waypoint 1 — 676 MSL", N 31 14.4023 E 34 39.5637.
+        // This pins the numbering and the Sinai projection to the same source.
+        let wp1 = &barak.waypoints[1];
+        assert_eq!(wp1.steerpoint, 1);
+        assert_eq!(wp1.wp_type, "nav");
+        assert!(
+            (wp1.altitude_ft - 676.0).abs() < 1.0,
+            "FragOrders calls the 676 ft point Waypoint 1, got {} ft",
+            wp1.altitude_ft
+        );
+        assert!(
+            (wp1.position.lat - 31.240_038).abs() < 0.001
+                && (wp1.position.lon - 34.659_395).abs() < 0.001,
+            "waypoint 1 must land where FragOrders puts it, got {:?}",
+            wp1.position
+        );
+
+        let alts: Vec<i64> = barak
+            .waypoints
+            .iter()
+            .map(|w| w.altitude_ft.round() as i64)
+            .collect();
+        assert_eq!(alts, vec![102, 676, 423, 374, 374]);
+    }
+
+    /// Numbering is the raw route-point index, unconditionally — there is no
+    /// "detect a takeoff point and shift" branch, because FragOrders has none
+    /// either. A flight that spawns airborne has a real, flyable waypoint 0.
+    #[test]
+    fn air_start_flights_also_number_from_zero() {
+        let json = crate::private_fixture!("nttr_redflag_viper1.json");
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, &db).expect("NTTR fixture must import");
+
+        let bvr = data
+            .player_groups
+            .iter()
+            .find(|g| g.name == "BVR Vipers 1")
+            .expect("the air-start BVR flight must be offered for import");
+
+        let first = &bvr.waypoints[0];
+        assert_eq!(first.steerpoint, 0, "air starts number from 0 as well");
+        assert_eq!(first.name, "", "an air start has no airfield (airdromeId 0), so it stays unnamed");
+        assert_ne!(
+            first.wp_type, "departure",
+            "a plain Turning Point is not a departure point, whatever its index"
+        );
+        assert!(
+            first.altitude_ft > 24_000.0,
+            "this flight spawns at 25,000 ft, got {}",
+            first.altitude_ft
+        );
+    }
+
+    /// A fetched link imports like a pasted payload, and carries its source
+    /// and the publisher's "show groups" choice.
+    #[test]
+    fn a_fetched_link_says_where_it_came_from() {
+        let json = r#"{"theater": "NEVADA", "plannedGroups": []}"#;
+        let link = |show_groups| LinkPayload {
+            link: "https://fragorders.com/public_frag_order/ExampleLinkId0000001".into(),
+            title: Some("Example".into()),
+            show_groups,
+            bundle_json: json.into(),
+        };
+        let data = import_link(link(Some(false)), crate::refdata::reference()).expect("imports");
+        assert_eq!(data.source.as_ref().map(|s| s.title.clone()), Some(Some("Example".into())));
+        assert!(data.notices[0].contains("publisher left them out"), "{:?}", data.notices);
+
+        let data = import_link(link(Some(true)), crate::refdata::reference()).expect("imports");
+        assert!(data.notices[0].contains("no enemy air defences"), "{:?}", data.notices);
+    }
+}

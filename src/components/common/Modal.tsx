@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useIsPhone } from '../../hooks/useIsPhone';
 
 interface ModalProps {
   title: string;
@@ -21,11 +22,11 @@ interface ModalProps {
  * own `text-white` (portalled content sits outside the App container and so
  * does not inherit it).
  *
- * `AttackEditor`, `LoadoutEditor`, `FlightMemberEditor` and `ThreatList` each
- * still carry their own copy of this markup; folding them in is a mechanical
- * change left for its own commit.
+ * On a phone (web build) every modal is a full-screen page, clear of the
+ * notch and the home bar, whatever its desktop size.
  */
 export function Modal({ title, onClose, children, widthClass = 'w-[440px]', fill = false }: ModalProps) {
+  const isPhone = useIsPhone();
   // Nothing in the app handled Escape before this component existed.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -34,6 +35,35 @@ export function Modal({ title, onClose, children, widthClass = 'w-[440px]', fill
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
+
+  if (isPhone) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[2000] bg-dcs-navy text-white flex flex-col"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          paddingLeft: 'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
+        }}
+        role="dialog"
+        aria-label={title}
+      >
+        <div className="shrink-0 flex justify-between items-center pl-4 pr-1 border-b border-gray-700">
+          <h2 className="text-lg font-semibold py-3 truncate">{title}</h2>
+          <button
+            onClick={onClose}
+            className="w-11 h-11 flex items-center justify-center text-gray-400 hover:text-white text-2xl"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className={`flex-1 min-h-0 ${fill ? '' : 'overflow-y-auto overscroll-contain p-4'}`}>{children}</div>
+      </div>,
+      document.body,
+    );
+  }
 
   const panel = fill ? 'w-[96vw] h-[92vh] flex flex-col' : `${widthClass} max-h-[90vh] overflow-y-auto`;
 

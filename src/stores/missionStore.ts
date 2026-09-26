@@ -21,7 +21,7 @@ import type {
 /**
  * Normalize DCS aircraft type to our database aircraft ID.
  *
- * The ids must match the `aircraft` seed in `src-tauri/src/db/mod.rs` and the
+ * The ids must match the `aircraft` in `crates/core/data/reference.json` and the
  * `aircraftId` in each profile file under `src-tauri/resources/profiles/`.
  */
 function normalizeAircraftType(dcsType: string): string {

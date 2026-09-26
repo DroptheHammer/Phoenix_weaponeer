@@ -23,9 +23,14 @@
     /* Paths */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@platform": ["src/lib/platform/desktop.ts"],
+      "@pwa-update": ["src/lib/pwaUpdate/desktop.ts"]
     }
   },
   "include": ["src"],
+  /* The web-only files need the generated WebAssembly bindings and the PWA
+     plugin's virtual module; tsconfig.web.json checks them. */
+  "exclude": ["src/lib/platform/web.ts", "src/lib/pwaUpdate/web.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

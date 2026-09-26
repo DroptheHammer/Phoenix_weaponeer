@@ -4,6 +4,7 @@ import { formatCoordinatesDMS } from '../../lib/coordinates';
 import { waypointLabel } from '../../lib/waypointOptions';
 import { IP_KNOB_RANGES } from '../../lib/customizeKnobs';
 import { SliderField } from '../common/SliderField';
+import { useIsPhone } from '../../hooks/useIsPhone';
 
 interface IpPickerProps {
   mode: IpChoiceMode;
@@ -48,6 +49,9 @@ export function IpPicker({
   note,
 }: IpPickerProps) {
   const autoText = autoIpWaypoint ? `Auto — ${waypointLabel(autoIpWaypoint)}` : 'Auto — no prior waypoint';
+  // A phone places the IP with the preview map's crosshair and moves it with
+  // the marker's Move button, not a click and a drag (see CrosshairPick).
+  const isPhone = useIsPhone();
   return (
     <div>
       <label className="block text-sm font-medium mb-1">Run in from (IP)</label>
@@ -91,7 +95,7 @@ export function IpPicker({
               picking ? 'bg-dcs-accent border-dcs-accent text-white' : 'border-gray-600 bg-dcs-dark text-gray-200 hover:border-gray-400'
             }`}
           >
-            📍 {picking ? 'Click the map…' : 'Place on map'}
+            📍 {picking ? (isPhone ? 'Pan the map to the crosshair…' : 'Click the map…') : 'Place on map'}
           </button>
           <SliderField
             label="Radial from target"
@@ -109,8 +113,12 @@ export function IpPicker({
           />
           <div className="text-xs text-gray-400">
             {customIp && fields
-              ? `→ run-in ${Math.round((Number(fields.radial) + 180) % 360).toString().padStart(3, '0')}° · ${formatCoordinatesDMS(customIp)} · drag the IP on the map to move it`
-              : 'Click "Place on map", then drag the IP marker or use the sliders.'}
+              ? `→ run-in ${Math.round((Number(fields.radial) + 180) % 360).toString().padStart(3, '0')}° · ${formatCoordinatesDMS(customIp)} · ${
+                  isPhone ? 'tap the IP on the map, then Move' : 'drag the IP on the map to move it'
+                }`
+              : isPhone
+                ? 'Tap "Place on map", then move the IP on the map or use the sliders.'
+                : 'Click "Place on map", then drag the IP marker or use the sliders.'}
           </div>
         </div>
       )}

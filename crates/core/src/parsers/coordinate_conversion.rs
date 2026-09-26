@@ -2,9 +2,10 @@
 //!
 //! Converts DCS map coordinates (x/y in meters) to geographic coordinates (lat/lon).
 //! Each DCS theater has a specific proj4 projection that must be used for accurate conversion.
+//! Every one is a transverse Mercator, computed by `super::tmerc` in pure Rust.
 
+use super::tmerc::Tmerc;
 use serde::{Deserialize, Serialize};
-use proj::Proj;
 
 /// Parameters for coordinate conversion for a specific theater
 #[derive(Debug, Clone)]
@@ -240,24 +241,25 @@ pub fn normalize_theater_name(dcs_theater: &str) -> String {
 /// # Returns
 /// (latitude, longitude) tuple in decimal degrees, or error if projection fails
 pub fn dcs_to_latlon(x: f64, y: f64, params: &TheaterCoordParams) -> Result<(f64, f64), String> {
+    let grid = theater_grid(params)?;
+
+    // DCS y is the grid easting and x the northing (FragOrders likewise
+    // passes [y, x] to proj4.inverse()).
+    let (lat, lon) = grid.inverse(y, x);
+    if !(lat.is_finite() && lon.is_finite()) {
+        return Err(format!("Cannot convert DCS ({x}, {y}) on {}", params.dcs_name));
+    }
+    Ok((lat, lon))
+}
+
+/// The theater's transverse Mercator grid, or a plain error for a theater
+/// with no projection yet.
+fn theater_grid(params: &TheaterCoordParams) -> Result<Tmerc, String> {
     if params.proj4_string.is_empty() {
         return Err(format!("No proj4 string available for theater {}", params.dcs_name));
     }
-
-    // Create transformation from theater projection to WGS84
-    let from_crs = params.proj4_string;
-    let to_crs = "EPSG:4326"; // WGS84 lat/lon
-
-    let proj = Proj::new_known_crs(from_crs, to_crs, None)
-        .map_err(|e| format!("Failed to create projection: {}", e))?;
-
-    // FragOrders passes [y, x] to proj4.inverse()
-    // Match their order: pass (y, x) instead of (x, y)
-    let (lon, lat) = proj.convert((y, x))
-        .map_err(|e| format!("Failed to convert coordinates: {}", e))?;
-
-    // Result is in degrees (lon, lat)
-    Ok((lat, lon))
+    Tmerc::from_proj4(params.proj4_string)
+        .map_err(|e| format!("Failed to create projection for {}: {e}", params.dcs_name))
 }
 
 /// Convert lat/lon to DCS map coordinates using proj4 projection
@@ -270,23 +272,14 @@ pub fn dcs_to_latlon(x: f64, y: f64, params: &TheaterCoordParams) -> Result<(f64
 /// # Returns
 /// (x, y) tuple in meters, or error if projection fails
 pub fn latlon_to_dcs(lat: f64, lon: f64, params: &TheaterCoordParams) -> Result<(f64, f64), String> {
-    if params.proj4_string.is_empty() {
-        return Err(format!("No proj4 string available for theater {}", params.dcs_name));
+    let grid = theater_grid(params)?;
+
+    // The grid easting is DCS y and the northing DCS x (FragOrders likewise
+    // gets [y, x] from proj4([lon, lat])).
+    let (y, x) = grid.forward(lat, lon);
+    if !(x.is_finite() && y.is_finite()) {
+        return Err(format!("Cannot convert ({lat}, {lon}) on {}", params.dcs_name));
     }
-
-    // Create transformation from WGS84 to theater projection
-    let from_crs = "EPSG:4326"; // WGS84 lat/lon
-    let to_crs = params.proj4_string;
-
-    let proj = Proj::new_known_crs(from_crs, to_crs, None)
-        .map_err(|e| format!("Failed to create projection: {}", e))?;
-
-    // FragOrders gets [y, x] from proj4([lon, lat])
-    // proj.convert returns projected coords, interpret as (y, x) to match FragOrders
-    let (y, x) = proj.convert((lon, lat))
-        .map_err(|e| format!("Failed to convert coordinates: {}", e))?;
-
-    // Return (x, y) in DCS order
     Ok((x, y))
 }
 
@@ -629,6 +622,23 @@ mod tests {
 
         assert!((lat - original_lat).abs() < 0.0001);
         assert!((lon - original_lon).abs() < 0.0001);
+    }
+
+    /// Every usable theater's string is one the pure-Rust projection reads.
+    /// `Tmerc::from_proj4` refuses parameters it does not model, so a new
+    /// theater with, say, a non-zero `lat_0` fails here rather than importing
+    /// to the wrong place.
+    ///
+    /// When PROJ was replaced (2026-09-26), the new code was checked against
+    /// PROJ 9.4 at 21,756 points spanning ±9° lat / ±12° lon around every
+    /// theater. The worst differences were 0.14 mm forward and 3.6e-10° inverse.
+    #[test]
+    fn test_every_projection_string_is_readable() {
+        for params in THEATER_PARAMS.iter().filter(|p| !p.proj4_string.is_empty()) {
+            if let Err(e) = Tmerc::from_proj4(params.proj4_string) {
+                panic!("{}: {e}", params.dcs_name);
+            }
+        }
     }
 
     #[test]

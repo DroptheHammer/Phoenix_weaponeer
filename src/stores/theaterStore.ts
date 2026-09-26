@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { platform } from '@platform';
 import type { Theater, Coordinates } from '../types';
 
 /**
@@ -31,7 +31,7 @@ interface TheaterState {
 /**
  * The theater list, fetched once at startup.
  *
- * `THEATER_PARAMS` in `src-tauri/src/parsers/coordinate_conversion.rs` is the
+ * `THEATER_PARAMS` in `crates/core/src/parsers/coordinate_conversion.rs` is the
  * single source of truth. The frontend used to hard-code a parallel copy, which
  * silently drifted out of sync — it was missing three maps entirely, so those
  * could never be represented here even when the backend supported them.
@@ -41,7 +41,7 @@ export const useTheaterStore = create<TheaterState>((set) => ({
   loaded: false,
 
   loadTheaters: async () => {
-    const list = await invoke<TheaterInfo[]>('list_theaters');
+    const list = await platform.call<TheaterInfo[]>('list_theaters');
     set({
       theaters: Object.fromEntries(list.map((theater) => [theater.id, theater])),
       loaded: true,

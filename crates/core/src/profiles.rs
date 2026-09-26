@@ -19,28 +19,28 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::Path;
 
 pub const GEOMETRIES: &[&str] = &["level", "dive", "popup", "loft"];
 pub const DELIVERY_MODES: &[&str] = &["CCIP", "CCRP", "AUTO", "DTOS", "MAN", "LABS", "LADD", "VIS"];
 pub const WEAPON_CLASSES: &[&str] = &["bomb_ld", "bomb_hd", "lgb", "jdam", "rocket", "gun", "cluster", "agm"];
 
 /// Bundled profile files. Adding an aircraft means adding a line here and a
-/// file next to the others; the tests check every entry.
+/// file next to the others; the tests check every entry. The files stay in
+/// `src-tauri/resources/profiles`, where geo-check and the docs expect them.
 pub const BUNDLED: &[(&str, &str)] = &[
     // Modern
-    ("f16c", include_str!("../../resources/profiles/f16c.json")),
-    ("f18c", include_str!("../../resources/profiles/f18c.json")),
-    ("a10c", include_str!("../../resources/profiles/a10c.json")),
-    ("f15e", include_str!("../../resources/profiles/f15e.json")),
+    ("f16c", include_str!("../../../src-tauri/resources/profiles/f16c.json")),
+    ("f18c", include_str!("../../../src-tauri/resources/profiles/f18c.json")),
+    ("a10c", include_str!("../../../src-tauri/resources/profiles/a10c.json")),
+    ("f15e", include_str!("../../../src-tauri/resources/profiles/f15e.json")),
     // Vietnam era — manual sights, dive toss, LABS
-    ("f4e", include_str!("../../resources/profiles/f4e.json")),
-    ("a4ec", include_str!("../../resources/profiles/a4ec.json")),
-    ("f5e", include_str!("../../resources/profiles/f5e.json")),
+    ("f4e", include_str!("../../../src-tauri/resources/profiles/f4e.json")),
+    ("a4ec", include_str!("../../../src-tauri/resources/profiles/a4ec.json")),
+    ("f5e", include_str!("../../../src-tauri/resources/profiles/f5e.json")),
     // 1980s
-    ("f14", include_str!("../../resources/profiles/f14.json")),
-    ("f1", include_str!("../../resources/profiles/f1.json")),
-    ("av8b", include_str!("../../resources/profiles/av8b.json")),
+    ("f14", include_str!("../../../src-tauri/resources/profiles/f14.json")),
+    ("f1", include_str!("../../../src-tauri/resources/profiles/f1.json")),
+    ("av8b", include_str!("../../../src-tauri/resources/profiles/av8b.json")),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,31 +274,28 @@ pub fn bundled_profiles() -> Result<Vec<DeliveryProfile>, String> {
     Ok(all)
 }
 
+/// One squadron profile file as read from disk: its file name, and its text
+/// or the reason it could not be read. The desktop app reads the folder; the
+/// core only ever sees what was read.
+pub struct UserFile {
+    pub name: String,
+    pub contents: Result<String, String>,
+}
+
 /// The squadron's own profiles. A file that cannot be read becomes a warning;
-/// the rest still load.
-pub fn user_profiles(dir: &Path) -> (Vec<DeliveryProfile>, Vec<String>) {
+/// the rest still load. Files are taken in name order.
+pub fn user_profiles(mut files: Vec<UserFile>) -> (Vec<DeliveryProfile>, Vec<String>) {
     let mut profiles = Vec::new();
     let mut warnings = Vec::new();
+    files.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return (profiles, warnings), // no folder yet is not an error
-    };
-
-    let mut paths: Vec<_> = entries
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().map(|x| x == "json").unwrap_or(false))
-        .collect();
-    paths.sort();
-
-    for path in paths {
-        let label = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        match std::fs::read_to_string(&path) {
-            Ok(json) => match parse_file(&label, &json) {
+    for file in files {
+        match file.contents {
+            Ok(json) => match parse_file(&file.name, &json) {
                 Ok(list) => profiles.extend(list),
                 Err(e) => warnings.push(e),
             },
-            Err(e) => warnings.push(format!("{label}: {e}")),
+            Err(e) => warnings.push(format!("{}: {e}", file.name)),
         }
     }
     (profiles, warnings)
@@ -324,9 +321,9 @@ pub fn merge(bundled: Vec<DeliveryProfile>, user: Vec<DeliveryProfile>) -> Vec<D
 }
 
 /// The whole library as the frontend sees it.
-pub fn load_all(user_dir: &Path) -> Result<ProfileLibrary, String> {
+pub fn load_all(user_files: Vec<UserFile>) -> Result<ProfileLibrary, String> {
     let bundled = bundled_profiles()?;
-    let (user, warnings) = user_profiles(user_dir);
+    let (user, warnings) = user_profiles(user_files);
     Ok(ProfileLibrary {
         profiles: merge(bundled, user),
         warnings,
@@ -369,11 +366,11 @@ mod tests {
     }
 
     #[test]
-    fn every_bundled_aircraft_exists_in_the_database() {
-        let db = crate::db::Database::open_in_memory().expect("db");
-        let known: HashSet<String> = db.get_all_aircraft().unwrap().into_iter().map(|a| a.id).collect();
+    fn every_bundled_aircraft_exists_in_the_reference_data() {
+        let known: HashSet<String> =
+            crate::refdata::reference().get_all_aircraft().into_iter().map(|a| a.id).collect();
         for (aircraft, _) in BUNDLED {
-            assert!(known.contains(*aircraft), "no aircraft row with id '{aircraft}' — add it to the db seed");
+            assert!(known.contains(*aircraft), "no aircraft row with id '{aircraft}' — add it to data/reference.json");
         }
     }
 
@@ -384,11 +381,10 @@ mod tests {
     /// mapped to the aircraft that flies the profile.
     #[test]
     fn every_weapon_class_a_profile_needs_has_a_weapon_to_choose() {
-        let db = crate::db::Database::open_in_memory().expect("db");
-        let weapons = db.get_all_weapons().unwrap();
+        let weapons = crate::refdata::reference().get_all_weapons();
         for p in bundled_profiles().unwrap() {
             for class in &p.weapon_classes {
-                let category_ok = |w: &crate::db::Weapon| match class.as_str() {
+                let category_ok = |w: &crate::refdata::Weapon| match class.as_str() {
                     "gun" | "rocket" => w.category == *class && w.carried_by.contains(&p.aircraft_id),
                     "bomb_ld" | "bomb_hd" => w.category == "bomb_unguided",
                     "lgb" => w.category == "bomb_guided" && w.guidance != "gps",
@@ -399,7 +395,7 @@ mod tests {
                 };
                 assert!(
                     weapons.iter().any(category_ok),
-                    "{} needs a {class} weapon{} — none in the db seed",
+                    "{} needs a {class} weapon{} — none in the reference data",
                     p.id,
                     if class == "gun" || class == "rocket" { format!(" carried by {}", p.aircraft_id) } else { String::new() }
                 );
@@ -443,20 +439,24 @@ mod tests {
         edited.verified = true;
         edited.verified_by = Some("Viper 1-1".into());
 
-        let dir = std::env::temp_dir().join(format!("phoenix_profiles_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("squadron.json"), serde_json::to_string(&vec![edited.clone()]).unwrap()).unwrap();
-        std::fs::write(dir.join("broken.json"), "{ not json").unwrap();
+        let files = vec![
+            UserFile {
+                name: "squadron.json".into(),
+                contents: Ok(serde_json::to_string(&vec![edited.clone()]).unwrap()),
+            },
+            UserFile { name: "broken.json".into(), contents: Ok("{ not json".into()) },
+            UserFile { name: "locked.json".into(), contents: Err("permission denied".into()) },
+        ];
 
-        let library = load_all(&dir).unwrap();
-        std::fs::remove_dir_all(&dir).ok();
+        let library = load_all(files).unwrap();
 
         assert_eq!(library.profiles.len(), bundled.len(), "an override must replace, not duplicate");
         let replaced = library.profiles.iter().find(|p| p.id == edited.id).unwrap();
         assert_eq!(replaced.name, "Squadron edit");
         assert!(replaced.verified);
-        assert_eq!(library.warnings.len(), 1, "the broken file must be reported");
-        assert!(library.warnings[0].starts_with("broken.json"));
+        assert_eq!(library.warnings.len(), 2, "both bad files must be reported");
+        assert!(library.warnings[0].starts_with("broken.json"), "in name order");
+        assert_eq!(library.warnings[1], "locked.json: permission denied");
     }
 
     #[test]

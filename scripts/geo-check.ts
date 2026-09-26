@@ -26,6 +26,7 @@ import {
 import { describeRunIn } from '../src/lib/runIn';
 import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
+import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, isRealWorld } from '../src/lib/strikeNearMe';
 import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
@@ -1563,3 +1564,36 @@ ok('validateMission: a strike name that is not text is refused',
    !validateMission({ ...goodMission, strikes: [{ id: 's1', name: { html: payload }, ip: {}, spacing_s: 30 }] }).ok);
 ok('validateMission: a non-numeric TOT offset is refused',
    !validateMission({ ...goodMission, attacks: [{ ...goodMission.attacks[0], strikeId: 's1', totOffset_s: '30' }] }).ok);
+
+// ─── Strike near me (real-world pseudo-theater) ──────────────────────────────
+// Synthetic points only: the repo never holds a real address (CLAUDE.md, Privacy).
+{
+  const target = { lat: 10, lon: 20 };
+  const planner = calculateDestination(target, 225, 1.5); // 1.5 nm SW of the target
+  const mission = realWorldMission({
+    target, targetElevation_ft: 300, planner, aircraftId: 'f16c', callsign: 'Viper 1-1', name: 'Strike near me',
+  });
+  const [ip, tgt] = mission.waypoints;
+  ok('strike near me: the mission is on the real-world pseudo-theater', isRealWorld(mission) && mission.theater === 'real_world');
+  ok('strike near me: it passes the same gate as a mission file', validateMission(mission).ok,
+     validateMission(mission).ok ? '' : (validateMission(mission) as { problems: string[] }).problems.join('; '));
+  ok('strike near me: the target is exactly the picked point, at the typed elevation',
+     tgt.type === 'target' && tgt.coordinates.lat === 10 && tgt.coordinates.lon === 20 && tgt.elevation_ft === 300);
+  ok(`strike near me: the IP is ${REAL_WORLD_IP_DISTANCE_NM} nm out`,
+     Math.abs(calculateDistance(tgt.coordinates, ip.coordinates) - REAL_WORLD_IP_DISTANCE_NM) < 0.01);
+  ok('strike near me: the IP is on the far side from the planner (run-in continues their line of sight)',
+     Math.abs(signedHeadingDelta(calculateBearing(target, ip.coordinates), 45)) < 1,
+     r(calculateBearing(target, ip.coordinates)).toString());
+  ok('strike near me: a target under the planner\'s feet runs in from the south', realWorldIpBearing(target, target) === 180);
+  ok('strike near me: no planner position also runs in from the south', realWorldIpBearing(target) === 180);
+
+  // Shaped as get_all_weapons returns it; the name is what the default loadout names.
+  const mk82 = { id: 'mk82', name: 'Mk-82 LDGP', category: 'bomb_unguided', guidance: 'none', weight_lbs: 500,
+                 frag_min_safe_alt_ft: 3000, carried_by: ['f16c'] };
+  const built = autoBuildAttack({
+    mission, targetWaypointId: tgt.id, attackerId: mission.flightMembers[0].id,
+    weapons: [mk82], profiles: f16cProfiles, threatSystems: [],
+  } as never);
+  ok('strike near me: an attack auto-builds with nothing but the IP, the target and the default loadout',
+     built.attack != null, built.problems.join('; '));
+}

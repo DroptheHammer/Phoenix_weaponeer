@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { platform } from '@platform';
 
 /**
  * Where kneeboard cards go in DCS.
@@ -9,12 +8,14 @@ import { open } from '@tauri-apps/plugin-dialog';
  * nobody has checked against a real install — so a detected path is only where
  * the folder picker opens. The folder the user actually picks is remembered per
  * aircraft type in Settings, and used without asking from then on.
+ *
+ * Desktop only: the web build has no DCS install to write into.
  */
 
 /** Whether a remembered folder is still there (DCS reinstalled or moved means ask again). */
 export async function folderStillThere(folder: string): Promise<boolean> {
   try {
-    return await invoke<boolean>('folder_exists', { path: folder });
+    return await platform.folderExists(folder);
   } catch {
     return false;
   }
@@ -31,16 +32,13 @@ export async function chooseKneeboardFolder(aircraftName: string, folderHint: st
     defaultPath = current;
   } else {
     try {
-      defaultPath = (await invoke<string | null>('suggest_kneeboard_folder', { kneeboardPath: folderHint })) ?? undefined;
+      defaultPath = (await platform.suggestKneeboardFolder(folderHint)) ?? undefined;
     } catch {
       defaultPath = undefined;
     }
   }
-  const picked = await open({
-    directory: true,
-    multiple: false,
+  return platform.chooseFolder(
+    `Kneeboard folder for ${aircraftName} (usually Saved Games/DCS/Kneeboard/${folderHint})`,
     defaultPath,
-    title: `Kneeboard folder for ${aircraftName} (usually Saved Games/DCS/Kneeboard/${folderHint})`,
-  });
-  return typeof picked === 'string' ? picked : null;
+  );
 }

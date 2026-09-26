@@ -3,6 +3,8 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useMissionStore } from '../../stores/missionStore';
 import { useUiStore } from '../../stores/uiStore';
 import { hiddenCounts } from '../../lib/threatVisibility';
+import { platform } from '@platform';
+import { Modal } from '../common/Modal';
 import { chooseKneeboardFolder, folderStillThere } from '../../lib/dcsExport';
 import type { AircraftFolderInfo } from '../../lib/kneeboardExportPlan';
 
@@ -66,18 +68,11 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
   const reset = (ac: AircraftFolderInfo) => run(ac.id, () => setKneeboardFolder(ac.id, null));
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]">
-      <div className="bg-dcs-navy rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-xl font-semibold">Settings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors" aria-label="Close settings">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-auto p-4 space-y-3">
+    <Modal title="Settings" onClose={onClose} widthClass="w-full max-w-3xl mx-4">
+        <div className="space-y-3">
+          {/* The browser has no DCS install, so no folders to choose. */}
+          {!platform.isWeb && (
+          <>
           <div>
             <h3 className="font-medium text-dcs-accent">DCS kneeboard folders</h3>
             <p className="text-xs text-gray-400 mt-1">
@@ -128,8 +123,14 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
               );
             })}
           </div>
+          </>
+          )}
 
-          <div className="pt-3 mt-3 border-t border-gray-700">
+          {platform.isWeb && (warning || error) && (
+            <div className="text-xs rounded p-2 bg-red-900 text-red-200 font-mono">{error ?? warning}</div>
+          )}
+
+          <div className={platform.isWeb ? '' : 'pt-3 mt-3 border-t border-gray-700'}>
             <button
               onClick={() => setShowAdmin((open) => !open)}
               className="text-sm text-gray-400 hover:text-white"
@@ -170,7 +171,6 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

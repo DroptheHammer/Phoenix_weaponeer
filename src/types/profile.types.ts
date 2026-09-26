@@ -6,7 +6,7 @@
  * 105 mils". The pilot picks one; the tool fills the attack in. The numbers
  * are the tool's responsibility, not the pilot's.
  *
- * Mirrors the Rust struct in `src-tauri/src/profiles/mod.rs`, which is where
+ * Mirrors the Rust struct in `crates/core/src/profiles.rs`, which is where
  * the files are parsed and validated. Bundled profiles live in
  * `src-tauri/resources/profiles/<aircraftId>.json`; a squadron can override
  * or add profiles in `<app data>/profiles/*.json`.
