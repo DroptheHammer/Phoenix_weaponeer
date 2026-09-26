@@ -205,6 +205,21 @@ fs.mkdirSync(out, { recursive: true });
   }
   await page.getByRole('button', { name: '+ Add Attack' }).click();
   await page.waitForTimeout(1500);
+  // Landscape option C folds the map behind a toggle; open it back up
+  // wherever a test needs to see or measure it. A no-op everywhere else
+  // (the button doesn't exist in portrait or in the other two options).
+  const openMapIfFolded = async () => {
+    const btn = page.getByRole('button', { name: /Show map/ });
+    if (await btn.isVisible().catch(() => false)) await btn.click();
+  };
+  // Shown, the map overlay sits over the controls and catches their clicks,
+  // so anything that needs to click through (not just read a select, which
+  // works either way) closes it again first.
+  const closeMapIfOpen = async () => {
+    const btn = page.getByRole('button', { name: /Hide map/ });
+    if (await btn.isVisible().catch(() => false)) await btn.click();
+  };
+  await openMapIfFolded();
   await shot('06-attack-editor');
   step('attack editor opened');
 
@@ -214,6 +229,7 @@ fs.mkdirSync(out, { recursive: true });
     return box ? `${Math.round(box.width)}x${Math.round(box.height)}` : 'none';
   };
   step(`preview map ${await previewMapSize()}`);
+  await closeMapIfOpen();
 
   // Pick an option in the select whose placeholder is `placeholder`.
   const pick = async (placeholder, match) => {
@@ -273,9 +289,11 @@ fs.mkdirSync(out, { recursive: true });
   await buildAttack();
   await page.getByRole('button', { name: /\+ Wingman/ }).click();
   await page.getByRole('button', { name: 'Group', pressed: true }).waitFor({ timeout: 5000 });
+  await openMapIfFolded();
   step('strike opened on the Group tab');
   await page.waitForTimeout(800);
   await shot('10-strike-group');
+  await closeMapIfOpen();
   if (phone) {
     const controls = page.locator('.overflow-y-auto.overscroll-contain').last();
     const b = await controls.boundingBox();
@@ -293,9 +311,12 @@ fs.mkdirSync(out, { recursive: true });
   step(`${phone ? 'swiped' : 'tapped'} to jet #1: ${onJet1}`);
   await shot('11-strike-jet1');
   if (phone) {
+    // Option C keeps "Side view" folded away with the map itself.
+    await openMapIfFolded();
     await page.getByRole('button', { name: /Side view/ }).click();
     await page.waitForTimeout(300);
     await shot('12-side-view');
+    await closeMapIfOpen();
   }
   // The fixture's jets carry no loadout, so #2 has no weapon until one is picked.
   await page.getByRole('button', { name: /^#2 / }).click();

@@ -377,9 +377,17 @@ interface PhoneEditorLayoutProps {
  * In a strike, a sideways swipe over the controls moves to the next or
  * previous tab. A swipe that starts on a slider or a box is that control's,
  * and a mostly-vertical drag is a scroll, so neither changes jet.
+ *
+ * Held sideways there is so little height that the map and the controls
+ * can't both have a useful share of it, so landscape gives the controls the
+ * whole screen and folds the map behind a "Show map" toggle instead. The map
+ * itself stays mounted the whole time (just hidden), so Leaflet never has to
+ * rebuild — it only needs telling its box changed size (`ResizeWatcher` in
+ * `AttackPreviewMap` already does that off a `ResizeObserver`).
  */
 function PhoneEditorLayout({ map, readout, sideView, jetStrip, strikeReadout, controls, tabs, tab, onTab, actions }: PhoneEditorLayoutProps) {
   const [showSide, setShowSide] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -405,13 +413,29 @@ function PhoneEditorLayout({ map, readout, sideView, jetStrip, strikeReadout, co
     if (next >= 0 && next < tabs.length) onTab(tabs[next]);
   };
 
-  // Held sideways there is no height to stack in, so the same two halves sit
-  // side by side: the picture on the left, the controls on the right.
   return (
-    <div className="h-full flex flex-col landscape:flex-row">
-      {/* ── The attack, live ── */}
-      <div className="shrink-0 flex flex-col landscape:w-1/2 landscape:border-r border-gray-700">
-        <div className="shrink-0 h-[35dvh] min-h-[160px] landscape:h-auto landscape:min-h-0 landscape:flex-1 border-b border-gray-700">{map}</div>
+    <div className="h-full flex flex-col landscape:relative">
+      {/* Landscape only: the map's fold/unfold control, always reachable at
+          the top regardless of whether the map is currently showing. */}
+      <button
+        type="button"
+        onClick={() => setShowMap((v) => !v)}
+        className="hidden landscape:flex shrink-0 h-9 items-center justify-center gap-1 text-sm border-b border-gray-700 bg-dcs-navy text-gray-200"
+        aria-expanded={showMap}
+      >
+        {showMap ? '▴ Hide map' : '▾ Show map'}
+      </button>
+
+      {/* ── The attack, live: always on in portrait; in landscape it's
+          folded away by default and overlays back in over the controls. ── */}
+      <div
+        className={`shrink-0 flex flex-col border-gray-700 ${
+          showMap
+            ? 'landscape:absolute landscape:inset-x-0 landscape:top-9 landscape:z-[2000] landscape:max-h-[calc(100%-2.25rem)] landscape:overflow-y-auto landscape:bg-dcs-navy landscape:shadow-2xl'
+            : 'landscape:hidden'
+        }`}
+      >
+        <div className="shrink-0 h-[35dvh] min-h-[160px] landscape:h-[200px] border-b border-gray-700">{map}</div>
 
         <div className="shrink-0 flex items-center gap-2 pl-3 pr-2 py-1 border-b border-gray-700">
           <div className="flex-1 min-w-0">{readout ?? <span className="text-xs text-gray-500">No run-in yet</span>}</div>
