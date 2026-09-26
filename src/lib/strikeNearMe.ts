@@ -54,6 +54,62 @@ export function realWorldIpBearing(target: Coordinates, planner?: Coordinates): 
   return calculateBearing(planner, target);
 }
 
+/** A latitude and longitude, if both are numbers inside their ranges. */
+function point(lat: number, lon: number): Coordinates | null {
+  return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
+}
+
+/** One degrees[-minutes[-seconds]] value, without its hemisphere letter. */
+const DMS_VALUE = String.raw`(\d+(?:\.\d+)?)\s*°?\s*(?:(\d+(?:\.\d+)?)\s*['′]\s*(?:(\d+(?:\.\d+)?)\s*(?:["″]|'')?)?)?`;
+
+/** A hemisphere letter and the value it goes with, from a match's groups. */
+function dmsPart(hemi: string, deg: string, min?: string, sec?: string): { value: number; hemi: string } {
+  return { value: Number(deg) + Number(min ?? 0) / 60 + Number(sec ?? 0) / 3600, hemi: hemi.toUpperCase() };
+}
+
+/**
+ * A place typed or pasted in: "36.23, -115.03", the app's own DMS
+ * ("N 36°13'51.53" W 114°26'40.49""), or a Google Maps / OpenStreetMap link
+ * (they carry the position in the address). `null` when it isn't one.
+ * Read here, on the device; nothing is looked up anywhere.
+ */
+export function parseLocation(text: string): Coordinates | null {
+  const t = text.trim();
+  if (!t) return null;
+
+  // Map links: Google's "@lat,lon," / "q=lat,lon" / "ll=lat,lon", OSM's "mlat=..&mlon=.." or "#map=z/lat/lon".
+  const num = String.raw`(-?\d+(?:\.\d+)?)`;
+  for (const pattern of [
+    new RegExp(`@${num},${num}`),
+    new RegExp(`[?&](?:q|ll|query|center)=${num}(?:,|%2C)\\s*${num}`, 'i'),
+    new RegExp(`#map=\\d+(?:\\.\\d+)?/${num}/${num}`),
+  ]) {
+    const m = t.match(pattern);
+    if (m) return point(Number(m[1]), Number(m[2]));
+  }
+  const osm = t.match(new RegExp(`mlat=${num}.*mlon=${num}`));
+  if (osm) return point(Number(osm[1]), Number(osm[2]));
+
+  // Plain decimal degrees: "36.23, -115.03" or "36.23 -115.03".
+  const decimal = t.match(new RegExp(`^${num}\\s*[,;\\s]\\s*${num}$`));
+  if (decimal) return point(Number(decimal[1]), Number(decimal[2]));
+
+  // Degrees, minutes, seconds with hemisphere letters, all before ("N 36°…
+  // W 115°…", the app's own) or all after ("36°…N 115°…W").
+  const before = t.match(new RegExp(`^([NSEW])\\s*${DMS_VALUE}\\s*[,;]?\\s*([NSEW])\\s*${DMS_VALUE}$`, 'i'));
+  const after = t.match(new RegExp(`^${DMS_VALUE}\\s*([NSEW])\\s*[,;]?\\s*${DMS_VALUE}\\s*([NSEW])$`, 'i'));
+  const parts = before
+    ? [dmsPart(before[1], before[2], before[3], before[4]), dmsPart(before[5], before[6], before[7], before[8])]
+    : after
+      ? [dmsPart(after[4], after[1], after[2], after[3]), dmsPart(after[8], after[5], after[6], after[7])]
+      : null;
+  if (!parts) return null;
+  const lat = parts.find((p) => p.hemi === 'N' || p.hemi === 'S');
+  const lon = parts.find((p) => p.hemi === 'E' || p.hemi === 'W');
+  if (!lat || !lon) return null;
+  return point(lat.hemi === 'S' ? -lat.value : lat.value, lon.hemi === 'W' ? -lon.value : lon.value);
+}
+
 /** A new real-world mission: one IP, one target, a one-jet flight. */
 export function realWorldMission(strike: RealWorldStrike): Mission {
   const now = new Date().toISOString();

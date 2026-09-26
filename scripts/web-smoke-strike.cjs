@@ -45,6 +45,16 @@ const SYNTHETIC = { latitude: 10, longitude: 20, accuracy: 12 };
   await page.getByText(/Move the map to put the crosshair/).waitFor({ timeout: 15000 });
   step(`location found: ${(await page.getByText(/you are the blue dot/).innerText()).trim()}`);
   await page.waitForTimeout(800);
+  // Option D1-C adds a "Go to" box: typed coordinates move the crosshair there.
+  const goBox = page.getByRole('textbox', { name: 'Go to coordinates or a map link' });
+  if (await goBox.count()) {
+    await goBox.fill('my house');
+    await page.getByRole('button', { name: 'Go', exact: true }).click();
+    step(`"Go to" refuses words: ${await page.getByText('Not a place I can read').isVisible()}`);
+    await goBox.fill('https://www.openstreetmap.org/#map=17/10.001/20.002');
+    await page.getByRole('button', { name: 'Go', exact: true }).click();
+    await page.waitForTimeout(500);
+  }
   await shot('01-pick');
   await page.getByRole('button', { name: 'Set target here' }).click();
   step((await page.getByText(/^Target set at/).innerText()).replace(/\s*Move it$/, ''));

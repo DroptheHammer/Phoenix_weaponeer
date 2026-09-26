@@ -4,7 +4,7 @@ import { platform } from '@platform';
 import { Modal } from '../common/Modal';
 import { ZoomTimerGuard } from '../map/ZoomTimerGuard';
 import { OSM_TILE_URL } from '../../lib/kneeboardBasemap';
-import { REAL_WORLD_DEFAULT_WEAPON, realWorldMission } from '../../lib/strikeNearMe';
+import { parseLocation, REAL_WORLD_DEFAULT_WEAPON, realWorldMission } from '../../lib/strikeNearMe';
 import type { Coordinates, Mission } from '../../types';
 
 interface AircraftOption {
@@ -27,6 +27,15 @@ type Fix =
 const PICK_ZOOM = 17;
 /** The whole world, when there is no fix to centre on. */
 const WORLD = { center: { lat: 20, lon: 0 }, zoom: 2 };
+
+/** Centres the map on each place typed into the "Go to" box. */
+function GoTo({ place }: { place: { at: Coordinates; seq: number } | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (place) map.setView([place.at.lat, place.at.lon], PICK_ZOOM);
+  }, [place, map]);
+  return null;
+}
 
 /** Keeps the map's centre in `onMove`, and flies to the fix when it arrives. */
 function MapCentre({ fix, onMove }: { fix: Fix; onMove: (c: Coordinates) => void }) {
@@ -68,6 +77,16 @@ export function StrikeNearMe({ aircraft, onCreate, onClose }: StrikeNearMeProps)
   const [aircraftId, setAircraftId] = useState(() => aircraft.find((a) => a.id === 'f16c')?.id ?? aircraft[0]?.id ?? 'f16c');
   const [callsign, setCallsign] = useState('Viper 1-1');
   const [name, setName] = useState('Strike near me');
+  // The "Go to" box: coordinates or a pasted Google Maps / OpenStreetMap link.
+  const [placeText, setPlaceText] = useState('');
+  const [place, setPlace] = useState<{ at: Coordinates; seq: number } | null>(null);
+  const [placeError, setPlaceError] = useState(false);
+
+  const goTo = () => {
+    const at = parseLocation(placeText);
+    setPlaceError(at === null);
+    if (at) setPlace((prev) => ({ at, seq: (prev?.seq ?? 0) + 1 }));
+  };
 
   useEffect(() => {
     // The desktop app has no GPS, and asking its window for a location only
@@ -124,8 +143,35 @@ export function StrikeNearMe({ aircraft, onCreate, onClose }: StrikeNearMeProps)
               {fix.state === 'locating' && 'Finding where you are…'}
               {fix.state === 'found' &&
                 `Move the map to put the crosshair on your target (you are the blue dot, ±${Math.round(fix.accuracy_m)} m).`}
-              {fix.state === 'unavailable' && `${fix.reason} Pan and zoom the map to any spot in the world instead.`}
+              {fix.state === 'unavailable' &&
+                `${fix.reason} Pan and zoom the map to any spot in the world, or type where below.`}
             </p>
+            <form
+              className="shrink-0 flex gap-2 px-4 pb-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                goTo();
+              }}
+            >
+              <input
+                value={placeText}
+                onChange={(e) => {
+                  setPlaceText(e.target.value);
+                  setPlaceError(false);
+                }}
+                placeholder="Coordinates, or paste a map link"
+                aria-label="Go to coordinates or a map link"
+                className="flex-1 min-w-0 bg-gray-700 text-white px-3 py-2 rounded border border-gray-600"
+              />
+              <button type="submit" className="min-h-[44px] px-4 rounded bg-dcs-blue hover:bg-blue-600 text-white">
+                Go
+              </button>
+            </form>
+            {placeError && (
+              <p className="shrink-0 px-4 pb-2 text-xs text-red-300">
+                Not a place I can read. Try 36.23, -115.03 or a Google Maps or OpenStreetMap link.
+              </p>
+            )}
             <div className="relative flex-1 min-h-[240px]">
               <MapContainer
                 center={[WORLD.center.lat, WORLD.center.lon]}
@@ -142,6 +188,7 @@ export function StrikeNearMe({ aircraft, onCreate, onClose }: StrikeNearMeProps)
                   />
                 )}
                 <MapCentre fix={fix} onMove={setCentre} />
+                <GoTo place={place} />
                 <ZoomTimerGuard />
               </MapContainer>
               {/* The crosshair is fixed; the map moves under it, so a finger never hides the point. */}

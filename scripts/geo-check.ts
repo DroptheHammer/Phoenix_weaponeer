@@ -26,7 +26,7 @@ import {
 import { describeRunIn } from '../src/lib/runIn';
 import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
-import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, isRealWorld } from '../src/lib/strikeNearMe';
+import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, isRealWorld, parseLocation } from '../src/lib/strikeNearMe';
 import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
@@ -1596,4 +1596,22 @@ ok('validateMission: a non-numeric TOT offset is refused',
   } as never);
   ok('strike near me: an attack auto-builds with nothing but the IP, the target and the default loadout',
      built.attack != null, built.problems.join('; '));
+}
+
+// ─── Strike near me: typed coordinates and pasted map links ──────────────────
+// Synthetic points only.
+{
+  const near = (p: { lat: number; lon: number } | null, lat: number, lon: number) =>
+    p !== null && Math.abs(p.lat - lat) < 1e-4 && Math.abs(p.lon - lon) < 1e-4;
+  ok('parseLocation: decimal "10.5, -20.25"', near(parseLocation('10.5, -20.25'), 10.5, -20.25));
+  ok('parseLocation: decimal with a space', near(parseLocation(' 10.5 -20.25 '), 10.5, -20.25));
+  ok('parseLocation: the app\'s own DMS', near(parseLocation(`N 10°30'00.00" W 020°15'00.00"`), 10.5, -20.25));
+  ok('parseLocation: DMS with letters after', near(parseLocation(`10°30'0"N 20°15'0"W`), 10.5, -20.25));
+  ok('parseLocation: a Google Maps link', near(parseLocation('https://www.google.com/maps/@10.5,-20.25,17z'), 10.5, -20.25));
+  ok('parseLocation: a Google search link', near(parseLocation('https://maps.google.com/?q=10.5,-20.25'), 10.5, -20.25));
+  ok('parseLocation: an OpenStreetMap link', near(parseLocation('https://www.openstreetmap.org/#map=17/10.5/-20.25'), 10.5, -20.25));
+  ok('parseLocation: an OSM marker link', near(parseLocation('https://www.openstreetmap.org/?mlat=10.5&mlon=-20.25'), 10.5, -20.25));
+  ok('parseLocation: out of range is refused', parseLocation('95, 20') === null && parseLocation('10, 200') === null);
+  ok('parseLocation: words are refused', parseLocation('my house') === null && parseLocation('') === null);
+  ok('parseLocation: two latitudes are refused', parseLocation(`N 10°30' N 20°15'`) === null);
 }
