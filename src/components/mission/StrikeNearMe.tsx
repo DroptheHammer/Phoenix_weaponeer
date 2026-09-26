@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CircleMarker, MapContainer, TileLayer, useMap } from 'react-leaflet';
+import { platform } from '@platform';
 import { Modal } from '../common/Modal';
 import { ZoomTimerGuard } from '../map/ZoomTimerGuard';
 import { OSM_TILE_URL } from '../../lib/kneeboardBasemap';
@@ -69,6 +70,12 @@ export function StrikeNearMe({ aircraft, onCreate, onClose }: StrikeNearMeProps)
   const [name, setName] = useState('Strike near me');
 
   useEffect(() => {
+    // The desktop app has no GPS, and asking its window for a location only
+    // produces a permission prompt with nothing behind it.
+    if (!platform.isWeb) {
+      setFix({ state: 'unavailable', reason: 'The desktop app has no GPS.' });
+      return;
+    }
     if (!('geolocation' in navigator)) {
       setFix({ state: 'unavailable', reason: 'This browser cannot find your location.' });
       return;
@@ -117,7 +124,7 @@ export function StrikeNearMe({ aircraft, onCreate, onClose }: StrikeNearMeProps)
               {fix.state === 'locating' && 'Finding where you are…'}
               {fix.state === 'found' &&
                 `Move the map to put the crosshair on your target (you are the blue dot, ±${Math.round(fix.accuracy_m)} m).`}
-              {fix.state === 'unavailable' && `${fix.reason} Move the map to any spot in the world instead.`}
+              {fix.state === 'unavailable' && `${fix.reason} Pan and zoom the map to any spot in the world instead.`}
             </p>
             <div className="relative flex-1 min-h-[240px]">
               <MapContainer

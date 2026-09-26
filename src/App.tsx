@@ -45,10 +45,11 @@ interface Aircraft {
 type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
 /**
- * "Strike near me" needs the phone's GPS, so it is a web-build feature; the
- * desktop app, with no GPS and a squadron's real missions, leaves it out.
+ * "Strike near me" everywhere. The web build starts from the phone's GPS;
+ * the desktop app has none, so it opens on the world and the planner pans
+ * and zooms to any spot.
  */
-const STRIKE_NEAR_ME_AVAILABLE = platform.isWeb;
+const STRIKE_NEAR_ME_AVAILABLE = true;
 
 const toolbarButton =
   'px-3 py-1.5 rounded-lg text-sm font-medium bg-dcs-blue hover:bg-blue-600 transition-colors';
