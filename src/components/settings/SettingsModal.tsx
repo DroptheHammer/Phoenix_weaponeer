@@ -3,6 +3,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useMissionStore } from '../../stores/missionStore';
 import { useUiStore } from '../../stores/uiStore';
 import { hiddenCounts } from '../../lib/threatVisibility';
+import { platform } from '@platform';
 import { chooseKneeboardFolder, folderStillThere } from '../../lib/dcsExport';
 import type { AircraftFolderInfo } from '../../lib/kneeboardExportPlan';
 
@@ -78,6 +79,9 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
         </div>
 
         <div className="flex-1 overflow-auto p-4 space-y-3">
+          {/* The browser has no DCS install, so no folders to choose. */}
+          {!platform.isWeb && (
+          <>
           <div>
             <h3 className="font-medium text-dcs-accent">DCS kneeboard folders</h3>
             <p className="text-xs text-gray-400 mt-1">
@@ -128,8 +132,14 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
               );
             })}
           </div>
+          </>
+          )}
 
-          <div className="pt-3 mt-3 border-t border-gray-700">
+          {platform.isWeb && (warning || error) && (
+            <div className="text-xs rounded p-2 bg-red-900 text-red-200 font-mono">{error ?? warning}</div>
+          )}
+
+          <div className={platform.isWeb ? '' : 'pt-3 mt-3 border-t border-gray-700'}>
             <button
               onClick={() => setShowAdmin((open) => !open)}
               className="text-sm text-gray-400 hover:text-white"

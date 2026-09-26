@@ -23,9 +23,12 @@
     /* Paths */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@platform": ["src/lib/platform/desktop.ts"]
     }
   },
   "include": ["src"],
+  /* The web platform needs the generated WebAssembly bindings; tsconfig.web.json checks it. */
+  "exclude": ["src/lib/platform/web.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

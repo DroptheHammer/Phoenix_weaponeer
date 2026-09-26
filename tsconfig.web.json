@@ -1,0 +1,13 @@
+{
+  // The web build: as tsconfig.json, but `@platform` is the browser platform.
+  // Needs `npm run build:wasm` first, for src/generated/weaponeer-wasm.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["src/*"],
+      "@platform": ["src/lib/platform/web.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": []
+}

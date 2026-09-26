@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { platform } from '@platform';
 import type { LoadoutItem } from '../../types';
 
 interface DbWeapon {
@@ -32,7 +32,7 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
   );
 
   useEffect(() => {
-    invoke<DbWeapon[]>('get_all_weapons').then(setWeapons).catch(console.error);
+    platform.call<DbWeapon[]>('get_all_weapons').then(setWeapons).catch(console.error);
   }, []);
 
   const handleWeaponChange = (index: number, value: string) => {

@@ -153,6 +153,12 @@ pub fn link_unreachable_error() -> String {
     fragorders_link::UNREACHABLE.to_string()
 }
 
+/// The words for a fetch that timed out.
+#[wasm_bindgen]
+pub fn link_too_slow_error() -> String {
+    fragorders_link::TOO_SLOW.to_string()
+}
+
 /// The words for an answer larger than any real mission.
 #[wasm_bindgen]
 pub fn link_too_large_error() -> String {

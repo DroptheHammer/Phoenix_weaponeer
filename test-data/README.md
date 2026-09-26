@@ -16,7 +16,7 @@ missions and captured FragOrders link payloads can carry an author's hidden
 threat laydown, so they never go to the public repo. That covers
 `nttr_redflag_viper1.json`, `sinai_m01_v6.json`, `sinai_m01_v7.json` and
 `fragorders-links/`. Tests that need one of them load it at run time
-(`private_fixture!` in `src-tauri/src/lib.rs`) and print "skipped" when it is
+(`private_fixture!` in `crates/core/src/lib.rs`) and print "skipped" when it is
 missing, so the suite still passes on a fresh clone. To run them in full, copy
 the folder over from a machine that has it. The private archive repo
 (`Phoenix_weaponeer-archive`) has them too.
@@ -176,6 +176,19 @@ matches nothing.
 Retiring a `verified: false` flag needs the opposite of this file: real
 ground-truth pairs (DCS x/y and lat/lon) from a mission on that map — the method
 below is how Sinai's was retired.
+
+### `nevada_SYNTHETIC_link_payload.json` — ⚠️ SYNTHETIC, FLOW CHECK ONLY
+
+Hand-built in the shape of a FragOrders **public-link payload** (`TaskingState`:
+`plannedGroups` / `opforVehicles`), for driving the web build end to end in a
+browser without a real mission (see `docs/MOBILE_WEB_PLAN.md`). Safe to commit:
+the flight, units and names are made up. One F-16C two-ship (`Viper 1`) with a
+Nellis ramp start, ALAMO, IP, TGT1 and a landing, plus an SA-6 site and a
+Shilka near TGT1.
+
+The route reuses the Nevada landmark x/y from `test_dcs_to_latlon_nevada_landmarks`,
+so the waypoints land on real places, but the threats are invented positions. It
+proves the import *flow*, not any projection.
 
 ## Sinai: how the projection was verified
 

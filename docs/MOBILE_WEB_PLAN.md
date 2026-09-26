@@ -253,6 +253,91 @@ today's desktop layout from the web build.
 
 ## Handoff log (newest first; keep this current)
 
+### 2026-09-26 (night): M1 done, the web build runs the whole app
+
+- **M1c done:**
+  - `src/lib/platform/` holds `types.ts`, `desktop.ts` (every Tauri call now lives here) and
+    `web.ts` (WASM plus the browser).
+  - Every former `invoke` site uses `import { platform } from '@platform'`. The files:
+    `App.tsx`, `missionFile.ts`, `dcsExport.ts`, `settingsStore`, `theaterStore`,
+    `profileStore`, `LoadoutEditor`, `FragOrdersImport`, `KneeboardPreview`, `SettingsModal`.
+  - `useTauriCommand.ts` is deleted.
+  - Web-only hiding: the Quit button, 🎯 Export to DCS and the per-aircraft folder rows, and
+    the Settings → DCS kneeboard folders section. "Export" reads "Download" on the web.
+- **Web build:**
+  - `npm run build:web` runs `build:wasm`, then `tsc -p tsconfig.web.json`, then
+    `vite build --config vite.config.web.ts`, writing `dist-web/`.
+  - `npm run dev:web` serves on port 1421.
+  - The PWA comes from `vite-plugin-pwa`: manifest, service worker (autoUpdate), offline
+    precache of the app and the `.wasm`, and a 7-day OSM tile cache.
+  - Icons are emitted from `src-tauri/icons`; none are copied into the repo.
+  - Phone meta tags (`viewport-fit=cover`, theme colour, apple-touch-icon) are injected into
+    the web `index.html` only.
+- **Verified:**
+  - `scripts/web-smoke.cjs` (Playwright, synthetic `test-data/nevada_SYNTHETIC_link_payload.json`)
+    passes on a desktop-size viewport: import JSON → preview → mission on the map → threats
+    (Kub and Shilka mapped) → Save As downloads the `.json` → Close → Open that file back →
+    Attack editor opens.
+  - No page errors. The only failed requests are OSM tiles, which the cloud sandbox's browser
+    can't reach.
+  - Gates: core 95, desktop 21, wasm 3, geo-check 312, and both `tsc` configs and both
+    builds are clean.
+- **Not yet checked:**
+  - The desktop app run by hand (the Tauri UI). The code path is the same `invoke` calls,
+    moved into `desktop.ts`. Worth a quick click-through on the Mac: Open, Save, Import URL,
+    Export, Export to DCS, Quit guard.
+  - A real FragOrders link from a browser (the CloudFront CORS question). Try one in
+    `npm run dev:web` on the Mac.
+- **Next action: M2 (phone shell).** Start with `src/hooks/useIsPhone.ts` and
+  `src/components/phone/PhoneShell.tsx`, following Part B. Check against the real layout with
+  `scripts/web-smoke.cjs` at 390×844, and extend the script as the phone UI grows.
+
+### 2026-09-26 (evening): M1b done, M1c in progress
+
+- **M1b done:** commits `98b4865` (the core split, SQLite dropped) and `5ba396d` (`crates/wasm`).
+  - `crates/core` (`weaponeer-core`) holds:
+    - `parsers/`
+    - `import.rs` (`import_json`, `import_link`, `process_*`)
+    - `refdata.rs` (`reference()`, from `data/reference.json`; all 51 query answers checked
+      identical to SQLite's)
+    - `profiles.rs` (`load_all(Vec<UserFile>)`)
+    - `mission.rs`
+    - `theaters.rs`
+    - `fragorders_link.rs` (checks and parsing, plus shared error wording)
+  - `src-tauri` keeps `commands/mod.rs` (files, settings, lifecycle), `link_fetch.rs` (ureq)
+    and `settings.rs`.
+  - `crates/wasm` mirrors each core command as a `#[wasm_bindgen]` fn that returns JSON text.
+    `npm run build:wasm` writes `src/generated/weaponeer-wasm/` (git-ignored).
+  - Tests: core 95, desktop 21 (+1 ignored), wasm 3, geo-check 312.
+  - **Gates now:**
+    - `cargo test --manifest-path crates/core/Cargo.toml`
+    - `cargo test --manifest-path src-tauri/Cargo.toml`
+    - `cargo test --manifest-path crates/wasm/Cargo.toml`
+    - `npm run geo-check`
+    - `npm run build`
+  - Tooling for the web build: `rustup target add wasm32-unknown-unknown` and
+    `cargo install wasm-bindgen-cli --version 0.2.129 --locked` (it must match the
+    `=0.2.129` pin in `crates/wasm/Cargo.toml`).
+- **M1c design (in progress):**
+  - The `src/lib/platform/` interface (`types.ts`) has two implementations, `desktop.ts`
+    (Tauri) and `web.ts` (WASM plus browser APIs).
+  - Import it as `@platform`. `tsconfig.json` and `vite.config.ts` map it to `desktop.ts`;
+    `tsconfig.web.json` and `vite.config.web.ts` map it to `web.ts`.
+  - `tsconfig.json` excludes `web.ts` so the desktop build never needs the generated bindings.
+  - The interface covers:
+    - `call(command, args)` for the 10 core commands
+    - settings
+    - mission file choose/read/write
+    - card save/folder/write
+    - DCS folder helpers
+    - `quit` and `guardClose`
+  - **Web behaviour for M1c (improved in M2 and M4):**
+    - Save downloads the `.json`, and Open uses a file input.
+    - Cards download.
+    - Settings are in `localStorage`, and the recent list is empty on the web.
+    - The close guard is the browser's own `beforeunload` prompt.
+    - Quit and the DCS folder buttons are hidden.
+
 Update this section at every checkpoint: after each sub-step, before a context clear, and at
 session end. Each entry gives the state and the **exact next action**.
 

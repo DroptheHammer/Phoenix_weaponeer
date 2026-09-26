@@ -1,7 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { platform } from "@platform";
 import { useMissionStore } from "./stores/missionStore";
 import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
 import { useProfileStore } from "./stores/profileStore";
@@ -91,70 +89,27 @@ function App() {
     action();
   };
 
-  // Closing the window — the X, or Alt+F4 on Windows — is the easiest way of
-  // all to lose an hour of planning, so it gets the same guard. The listener
-  // outlives this render, so it reads the store rather than the closure.
-  // Needs `core:window:allow-destroy` in capabilities/default.json: once a
-  // close listener exists, the window only closes when we destroy it.
-  useEffect(() => {
-    const appWindow = getCurrentWindow();
-    let unlisten: (() => void) | undefined;
-    let disposed = false;
-    appWindow
-      .onCloseRequested((event) => {
-        const { mission: current, isDirty: dirty } = useMissionStore.getState();
-        if (!current || !dirty) return; // not prevented, so Tauri closes the window
-        event.preventDefault();
-        setPendingAction({
-          label: 'quit',
-          run: () => {
-            appWindow.destroy().catch((e) => setFileMsg(`Error: could not close the window: ${String(e)}`));
-          },
-        });
-      })
-      .then((stop) => {
-        if (disposed) stop();
-        else unlisten = stop;
-      })
-      .catch((e) => console.warn('Close guard unavailable:', e));
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  // Cmd+Q / Dock "Quit" on macOS is an app-level exit request, not a window
-  // close — `onCloseRequested` above never sees it, which is how it used to
-  // bypass the unsaved-changes guard entirely. `lib.rs` intercepts that exit
-  // request and emits this event instead of letting the app quit; once the
-  // planner has answered (or there was nothing to save), `exit_app` actually
-  // terminates the process.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let disposed = false;
-    listen('quit-requested', () => {
-      const { mission: current, isDirty: dirty } = useMissionStore.getState();
-      if (!current || !dirty) {
-        void invoke('exit_app');
-        return;
-      }
-      setPendingAction({
-        label: 'quit',
-        run: () => {
-          void invoke('exit_app');
+  // Closing the window — the X, Alt+F4, Cmd+Q, or closing the browser tab — is
+  // the easiest way of all to lose an hour of planning, so it gets the same
+  // guard (see `guardClose` in src/lib/platform). The check runs at the moment
+  // of closing, so it reads the store rather than this render's closure.
+  useEffect(
+    () =>
+      platform.guardClose(
+        () => {
+          const { mission: current, isDirty: dirty } = useMissionStore.getState();
+          return Boolean(current && dirty);
         },
-      });
-    })
-      .then((stop) => {
-        if (disposed) stop();
-        else unlisten = stop;
-      })
-      .catch((e) => console.warn('Quit guard unavailable:', e));
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
+        (finish) =>
+          setPendingAction({
+            label: 'quit',
+            run: () => {
+              finish().catch((e) => setFileMsg(`Error: could not close the window: ${String(e)}`));
+            },
+          }),
+      ),
+    [],
+  );
 
   const reportFileResult = (result: FileResult, verb: string) => {
     if (result.status === 'ok') {
@@ -244,9 +199,9 @@ function App() {
     async function loadDatabaseData() {
       try {
         const [threatData, aircraftData, weaponData] = await Promise.all([
-          invoke<ThreatSystem[]>("get_all_threats"),
-          invoke<Aircraft[]>("get_all_aircraft"),
-          invoke<DbWeapon[]>("get_all_weapons"),
+          platform.call<ThreatSystem[]>("get_all_threats"),
+          platform.call<Aircraft[]>("get_all_aircraft"),
+          platform.call<DbWeapon[]>("get_all_weapons"),
           loadTheaters(),
           loadProfiles(),
           // Never throws: a settings problem is shown in Settings, not here.
@@ -261,7 +216,7 @@ function App() {
         await Promise.all(
           weaponData.map(async (weapon) => {
             try {
-              const fuzes = await invoke<FuzeOption[]>("get_fuze_options", { weaponId: weapon.id });
+              const fuzes = await platform.call<FuzeOption[]>("get_fuze_options", { weaponId: weapon.id });
               if (fuzes.length > 0) {
                 fuzeMap.set(weapon.id, fuzes);
               }
@@ -363,15 +318,18 @@ function App() {
             {/*
               Full screen on macOS hides the window's own buttons, and not every
               pilot knows Cmd+Q. `exit_app` quits outright (lib.rs lets it
-              through), so the unsaved-changes guard runs here first.
+              through), so the unsaved-changes guard runs here first. A web
+              page is closed like any other tab.
             */}
-            <button
-              onClick={() => guardUnsaved('quit', () => void invoke('exit_app'))}
-              className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-300 border border-gray-600 hover:bg-gray-700 hover:text-white transition-colors"
-              title="Quit Phoenix Weaponeer"
-            >
-              Quit
-            </button>
+            {!platform.isWeb && (
+              <button
+                onClick={() => guardUnsaved('quit', () => platform.quit())}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-300 border border-gray-600 hover:bg-gray-700 hover:text-white transition-colors"
+                title="Quit Phoenix Weaponeer"
+              >
+                Quit
+              </button>
+            )}
           </div>
         </div>
       </header>

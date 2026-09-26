@@ -76,7 +76,9 @@ separately.
 
 1. **Pull and check the tree is clean:** `git pull origin main`, `git status`.
 2. **Run the gates:** `npm run geo-check`, `cargo test --manifest-path
-   src-tauri/Cargo.toml`, `npm run build`. All must pass. Stop and report if not.
+   crates/core/Cargo.toml`, `cargo test --manifest-path src-tauri/Cargo.toml`,
+   `npm run build`. All must pass. Stop and report if not. (The shared Rust
+   core lives in `crates/core` since 2026-09-26; `src-tauri` is the desktop shell.)
 3. **Bump the version** in all three: `package.json`, `src-tauri/Cargo.toml`,
    `src-tauri/tauri.conf.json`, plus the two top `version` lines of
    `package-lock.json`. Then `cargo build` so `Cargo.lock` follows.

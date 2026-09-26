@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { platform } from '@platform';
 import type { FragOrdersData } from '../../types';
 import { FragOrdersPreview } from './FragOrdersPreview';
 
@@ -31,7 +31,7 @@ export function FragOrdersImport({ onClose, onImport }: FragOrdersImportProps) {
     try {
       // The backend checks the link and says in plain words what's wrong
       // with it, so there's no second copy of that rule here.
-      const data = await invoke<FragOrdersData>('fetch_fragorders_url', { url: urlInput });
+      const data = await platform.call<FragOrdersData>('fetch_fragorders_url', { url: urlInput });
       setParsedData(data);
     } catch (e) {
       setError(String(e));
@@ -50,7 +50,7 @@ export function FragOrdersImport({ onClose, onImport }: FragOrdersImportProps) {
     setError(null);
 
     try {
-      const data = await invoke<FragOrdersData>('parse_fragorders_json', {
+      const data = await platform.call<FragOrdersData>('parse_fragorders_json', {
         jsonStr: jsonInput,
       });
       setParsedData(data);

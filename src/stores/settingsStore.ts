@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
-import type { Settings, SettingsLoad } from '../types/settings.types';
+import { platform } from '@platform';
+import type { Settings } from '../types/settings.types';
 import { useUiStore } from './uiStore';
 
 interface SettingsState {
@@ -23,10 +23,11 @@ interface SettingsState {
 }
 
 /**
- * App settings, fetched once at startup. The Rust side (`src-tauri/src/settings.rs`)
- * owns the file; every change round-trips through it and the store keeps what
- * was actually saved. A settings problem never stops the app — it lands in
- * `warning` instead.
+ * App settings, fetched once at startup. On the desktop the Rust side
+ * (`src-tauri/src/settings.rs`) owns the file; in the browser it is this
+ * browser's storage. Every change round-trips through the platform and the
+ * store keeps what was actually saved. A settings problem never stops the
+ * app — it lands in `warning` instead.
  */
 export const useSettingsStore = create<SettingsState>((set) => ({
   settings: { kneeboardFolders: {}, kneeboardMap: true, recentMissions: [] },
@@ -35,7 +36,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   loadSettings: async () => {
     try {
-      const load = await invoke<SettingsLoad>('get_settings');
+      const load = await platform.getSettings();
       set({ settings: load.settings, warning: load.warning, loaded: true });
       useUiStore.getState().setKneeboardMap(load.settings.kneeboardMap);
     } catch (error) {
@@ -44,7 +45,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   setKneeboardFolder: async (aircraftId, folder) => {
-    const settings = await invoke<Settings>('set_kneeboard_folder', { aircraftId, folder });
+    const settings = await platform.setKneeboardFolder(aircraftId, folder);
     set({ settings, warning: null });
   },
 
@@ -52,7 +53,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     // The switch works at once either way; only remembering it can fail.
     useUiStore.getState().setKneeboardMap(on);
     try {
-      const settings = await invoke<Settings>('set_kneeboard_map', { on });
+      const settings = await platform.setKneeboardMap(on);
       set({ settings, warning: null });
     } catch (error) {
       set({ warning: `The map setting could not be saved: ${String(error)}` });
@@ -61,7 +62,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   rememberRecentMission: async (path) => {
     try {
-      set({ settings: await invoke<Settings>('remember_recent_mission', { path }) });
+      set({ settings: await platform.rememberRecentMission(path) });
     } catch (error) {
       console.warn('Recent missions not updated:', error);
     }
@@ -69,7 +70,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   forgetRecentMission: async (path) => {
     try {
-      set({ settings: await invoke<Settings>('forget_recent_mission', { path }) });
+      set({ settings: await platform.forgetRecentMission(path) });
     } catch (error) {
       console.warn('Recent missions not updated:', error);
     }
