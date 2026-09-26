@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CircleMarker, MapContainer, TileLayer, useMap } from 'react-leaflet';
 import { Modal } from '../common/Modal';
+import { ZoomTimerGuard } from '../map/ZoomTimerGuard';
 import { OSM_TILE_URL } from '../../lib/kneeboardBasemap';
 import { REAL_WORLD_DEFAULT_WEAPON, realWorldMission } from '../../lib/strikeNearMe';
 import type { Coordinates, Mission } from '../../types';
@@ -134,6 +135,7 @@ export function StrikeNearMe({ aircraft, onCreate, onClose }: StrikeNearMeProps)
                   />
                 )}
                 <MapCentre fix={fix} onMove={setCentre} />
+                <ZoomTimerGuard />
               </MapContainer>
               {/* The crosshair is fixed; the map moves under it, so a finger never hides the point. */}
               <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center">

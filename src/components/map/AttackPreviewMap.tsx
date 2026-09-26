@@ -15,6 +15,7 @@ import { CustomIpMarker } from './CustomIpMarker';
 import { PlacedLabelsOverlay } from './PlacedLabelsOverlay';
 import { MARKER_Z } from './mapLayers';
 import { CrosshairPick } from './CrosshairPick';
+import { ZoomTimerGuard } from './ZoomTimerGuard';
 import { useIsPhone } from '../../hooks/useIsPhone';
 
 /** One jet's attack as it would save right now. */
@@ -231,6 +232,7 @@ export function AttackPreviewMap({
             onRequestMove={isPhone ? () => setMoving(true) : undefined}
           />
         )}
+        <ZoomTimerGuard />
       </MapContainer>
 
       <PlacedLabelsOverlay labels={placedLabels} />

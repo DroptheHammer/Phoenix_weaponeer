@@ -20,6 +20,7 @@ import { applyDisplayFilter } from '../../lib/displayFilter';
 import { useUiStore } from '../../stores/uiStore';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { CrosshairPick } from './CrosshairPick';
+import { ZoomTimerGuard } from './ZoomTimerGuard';
 
 interface ThreatSystem {
   id: string;
@@ -618,6 +619,7 @@ export function MapView({
             </Fragment>
           );
         })}
+        <ZoomTimerGuard />
       </MapContainer>
 
       {/* Attack-picture labels, laid out collision-aware over every visible attack. */}

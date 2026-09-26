@@ -134,6 +134,9 @@ fs.mkdirSync(out, { recursive: true });
     await shot('04c-threat-popup');
     await page.getByRole('button', { name: 'Move', exact: true }).click();
     await page.getByRole('button', { name: 'Move here' }).waitFor({ timeout: 5000 });
+    // Move first pans the map onto the threat; a drag during that animation
+    // is overridden by it, as it would be for a person.
+    await page.waitForTimeout(800);
     await panMap(90, 60);
     await page.getByRole('button', { name: 'Move here' }).click();
     await page.getByRole('button', { name: /^Threats/ }).click();
@@ -176,10 +179,8 @@ fs.mkdirSync(out, { recursive: true });
   await page.getByRole('button', { name: new RegExp(savedJson.name) }).first().click();
   await page.getByRole('button', { name: /^Threats/ }).waitFor({ timeout: 10000 });
   step('reopened from My missions');
-  // Give the map's opening zoom time to end. Closing mid-zoom removes the map
-  // while Leaflet's 250 ms zoom-end timer is still pending, and that timer
-  // throws `_leaflet_pos` (a MapView issue on its own; no person closes that fast).
-  await page.waitForTimeout(1000);
+  // Closed at once on purpose: closing mid-zoom used to throw `_leaflet_pos`
+  // from Leaflet's zoom-end timer (fixed by map/ZoomTimerGuard).
   await fileAction('Close', 'Close mission');
 
   await page.getByRole('button', { name: 'Open .json File' }).waitFor();
