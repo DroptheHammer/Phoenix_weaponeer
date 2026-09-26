@@ -34,12 +34,20 @@ export function strikeOf(mission: Mission, strikeId: string | undefined): Strike
   return strikeId ? mission.strikes?.find((s) => s.id === strikeId) : undefined;
 }
 
-/** The strike's attacks, lead first: by the attacker's flight position, then by sequence. */
+/**
+ * The strike's attacks, lead first. The lead is the jet first on target, not
+ * the lowest flight number: swapping the pilot on the lead's jet must not hand
+ * the lead (and the T+0 every offset counts from) to another jet. Ties go by
+ * flight position, then sequence.
+ */
 export function strikeMembers(mission: Mission, strikeId: string): Attack[] {
   const position = (a: Attack) => mission.flightMembers.find((m) => m.id === a.attackerId)?.position ?? 9;
   return mission.attacks
     .filter((a) => a.strikeId === strikeId)
-    .sort((a, b) => position(a) - position(b) || a.sequenceNumber - b.sequenceNumber);
+    .sort(
+      (a, b) =>
+        (a.totOffset_s ?? 0) - (b.totOffset_s ?? 0) || position(a) - position(b) || a.sequenceNumber - b.sequenceNumber,
+    );
 }
 
 /**

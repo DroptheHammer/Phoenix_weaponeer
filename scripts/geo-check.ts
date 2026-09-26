@@ -40,7 +40,7 @@ import { draftFromAttack, resolveDraft, draftAttackData } from '../src/lib/attac
 import { newJet, assignFlanks, respace, groupEdit } from '../src/lib/strikeDraft';
 import {
   applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
-  fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo,
+  fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot,
 } from '../src/lib/strike';
 import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
@@ -1430,6 +1430,25 @@ ok('saveStrike: three members, lead first, offsets 0/30/60',
    strikeMembers(saved3, sId).map((a) => `${a.attackerId}@${a.totOffset_s}`).join() === 'p1@0,p2@30,p3@60',
    strikeMembers(saved3, sId).map((a) => `${a.attackerId}@${a.totOffset_s}`).join());
 ok('saveStrike: members get distinct sequence numbers', new Set(saved3.attacks.map((a) => a.sequenceNumber)).size === 3);
+
+// A pilot swap on the lead's jet: Viper 1-4 takes over the T+0 slot. The jet
+// first on target is still the lead after reopening, not whoever has the
+// lowest flight number.
+const v14 = { ...pilot, id: 'p4', callsign: 'Viper 1-4', position: 4 };
+const leadAttackId = strikeMembers(saved3, sId)[0].id;
+const swapped = {
+  ...saved3,
+  flightMembers: [...saved3.flightMembers, v14],
+  attacks: saved3.attacks.map((a) => (a.id === leadAttackId ? { ...a, attackerId: v14.id } : a)),
+};
+const swappedOrder = strikeMembers(swapped, sId).map((a) => `${a.attackerId}@${a.totOffset_s}`).join();
+ok('strike order: after a pilot swap, the jet first on target still leads (p4@0,p2@30,p3@60)',
+   swappedOrder === 'p4@0,p2@30,p3@60', swappedOrder);
+ok('strike order: re-basing after a pilot swap moves nobody\'s time',
+   strikeMembers(rebaseTot(swapped, sId), sId).map((a) => a.totOffset_s).join() === '0,30,60');
+const tied = { ...swapped, attacks: swapped.attacks.map((a) => (a.strikeId === sId ? { ...a, totOffset_s: 0 } : a)) };
+ok('strike order: jets on the same time fall back to flight position',
+   strikeMembers(tied, sId).map((a) => a.attackerId).join() === 'p2,p3,p4', strikeMembers(tied, sId).map((a) => a.attackerId).join());
 
 const sharedPt = calculateDestination(tgt, 300, 12);
 const withIp = applyStrikeIp(saved3, sId, { customIp: sharedPt });
