@@ -219,7 +219,8 @@ not here — this section is a snapshot for resuming work, not a journal.
   gives `http://` links and the importer took only `https://`. Fixed in
   `fragorders_link.rs` (only the id is used; every fetch stays HTTPS);
   checked on screen by the user with several links. The issue closed itself
-  on push. The reply to the reporter was drafted but **not posted** — ask.
+  on push. A reply pointing at v0.3.1 was posted on the issue with the
+  user's approval.
 - **Shipped in 0.3.1:**
   - Quit button in the header.
   - **Strike lead = jet first on target**: `strikeMembers` sorts by TOT
