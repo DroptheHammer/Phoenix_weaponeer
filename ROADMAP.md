@@ -64,23 +64,24 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 
 ---
 
-## In progress — v0.3.1
+## In progress
 
-- [x] FragOrders `http://` share links accepted (GitHub issue #1)
-- [x] Quit button in the header
-- [x] Old planning docs archived; this roadmap rewritten
-- [x] Strike jet order: the jet first on target stays the lead when the strike
-      is reopened. This also fixed removing a jet after a pilot swap shifting
-      every time over target by 30 s.
-- [x] Card "Map background" switch remembered between launches
-- [x] Recent missions on the front page
-- [x] Strafe and rocket attacks can be chosen: named guns and rockets per
-      aircraft (DB v4). A rocket pass no longer shows the Mk-82 sight setting.
-- [ ] On-screen check by the user, then release
+Nothing yet. Pick from Open above.
 
 ---
 
 ## Shipped
+
+### v0.3.1 — 2026-09-26
+- FragOrders `http://` share links accepted (GitHub issue #1).
+- **Strafe and rocket attacks** can be chosen: named guns and rockets per
+  aircraft (DB v4). A rocket pass no longer shows the Mk-82 sight setting.
+- **Strike lead is the jet first on target.** This also fixed removing a jet
+  after a pilot swap shifting every time over target by 30 s.
+- Recent missions on the front page.
+- Card "Map background" switch remembered between launches.
+- Quit button in the header.
+- Old planning docs archived; this roadmap rewritten as the single list.
 
 ### v0.3.0 — 2026-09-24
 - **Live-geometry Customize:** full-screen editor with a slider and number box

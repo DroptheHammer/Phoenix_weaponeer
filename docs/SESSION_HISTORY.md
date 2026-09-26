@@ -1,6 +1,30 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+**Last session:** 2026-09-23 → 24 UTC (Opus 5.5, user at the screen).
+**Released v0.3.0.** No code changes beyond the version bump.
+
+- **Pre-release checks:** gates passed (301 geo-checks; 100 Rust tests +
+  1 ignored; `npm run build` clean, with the private fixtures present).
+  A full-history privacy scan came back clean: every git object, commit
+  metadata (DroptheHammer / Claude / GitHub only, all UTC), and PNG and icon
+  metadata. The scripts are in git-ignored `Other Items/privacy-scan/`
+  (memory `reference-privacy-scan-scripts`). They hold the strings they
+  search for, so never commit them.
+- **Release:** bump commit `c56c227`, tag `v0.3.0`, CI run 35939977522 green
+  on all three platforms. All 7 installers are attached. This was the first
+  release built from the public repo, and Actions worked with no setup. The
+  unpacked Mac, Linux and `.msi` installers scanned clean. Harmless hits:
+  `/Users/runner` (the CI machine), PROJ's "Hammer–Aitoff" projection, and
+  third-party library credits. Published as Latest on 2026-09-24 01:08 UTC;
+  a logged-out download returns 200.
+
+Its "start of next session" list: pull / re-clone on other machines; the user
+still has to delete the throwaway repos `-discard2` / `-discard3`; the two
+multi-ship rough edges (jet re-sort, wingman tracks vs. card frame — both
+settled in the 2026-09-26 session); loft and PDF unbuilt; Channel, Kola,
+Afghanistan and Windows export unverified.
+
 **Last session:** 2026-09-23, evening (Opus 5.5, user at the screen). **No
 feature work: made the project public and scrubbed it of personal data.** An
 end user had reported a 404 on the v0.2.3 download: the repo was private.

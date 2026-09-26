@@ -212,23 +212,42 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-23 → 24 UTC (Opus 5.5, user at the screen).
-**Released v0.3.0.** No code changes beyond the version bump.
+**Last session:** 2026-09-26 UTC (Opus 5.5, user at the screen).
+**Released v0.3.1** — first outside bug report fixed, plus a to-do sweep.
 
-- **Pre-release checks:** gates passed (301 geo-checks; 100 Rust tests +
-  1 ignored; `npm run build` clean, with the private fixtures present).
-  A full-history privacy scan came back clean: every git object, commit
-  metadata (DroptheHammer / Claude / GitHub only, all UTC), and PNG and icon
-  metadata. The scripts are in git-ignored `Other Items/privacy-scan/`
-  (memory `reference-privacy-scan-scripts`). They hold the strings they
-  search for, so never commit them.
-- **Release:** bump commit `c56c227`, tag `v0.3.0`, CI run 35939977522 green
-  on all three platforms. All 7 installers are attached. This was the first
-  release built from the public repo, and Actions worked with no setup. The
-  unpacked Mac, Linux and `.msi` installers scanned clean. Harmless hits:
-  `/Users/runner` (the CI machine), PROJ's "Hammer–Aitoff" projection, and
-  third-party library credits. Published as Latest on 2026-09-24 01:08 UTC;
-  a logged-out download returns 200.
+- **GitHub issue #1** (from an outside user): the FragOrders share button
+  gives `http://` links and the importer took only `https://`. Fixed in
+  `fragorders_link.rs` (only the id is used; every fetch stays HTTPS);
+  checked on screen by the user with several links. The issue closed itself
+  on push. The reply to the reporter was drafted but **not posted** — ask.
+- **Shipped in 0.3.1:**
+  - Quit button in the header.
+  - **Strike lead = jet first on target**: `strikeMembers` sorts by TOT
+    offset, then flight position. The test found a worse bug too: after a
+    pilot swap, removing a jet shifted every TOT by 30 s.
+  - Card "Map background" switch remembered (`settings.json` `kneeboardMap`,
+    default on).
+  - Recent missions on the front page (last 8; `settings.json`
+    `recentMissions`; `load_mission` says "moved or deleted" — that exact
+    text is shared with `missionFile.ts` and pinned by a Rust test).
+  - **Strafe and rockets reachable** — DB v4: 4 guns + 4 rocket types,
+    names checked by the user, mapped per aircraft in `aircraft_weapons`
+    (`Weapon.carried_by`); picker `weaponChoicesFor`; rocket passes drop the
+    Mk-82 sight; cards say "Fire by" / "gun/rocket attack". New Rust test:
+    every weapon class a profile needs has a weapon.
+- **Docs:** `ROADMAP.md` rewritten as the ONE to-do list (open / in progress /
+  shipped by release / decided-not-doing). BUGFIX_PLAN, REVIEW_0.2.1,
+  REVAMP_PLAN, ARCHITECTURE moved to `docs/archive/`. 14 unused root scripts
+  deleted. Decided: wingman tracks stay clipped on the card (memory
+  `closed-decisions-do-not-reopen`).
+- **Release:** gates 312 geo-checks / 106 Rust tests / build clean; privacy
+  scan clean (known false positives only); bump `5dbd2c6`, tag `v0.3.1`,
+  CI run 36221932870 green on all three; 7 installers; Mac/Linux/`.msi`
+  unpacked and scanned clean. Published as Latest 2026-09-26 06:02 UTC;
+  logged-out download 200.
+- **Not done:** the user did not confirm the full on-screen checklist for
+  recent missions / map switch / jet order / strafe before asking to
+  release. If a squadron member reports a problem there, start there.
 
 ### START OF NEXT SESSION
 
@@ -238,10 +257,10 @@ not here — this section is a snapshot for resuming work, not a journal.
 2. **The user still has to delete** the private throwaway repos
    `Phoenix_weaponeer-discard2` and `Phoenix_weaponeer-discard3` (the token
    lacks `delete_repo`). Keep `-archive`.
-3. Open multi-ship rough edges (details in `docs/SESSION_HISTORY.md`, in the
-   Phase 5 entry):
-   - Changing a jet's attacker doesn't re-sort the jets.
-   - The wingman tracks on the card don't widen its frame.
-4. Still unbuilt: loft geometry (LABS / F-16 loft), optional PDF export.
-   Still unverified: the Channel, Kola and Afghanistan projections, and the
-   kneeboard export on Windows.
+3. **What's next = `ROADMAP.md` "Open"**, cross-checked against this file and
+   the code (memory `feedback-check-shipped-work-not-one-doc`). Biggest open:
+   loft geometry; rocket sight tables for manual-dive profiles; bomb tables
+   for non-F-16 aircraft; Channel/Kola/Afghanistan projections.
+4. **Never `cd` into a subfolder** — it made the harness drop a `.claude`
+   folder in `src-tauri/resources/profiles` and broke geo-check (memory
+   `feedback-commands-that-dont-prompt`).
