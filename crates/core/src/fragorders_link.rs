@@ -12,23 +12,30 @@
 //!    through the manifest and never stored.
 //!
 //! Neither needs a credential. What comes back is whatever the publisher chose
-//! to share; `commands::process_tasking_state` imports it.
+//! to share; `import::import_link` imports it.
 //!
 //! Everything fetched is untrusted. The bundle address comes out of the
 //! manifest, so it is only followed to CloudFront over HTTPS, and redirects
 //! are never followed at all.
-
-use std::time::Duration;
+//!
+//! This module is the checks and the parsing. The two GETs themselves belong
+//! to each platform: `src-tauri/src/link_fetch.rs` on the desktop, the
+//! browser's `fetch` in the web build. Both go through the functions here, in
+//! this order: `link_id` → `manifest_url` → `read_manifest` →
+//! `check_bundle_address` → fetch the bundle.
 
 /// Firestore document holding each public link's publish manifest.
-const MANIFEST_URL: &str =
+pub const MANIFEST_URL: &str =
     "https://firestore.googleapis.com/v1/projects/dcsmmp/databases/(default)/documents/PublishManifests/";
 
 /// Larger than any real bundle (the biggest captured is about 320 KB) by a
 /// wide margin, and small enough that a hostile answer can't exhaust memory.
-const MAX_BODY_BYTES: u64 = 25 * 1024 * 1024;
+pub const MAX_BODY_BYTES: u64 = 25 * 1024 * 1024;
 
-const TIMEOUT: Duration = Duration::from_secs(20);
+/// The manifest to fetch for a link id (from `link_id`).
+pub fn manifest_url(id: &str) -> String {
+    format!("{MANIFEST_URL}{id}")
+}
 
 /// What a public link resolves to.
 pub struct LinkPayload {
@@ -43,63 +50,28 @@ pub struct LinkPayload {
     pub bundle_json: String,
 }
 
-/// Fetch a public link: manifest, then bundle.
-pub fn fetch(url: &str) -> Result<LinkPayload, String> {
-    let id = link_id(url)?;
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(TIMEOUT))
-        .https_only(true)
-        .max_redirects(0)
-        .http_status_as_error(false)
-        .build()
-        .into();
+// What a pilot is told when a fetch fails, in words they can act on. Shared
+// so the desktop and web builds say the same thing.
 
-    let manifest_json = get(&agent, &format!("{MANIFEST_URL}{id}"))?;
-    let manifest = read_manifest(&manifest_json)?;
-    check_bundle_address(&manifest.bundle_address)?;
-    let bundle_json = get(&agent, &manifest.bundle_address)?;
+/// No connection, or the host could not be found.
+pub const UNREACHABLE: &str = "Couldn't reach FragOrders. Check your internet connection and try again.";
+/// The request timed out.
+pub const TOO_SLOW: &str = "FragOrders took too long to answer. Try again.";
+/// The answer was larger than `MAX_BODY_BYTES`.
+pub const TOO_LARGE: &str = "The mission download is far larger than any real mission, so it was refused.";
 
-    Ok(LinkPayload {
-        link: canonical_link(id),
-        title: manifest.title,
-        show_groups: manifest.show_groups,
-        bundle_json,
-    })
-}
-
-/// One GET, with every failure put in words a pilot can act on.
-fn get(agent: &ureq::Agent, url: &str) -> Result<String, String> {
-    let mut response = agent.get(url).call().map_err(|e| match e {
-        ureq::Error::HostNotFound | ureq::Error::ConnectionFailed | ureq::Error::Io(_) => {
-            "Couldn't reach FragOrders. Check your internet connection and try again.".to_string()
-        }
-        ureq::Error::Timeout(_) => "FragOrders took too long to answer. Try again.".to_string(),
-        other => format!("Couldn't download the mission: {other}"),
-    })?;
-
-    match response.status().as_u16() {
-        200 => {}
-        404 => {
-            return Err("This link no longer exists. The mission may have been \
-                        unpublished or republished under a new link."
-                .to_string())
-        }
-        403 => return Err("FragOrders refused access to this link.".to_string()),
-        code => return Err(format!("FragOrders answered with an error (HTTP {code}).")),
+/// The error for an HTTP status, or `None` for 200.
+pub fn status_error(status: u16) -> Option<String> {
+    match status {
+        200 => None,
+        404 => Some(
+            "This link no longer exists. The mission may have been \
+             unpublished or republished under a new link."
+                .to_string(),
+        ),
+        403 => Some("FragOrders refused access to this link.".to_string()),
+        code => Some(format!("FragOrders answered with an error (HTTP {code}).")),
     }
-
-    response
-        .body_mut()
-        .with_config()
-        .limit(MAX_BODY_BYTES)
-        .read_to_string()
-        .map_err(|e| match e {
-            ureq::Error::BodyExceedsLimit(_) => {
-                "The mission download is far larger than any real mission, so it was refused."
-                    .to_string()
-            }
-            other => format!("The mission download was cut short: {other}"),
-        })
 }
 
 /// The id out of a public link, or a plain error for anything else.
@@ -295,33 +267,19 @@ mod tests {
         }
     }
 
-    /// The whole fetch against the live service. Run by hand with the NTTR_DTC
-    /// and Neon Mirror public links (kept out of the repo, in
-    /// test-data/private/fragorders-links/README.md):
-    /// `PHOENIX_LIVE_LINK=<url> PHOENIX_LIVE_NEON_LINK=<url> cargo test --manifest-path src-tauri/Cargo.toml -- --ignored`.
     #[test]
-    #[ignore = "needs the network and a live FragOrders link"]
-    fn live_nttr_dtc_link_fetches() {
-        let Ok(link) = std::env::var("PHOENIX_LIVE_LINK") else {
-            eprintln!("skipped: set PHOENIX_LIVE_LINK to the NTTR_DTC public link");
-            return;
-        };
-        let payload = fetch(&link).expect("live link should fetch");
-        assert!(crate::parsers::tasking_state::looks_like_tasking_state(&payload.bundle_json));
-        let db = crate::db::Database::open_in_memory().expect("db");
-        let data = crate::commands::process_tasking_state(&payload.bundle_json, &db)
-            .expect("live payload should import");
-        assert_eq!(data.theater, "nevada");
-        assert!(!data.threats.is_empty(), "NTTR_DTC publishes its red laydown");
-        assert_eq!(payload.show_groups, Some(true));
+    fn statuses_read_as_plain_words() {
+        assert_eq!(status_error(200), None);
+        assert!(status_error(404).unwrap().contains("no longer exists"));
+        assert!(status_error(403).unwrap().contains("refused"));
+        assert!(status_error(500).unwrap().contains("HTTP 500"));
+    }
 
-        // Neon Mirror was published with "show groups" off; the manifest says so.
-        let Ok(neon_link) = std::env::var("PHOENIX_LIVE_NEON_LINK") else {
-            eprintln!("skipped the Neon Mirror half: set PHOENIX_LIVE_NEON_LINK");
-            return;
-        };
-        let neon = fetch(&neon_link).expect("live link should fetch");
-        assert_eq!(neon.show_groups, Some(false));
-        assert!(neon.title.is_some(), "the manifest carries the mission's title");
+    #[test]
+    fn the_manifest_is_asked_for_by_id() {
+        assert_eq!(
+            manifest_url("ExampleLinkId0000001"),
+            "https://firestore.googleapis.com/v1/projects/dcsmmp/databases/(default)/documents/PublishManifests/ExampleLinkId0000001"
+        );
     }
 }
