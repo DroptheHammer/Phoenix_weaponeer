@@ -61,7 +61,7 @@ A cross-platform desktop application for planning F-16 (and other aircraft) atta
 ## Development Setup (macOS)
 
 Rust (rustup) and Node are all you need. Coordinate projection is pure Rust
-(`src-tauri/src/parsers/tmerc.rs`) since 2026-09-26. The PROJ C++ library, and
+(`crates/core/src/parsers/tmerc.rs`) since 2026-09-26. The PROJ C++ library, and
 the `brew install proj cmake pkgconf` it needed, are gone, and so is the old
 `src-tauri/.cargo/config.toml` linker path. On a Mac that still has them,
 they're harmless and can be uninstalled.
@@ -130,7 +130,8 @@ history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
 - [ ] PDF export option (optional)
 - [ ] Loft geometry (LABS, F-16 loft) — profiles ship hidden, geometry unbuilt
 - [x] FragOrders URL import — built 2026-09-22 on the public link as it is
-      (`src-tauri/src/fragorders_link.rs`); no endpoint or key coming
+      (`crates/core/src/fragorders_link.rs`, fetch in `src-tauri/src/link_fetch.rs`);
+      no endpoint or key coming
 
 ### Phase 5: The banked features (NEXT)
 - [x] **Live-geometry Customize** — built 2026-09-22: full-screen editor,

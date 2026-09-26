@@ -54,7 +54,7 @@ export interface FragPattern {
 
 /**
  * A weapon row exactly as `get_all_weapons` returns it — snake_case, straight
- * off the Rust `Weapon` struct in `src-tauri/src/db/mod.rs`, with no serde
+ * off the Rust `Weapon` struct in `crates/core/src/refdata.rs`, with no serde
  * rename. This is the shape that actually exists at runtime.
  *
  * `Weapon` above is the camelCase model the UI was written against. The

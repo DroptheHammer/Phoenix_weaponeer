@@ -62,7 +62,7 @@ crosses the inbound ARCO leg. That is real mission geometry, not an import bug.
 Note `ARCO` is a plain nav fix here even though ARCO is also a tanker callsign
 elsewhere in this same mission. Waypoint-type inference deliberately does not
 treat tanker callsigns as tanker waypoints; see `infer_waypoint_type` in
-`src-tauri/src/commands/mod.rs`.
+`crates/core/src/import.rs`.
 
 ### `sinai_m01_v6.json` — ✅ the new-FragOrders reference
 
@@ -98,7 +98,7 @@ this mission — *"Barak Waypoint 1, 676 MSL, N 31° 14.4023′ E 34° 39.5637�
 projection to the same independent source.
 
 Covered by `sinai_m01_v6_fixture_imports` and `barak_numbering_matches_fragorders`
-in `src-tauri/src/commands/mod.rs`.
+in `crates/core/src/import.rs`.
 
 Sinai is now **`verified: true`** — this mission is what verified it (see the
 note at the end of this file), so importing it raises no banner.
@@ -123,7 +123,7 @@ no new or removed key types, only content changes:
 
 The same eight client flights import. Every route point is still unnamed (`""`).
 
-Covered by `sinai_m01_v7_fixture_imports` in `src-tauri/src/commands/mod.rs`.
+Covered by `sinai_m01_v7_fixture_imports` in `crates/core/src/import.rs`.
 
 ### `sandbox_mission.json` — real format, but imports empty
 
@@ -147,7 +147,7 @@ Hand-written fixture, **not** FragOrders output. Two problems:
 This file cost two separate debugging sessions chasing a coordinate-conversion
 bug that did not exist — the projection code was correct the whole time and is
 now pinned by ground-truth landmark tests in
-`src-tauri/src/parsers/coordinate_conversion.rs`.
+`crates/core/src/parsers/coordinate_conversion.rs`.
 
 Prefer `nttr_redflag_viper1.json` for anything involving positions on a map.
 
