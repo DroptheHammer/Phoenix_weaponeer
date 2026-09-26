@@ -1,6 +1,6 @@
 //! Fetching a FragOrders public link
 //!
-//! A pilot pastes `https://fragorders.com/public_frag_order/{id}`. That page is
+//! A pilot pastes `http(s)://fragorders.com/public_frag_order/{id}`. That page is
 //! a single-page app shell, so the mission is fetched the way the page itself
 //! does it, in two hops:
 //!
@@ -104,16 +104,22 @@ fn get(agent: &ureq::Agent, url: &str) -> Result<String, String> {
 
 /// The id out of a public link, or a plain error for anything else.
 ///
-/// Accepts the link as it is usually pasted: `https://`, with or without
-/// `www.`, and with a trailing slash, query or fragment. Anything else, down to
-/// an `http://` downgrade, is refused.
+/// Accepts the link as it is usually pasted: `https://` or `http://` (the
+/// FragOrders share button hands out `http://`), with or without `www.`, and
+/// with a trailing slash, query or fragment. Anything else is refused.
+///
+/// Only the id is taken from the link; the link itself is never fetched, and
+/// every request `fetch` makes is HTTPS. So an `http://` link downgrades
+/// nothing.
 pub fn link_id(url: &str) -> Result<&str, String> {
     const EXPECTED: &str =
         "That isn't a FragOrders mission link. It should look like \
-         https://fragorders.com/public_frag_order/…";
+         fragorders.com/public_frag_order/…";
 
     let url = url.trim();
-    let rest = strip_prefix_ignore_case(url, "https://").ok_or(EXPECTED)?;
+    let rest = strip_prefix_ignore_case(url, "https://")
+        .or_else(|| strip_prefix_ignore_case(url, "http://"))
+        .ok_or(EXPECTED)?;
     let rest = strip_prefix_ignore_case(rest, "www.").unwrap_or(rest);
     let rest = strip_prefix_ignore_case(rest, "fragorders.com/").ok_or(EXPECTED)?;
     let id = rest.strip_prefix("public_frag_order/").ok_or(EXPECTED)?;
@@ -206,6 +212,9 @@ mod tests {
             "  https://fragorders.com/public_frag_order/ExampleLinkId0000001/  ",
             "HTTPS://FragOrders.com/public_frag_order/ExampleLinkId0000001?ref=discord",
             "https://fragorders.com/public_frag_order/ExampleLinkId0000001#top",
+            // FragOrders' share button hands out plain http:// links (issue #1).
+            "http://fragorders.com/public_frag_order/ExampleLinkId0000001",
+            "HTTP://www.FragOrders.com/public_frag_order/ExampleLinkId0000001/",
         ] {
             assert_eq!(link_id(url), Ok("ExampleLinkId0000001"), "{url}");
         }
@@ -216,8 +225,10 @@ mod tests {
         for url in [
             "",
             "ExampleLinkId0000001",
-            "http://fragorders.com/public_frag_order/ExampleLinkId0000001",
+            "ftp://fragorders.com/public_frag_order/ExampleLinkId0000001",
             "https://evil.example/public_frag_order/ExampleLinkId0000001",
+            "http://evil.example/public_frag_order/ExampleLinkId0000001",
+            "http://fragorders.com.evil.example/public_frag_order/ExampleLinkId0000001",
             "https://fragorders.com.evil.example/public_frag_order/ExampleLinkId0000001",
             "https://notfragorders.com/public_frag_order/ExampleLinkId0000001",
             "https://fragorders.com/frag_order/ExampleLinkId0000001",
