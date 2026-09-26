@@ -4,6 +4,8 @@ export interface Settings {
   kneeboardFolders: Record<string, string>;
   /** The grey map layer behind the kneeboard card's plan view. */
   kneeboardMap: boolean;
+  /** Mission files last opened or saved, newest first. */
+  recentMissions: string[];
 }
 
 export interface SettingsLoad {

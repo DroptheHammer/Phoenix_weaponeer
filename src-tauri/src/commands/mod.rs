@@ -82,10 +82,18 @@ pub fn save_mission(mission: Mission, path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// What `load_mission` says when the file is not there any more. The front
+/// page's recent list matches this exact text (`MISSION_FILE_GONE` in
+/// `src/lib/missionFile.ts`) to drop the dead entry — change both together.
+pub const MISSION_FILE_GONE: &str = "That mission file has been moved or deleted.";
+
 /// Load mission from file
 #[tauri::command]
 pub fn load_mission(path: String) -> Result<Mission, String> {
-    let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let json = std::fs::read_to_string(&path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => MISSION_FILE_GONE.to_string(),
+        _ => e.to_string(),
+    })?;
     parse_saved_mission(&json)
 }
 
@@ -967,6 +975,25 @@ pub fn set_kneeboard_map(app: AppHandle, on: bool) -> Result<settings::Settings,
     Ok(next)
 }
 
+/// Put a mission file at the top of the front page's recent list. Returns the
+/// settings as now saved.
+#[tauri::command]
+pub fn remember_recent_mission(app: AppHandle, path: String) -> Result<settings::Settings, String> {
+    let file = settings_path(&app)?;
+    let next = settings::with_recent_mission(settings::read_settings(&file).settings, &path)?;
+    settings::write_settings(&file, &next)?;
+    Ok(next)
+}
+
+/// Drop a mission file from the recent list. Returns the settings as now saved.
+#[tauri::command]
+pub fn forget_recent_mission(app: AppHandle, path: String) -> Result<settings::Settings, String> {
+    let file = settings_path(&app)?;
+    let next = settings::without_recent_mission(settings::read_settings(&file).settings, &path);
+    settings::write_settings(&file, &next)?;
+    Ok(next)
+}
+
 /// Whether a remembered folder is still there — a reinstalled or moved DCS
 /// means asking again rather than recreating a dead path.
 #[tauri::command]
@@ -1064,6 +1091,18 @@ mod tests {
         let good = dir.join("mission.JSON");
         save_mission(mission, good.to_string_lossy().into_owned()).expect("json saves");
         assert!(good.exists());
+    }
+
+    #[test]
+    fn opening_a_mission_file_that_is_gone_says_so_plainly() {
+        let gone = scratch_dir("mission_gone").join("moved.json");
+        // The front page matches this exact text to drop the dead entry.
+        assert_eq!(load_mission(gone.to_string_lossy().into_owned()).unwrap_err(), MISSION_FILE_GONE);
+        let frontend = include_str!("../../../src/lib/missionFile.ts");
+        assert!(
+            frontend.contains(&format!("MISSION_FILE_GONE = '{MISSION_FILE_GONE}'")),
+            "src/lib/missionFile.ts must carry the same text"
+        );
     }
 
     fn threat(system_id: Option<&str>, unit_type: &str, lat: f64, lon: f64) -> ProcessedThreat {

@@ -17,7 +17,8 @@ import { KneeboardPreview } from "./components/kneeboard/KneeboardPreview";
 import { UnsavedChangesDialog } from "./components/mission/UnsavedChangesDialog";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { useSettingsStore } from "./stores/settingsStore";
-import { openMission, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
+import { RecentMissions } from "./components/mission/RecentMissions";
+import { MISSION_FILE_GONE, openMission, openMissionAt, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
 import type { FragOrdersData, DbWeapon, FuzeOption } from "./types";
 
 interface ThreatSystem {
@@ -173,15 +174,30 @@ function App() {
     reportFileResult(await saveMissionAs(), 'Saved');
   };
 
+  const afterOpen = (result: FileResult) => {
+    if (result.status === 'ok') {
+      setActivePanel(null);
+      resetDisplayFilter();
+    }
+    reportFileResult(result, 'Opened');
+  };
+
   const handleOpen = () => {
     guardUnsaved('open another mission', async () => {
       setFileMsg(null);
-      const result = await openMission();
-      if (result.status === 'ok') {
-        setActivePanel(null);
-        resetDisplayFilter();
+      afterOpen(await openMission());
+    });
+  };
+
+  // A recent mission that has been moved or deleted drops off the list.
+  const handleOpenRecent = (path: string) => {
+    guardUnsaved('open another mission', async () => {
+      setFileMsg(null);
+      const result = await openMissionAt(path);
+      if (result.status === 'error' && result.message === MISSION_FILE_GONE) {
+        void useSettingsStore.getState().forgetRecentMission(path);
       }
-      reportFileResult(result, 'Opened');
+      afterOpen(result);
     });
   };
 
@@ -542,6 +558,7 @@ function App() {
                   Open Saved Mission
                 </button>
               </div>
+              <RecentMissions onOpen={handleOpenRecent} />
             </div>
 
             <div className="grid grid-cols-2 gap-6">

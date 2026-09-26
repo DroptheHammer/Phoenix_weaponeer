@@ -13,6 +13,13 @@ interface SettingsState {
   setKneeboardFolder: (aircraftId: string, folder: string | null) => Promise<void>;
   /** Turn the card's map layer on or off, now and for later launches. */
   setKneeboardMap: (on: boolean) => Promise<void>;
+  /**
+   * Put a mission file at the top of the front page's recent list. Never
+   * throws: a list that fails to update must not fail the save or open.
+   */
+  rememberRecentMission: (path: string) => Promise<void>;
+  /** Drop a mission file from the recent list. Never throws. */
+  forgetRecentMission: (path: string) => Promise<void>;
 }
 
 /**
@@ -22,7 +29,7 @@ interface SettingsState {
  * `warning` instead.
  */
 export const useSettingsStore = create<SettingsState>((set) => ({
-  settings: { kneeboardFolders: {}, kneeboardMap: true },
+  settings: { kneeboardFolders: {}, kneeboardMap: true, recentMissions: [] },
   warning: null,
   loaded: false,
 
@@ -49,6 +56,22 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({ settings, warning: null });
     } catch (error) {
       set({ warning: `The map setting could not be saved: ${String(error)}` });
+    }
+  },
+
+  rememberRecentMission: async (path) => {
+    try {
+      set({ settings: await invoke<Settings>('remember_recent_mission', { path }) });
+    } catch (error) {
+      console.warn('Recent missions not updated:', error);
+    }
+  },
+
+  forgetRecentMission: async (path) => {
+    try {
+      set({ settings: await invoke<Settings>('forget_recent_mission', { path }) });
+    } catch (error) {
+      console.warn('Recent missions not updated:', error);
     }
   },
 }));

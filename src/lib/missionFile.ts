@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { useMissionStore } from '../stores/missionStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import type { Mission } from '../types/mission.types';
 import { validateMission } from './validateMission';
 
@@ -14,6 +15,12 @@ import { validateMission } from './validateMission';
  */
 
 const MISSION_FILTER = [{ name: 'Phoenix Mission', extensions: ['json'] }];
+
+/**
+ * `load_mission`'s answer when the file is not there any more. Must match
+ * `MISSION_FILE_GONE` in `src-tauri/src/commands/mod.rs` (a Rust test pins it).
+ */
+export const MISSION_FILE_GONE = 'That mission file has been moved or deleted.';
 
 /** Outcome of a save/open attempt. `cancelled` means the user dismissed the picker. */
 export type FileResult =
@@ -42,6 +49,7 @@ async function writeTo(mission: Mission, path: string): Promise<FileResult> {
     const { setFilePath, markClean } = useMissionStore.getState();
     setFilePath(path);
     markClean();
+    void useSettingsStore.getState().rememberRecentMission(path);
     return { status: 'ok', path };
   } catch (error) {
     return { status: 'error', message: String(error) };
@@ -97,7 +105,11 @@ export async function openMission(): Promise<FileResult> {
   }
   if (!picked) return { status: 'cancelled' };
 
-  const path = Array.isArray(picked) ? picked[0] : picked;
+  return openMissionAt(Array.isArray(picked) ? picked[0] : picked);
+}
+
+/** Loads a mission file already chosen — from the picker, or the recent list. */
+export async function openMissionAt(path: string): Promise<FileResult> {
   try {
     const loaded = await invoke<unknown>('load_mission', { path });
     // A mission file can come from anyone in the squadron: nothing reaches the
@@ -107,6 +119,7 @@ export async function openMission(): Promise<FileResult> {
       return { status: 'error', message: `Not a usable mission file — ${check.problems.join('; ')}` };
     }
     useMissionStore.getState().loadMission(check.mission, path);
+    void useSettingsStore.getState().rememberRecentMission(path);
     return { status: 'ok', path };
   } catch (error) {
     return { status: 'error', message: String(error) };

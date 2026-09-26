@@ -26,6 +26,9 @@ pub struct Settings {
     /// user turned it off.
     #[serde(default = "on")]
     pub kneeboard_map: bool,
+    /// Mission files last opened or saved, newest first, for the front page.
+    #[serde(default)]
+    pub recent_missions: Vec<String>,
 }
 
 fn on() -> bool {
@@ -34,8 +37,32 @@ fn on() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { kneeboard_folders: BTreeMap::new(), kneeboard_map: true }
+        Settings { kneeboard_folders: BTreeMap::new(), kneeboard_map: true, recent_missions: Vec::new() }
     }
+}
+
+/// How many recent missions the front page lists.
+pub const MAX_RECENT_MISSIONS: usize = 8;
+
+/// Put a mission file at the top of the recent list, once. Only an existing
+/// `.json` file is taken: the list is offered back to `load_mission` later,
+/// so it must never collect anything else.
+pub fn with_recent_mission(mut settings: Settings, path: &str) -> Result<Settings, String> {
+    let file = Path::new(path);
+    let is_json = file.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    if !is_json || !file.is_file() {
+        return Err(format!("{path} is not a mission file"));
+    }
+    settings.recent_missions.retain(|p| p != path);
+    settings.recent_missions.insert(0, path.to_string());
+    settings.recent_missions.truncate(MAX_RECENT_MISSIONS);
+    Ok(settings)
+}
+
+/// Drop one mission file from the recent list.
+pub fn without_recent_mission(mut settings: Settings, path: &str) -> Settings {
+    settings.recent_missions.retain(|p| p != path);
+    settings
 }
 
 /// Settings as loaded, plus why they are defaults when the file was unusable.
@@ -209,6 +236,59 @@ mod tests {
         write_settings(&path, &off).unwrap();
         assert!(std::fs::read_to_string(&path).unwrap().contains("\"kneeboardMap\": false"));
         assert!(!read_settings(&path).settings.kneeboard_map);
+    }
+
+    /// A real `.json` file in a scratch folder, for the recent-missions tests.
+    fn mission_file(dir: &Path, name: &str) -> String {
+        let path = dir.join(name);
+        std::fs::write(&path, "{}").unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_recent_mission_goes_to_the_front_once_and_the_list_stays_short() {
+        let dir = scratch("recent_order");
+        let a = mission_file(&dir, "a.json");
+        let b = mission_file(&dir, "b.json");
+
+        let s = with_recent_mission(Settings::default(), &a).unwrap();
+        let s = with_recent_mission(s, &b).unwrap();
+        assert_eq!(s.recent_missions, vec![b.clone(), a.clone()]);
+
+        // Opening `a` again moves it up rather than listing it twice.
+        let s = with_recent_mission(s, &a).unwrap();
+        assert_eq!(s.recent_missions, vec![a.clone(), b.clone()]);
+
+        let mut s = s;
+        for i in 0..MAX_RECENT_MISSIONS + 3 {
+            s = with_recent_mission(s, &mission_file(&dir, &format!("m{i}.json"))).unwrap();
+        }
+        assert_eq!(s.recent_missions.len(), MAX_RECENT_MISSIONS);
+        assert!(s.recent_missions[0].ends_with(&format!("m{}.json", MAX_RECENT_MISSIONS + 2)));
+    }
+
+    #[test]
+    fn only_an_existing_mission_file_is_remembered_and_forgetting_removes_it() {
+        let dir = scratch("recent_refuse");
+        let a = mission_file(&dir, "a.json");
+        let not_json = dir.join("notes.txt");
+        std::fs::write(&not_json, "x").unwrap();
+
+        assert!(with_recent_mission(Settings::default(), not_json.to_str().unwrap()).is_err());
+        assert!(with_recent_mission(Settings::default(), &format!("{a}.gone.json")).is_err());
+        assert!(with_recent_mission(Settings::default(), dir.to_str().unwrap()).is_err());
+
+        let s = with_recent_mission(Settings::default(), &a).unwrap();
+        assert!(without_recent_mission(s, &a).recent_missions.is_empty());
+    }
+
+    #[test]
+    fn an_older_settings_file_has_no_recent_missions() {
+        let path = scratch("recent_old_file").join(SETTINGS_FILE);
+        std::fs::write(&path, r#"{ "kneeboardFolders": {} }"#).unwrap();
+        let load = read_settings(&path);
+        assert!(load.warning.is_none());
+        assert!(load.settings.recent_missions.is_empty());
     }
 
     #[test]
