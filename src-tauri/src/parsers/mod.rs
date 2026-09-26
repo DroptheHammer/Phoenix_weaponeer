@@ -10,6 +10,7 @@ pub mod coordinate_conversion;
 pub mod fragorders;
 pub mod tasking_state;
 pub mod threat_mapping;
+pub mod tmerc;
 
 pub use coordinate_conversion::{
     all_theater_params, dcs_to_latlon, get_theater_params, meters_to_feet, mps_to_ktas,

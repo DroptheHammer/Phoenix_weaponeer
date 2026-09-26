@@ -275,6 +275,58 @@ session end. Each entry gives the state and the **exact next action**.
 - **Privacy rules** (CLAUDE.md): commit with `TZ=UTC`, and never put real coordinates,
   names or FragOrders link ids into the repo.
 
+### 2026-09-26 (later): M1a done, M1b designed
+
+- **M1a done:**
+  - `src-tauri/src/parsers/tmerc.rs` is a pure-Rust transverse Mercator: Krüger series to
+    n³, with an exact iterative inverse latitude. It reads the theater `proj4_string`s and
+    refuses parameters it does not model.
+  - `coordinate_conversion.rs` uses it, and `proj` is gone from `Cargo.toml`.
+  - `src-tauri/.cargo/config.toml` (a Mac linker path, needed only by PROJ) is deleted.
+  - The CLAUDE.md setup and release sections are updated.
+  - **Proof:** before PROJ was removed, a temporary test compared both at 21,756 points
+    (±9° lat, ±12° lon around every theater) against system PROJ 9.4. The worst difference
+    was 0.14 mm going to grid coordinates and 3.6e-10° going back. All 111 Rust tests passed
+    with both in place.
+  - A cloud container needs `apt-get install libproj-dev` **only** to rerun that comparison,
+    which is no longer in the tree.
+- **M1b design (decided, not yet built):**
+  - **New crates, outside `src-tauri`, with no Cargo workspace:**
+    - `crates/core` (package `weaponeer-core`, pure Rust). The Tauri app depends on it via
+      `path = "../crates/core"`.
+    - `crates/wasm` (package `weaponeer-wasm`, a `wasm-bindgen` wrapper), with its own
+      lockfile and target dir.
+    - `release.yml` is untouched.
+  - **Moves to core:**
+    - all of `parsers/`
+    - `profiles` (the embedded bundled profiles plus merge and validate; reading the user
+      folder stays in Tauri and passes the file contents in)
+    - the import functions from `commands/mod.rs`: `process_fragorders_json`,
+      `process_tasking_state`, `resolve_theater`, `convert_route`, `process_threat_unit`,
+      `process_player_group`, `infer_waypoint_type`, `waypoint_name`, `deduplicate_threats`,
+      and their tests
+    - `Mission` and `parse_saved_mission`
+    - `TheaterInfo` and `list_theaters`
+    - the pure parts of `fragorders_link.rs` (`link_id`, `canonical_link`, `read_manifest`,
+      `check_bundle_address`), plus a shared helper that turns a fetched link into
+      `ProcessedFragOrdersData` (the notice and `source` logic now in `fetch_fragorders_url`)
+    - the `private_fixture!` macro, with the path adjusted
+  - **The SQLite reference DB is replaced by in-memory data**, for desktop too:
+    - Dump the current seed through the existing Rust code into
+      `crates/core/data/reference.json`, holding `threat_systems`, `weapons`, `fuze_options`,
+      `aircraft` and `aircraft_weapons`.
+    - `include_str!` it and parse it once.
+    - Keep the query methods and SQL orderings: threats by (type, name), or by name within
+      a type; weapons by (category, name); fuzes and aircraft by name.
+    - `carried_by` is derived from `aircraft_weapons`.
+    - `dcs_unit_name` matching is ASCII case-insensitive.
+    - Drop `rusqlite`, `db/mod.rs`, `open_database_in` and its two tests, and the DB startup
+      error dialog.
+    - Move the SQL comments' provenance notes into `refdata.rs` docs.
+  - **Keep the IPC contract byte-identical:** the same command names, argument names and
+    JSON shapes.
+- **Next action:** build M1b as above, then run the gates and commit.
+
 ### 2026-09-26: plan agreed, build started
 
 - **Done:**

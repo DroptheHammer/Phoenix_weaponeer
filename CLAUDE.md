@@ -60,18 +60,11 @@ A cross-platform desktop application for planning F-16 (and other aircraft) atta
 
 ## Development Setup (macOS)
 
-The project requires system libraries for coordinate projection. On macOS, install via Homebrew:
-
-```bash
-brew install proj cmake pkgconf
-```
-
-Homebrew's own `pkg-config` (installed via the `pkgconf` package above) already
-defaults its search path to `/opt/homebrew/lib/pkgconfig`, so `proj` is found
-automatically with no `PKG_CONFIG_PATH` export needed. `src-tauri/.cargo/config.toml`
-only adds a linker search path, and only for the `aarch64-apple-darwin` target —
-it never applies to Linux/Windows builds — those compile `proj`'s bundled PROJ
-source via CMake instead (see the release CI section below).
+Rust (rustup) and Node are all you need. Coordinate projection is pure Rust
+(`src-tauri/src/parsers/tmerc.rs`) since 2026-09-26. The PROJ C++ library, and
+the `brew install proj cmake pkgconf` it needed, are gone, and so is the old
+`src-tauri/.cargo/config.toml` linker path. On a Mac that still has them,
+they're harmless and can be uninstalled.
 
 ## Release Process
 
@@ -105,13 +98,11 @@ separately.
 `.github/workflows/release.yml` builds installers for all three platforms on
 every `v*` tag push (macOS: `.dmg`, Windows: NSIS `.exe`, Linux: `.deb`/`.rpm`/
 `.AppImage`) via `tauri-apps/tauri-action`, and attaches them to a **draft**
-GitHub Release — publish it manually once the artifacts are verified. All
-three platforms build `proj`'s bundled PROJ source via CMake rather than
-linking a system library, since no CI runner has `libproj` preinstalled; this
-only works because `proj-sys` ≥0.25 bundles PROJ ≥9.4.0, whose
-`cmake_minimum_required` floor modern CMake still accepts (PROJ 9.2.1, bundled
-by older `proj-sys`, does not — that mismatch is what silently broke macOS and
-Windows CI until 2026-09-12, see `docs/SESSION_HISTORY.md`).
+GitHub Release — publish it manually once the artifacts are verified. There
+are no C++ dependencies to build. Until 2026-09-26, every platform compiled
+the PROJ library from source with CMake, which silently broke macOS and
+Windows CI until 2026-09-12 (see `docs/SESSION_HISTORY.md`). The pure-Rust
+projection in `parsers/tmerc.rs` removed that.
 
 There's no version-sync script — the version fields in checklist step 3 are
 kept in sync by hand, on purpose (release cadence is low). See
