@@ -47,15 +47,25 @@ interface Selection {
 
 /**
  * What the map is waiting for a click on — a threat being placed from
- * `ThreatList`. One shared slot rather than a callback per feature: `MapView`'s
- * click handler and its "interactive={false}" guards on every marker only need
- * to know whether a pick is armed at all, not which feature armed it. (The
- * attack editor's custom IP is placed on the editor's own preview map.)
+ * `ThreatList`, or (on a phone) a threat or custom IP being moved. One shared
+ * slot rather than a callback per feature: `MapView`'s click handler and its
+ * "interactive={false}" guards on every marker only need to know whether a
+ * pick is armed at all, not which feature armed it. (The attack editor's
+ * custom IP is placed on the editor's own preview map.)
+ *
+ * On a desktop the next click delivers. On a phone `MapView` shows a fixed
+ * crosshair instead and delivers the map's centre on "Set here", so a finger
+ * never covers the point being picked. Any feature can arm one the same way.
  */
 export interface MapPick {
-  kind: 'threat';
+  /** Who armed it: placing a new threat, or moving something already on the map. */
+  kind: 'threat' | 'move';
   /** Shown in the map's placement banner. */
   prompt: string;
+  /** Phone only: the crosshair's button. Defaults to "Set here". */
+  confirmLabel?: string;
+  /** Phone only: pan here first, so a move starts with the crosshair on the thing moved. */
+  start?: Coordinates;
   onPick: (position: Coordinates) => void;
 }
 
