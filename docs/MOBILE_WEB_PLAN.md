@@ -1,7 +1,8 @@
 # Phone web app: plan and handoff log
 
-**Status:** in progress. Work happens on branch `claude/mobile-app-distribution-b6uo76`.
-Nothing is public until milestone M5 and the user's go-ahead.
+**Status:** built. The layout choices were made on 2026-09-26 (picks 1A 2B 3A). Work
+happens on branch `claude/mobile-app-distribution-b6uo76`. What's left is real-world
+checks and the go-public step, which needs the user's go-ahead.
 
 **For a fresh session:** read the **Handoff log** at the bottom first. It says exactly
 where the work stopped and what comes next. The plan above it is the agreed design.
@@ -252,6 +253,43 @@ today's desktop layout from the web build.
 ---
 
 ## Handoff log (newest first; keep this current)
+
+### 2026-09-26 (morning): walkthrough done, picks merged; waiting on real-world checks
+
+- **The user picked 1A 2B 3A** in the walkthrough. Why each one, in plain words:
+  - **1A, Strike near me is phone/web only.** It's a GPS toy. The desktop app stays a
+    DCS tool with no real-world maps. The "Go to" box (1C) was not taken.
+  - **2B, the Cards tab opens at full height.** Cards are for reading, so the extra swipe
+    to pull the sheet up was dropped. Other tabs still open at half height.
+  - **3A, a sideways phone shows the map beside the controls.** No change; it was already
+    on this branch.
+- **Merged:** `…-opt-d2b-cards-full` (`4f2a919`), cleanly. `web-smoke-cards.cjs` now checks
+  that the sheet opens full (the handle says Shrink) instead of tapping Expand.
+- **Gates after the merge:**
+  - geo-check 320, and Rust core 96 / desktop 21 (+1 ignored) / wasm 3.
+  - Both tsc configs, `npm run build`, and `npm run build:web` with its privacy check.
+  - `web-smoke.cjs` at 390×844, 844×390 and 1280×800.
+  - `web-smoke-cards.cjs` at 390×844 and 412×915, plus sideways at 844×390 and 915×412.
+  - `web-smoke-strike.cjs`.
+  - All pass with no page errors. The only failed requests are OSM tiles in the sandbox.
+- **Cleaned up:**
+  - All local option, worktree and agent branches deleted, and `.claude/worktrees/` removed.
+  - **The six remote `…-opt-*` branches are still on GitHub.** The cloud session's git
+    proxy refuses branch deletes (403). From the Mac:
+    `git push origin --delete claude/mobile-app-distribution-b6uo76-opt-d1b-desktop-map claude/mobile-app-distribution-b6uo76-opt-d1c-desktop-coords claude/mobile-app-distribution-b6uo76-opt-d2b-cards-full claude/mobile-app-distribution-b6uo76-opt-d2c-cards-list claude/mobile-app-distribution-b6uo76-opt-d3b-land-column claude/mobile-app-distribution-b6uo76-opt-d3c-land-toggle`,
+    or delete them on GitHub's Branches page. Nothing on them is needed.
+- **Next, and every item needs the user; nothing goes public without their OK:**
+  1. **A real FragOrders link in the web build.** Run `npm run dev:web` on the Mac and
+     import a link from `test-data/private/`. The CloudFront bundle's CORS answer is the
+     last unknown. If it refuses, add the planned Cloudflare Worker proxy.
+  2. **A click-through of the desktop Tauri app** (`npm run tauri dev`) to confirm nothing
+     changed at desktop size.
+  3. **Merge this branch into `main`** once 1 and 2 pass. This needs a PR or a merge on the
+     Mac; don't push to main from the cloud without asking.
+  4. **Enable Pages:** Settings → Pages → Source: GitHub Actions. Then run `pages.yml` by
+     hand. That is the go-public step.
+  5. **Real phones:** Add to Home Screen, offline launch, the share sheet, Wake Lock, the
+     GPS prompt, and crosshair precision, on an iPhone (Safari) and an Android (Chrome).
 
 ### 2026-09-27 (overnight, the user asleep): M3, M4, M4b and M5 in progress
 
