@@ -17,9 +17,11 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ### Attacks and weapons
 - [ ] **Loft geometry** (LABS, F-16 loft). The profiles ship hidden
       (`f16c.loft.std`, `f4e.loft.labs45`) until the geometry exists.
-- [ ] **Weapon tables for aircraft other than the F-16C.** Every aircraft
-      currently sees every bomb; `aircraft_weapons` is seeded for the F-16C
-      only.
+- [ ] **Bomb and missile tables for aircraft other than the F-16C.** Every
+      aircraft sees every bomb. `aircraft_weapons` maps bombs for the F-16C
+      only; guns and rockets are mapped per aircraft since v0.3.1.
+- [ ] Sight settings for rockets on the manual-dive profiles. These cards
+      show no sight number yet.
 - [ ] **Loadout from the FragOrders pylons.** Imports set an empty loadout.
       Needs a DCS CLSID → weapon table.
 - [ ] **Pilot verification of the 62 seed profiles.** All are ESTIMATED; none
@@ -67,12 +69,14 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 - [x] FragOrders `http://` share links accepted (GitHub issue #1)
 - [x] Quit button in the header
 - [x] Old planning docs archived; this roadmap rewritten
-- [ ] Strike jet order: the jet first on target stays the lead when the strike
-      is reopened
-- [ ] Card "Map background" switch remembered between launches
-- [ ] Recent missions on the front page
-- [ ] Strafe and rocket attacks can be chosen: named guns and rockets per
-      aircraft
+- [x] Strike jet order: the jet first on target stays the lead when the strike
+      is reopened. This also fixed removing a jet after a pilot swap shifting
+      every time over target by 30 s.
+- [x] Card "Map background" switch remembered between launches
+- [x] Recent missions on the front page
+- [x] Strafe and rocket attacks can be chosen: named guns and rockets per
+      aircraft (DB v4). A rocket pass no longer shows the Mk-82 sight setting.
+- [ ] On-screen check by the user, then release
 
 ---
 
