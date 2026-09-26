@@ -286,11 +286,43 @@ today's desktop layout from the web build.
     - `src/components/mission/StrikeNearMe.tsx`: GPS, the crosshair screen, and the details form.
     - **Not yet wired into the App.** That comes after the merges: landing button, ⋯ menu,
       real-world banner, share/export warnings.
-- **Decision points identified so far:**
-  - **D1, "Strike near me" in the desktop app.** The plan left this open. The three options:
-    1. web only
-    2. desktop gets it without GPS (pan the map to any spot)
-    3. desktop gets a typed coordinates / pasted map link box plus the map
+- **Later that night:**
+  - **Merged:** M3a (`22fa366`), M3b (`857648d`) and M4 (`0247345`).
+  - **`map/ZoomTimerGuard`** fixed the `_leaflet_pos` crash. Closing a map mid-zoom threw
+    from a Leaflet timer.
+  - **Strike near me is wired in** (`2684b8c`), web only:
+    - A front-page button and a ⋯ menu item.
+    - The blue "Real world: can't be flown in DCS" banner.
+    - Privacy warnings before sharing a card (inline "Share anyway") and before exporting
+      the `.json` or downloading cards (confirm).
+    - `scripts/web-smoke-strike.cjs` runs the flow with a mocked synthetic location.
+  - **All smoke tests pass with no page errors:**
+    - `web-smoke.cjs` at 390×844, 844×390 and 1280×800
+    - `web-smoke-cards.cjs` at 390×844 and 412×915
+    - `web-smoke-strike.cjs`
+  - geo-check: 320 on the main branch.
+- **A real FragOrders link was tested from the cloud.**
+  - The Firestore manifest allows the GitHub Pages origin.
+  - The CloudFront bundle host is blocked by the cloud sandbox's network policy, so its
+    CORS answer is still unknown. Test it with `npm run dev:web` on the Mac, or allow the
+    host in the environment settings.
+- **Decisions for the morning walkthrough.** A = what is on this branch; B and C are
+  branches off `2684b8c`, one commit each.
+  - **D1, Strike near me in the desktop app:**
+    - A: web only.
+    - B: `…-opt-d1b-desktop-map`. Desktop too, opening on the world with no GPS.
+    - C: `…-opt-d1c-desktop-coords`. Like B, plus a "Go to" box for typed coordinates or a
+      pasted Google Maps / OSM link, on every platform (`parseLocation`, 11 geo-checks).
+  - **D2, the Cards tab on a phone:**
+    - A: half-height sheet, pull up for full width.
+    - B: opens at full height.
+    - C: a vertical list of full-width cards. Being built by a sub-agent.
+  - **D3, the Attack editor with a phone held sideways:**
+    - A: map beside the controls.
+    - B: one column with a short map.
+    - C: the map behind a Show/Hide toggle. Being built by a sub-agent.
+  - Branch names all start `claude/mobile-app-distribution-b6uo76-opt-`. After the
+    walkthrough, merge the picks here and delete the rest.
 
 ### 2026-09-26 (late): M2 done, the phone shell
 
