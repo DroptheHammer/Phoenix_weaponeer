@@ -66,7 +66,10 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 
 ## In progress
 
-Nothing yet. Pick from Open above.
+- [ ] **Phone web app (iPhone and Android), hosted on GitHub Pages.** The full
+      planner in a phone layout, plus autosave, kneeboard mode, share all and
+      "Strike near me". Branch `claude/mobile-app-distribution-b6uo76`. The
+      plan and the rolling handoff log are in `docs/MOBILE_WEB_PLAN.md`.
 
 ---
 
