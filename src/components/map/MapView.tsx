@@ -1,5 +1,5 @@
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, ZoomControl, useMapEvents } from 'react-leaflet';
-import { divIcon, latLng, DragEndEvent } from 'leaflet';
+import { divIcon, latLng, DragEndEvent, type Map as LeafletMap } from 'leaflet';
 import { OSM_TILE_URL } from '../../lib/kneeboardBasemap';
 import { escapeHtml } from '../../lib/html';
 import 'leaflet/dist/leaflet.css';
@@ -18,6 +18,8 @@ import { PlacedLabelsOverlay } from './PlacedLabelsOverlay';
 import { MARKER_Z } from './mapLayers';
 import { applyDisplayFilter } from '../../lib/displayFilter';
 import { useUiStore } from '../../stores/uiStore';
+import { useIsPhone } from '../../hooks/useIsPhone';
+import { CrosshairPick } from './CrosshairPick';
 
 interface ThreatSystem {
   id: string;
@@ -297,10 +299,15 @@ export function MapView({
   const theaterInfo = useTheaterInfo(theater);
   const center = theaterInfo?.default_center ?? { lat: 0, lon: 0 };
   const [placedLabels, setPlacedLabels] = useState<PlacedLabel[]>([]);
+  const [map, setMap] = useState<LeafletMap | null>(null);
+  // Phones pick with a crosshair and move with a button instead of a click
+  // and a drag (see CrosshairPick).
+  const isPhone = useIsPhone();
 
-  // What the map is waiting for a click on — armed by ThreatList. See
-  // uiStore.ts's MapPick.
+  // What the map is waiting for a click on — armed by ThreatList, or by a
+  // marker's Move button on a phone. See uiStore.ts's MapPick.
   const mapPick = useUiStore((s) => s.mapPick);
+  const requestMapPick = useUiStore((s) => s.requestMapPick);
   const deliverMapPick = useUiStore((s) => s.deliverMapPick);
   const cancelMapPick = useUiStore((s) => s.cancelMapPick);
   const isPlacementMode = !!mapPick;
@@ -344,12 +351,35 @@ export function MapView({
     }
   };
 
+  // Phone "Move": the crosshair starts on the thing, the planner pans it to
+  // the new spot, and "Move here" lands in the same handler the drag used.
+  const requestThreatMove = (threat: ThreatInstance, name: string) => {
+    map?.closePopup();
+    requestMapPick({
+      kind: 'move',
+      prompt: `Pan the map to put the ${name} under the crosshair`,
+      confirmLabel: 'Move here',
+      start: threat.position,
+      onPick: (position) => onMoveThreat?.(threat.id, position),
+    });
+  };
+
+  const requestIpMove = (attackId: string, from: Coordinates) =>
+    requestMapPick({
+      kind: 'move',
+      prompt: 'Pan the map to put the IP under the crosshair',
+      confirmLabel: 'Move here',
+      start: from,
+      onPick: (position) => onMoveCustomIp?.(attackId, position),
+    });
+
   return (
     <div className="h-full w-full relative">
       <MapContainer
+        ref={setMap}
         center={[center.lat, center.lon]}
         zoom={8}
-        className={`h-full w-full ${isPlacementMode ? 'cursor-crosshair' : ''}`}
+        className={`h-full w-full ${isPlacementMode && !isPhone ? 'cursor-crosshair' : ''}`}
         zoomControl={false}
       >
         <TileLayer
@@ -364,7 +394,8 @@ export function MapView({
             of a list must highlight it, not re-frame the whole mission. */}
         <ThreatFocusController threats={threats} threatSystems={threatSystems} focusThreatId={focusThreatId} onFocused={threatFocused} />
         <AttackLabelLayer attacks={visibleAttacks} waypoints={waypoints} flightMembers={flightMembers} onPlaced={setPlacedLabels} />
-        <MapClickHandler isPlacementMode={isPlacementMode} onPlacePosition={deliverMapPick} />
+        {/* On a phone a tap never places anything: only "Set here" does. */}
+        <MapClickHandler isPlacementMode={isPlacementMode && !isPhone} onPlacePosition={deliverMapPick} />
 
         {/* Bullseye marker */}
         {bullseye && (
@@ -438,7 +469,10 @@ export function MapView({
           const maxRangeMeters = system.max_range_nm * 1852;
           const isMissionThreat = threat.source === 'mission';
           const baseColor = threat.status === 'active' ? '#EF4444' : '#9CA3AF';
-          const isDraggable = !isMissionThreat && !!onMoveThreat;
+          const isMovable = !isMissionThreat && !!onMoveThreat;
+          // A phone moves it from the popup instead (see requestThreatMove).
+          const isDraggable = isMovable && !isPhone;
+          const moveHint = isPhone ? 'Tap the marker, then Move' : 'Drag marker to reposition';
 
           return (
             <Fragment key={`${threat.id}-${isPlacementMode}`}>
@@ -474,7 +508,7 @@ export function MapView({
                     </div>
                     {!isMissionThreat && (
                       <div className="text-xs text-orange-600 mt-1 border-t pt-1">
-                        Drag marker to reposition
+                        {moveHint}
                       </div>
                     )}
                     {threat.notes && (
@@ -504,16 +538,42 @@ export function MapView({
                       <div className="text-xs text-gray-600">{system.nato_designation}</div>
                     )}
                     <div className="text-xs text-gray-500 mt-1">
-                      {isMissionThreat ? 'Mission Intel (fixed)' : 'Drag to reposition'}
+                      {isMissionThreat ? 'Mission Intel (fixed)' : isPhone ? 'Planning assumption' : 'Drag to reposition'}
                     </div>
-                    {!isMissionThreat && onRemoveThreat && (
-                      <button
-                        onClick={() => onRemoveThreat(threat.id)}
-                        className="mt-1 text-xs text-gray-500 hover:text-red-600 transition-colors"
-                        title="Delete threat"
-                      >
-                        × Delete
-                      </button>
+                    {isPhone ? (
+                      // Popup buttons sized for a thumb.
+                      !isMissionThreat && (
+                        <div className="mt-2 flex gap-2">
+                          {isMovable && (
+                            <button
+                              type="button"
+                              onClick={() => requestThreatMove(threat, system.name)}
+                              className="min-h-[44px] px-4 rounded-lg bg-dcs-blue text-white text-sm font-medium"
+                            >
+                              Move
+                            </button>
+                          )}
+                          {onRemoveThreat && (
+                            <button
+                              type="button"
+                              onClick={() => onRemoveThreat(threat.id)}
+                              className="min-h-[44px] px-4 rounded-lg border border-gray-300 text-gray-700 text-sm"
+                            >
+                              × Delete
+                            </button>
+                          )}
+                        </div>
+                      )
+                    ) : (
+                      !isMissionThreat && onRemoveThreat && (
+                        <button
+                          onClick={() => onRemoveThreat(threat.id)}
+                          className="mt-1 text-xs text-gray-500 hover:text-red-600 transition-colors"
+                          title="Delete threat"
+                        >
+                          × Delete
+                        </button>
+                      )
                     )}
                   </Popup>
                 )}
@@ -552,6 +612,7 @@ export function MapView({
                   position={ipAnchor.point}
                   onMove={(point) => onMoveCustomIp(attack.id, point)}
                   interactive={!isPlacementMode}
+                  onRequestMove={isPhone ? () => requestIpMove(attack.id, ipAnchor.point) : undefined}
                 />
               )}
             </Fragment>
@@ -562,8 +623,21 @@ export function MapView({
       {/* Attack-picture labels, laid out collision-aware over every visible attack. */}
       <PlacedLabelsOverlay labels={placedLabels} />
 
-      {/* Placement mode indicator — the prompt names whatever ThreatList armed. */}
-      {mapPick && (
+      {/* Placement mode indicator — the prompt names whatever armed the pick.
+          A phone gets the crosshair and "Set here" instead of click-to-place.
+          Keyed on the pick, so a new pick pans to its own start point. */}
+      {mapPick && isPhone && (
+        <CrosshairPick
+          key={`${mapPick.kind}:${mapPick.prompt}:${mapPick.start?.lat},${mapPick.start?.lon}`}
+          map={map}
+          prompt={mapPick.prompt}
+          confirmLabel={mapPick.confirmLabel}
+          start={mapPick.start}
+          onSet={deliverMapPick}
+          onCancel={cancelMapPick}
+        />
+      )}
+      {mapPick && !isPhone && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-dcs-accent text-white px-6 py-3 rounded-lg shadow-lg z-[1000] font-medium flex items-center gap-3">
           <span>{mapPick.prompt}</span>
           <button type="button" onClick={() => cancelMapPick()} className="text-white/80 hover:text-white text-sm underline">

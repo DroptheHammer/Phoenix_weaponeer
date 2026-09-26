@@ -128,7 +128,8 @@ export function PhoneShell<Id extends string>({
 
       <main className="relative flex-1 min-h-0">
         {children}
-        {banner && <div className="absolute top-2 inset-x-2 z-[1050]">{banner}</div>}
+        {/* Stops short of the map's Layers button at the top right (MapLegend). */}
+        {banner && <div className="absolute top-2 left-2 right-28 z-[1050]">{banner}</div>}
         {openTab && panel && (
           <BottomSheet title={openTab.label} onClose={() => onTab?.(null)} hidden={hidePanel}>
             {panel}
