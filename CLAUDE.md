@@ -255,9 +255,9 @@ not here — this section is a snapshot for resuming work, not a journal.
 1. `git pull origin main`. On any machine other than the main Mac, delete any
    clone older than 2026-09-23 and **clone fresh**. Copy `test-data/private/`
    over from the main Mac to run the full test suite.
-2. **The user still has to delete** the private throwaway repos
-   `Phoenix_weaponeer-discard2` and `Phoenix_weaponeer-discard3` (the token
-   lacks `delete_repo`). Keep `-archive`.
+2. Repos: only `Phoenix_weaponeer` (public) and `Phoenix_weaponeer-archive`
+   (private, full history — keep) remain. The throwaway `-discard2` /
+   `-discard3` repos were deleted by the user 2026-09-26.
 3. **What's next = `ROADMAP.md` "Open"**, cross-checked against this file and
    the code (memory `feedback-check-shipped-work-not-one-doc`). Biggest open:
    loft geometry; rocket sight tables for manual-dive profiles; bomb tables
