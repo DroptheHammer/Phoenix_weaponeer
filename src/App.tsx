@@ -344,6 +344,18 @@ function App() {
                 </button>
               </>
             )}
+            {/*
+              Full screen on macOS hides the window's own buttons, and not every
+              pilot knows Cmd+Q. `exit_app` quits outright (lib.rs lets it
+              through), so the unsaved-changes guard runs here first.
+            */}
+            <button
+              onClick={() => guardUnsaved('quit', () => void invoke('exit_app'))}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-300 border border-gray-600 hover:bg-gray-700 hover:text-white transition-colors"
+              title="Quit Phoenix Weaponeer"
+            >
+              Quit
+            </button>
           </div>
         </div>
       </header>
