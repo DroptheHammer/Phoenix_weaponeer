@@ -253,6 +253,45 @@ today's desktop layout from the web build.
 
 ## Handoff log (newest first; keep this current)
 
+### 2026-09-27 (overnight, the user asleep): M3, M4, M4b and M5 in progress
+
+- **The user's standing instructions for the night:**
+  - Keep building the plan.
+  - Use sub-agents freely for parallel parts.
+  - At a genuine decision point, build **3 options on separate branches** (at most 3×3×3 = 27
+    leaves) so the user can pick in a morning walkthrough.
+  - Explain everything in the walkthrough in plain, non-technical words.
+  - After the walkthrough, delete the unused branches.
+- **In parallel sub-agents (worktrees off `cc8a9fc`), to be merged into this branch:**
+  - **M3a:** the phone Attack editor, JetStrip chips and swipe, SliderField −/+.
+  - **M3b:** map interaction on phones: crosshair pick, Move instead of drag, the Layers
+    button, tooltips to taps.
+  - **M4:** the cards carousel, zoom, Share and Share all (a new Platform share method),
+    kneeboard mode (Wake Lock), and the FragOrdersPreview cards.
+- **Done on this branch meanwhile:**
+  - **M5 hosting:**
+    - `.github/workflows/pages.yml` (workflow_dispatch only; needs repo Settings → Pages →
+      Source: GitHub Actions).
+    - `scripts/build-wasm.mjs`: remaps the absolute source paths Rust embeds in the `.wasm`.
+      The home-folder path would have leaked the username.
+    - `scripts/web-privacy-check.mjs`: the last step of `build:web`; fails on home paths,
+      private folders or source maps.
+    - The update prompt: `@pwa-update` alias and `UpdateBanner`, with the service worker in
+      `registerType: 'prompt'`.
+    - `release.yml` no longer installs sqlite3 on Windows (it was only for PROJ).
+  - **M4b (partly):**
+    - The `real_world` pseudo-theater in `crates/core/src/theaters.rs`.
+    - `src/lib/strikeNearMe.ts` builds the mission: target, an IP 10 nm out on the far side
+      from the planner, and one F-16C with 6 Mk-82s. Covered by 8 geo-checks (320 total).
+    - `src/components/mission/StrikeNearMe.tsx`: GPS, the crosshair screen, and the details form.
+    - **Not yet wired into the App.** That comes after the merges: landing button, ⋯ menu,
+      real-world banner, share/export warnings.
+- **Decision points identified so far:**
+  - **D1, "Strike near me" in the desktop app.** The plan left this open. The three options:
+    1. web only
+    2. desktop gets it without GPS (pan the map to any spot)
+    3. desktop gets a typed coordinates / pasted map link box plus the map
+
 ### 2026-09-26 (late): M2 done, the phone shell
 
 - **Built:**
