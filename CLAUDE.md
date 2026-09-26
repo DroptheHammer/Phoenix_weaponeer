@@ -94,6 +94,9 @@ separately.
 9. **Ask the user, then publish** the draft and mark it Latest. Publishing is
    the only point that is public, so this is the one confirmation stop.
 10. **Record it** in the Session Pickup Notes (version, CI run id, published).
+11. **Optional: republish the phone web app** so it matches. Ask the user first,
+    since the site is public. Actions → "Web app (GitHub Pages)" → Run workflow on
+    `main`. Locally, `npm run build:web` builds the same thing and runs the privacy check.
 
 ### How the release build works
 
@@ -206,49 +209,52 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-26 UTC (Opus 5.5, user at the screen).
-**Released v0.3.1** — first outside bug report fixed, plus a to-do sweep.
+**Last session:** 2026-09-26 UTC (Opus 5.5, cloud session; the user
+went overnight, then worked from their phone only).
+**The phone web app is LIVE: https://dropthehammer.github.io/Phoenix_weaponeer/**
 
-- **GitHub issue #1** (from an outside user): the FragOrders share button
-  gives `http://` links and the importer took only `https://`. Fixed in
-  `fragorders_link.rs` (only the id is used; every fetch stays HTTPS);
-  checked on screen by the user with several links. The issue closed itself
-  on push. A reply pointing at v0.3.1 was posted on the issue with the
-  user's approval.
-- **Shipped in 0.3.1:**
-  - Quit button in the header.
-  - **Strike lead = jet first on target**: `strikeMembers` sorts by TOT
-    offset, then flight position. The test found a worse bug too: after a
-    pilot swap, removing a jet shifted every TOT by 30 s.
-  - Card "Map background" switch remembered (`settings.json` `kneeboardMap`,
-    default on).
-  - Recent missions on the front page (last 8; `settings.json`
-    `recentMissions`; `load_mission` says "moved or deleted" — that exact
-    text is shared with `missionFile.ts` and pinned by a Rust test).
-  - **Strafe and rockets reachable** — DB v4: 4 guns + 4 rocket types,
-    names checked by the user, mapped per aircraft in `aircraft_weapons`
-    (`Weapon.carried_by`); picker `weaponChoicesFor`; rocket passes drop the
-    Mk-82 sight; cards say "Fire by" / "gun/rocket attack". New Rust test:
-    every weapon class a profile needs has a weapon.
-- **Docs:** `ROADMAP.md` rewritten as the ONE to-do list (open / in progress /
-  shipped by release / decided-not-doing). BUGFIX_PLAN, REVIEW_0.2.1,
-  REVAMP_PLAN, ARCHITECTURE moved to `docs/archive/`. 14 unused root scripts
-  deleted. Decided: wingman tracks stay clipped on the card (memory
-  `closed-decisions-do-not-reopen`).
-- **Release:** gates 312 geo-checks / 106 Rust tests / build clean; privacy
-  scan clean (known false positives only); bump `5dbd2c6`, tag `v0.3.1`,
-  CI run 36221932870 green on all three; 7 installers; Mac/Linux/`.msi`
-  unpacked and scanned clean. Published as Latest 2026-09-26 06:02 UTC;
-  logged-out download 200.
-- **Not done:** the user did not confirm the full on-screen checklist for
-  recent missions / map switch / jet order / strafe before asking to
-  release. If a squadron member reports a problem there, start there.
+- **What was built** (the plan and a full handoff log are in `docs/MOBILE_WEB_PLAN.md`):
+  - Pure-Rust transverse Mercator in place of PROJ.
+  - The `crates/core` and `crates/wasm` split, with SQLite replaced by built-in reference data.
+  - The `@platform` layer, choosing desktop or web.
+  - The phone UI: map, bottom tabs and sheet, crosshair picking, the phone attack
+    editor, the cards carousel, Share all, kneeboard mode, autosave with My missions.
+  - "Strike near me", a GPS Easter egg that is web only.
+  - `pages.yml`, plus a privacy check on the published files.
+- **Overnight decisions:** 3 options were built per decision on branches, then
+  walked through with the user on a plain-language page. The picks were **1A 2B 3A**:
+  - Strike near me stays phone/web only.
+  - The Cards tab opens at full height.
+  - The sideways attack editor shows the map beside the settings.
+- **Shipped:**
+  - PR #2 merged into `main` (`cceebab`).
+  - The user set Pages Source to GitHub Actions and started `pages.yml` from their phone.
+  - Run 36255418555 was green. The site is public.
+- **Republishing the site:** merge to `main`, then Actions → "Web app (GitHub
+  Pages)" → Run workflow. It is started by hand only; whether to publish on each
+  release tag is undecided. A desktop release does NOT update the site.
+- **What this cloud session could not do, so don't retry, ask the user:**
+  - Start a workflow (403).
+  - Delete remote branches (403).
+  - Open github.io or the FragOrders CloudFront host (blocked by the sandbox network).
+  - Reach the Mac memory folder. **The Mac session should copy these lessons into memory:**
+    - Pages is published by hand.
+    - The cloud's GitHub limits above.
+    - The option-branch walkthrough worked well for decisions made while the user is away.
+- **Still open:**
+  - The user checks the app on a real iPhone: Add to Home Screen, the share sheet,
+    Wake Lock, the GPS prompt.
+  - A **FragOrders link import from the live site**. CloudFront CORS is untested. If
+    it's refused, add the planned Cloudflare Worker proxy.
+  - A desktop Tauri click-through **before the next desktop release**. The whole backend
+    moved into `crates/core`. Tests are green, but no one has clicked through it.
+  - **The six `claude/mobile-app-distribution-b6uo76-opt-*` branches are still on
+    GitHub.** They are unused and safe to delete. The cloud session can't delete them.
 
 ### START OF NEXT SESSION
 
-0. **Phone web app in progress** on branch `claude/mobile-app-distribution-b6uo76`.
-   If you're continuing it, check out that branch and read the **Handoff log** at
-   the bottom of `docs/MOBILE_WEB_PLAN.md` first. It has the exact next action.
+0. **Phone web app: merged and live.** There's no branch to check out. Read the
+   top of the **Handoff log** in `docs/MOBILE_WEB_PLAN.md` for its open items.
 1. `git pull origin main`. On any machine other than the main Mac, delete any
    clone older than 2026-09-23 and **clone fresh**. Copy `test-data/private/`
    over from the main Mac to run the full test suite.
