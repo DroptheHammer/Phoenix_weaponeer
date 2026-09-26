@@ -21,7 +21,9 @@ import { PhoneShell, type PhoneMenuItem, type PhoneTab } from "./components/phon
 import { useIsPhone } from "./hooks/useIsPhone";
 import { flushAutosave, isAutosaved, useAutosave } from "./stores/localMissionStore";
 import { MISSION_FILE_GONE, openLocalMission, openMission, openMissionAt, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
-import type { FragOrdersData, DbWeapon, FuzeOption } from "./types";
+import type { FragOrdersData, DbWeapon, FuzeOption, Mission } from "./types";
+import { StrikeNearMe } from "./components/mission/StrikeNearMe";
+import { isRealWorld } from "./lib/strikeNearMe";
 
 interface ThreatSystem {
   id: string;
@@ -42,11 +44,17 @@ interface Aircraft {
 
 type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
+/**
+ * "Strike near me" needs the phone's GPS, so it is a web-build feature; the
+ * desktop app, with no GPS and a squadron's real missions, leaves it out.
+ */
+const STRIKE_NEAR_ME_AVAILABLE = platform.isWeb;
+
 const toolbarButton =
   'px-3 py-1.5 rounded-lg text-sm font-medium bg-dcs-blue hover:bg-blue-600 transition-colors';
 
 function App() {
-  const { mission, isDirty, createMission, closeMission, importFromFragOrders, updateThreat, moveAttackCustomIp, focusAttackId, setFocusAttackId } =
+  const { mission, isDirty, createMission, loadMission, closeMission, importFromFragOrders, updateThreat, moveAttackCustomIp, focusAttackId, setFocusAttackId } =
     useMissionStore();
   const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
   const resetDisplayFilter = useUiStore((state) => state.resetFilter);
@@ -65,6 +73,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showStrikeNearMe, setShowStrikeNearMe] = useState(false);
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
   const mapPick = useUiStore((state) => state.mapPick);
   // Action held back by the unsaved-changes guard, with the phrase shown to the user.
@@ -262,6 +271,19 @@ function App() {
     loadDatabaseData();
   }, [loadTheaters, loadProfiles]);
 
+  // "Strike near me" (lib/strikeNearMe.ts): plan on a real place the phone's GPS finds.
+  const handleStrikeNearMe = () => {
+    guardUnsaved('start a new mission', () => setShowStrikeNearMe(true));
+  };
+
+  const handleStrikeNearMeCreated = (created: Mission) => {
+    loadMission(created);
+    resetDisplayFilter();
+    setShowStrikeNearMe(false);
+    setActivePanel(null);
+    setFileMsg(null);
+  };
+
   const handleNewMission = () => {
     guardUnsaved('start a new mission', () => {
       createMission("New Mission", "caucasus");
@@ -312,7 +334,13 @@ function App() {
     offset while still looking entirely plausible. Say so rather than
     letting a planner assume the coordinates are trustworthy.
   */
-  const unverifiedBanner = theaterInfo && !theaterInfo.verified && (
+  const unverifiedBanner = isRealWorld(mission) ? (
+    // "Strike near me": positions are exact, but no DCS map has them.
+    <div className="rounded-lg border border-sky-500/60 bg-sky-950/95 px-4 py-2 shadow-lg text-sm">
+      <p className="font-semibold text-sky-200">Real world: can't be flown in DCS</p>
+      <p className="text-sky-100/90">Planned on a real place for fun. The location stays on this device.</p>
+    </div>
+  ) : theaterInfo && !theaterInfo.verified && (
     <div className="flex items-start gap-3 rounded-lg border border-amber-500/60 bg-amber-950/95 px-4 py-3 shadow-lg">
       <svg
         className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400"
@@ -374,6 +402,14 @@ function App() {
         />
       )}
 
+      {showStrikeNearMe && (
+        <StrikeNearMe
+          aircraft={aircraft}
+          onCreate={handleStrikeNearMeCreated}
+          onClose={() => setShowStrikeNearMe(false)}
+        />
+      )}
+
       {pendingAction && (
         <UnsavedChangesDialog
           actionLabel={pendingAction.label}
@@ -410,6 +446,14 @@ function App() {
       >
         {platform.isWeb ? 'Open .json File' : 'Open Saved Mission'}
       </button>
+      {STRIKE_NEAR_ME_AVAILABLE && (
+        <button
+          onClick={handleStrikeNearMe}
+          className={`bg-sky-800 hover:bg-sky-700 text-white px-6 ${startPad} rounded-lg transition-colors`}
+        >
+          📍 Strike near me
+        </button>
+      )}
     </>
   );
 
@@ -432,6 +476,7 @@ function App() {
       { label: 'New mission', onClick: handleNewMission },
       { label: 'Import FragOrders', onClick: handleImportClick },
       { label: 'Open .json file', onClick: handleOpen },
+      ...(STRIKE_NEAR_ME_AVAILABLE ? [{ label: '📍 Strike near me', onClick: handleStrikeNearMe }] : []),
       ...(mission
         ? [
             { label: 'Export .json', onClick: () => void handleSaveAs() },

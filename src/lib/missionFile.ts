@@ -4,6 +4,7 @@ import { useMissionStore } from '../stores/missionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { Mission } from '../types/mission.types';
 import { loadLocalMission } from './localMissions';
+import { isRealWorld, REAL_WORLD_SHARE_WARNING } from './strikeNearMe';
 import { validateMission } from './validateMission';
 
 /**
@@ -36,6 +37,10 @@ function defaultFilename(missionName: string): string {
 }
 
 async function writeTo(mission: Mission, path: string): Promise<FileResult> {
+  // A "Strike near me" mission holds a real location; say so before it leaves the app.
+  if (isRealWorld(mission) && !window.confirm(`${REAL_WORLD_SHARE_WARNING}\n\nSave the file anyway?`)) {
+    return { status: 'cancelled' };
+  }
   try {
     await platform.writeMission(mission, path);
     const { setFilePath, markClean } = useMissionStore.getState();

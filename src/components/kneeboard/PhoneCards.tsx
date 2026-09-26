@@ -8,6 +8,7 @@ import { claimFilename } from '../../lib/kneeboardExportPlan';
 import type { MapStatus } from '../../lib/renderKneeboardCanvas';
 import type { ShareResult } from '../../lib/platform/types';
 import type { DbWeapon, FuzeOption } from '../../types';
+import { isRealWorld, REAL_WORLD_SHARE_WARNING } from '../../lib/strikeNearMe';
 import { attackCardLabel, exportMapNote, previewMapNote } from './cardText';
 import { useCardImages, type CardEntry } from './useCardImages';
 import { CardZoom } from './CardZoom';
@@ -82,9 +83,20 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
     setIndex(i);
   };
 
+  // A "Strike near me" card shows a real location. Sharing one waits for a
+  // "Share anyway" tap on an inline warning (a confirm() pop-up would use up
+  // the tap the share sheet needs); once is enough for this panel.
+  const [pendingShare, setPendingShare] = useState<CardEntry[] | null>(null);
+  const [realWorldOk, setRealWorldOk] = useState(false);
+
   const share = useCallback(
-    async (which: CardEntry[]) => {
+    async (which: CardEntry[], acknowledged = realWorldOk) => {
       if (!which.length || !mission) return;
+      if (isRealWorld(mission) && !acknowledged) {
+        setPendingShare(which);
+        return;
+      }
+      setPendingShare(null);
       setSharing(true);
       setMessage(null);
       try {
@@ -102,7 +114,7 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
         setSharing(false);
       }
     },
-    [mission, finalImage],
+    [mission, finalImage, realWorldOk],
   );
 
   if (!mission) {
@@ -198,6 +210,26 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
           Kneeboard
         </button>
       </div>
+
+      {pendingShare && (
+        <div className="shrink-0 rounded-lg border border-amber-500/60 bg-amber-950 p-3 text-sm text-amber-100">
+          <p className="mb-2">{REAL_WORLD_SHARE_WARNING}</p>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setPendingShare(null)} className="min-h-[44px] px-4 rounded-lg bg-gray-700">
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                setRealWorldOk(true);
+                void share(pendingShare, true);
+              }}
+              className="min-h-[44px] px-4 rounded-lg bg-dcs-accent font-medium text-white"
+            >
+              Share anyway
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Map under the north-up picture */}
       <label className="shrink-0 flex items-center gap-2 min-h-[44px] text-sm text-gray-300 cursor-pointer">

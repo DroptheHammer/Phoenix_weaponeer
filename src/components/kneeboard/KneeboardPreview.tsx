@@ -17,6 +17,7 @@ import {
 } from '../../lib/renderKneeboardCanvas';
 import { cachedBasemapTiles, loadBasemapTiles } from '../../lib/kneeboardBasemap';
 import { useIsPhone } from '../../hooks/useIsPhone';
+import { isRealWorld, REAL_WORLD_SHARE_WARNING } from '../../lib/strikeNearMe';
 import { attackCardLabel, exportMapNote, previewMapNote } from './cardText';
 import { PhoneCards } from './PhoneCards';
 import type { KneeboardCard } from '../../types/kneeboard.types';
@@ -133,10 +134,14 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     [kneeboardMap],
   );
 
+  /** A "Strike near me" card shows a real location: ask before it is saved out. */
+  const realWorldCleared = () =>
+    !isRealWorld(mission) || window.confirm(`${REAL_WORLD_SHARE_WARNING}\n\nSave the cards anyway?`);
+
   const handleExport = useCallback(async () => {
     if (!mission || !selectedAttackId) return;
     const card = buildKneeboardCard(mission, selectedAttackId, weapons, fuzeOptions, threatSystems);
-    if (!card) return;
+    if (!card || !realWorldCleared()) return;
 
     const defaultName = kneeboardFilename(card.header.callsign, card.header.targetName, card.header.targetSteerpoint);
     const path = await platform.chooseCardSavePath(defaultName);
@@ -156,7 +161,7 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
   }, [mission, selectedAttackId, weapons, fuzeOptions, threatSystems, renderForExport]);
 
   const handleExportAll = useCallback(async () => {
-    if (!mission || !mission.attacks.length) return;
+    if (!mission || !mission.attacks.length || !realWorldCleared()) return;
 
     // A folder picker on the desktop; the browser just downloads them all.
     const folder = await platform.chooseFolder(`Select folder for ${mission.attacks.length} kneeboard cards`);
