@@ -1,0 +1,37 @@
+{
+  "theater": "NEVADA",
+  "bullseye": { "x": -400000, "y": -20000 },
+  "plannedGroups": [
+    {
+      "name": "Viper 1",
+      "category": "plane",
+      "isPlayer": true,
+      "units": [
+        { "name": "Viper 1-1", "type": "F-16C_50", "callsign": "Viper11", "tailNumber": "101", "x": -399114, "y": -18563.8 },
+        { "name": "Viper 1-2", "type": "F-16C_50", "callsign": "Viper12", "tailNumber": "102", "x": -399150, "y": -18600 }
+      ],
+      "waypoints": [
+        { "name": "", "type": "TakeOffParking", "action": "From Parking Area", "x": -399114, "y": -18563.8, "alt": 560, "airdromeId": 4 },
+        { "name": "ALAMO", "type": "Turning Point", "action": "Turning Point", "x": -273087.4, "y": -31442, "alt": 6100, "speed": 231 },
+        { "name": "IP", "type": "Turning Point", "action": "Turning Point", "x": -228744.7, "y": -134384, "alt": 6100, "speed": 231 },
+        { "name": "TGT1", "type": "Turning Point", "action": "Turning Point", "x": -239390.1, "y": -160753.4, "alt": 1600, "speed": 231 },
+        { "name": "LAND", "type": "Land", "action": "Landing", "x": -399114, "y": -18563.8, "alt": 560, "airdromeId": 4 }
+      ]
+    }
+  ],
+  "opforVehicles": [
+    {
+      "name": "SA-6 site",
+      "category": "vehicle",
+      "units": [
+        { "name": "SA-6 LN", "type": "Kub 2P25 ln", "x": -233000, "y": -172000 },
+        { "name": "SA-6 STR", "type": "Kub 1S91 str", "x": -233100, "y": -172050 }
+      ]
+    },
+    {
+      "name": "Shilka",
+      "category": "vehicle",
+      "units": [{ "name": "ZSU", "type": "ZSU-23-4 Shilka", "x": -238500, "y": -158000 }]
+    }
+  ]
+}

@@ -1,10 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { save, open } from '@tauri-apps/plugin-dialog';
+import { platform } from '@platform';
 import { useVisibleMission } from '../../hooks/useVisibleMission';
 import { useUiStore } from '../../stores/uiStore';
 import { buildKneeboardCard, kneeboardFilename, type ThreatSystemInfo } from '../../lib/buildKneeboardCard';
-import { join } from '@tauri-apps/api/path';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { chooseKneeboardFolder, folderStillThere } from '../../lib/dcsExport';
 import { aircraftFolderInfo, claimFilename, groupAttacksByAircraft, type AircraftFolderInfo } from '../../lib/kneeboardExportPlan';
@@ -18,6 +16,10 @@ import {
   type MapStatus,
 } from '../../lib/renderKneeboardCanvas';
 import { cachedBasemapTiles, loadBasemapTiles } from '../../lib/kneeboardBasemap';
+import { useIsPhone } from '../../hooks/useIsPhone';
+import { isRealWorld, REAL_WORLD_SHARE_WARNING } from '../../lib/strikeNearMe';
+import { attackCardLabel, exportMapNote, previewMapNote } from './cardText';
+import { PhoneCards } from './PhoneCards';
 import type { KneeboardCard } from '../../types/kneeboard.types';
 import type { DbWeapon, FuzeOption } from '../../types';
 
@@ -33,21 +35,13 @@ interface KneeboardPreviewProps {
 const PREVIEW_WIDTH = 384;
 const PREVIEW_HEIGHT = 512;
 
-/** The preview's one-line map status, or nothing when there is nothing to say. */
-function previewMapNote(status: MapStatus): string | null {
-  if (status === 'unavailable') return 'map unavailable (offline?)';
-  if (status === 'partial') return 'map incomplete';
-  return null;
+/** The Cards panel: a swipeable carousel on a phone, the picker and export buttons otherwise. */
+export function KneeboardPreview(props: KneeboardPreviewProps) {
+  const isPhone = useIsPhone();
+  return isPhone ? <PhoneCards {...props} /> : <DesktopKneeboardPreview {...props} />;
 }
 
-/** Appended to an export message when a card went out without all of its map. */
-function exportMapNote(statuses: MapStatus[]): string {
-  if (statuses.includes('unavailable')) return ' — map tiles unavailable, saved without map';
-  if (statuses.includes('partial')) return ' — map incomplete on some cards';
-  return '';
-}
-
-export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft, onOpenSettings }: KneeboardPreviewProps) {
+function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft, onOpenSettings }: KneeboardPreviewProps) {
   // Cards are built from what this planner may see: no author-hidden threat
   // reaches a card unless it was revealed in ⚙ Settings → Admin.
   const mission = useVisibleMission();
@@ -140,24 +134,24 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     [kneeboardMap],
   );
 
+  /** A "Strike near me" card shows a real location: ask before it is saved out. */
+  const realWorldCleared = () =>
+    !isRealWorld(mission) || window.confirm(`${REAL_WORLD_SHARE_WARNING}\n\nSave the cards anyway?`);
+
   const handleExport = useCallback(async () => {
     if (!mission || !selectedAttackId) return;
     const card = buildKneeboardCard(mission, selectedAttackId, weapons, fuzeOptions, threatSystems);
-    if (!card) return;
+    if (!card || !realWorldCleared()) return;
 
     const defaultName = kneeboardFilename(card.header.callsign, card.header.targetName, card.header.targetSteerpoint);
-    const path = await save({
-      defaultPath: defaultName,
-      filters: [{ name: 'PNG Image', extensions: ['png'] }],
-      title: 'Save Kneeboard Card',
-    });
+    const path = await platform.chooseCardSavePath(defaultName);
     if (!path) return; // user cancelled
 
     setExporting(true);
     setExportMsg(null);
     try {
       const { base64, status } = await renderForExport(card);
-      await invoke<void>('save_kneeboard_png', { path, base64Data: base64 });
+      await platform.writeCard(path, base64);
       setExportMsg(`Saved: ${path.split(/[/\\]/).pop()}${exportMapNote([status])}`);
     } catch (e) {
       setExportMsg(`Error: ${String(e)}`);
@@ -167,15 +161,10 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
   }, [mission, selectedAttackId, weapons, fuzeOptions, threatSystems, renderForExport]);
 
   const handleExportAll = useCallback(async () => {
-    if (!mission || !mission.attacks.length) return;
+    if (!mission || !mission.attacks.length || !realWorldCleared()) return;
 
-    // Use proper folder picker
-    const folder = await open({
-      directory: true,
-      multiple: false,
-      title: `Select folder for ${mission.attacks.length} kneeboard cards`,
-    });
-
+    // A folder picker on the desktop; the browser just downloads them all.
+    const folder = await platform.chooseFolder(`Select folder for ${mission.attacks.length} kneeboard cards`);
     if (!folder) return; // user cancelled
 
     setExporting(true);
@@ -193,7 +182,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
         statuses.push(status);
         const filename = claimFilename(kneeboardFilename(card.header.callsign, card.header.targetName, card.header.targetSteerpoint), taken);
         try {
-          await invoke<void>('save_kneeboard_png', { path: await join(folder, filename), base64Data: base64 });
+          await platform.writeCard(await platform.pathInFolder(folder, filename), base64);
           saved++;
         } catch (e) {
           errors.push(`${filename}: ${String(e)}`);
@@ -202,7 +191,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
       setExportMsg(
         (errors.length
           ? `Saved ${saved} card(s) with ${errors.length} error(s)`
-          : `Saved ${saved} card(s) to folder`) + exportMapNote(statuses),
+          : `Saved ${saved} card(s) to ${platform.isWeb ? 'Downloads' : 'folder'}`) + exportMapNote(statuses),
       );
     } catch (e) {
       setExportMsg(`Error: ${String(e)}`);
@@ -254,7 +243,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
           statuses.push(status);
           const filename = claimFilename(kneeboardFilename(card.header.callsign, card.header.targetName, card.header.targetSteerpoint), taken);
           try {
-            await invoke<void>('save_kneeboard_png', { path: await join(folder, filename), base64Data: base64 });
+            await platform.writeCard(await platform.pathInFolder(folder, filename), base64);
             saved++;
           } catch (e) {
             errors.push(`${filename}: ${String(e)}`);
@@ -297,17 +286,6 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     );
   }
 
-  const getAttackLabel = (attackId: string) => {
-    const attack = mission.attacks.find((a) => a.id === attackId);
-    if (!attack) return attackId;
-    const attacker = mission.flightMembers.find((m) => m.id === attack.attackerId);
-    const target = mission.waypoints.find((w) => w.id === attack.targetWaypointId);
-    const callsign = attacker?.callsign ?? '?';
-    const targetName = target?.name ?? '?';
-    const profile = attack.profileType.replace(/_/g, ' ').toUpperCase();
-    return `${callsign} → ${targetName} (${profile})`;
-  };
-
   return (
     <div className="space-y-3">
       {/* Hidden full-res canvas for rendering */}
@@ -328,7 +306,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
         >
           {mission.attacks.map((attack) => (
             <option key={attack.id} value={attack.id}>
-              {getAttackLabel(attack.id)}
+              {attackCardLabel(mission, attack.id)}
             </option>
           ))}
         </select>
@@ -360,17 +338,19 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
             disabled={exporting || !selectedAttackId}
             className="flex-1 bg-dcs-accent hover:bg-red-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium py-1.5 rounded transition-colors"
           >
-            {exporting ? 'Saving…' : 'Export Selected'}
+            {exporting ? 'Saving…' : platform.isWeb ? 'Download Selected' : 'Export Selected'}
           </button>
           <button
             onClick={handleExportAll}
             disabled={exporting}
             className="flex-1 bg-dcs-blue hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium py-1.5 rounded transition-colors"
           >
-            {exporting ? 'Saving…' : `Export All (${mission.attacks.length})`}
+            {exporting ? 'Saving…' : `${platform.isWeb ? 'Download' : 'Export'} All (${mission.attacks.length})`}
           </button>
         </div>
 
+        {/* The browser has no DCS install to write into. */}
+        {!platform.isWeb && (
         <button
           onClick={handleExportToDCS}
           disabled={exporting}
@@ -378,8 +358,10 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
         >
           {exporting ? 'Saving…' : `🎯 Export All to DCS Folder`}
         </button>
+        )}
 
         {/* Where each aircraft type in this mission will export to */}
+        {!platform.isWeb && (
         <div className="text-xs text-gray-400 space-y-1">
           {groupAttacksByAircraft(mission).groups.map(({ aircraftId }) => {
             const info = aircraftFolderInfo(aircraftId, aircraft);
@@ -406,6 +388,7 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
             All aircraft folders in Settings…
           </button>
         </div>
+        )}
 
         {exportMsg && (
           <div
@@ -418,11 +401,18 @@ export function KneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
         )}
       </div>
 
-      <p className="text-xs text-gray-500">
-        Cards saved as 768×1024 PNG (DCS kneeboard format). Export to DCS asks once per aircraft type
-        for its kneeboard folder (usually <code className="font-mono">Saved Games/DCS/Kneeboard/&lt;aircraft&gt;</code>),
-        then remembers it.
-      </p>
+      {platform.isWeb ? (
+        <p className="text-xs text-gray-500">
+          Cards download as 768×1024 PNG (DCS kneeboard format). Copy them into{' '}
+          <code className="font-mono">Saved Games/DCS/Kneeboard/&lt;aircraft&gt;</code> on the PC you fly on.
+        </p>
+      ) : (
+        <p className="text-xs text-gray-500">
+          Cards saved as 768×1024 PNG (DCS kneeboard format). Export to DCS asks once per aircraft type
+          for its kneeboard folder (usually <code className="font-mono">Saved Games/DCS/Kneeboard/&lt;aircraft&gt;</code>),
+          then remembers it.
+        </p>
+      )}
     </div>
   );
 }

@@ -1,20 +1,22 @@
-import { invoke } from '@tauri-apps/api/core';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { platform } from '@platform';
+import { useLocalMissionStore } from '../stores/localMissionStore';
 import { useMissionStore } from '../stores/missionStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { Mission } from '../types/mission.types';
+import { loadLocalMission } from './localMissions';
+import { isRealWorld, REAL_WORLD_SHARE_WARNING } from './strikeNearMe';
 import { validateMission } from './validateMission';
 
 /**
- * Mission file I/O — the only place that talks to `save_mission` / `load_mission`.
+ * Mission file I/O — the only place that saves or opens a mission file.
  *
- * The Rust `Mission` struct carries `#[serde(rename_all = "camelCase")]` so the
- * store's mission crosses the IPC boundary and lands on disk unchanged. If that
- * attribute ever comes off, every call here fails with `missing field
- * 'flight_members'`.
+ * On the desktop this is `save_mission` / `load_mission`, whose Rust `Mission`
+ * struct carries `#[serde(rename_all = "camelCase")]` so the store's mission
+ * crosses the IPC boundary and lands on disk unchanged. If that attribute ever
+ * comes off, every call here fails with `missing field 'flight_members'`. In
+ * the browser, Save downloads the file and Open reads one the user picks,
+ * through the same Rust code compiled to WebAssembly.
  */
-
-const MISSION_FILTER = [{ name: 'Phoenix Mission', extensions: ['json'] }];
 
 /**
  * `load_mission`'s answer when the file is not there any more. Must match
@@ -34,18 +36,13 @@ function defaultFilename(missionName: string): string {
   return `${base || 'mission'}.json`;
 }
 
-/**
- * `save_mission` writes to whatever path it is given verbatim — it appends no
- * extension — so a picker that returns a bare name would produce an
- * extensionless file that the Open filter then hides.
- */
-function withJsonExtension(path: string): string {
-  return path.toLowerCase().endsWith('.json') ? path : `${path}.json`;
-}
-
 async function writeTo(mission: Mission, path: string): Promise<FileResult> {
+  // A "Strike near me" mission holds a real location; say so before it leaves the app.
+  if (isRealWorld(mission) && !window.confirm(`${REAL_WORLD_SHARE_WARNING}\n\nSave the file anyway?`)) {
+    return { status: 'cancelled' };
+  }
   try {
-    await invoke<void>('save_mission', { mission, path });
+    await platform.writeMission(mission, path);
     const { setFilePath, markClean } = useMissionStore.getState();
     setFilePath(path);
     markClean();
@@ -63,17 +60,13 @@ export async function saveMissionAs(): Promise<FileResult> {
 
   let picked: string | null;
   try {
-    picked = await save({
-      defaultPath: defaultFilename(mission.name),
-      filters: MISSION_FILTER,
-      title: 'Save Mission',
-    });
+    picked = await platform.chooseMissionSavePath(defaultFilename(mission.name));
   } catch (error) {
     return { status: 'error', message: String(error) };
   }
   if (!picked) return { status: 'cancelled' };
 
-  return writeTo(mission, withJsonExtension(picked));
+  return writeTo(mission, picked);
 }
 
 /** Writes to the mission's existing file, or falls back to Save As. */
@@ -85,33 +78,42 @@ export async function saveMission(): Promise<FileResult> {
   return writeTo(mission, filePath);
 }
 
-/**
- * Prompts for a mission file and loads it into the store.
- *
- * Needs `dialog:allow-open` in `src-tauri/capabilities/default.json`; without
- * it the picker rejects with a permission error rather than opening.
- */
+/** Prompts for a mission file and loads it into the store. */
 export async function openMission(): Promise<FileResult> {
-  let picked: string | string[] | null;
+  let picked: string | null;
   try {
-    picked = await open({
-      multiple: false,
-      directory: false,
-      filters: MISSION_FILTER,
-      title: 'Open Mission',
-    });
+    picked = await platform.chooseMissionToOpen();
   } catch (error) {
     return { status: 'error', message: String(error) };
   }
   if (!picked) return { status: 'cancelled' };
 
-  return openMissionAt(Array.isArray(picked) ? picked[0] : picked);
+  return openMissionAt(picked);
+}
+
+/** Opens a mission autosaved in this browser ("My missions", web build). */
+export async function openLocalMission(id: string): Promise<FileResult> {
+  try {
+    const loaded = await loadLocalMission(id);
+    if (loaded === null) return { status: 'error', message: 'That mission is no longer saved in this browser.' };
+    // Checked like a file: storage can outlive the app version that wrote it.
+    const check = validateMission(loaded);
+    if (!check.ok) {
+      return { status: 'error', message: `That saved mission can't be used — ${check.problems.join('; ')}` };
+    }
+    useMissionStore.getState().loadMission(check.mission);
+    // Just read from storage, so it is already saved there.
+    useLocalMissionStore.setState({ savedMission: useMissionStore.getState().mission });
+    return { status: 'ok', path: check.mission.name };
+  } catch (error) {
+    return { status: 'error', message: String(error) };
+  }
 }
 
 /** Loads a mission file already chosen — from the picker, or the recent list. */
 export async function openMissionAt(path: string): Promise<FileResult> {
   try {
-    const loaded = await invoke<unknown>('load_mission', { path });
+    const loaded = await platform.readMission(path);
     // A mission file can come from anyone in the squadron: nothing reaches the
     // store (and from there the map's raw-HTML markers) unchecked.
     const check = validateMission(loaded);

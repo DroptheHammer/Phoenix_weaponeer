@@ -1,0 +1,72 @@
+name: Web app (GitHub Pages)
+
+# Builds the web version (docs/MOBILE_WEB_PLAN.md) and publishes it to
+# GitHub Pages. Started by hand only, from the Actions tab ("Run workflow"),
+# until publishing on every release is decided — publishing makes it public.
+# One-time setup: repo Settings → Pages → Source: "GitHub Actions".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publish at a time; a newer run waits rather than cancelling one mid-deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        # Pinned to a commit, as in release.yml.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen
+        # Must match the `=0.2.129` pin in crates/wasm/Cargo.toml exactly.
+        run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Test the shared core
+        run: cargo test --manifest-path crates/core/Cargo.toml
+
+      - name: Geometry checks
+        run: npm run geo-check
+
+      - name: Build the web app
+        # Ends with scripts/web-privacy-check.mjs: no personal paths, private
+        # folders or source maps in what gets published.
+        run: npm run build:web
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

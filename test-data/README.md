@@ -16,7 +16,7 @@ missions and captured FragOrders link payloads can carry an author's hidden
 threat laydown, so they never go to the public repo. That covers
 `nttr_redflag_viper1.json`, `sinai_m01_v6.json`, `sinai_m01_v7.json` and
 `fragorders-links/`. Tests that need one of them load it at run time
-(`private_fixture!` in `src-tauri/src/lib.rs`) and print "skipped" when it is
+(`private_fixture!` in `crates/core/src/lib.rs`) and print "skipped" when it is
 missing, so the suite still passes on a fresh clone. To run them in full, copy
 the folder over from a machine that has it. The private archive repo
 (`Phoenix_weaponeer-archive`) has them too.
@@ -62,7 +62,7 @@ crosses the inbound ARCO leg. That is real mission geometry, not an import bug.
 Note `ARCO` is a plain nav fix here even though ARCO is also a tanker callsign
 elsewhere in this same mission. Waypoint-type inference deliberately does not
 treat tanker callsigns as tanker waypoints; see `infer_waypoint_type` in
-`src-tauri/src/commands/mod.rs`.
+`crates/core/src/import.rs`.
 
 ### `sinai_m01_v6.json` — ✅ the new-FragOrders reference
 
@@ -98,7 +98,7 @@ this mission — *"Barak Waypoint 1, 676 MSL, N 31° 14.4023′ E 34° 39.5637�
 projection to the same independent source.
 
 Covered by `sinai_m01_v6_fixture_imports` and `barak_numbering_matches_fragorders`
-in `src-tauri/src/commands/mod.rs`.
+in `crates/core/src/import.rs`.
 
 Sinai is now **`verified: true`** — this mission is what verified it (see the
 note at the end of this file), so importing it raises no banner.
@@ -123,7 +123,7 @@ no new or removed key types, only content changes:
 
 The same eight client flights import. Every route point is still unnamed (`""`).
 
-Covered by `sinai_m01_v7_fixture_imports` in `src-tauri/src/commands/mod.rs`.
+Covered by `sinai_m01_v7_fixture_imports` in `crates/core/src/import.rs`.
 
 ### `sandbox_mission.json` — real format, but imports empty
 
@@ -147,7 +147,7 @@ Hand-written fixture, **not** FragOrders output. Two problems:
 This file cost two separate debugging sessions chasing a coordinate-conversion
 bug that did not exist — the projection code was correct the whole time and is
 now pinned by ground-truth landmark tests in
-`src-tauri/src/parsers/coordinate_conversion.rs`.
+`crates/core/src/parsers/coordinate_conversion.rs`.
 
 Prefer `nttr_redflag_viper1.json` for anything involving positions on a map.
 
@@ -176,6 +176,19 @@ matches nothing.
 Retiring a `verified: false` flag needs the opposite of this file: real
 ground-truth pairs (DCS x/y and lat/lon) from a mission on that map — the method
 below is how Sinai's was retired.
+
+### `nevada_SYNTHETIC_link_payload.json` — ⚠️ SYNTHETIC, FLOW CHECK ONLY
+
+Hand-built in the shape of a FragOrders **public-link payload** (`TaskingState`:
+`plannedGroups` / `opforVehicles`), for driving the web build end to end in a
+browser without a real mission (see `docs/MOBILE_WEB_PLAN.md`). Safe to commit:
+the flight, units and names are made up. One F-16C two-ship (`Viper 1`) with a
+Nellis ramp start, ALAMO, IP, TGT1 and a landing, plus an SA-6 site and a
+Shilka near TGT1.
+
+The route reuses the Nevada landmark x/y from `test_dcs_to_latlon_nevada_landmarks`,
+so the waypoints land on real places, but the threats are invented positions. It
+proves the import *flow*, not any projection.
 
 ## Sinai: how the projection was verified
 

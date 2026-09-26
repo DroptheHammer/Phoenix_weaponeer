@@ -60,18 +60,11 @@ A cross-platform desktop application for planning F-16 (and other aircraft) atta
 
 ## Development Setup (macOS)
 
-The project requires system libraries for coordinate projection. On macOS, install via Homebrew:
-
-```bash
-brew install proj cmake pkgconf
-```
-
-Homebrew's own `pkg-config` (installed via the `pkgconf` package above) already
-defaults its search path to `/opt/homebrew/lib/pkgconfig`, so `proj` is found
-automatically with no `PKG_CONFIG_PATH` export needed. `src-tauri/.cargo/config.toml`
-only adds a linker search path, and only for the `aarch64-apple-darwin` target —
-it never applies to Linux/Windows builds — those compile `proj`'s bundled PROJ
-source via CMake instead (see the release CI section below).
+Rust (rustup) and Node are all you need. Coordinate projection is pure Rust
+(`crates/core/src/parsers/tmerc.rs`) since 2026-09-26. The PROJ C++ library, and
+the `brew install proj cmake pkgconf` it needed, are gone, and so is the old
+`src-tauri/.cargo/config.toml` linker path. On a Mac that still has them,
+they're harmless and can be uninstalled.
 
 ## Release Process
 
@@ -83,7 +76,9 @@ separately.
 
 1. **Pull and check the tree is clean:** `git pull origin main`, `git status`.
 2. **Run the gates:** `npm run geo-check`, `cargo test --manifest-path
-   src-tauri/Cargo.toml`, `npm run build`. All must pass. Stop and report if not.
+   crates/core/Cargo.toml`, `cargo test --manifest-path src-tauri/Cargo.toml`,
+   `npm run build`. All must pass. Stop and report if not. (The shared Rust
+   core lives in `crates/core` since 2026-09-26; `src-tauri` is the desktop shell.)
 3. **Bump the version** in all three: `package.json`, `src-tauri/Cargo.toml`,
    `src-tauri/tauri.conf.json`, plus the two top `version` lines of
    `package-lock.json`. Then `cargo build` so `Cargo.lock` follows.
@@ -105,13 +100,11 @@ separately.
 `.github/workflows/release.yml` builds installers for all three platforms on
 every `v*` tag push (macOS: `.dmg`, Windows: NSIS `.exe`, Linux: `.deb`/`.rpm`/
 `.AppImage`) via `tauri-apps/tauri-action`, and attaches them to a **draft**
-GitHub Release — publish it manually once the artifacts are verified. All
-three platforms build `proj`'s bundled PROJ source via CMake rather than
-linking a system library, since no CI runner has `libproj` preinstalled; this
-only works because `proj-sys` ≥0.25 bundles PROJ ≥9.4.0, whose
-`cmake_minimum_required` floor modern CMake still accepts (PROJ 9.2.1, bundled
-by older `proj-sys`, does not — that mismatch is what silently broke macOS and
-Windows CI until 2026-09-12, see `docs/SESSION_HISTORY.md`).
+GitHub Release — publish it manually once the artifacts are verified. There
+are no C++ dependencies to build. Until 2026-09-26, every platform compiled
+the PROJ library from source with CMake, which silently broke macOS and
+Windows CI until 2026-09-12 (see `docs/SESSION_HISTORY.md`). The pure-Rust
+projection in `parsers/tmerc.rs` removed that.
 
 There's no version-sync script — the version fields in checklist step 3 are
 kept in sync by hand, on purpose (release cadence is low). See
@@ -137,7 +130,8 @@ history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
 - [ ] PDF export option (optional)
 - [ ] Loft geometry (LABS, F-16 loft) — profiles ship hidden, geometry unbuilt
 - [x] FragOrders URL import — built 2026-09-22 on the public link as it is
-      (`src-tauri/src/fragorders_link.rs`); no endpoint or key coming
+      (`crates/core/src/fragorders_link.rs`, fetch in `src-tauri/src/link_fetch.rs`);
+      no endpoint or key coming
 
 ### Phase 5: The banked features (NEXT)
 - [x] **Live-geometry Customize** — built 2026-09-22: full-screen editor,
@@ -252,6 +246,9 @@ not here — this section is a snapshot for resuming work, not a journal.
 
 ### START OF NEXT SESSION
 
+0. **Phone web app in progress** on branch `claude/mobile-app-distribution-b6uo76`.
+   If you're continuing it, check out that branch and read the **Handoff log** at
+   the bottom of `docs/MOBILE_WEB_PLAN.md` first. It has the exact next action.
 1. `git pull origin main`. On any machine other than the main Mac, delete any
    clone older than 2026-09-23 and **clone fresh**. Copy `test-data/private/`
    over from the main Mac to run the full test suite.

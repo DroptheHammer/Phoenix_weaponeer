@@ -3,6 +3,8 @@ import { useMissionStore } from '../../stores/missionStore';
 import { useUiStore } from '../../stores/uiStore';
 import { AttackEditor } from './AttackEditor';
 import { strikeOf, strikeMembers } from '../../lib/strike';
+import { useIsPhone } from '../../hooks/useIsPhone';
+import { InfoButton } from '../common/InfoButton';
 import type { AttackProfileType, DbWeapon, FuzeOption, Attack, Strike } from '../../types';
 
 const PROFILE_LABELS: Record<AttackProfileType, string> = {
@@ -14,6 +16,11 @@ const PROFILE_LABELS: Record<AttackProfileType, string> = {
   high_angle_strafe: 'Strafe',
   standoff: 'Standoff',
 };
+
+// What the desktop says in tooltips, written out on a phone (no hover there).
+const STRIKE_HINT = 'Plan the flight together: shared IP, mirrored split, spacing over the target';
+const UNGROUP_HINT = "Keep every jet's attack as it is, just not coordinated";
+const ESTIMATED_HINT = 'Profile not yet flown in DCS';
 
 interface Aircraft {
   id: string;
@@ -38,6 +45,10 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
   const [showEditor, setShowEditor] = useState(false);
   const [editingAttack, setEditingAttack] = useState<Attack | undefined>(undefined);
   const [startStrike, setStartStrike] = useState(false);
+  // A phone has no hover: what the desktop keeps in tooltips is written out,
+  // or behind an ⓘ.
+  const isPhone = useIsPhone();
+  const [showHint, setShowHint] = useState(false);
 
   const handleAddAttack = () => {
     setEditingAttack(undefined);
@@ -78,22 +89,28 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
     }
   }
 
+  const canStrike = (mission?.flightMembers.length ?? 0) > 1;
+  const hasStrike = listItems.some((item) => item.kind === 'strike');
+
   return (
     <div className="h-full flex flex-col">
       {/* Header with add button */}
       <div className="flex justify-between items-center mb-4">
         <div>
           <h3 className="text-lg font-semibold">Attack Plan</h3>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-gray-400 flex items-center">
             {sortedAttacks.length} attack{sortedAttacks.length !== 1 ? 's' : ''} planned
+            {isPhone && (canStrike || hasStrike) && (
+              <InfoButton open={showHint} onToggle={() => setShowHint((s) => !s)} label="About strikes" />
+            )}
           </p>
         </div>
         <div className="flex gap-2">
-          {(mission?.flightMembers.length ?? 0) > 1 && (
+          {canStrike && (
             <button
               onClick={handleAddStrike}
               className="border border-cyan-700 text-cyan-200 hover:bg-cyan-950 px-3 py-2 rounded-lg transition-colors"
-              title="Plan the flight together: shared IP, mirrored split, spacing over the target"
+              title={STRIKE_HINT}
             >
               + Add Strike
             </button>
@@ -107,6 +124,13 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
           </button>
         </div>
       </div>
+
+      {isPhone && showHint && (
+        <div className="-mt-2 mb-3 rounded-lg bg-dcs-dark p-3 text-sm text-gray-300 space-y-1">
+          {canStrike && <p><span className="text-cyan-200">+ Add Strike</span> — {STRIKE_HINT}.</p>}
+          {hasStrike && <p><span className="text-amber-300">Ungroup</span> — {UNGROUP_HINT}.</p>}
+        </div>
+      )}
 
       {/* Attack list: plain attacks, and each strike once, its jets under it, lead first */}
       <div className="flex-1 overflow-y-auto space-y-2">
@@ -196,20 +220,22 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                   {strikeBadge && <div className="text-xs font-mono text-cyan-200">{strikeBadge}</div>}
                   <div className="bg-dcs-blue px-2 py-1 rounded text-xs">
                     {attack.sourceProfileName ?? PROFILE_LABELS[attack.profileType]}
-                    {attack.estimated && <span className="ml-1 text-amber-300" title="Profile not yet flown in DCS">~</span>}
+                    {attack.estimated && <span className="ml-1 text-amber-300" title={ESTIMATED_HINT}>~</span>}
                   </div>
                   <div>
                     <div className="font-medium flex items-center gap-2">
                       <span>{attacker?.callsign ?? 'Unknown'} → {target?.name ?? 'Unknown'}</span>
                       {hiddenAttackerIds.includes(attack.attackerId) && (
                         <span className="text-gray-500 text-xs italic" title="Hidden by the map display filter">
-                          hidden on map
+                          {/* On a phone, name where the filter lives. */}
+                          {isPhone ? 'hidden on map (Layers)' : 'hidden on map'}
                         </span>
                       )}
                     </div>
                     <div className="text-sm text-gray-400">
                       {weapon?.name || attack.weaponId} × {attack.releaseQuantity} ({attack.releaseMode})
                     </div>
+                    {isPhone && attack.estimated && <div className="text-xs text-amber-300">~ {ESTIMATED_HINT}</div>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

@@ -3,7 +3,10 @@ node_modules/
 
 # Build outputs
 dist/
+dist-web/
 target/
+# The web build's WebAssembly bindings (npm run build:wasm)
+src/generated/
 
 # Environment
 .env
@@ -29,6 +32,8 @@ yarn-error.log*
 
 # Tauri
 src-tauri/target/
+# Written by a Linux build (cloud sessions); the Mac's macOS-schema.json is tracked.
+src-tauri/gen/schemas/linux-schema.json
 src-tauri/*.png
 src-tauri/*.jpg
 

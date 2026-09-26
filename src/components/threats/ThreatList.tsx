@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Modal } from '../common/Modal';
 import { useMissionStore } from '../../stores/missionStore';
 import { useUiStore } from '../../stores/uiStore';
 import { useVisibleMission } from '../../hooks/useVisibleMission';
 import { probableThreats } from '../../lib/threatVisibility';
 import { formatCoordinatesDMS } from '../../lib/coordinates';
+import { useIsPhone } from '../../hooks/useIsPhone';
 import type { ThreatStatus, ThreatSource, Coordinates } from '../../types';
 
 interface ThreatSystem {
@@ -59,6 +60,8 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
   const probable = probableThreats(fullMission?.threats ?? [], reveal, (threat) => threat.systemId);
   const probableCount = probable.reduce((total, p) => total + p.count, 0);
   const requestMapPick = useUiStore((state) => state.requestMapPick);
+  // A phone places with the map's centre crosshair rather than a tap.
+  const isPhone = useIsPhone();
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState<string>('');
   const [newThreatCoords, setNewThreatCoords] = useState({ lat: '', lon: '' });
@@ -126,7 +129,7 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
           onClick={() => {
             requestMapPick({
               kind: 'threat',
-              prompt: 'Click map to place threat',
+              prompt: isPhone ? 'Pan the map to put the new threat under the crosshair' : 'Click map to place threat',
               onPick: (position) => {
                 setNewThreatCoords({
                   lat: position.lat.toFixed(5),
@@ -230,19 +233,8 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
       </div>
 
       {/* Add Threat Modal */}
-      {showAddModal && createPortal(
-        <div
-          className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 z-[2000] flex items-center justify-center"
-          style={{ position: 'fixed', zIndex: 2000 }}
-          onClick={() => setShowAddModal(false)}
-        >
-          <div
-            className="bg-dcs-navy text-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-2xl"
-            style={{ maxWidth: '90vw' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-semibold mb-4 text-white">Add Planning Threat</h3>
-
+      {showAddModal && (
+        <Modal title="Add Planning Threat" onClose={() => setShowAddModal(false)} widthClass="w-[500px] max-w-[90vw]">
             {/* Threat system selector */}
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2 text-white">Threat System</label>
@@ -337,9 +329,7 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
                 Add Threat
               </button>
             </div>
-          </div>
-        </div>,
-        document.body
+        </Modal>
       )}
     </div>
   );
@@ -366,6 +356,7 @@ function ThreatCard({ threat, system, onStatusChange, onRemove }: ThreatCardProp
   const selectedThreatId = useUiStore((state) => state.selectedThreatId);
   const selectThreat = useUiStore((state) => state.selectThreat);
   const isSelected = selectedThreatId === threat.id;
+  const isPhone = useIsPhone();
 
   return (
     <div
@@ -377,11 +368,16 @@ function ThreatCard({ threat, system, onStatusChange, onRemove }: ThreatCardProp
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <div
-              className={`w-3 h-3 rounded-full ${STATUS_COLORS[threat.status]} cursor-pointer`}
-              onClick={(e) => { e.stopPropagation(); setShowStatusDropdown(!showStatusDropdown); }}
-              title={`Status: ${STATUS_LABELS[threat.status]} (click to change)`}
-            />
+            {/* The dot's colour is the status and a click changes it, which the
+                desktop says on hover. A phone has no hover: see the status
+                button further down. */}
+            {!isPhone && (
+              <div
+                className={`w-3 h-3 rounded-full ${STATUS_COLORS[threat.status]} cursor-pointer`}
+                onClick={(e) => { e.stopPropagation(); setShowStatusDropdown(!showStatusDropdown); }}
+                title={`Status: ${STATUS_LABELS[threat.status]} (click to change)`}
+              />
+            )}
             <div className="font-medium">
               {system?.name || threat.systemId}
             </div>
@@ -410,6 +406,19 @@ function ThreatCard({ threat, system, onStatusChange, onRemove }: ThreatCardProp
             <div className="text-xs text-gray-500 mt-1 italic">
               {threat.notes}
             </div>
+          )}
+
+          {/* Phone: the status written out, as a button that opens the choices. */}
+          {isPhone && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowStatusDropdown(!showStatusDropdown); }}
+              className="mt-2 min-h-[36px] flex items-center gap-1.5 rounded-full bg-dcs-navy pl-2.5 pr-3 text-sm text-gray-200"
+              aria-expanded={showStatusDropdown}
+            >
+              <span className={`w-3 h-3 rounded-full ${STATUS_COLORS[threat.status]}`} />
+              Status: {STATUS_LABELS[threat.status]} ▾
+            </button>
           )}
         </div>
 

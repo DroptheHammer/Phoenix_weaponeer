@@ -102,14 +102,15 @@ export function GroupPanel({ strike, jets, resolved, ctx, aircraft, onStrike, on
 
       <div>
         <label className={label}>Jets</label>
-        <div className="grid grid-cols-2 gap-2">
+        {/* One per row on a phone, so a callsign never breaks across lines, and each row is a thumb's height. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {[...mission.flightMembers]
             .sort((a, b) => a.position - b.position)
             .map((fm) => {
               const index = jets.findIndex((j) => j.draft.attackerId === fm.id);
               const ac = aircraft.find((a) => a.id === fm.aircraftId);
               return (
-                <label key={fm.id} className="flex items-center gap-2 text-sm bg-dcs-dark rounded px-2 py-1.5 cursor-pointer">
+                <label key={fm.id} className="flex items-center gap-2 text-sm bg-dcs-dark rounded px-2 py-1.5 max-md:min-h-[44px] cursor-pointer">
                   <input type="checkbox" checked={index >= 0} onChange={() => toggleMember(fm.id)} disabled={index === 0 && jets.length === 1} />
                   {index >= 0 && <span className="w-2.5 h-2.5 rounded-full" style={{ background: JET_COLORS[index % JET_COLORS.length] }} />}
                   <span>{formatCallsign(fm.callsign)}</span>
@@ -121,7 +122,8 @@ export function GroupPanel({ strike, jets, resolved, ctx, aircraft, onStrike, on
         {jets.length < 2 && <div className="text-xs text-amber-300 mt-1">A strike needs at least two jets.</div>}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      {/* One column on a phone: a slider squeezed into half its width can't be dragged. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className={label}>Lead in from</label>
           <div className="flex gap-2">

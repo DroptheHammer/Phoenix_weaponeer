@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { invoke } from '@tauri-apps/api/core';
+import { platform } from '@platform';
+import { Modal } from '../common/Modal';
 import type { LoadoutItem } from '../../types';
 
 interface DbWeapon {
@@ -32,7 +32,7 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
   );
 
   useEffect(() => {
-    invoke<DbWeapon[]>('get_all_weapons').then(setWeapons).catch(console.error);
+    platform.call<DbWeapon[]>('get_all_weapons').then(setWeapons).catch(console.error);
   }, []);
 
   const handleWeaponChange = (index: number, value: string) => {
@@ -58,27 +58,10 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
     onSave(newLoadout);
   };
 
-  const modal = (
-    <div
-      className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="bg-dcs-navy text-white border border-gray-600 rounded-xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
-          <div>
-            <h2 className="text-lg font-bold">Edit Loadout</h2>
-            <p className="text-sm text-gray-400">{aircraftName}</p>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">
-            &times;
-          </button>
-        </div>
-
+  return (
+    <Modal title={`Edit Loadout — ${aircraftName}`} onClose={onClose} widthClass="w-full max-w-md mx-4">
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div>
           <div className="space-y-2">
             {rows.map((row, index) => (
               <div key={index} className="flex gap-2 items-center">
@@ -128,7 +111,7 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-700">
+        <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-gray-700">
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-lg border border-gray-600 text-sm hover:bg-gray-700 transition-colors"
@@ -142,9 +125,6 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
             Save Loadout
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
-
-  return createPortal(modal, document.body);
 }
