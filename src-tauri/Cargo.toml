@@ -1,6 +1,6 @@
 [package]
 name = "phoenix-weaponeer"
-version = "0.3.0"
+version = "0.3.1"
 description = "Phoenix Weaponeer - DCS tactical mission planning and kneeboard generation"
 authors = ["Phoenix Squadron"]
 license = "PolyForm-Strict-1.0.0"
