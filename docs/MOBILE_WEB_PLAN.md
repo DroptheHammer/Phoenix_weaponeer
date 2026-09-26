@@ -254,6 +254,23 @@ today's desktop layout from the web build.
 
 ## Handoff log (newest first; keep this current)
 
+### 2026-09-26 (afternoon): LIVE at https://dropthehammer.github.io/Phoenix_weaponeer/
+
+- The user approved going public from their phone.
+  - They set Pages Source to GitHub Actions themselves.
+  - PR #2 was merged into `main` (`cceebab`).
+  - The user started `pages.yml` by hand. This session gets a 403 when it tries, and the
+    cloud sandbox can't open github.io at all.
+- Run 36255418555: build and deploy green in about 2.5 minutes, 1.5 of them installing
+  wasm-bindgen.
+- **To republish after changes:** merge to `main`, then Actions → "Web app (GitHub Pages)" →
+  Run workflow. It is still started by hand only. Publishing on every release tag is not
+  decided yet.
+- **Next:**
+  - The user checks it on a real iPhone: Add to Home Screen, share sheet, Wake Lock, GPS.
+  - A FragOrders link import from the live site (CloudFront CORS is still unknown).
+  - A desktop click-through before the next desktop release.
+
 ### 2026-09-26 (morning): walkthrough done, picks merged; waiting on real-world checks
 
 - **The user picked 1A 2B 3A** in the walkthrough. Why each one, in plain words:
