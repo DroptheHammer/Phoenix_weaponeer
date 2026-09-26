@@ -80,20 +80,19 @@ function pngSize(file) {
   await carousel.getByRole('img').first().waitFor({ timeout: 15000 });
   await page.waitForTimeout(1500); // the other cards, and the map tiles giving up
   step(`cards drawn: ${await carousel.getByRole('img').count()} of 3; indicator "${await page.getByText(/^\d+ \/ \d+$/).innerText()}"`);
-  await shot('01-cards-half');
-
-  // Pull the sheet to full height: the card should be full width there.
-  await page.getByRole('button', { name: 'Expand' }).click();
-  await page.waitForTimeout(400);
+  // The Cards sheet opens straight at full height (decision 2B), so its
+  // handle offers Shrink, not Expand, and the card is full width.
+  const opensFull = await page.getByRole('button', { name: 'Shrink' }).isVisible();
+  if (!opensFull) throw new Error('Cards sheet did not open at full height');
   const box = await carousel.getByRole('img').first().boundingBox();
-  step(`full sheet: first card ${Math.round(box.width)}x${Math.round(box.height)} in a ${w}px screen`);
-  await shot('02-cards-full');
+  step(`opens full: ${opensFull}; first card ${Math.round(box.width)}x${Math.round(box.height)} in a ${w}px screen`);
+  await shot('01-cards-full');
 
   // Swipe to the next card.
   await carousel.evaluate((el) => el.scrollTo({ left: el.clientWidth }));
   await page.waitForTimeout(500);
   step(`swiped; indicator "${await page.getByText(/^\d+ \/ \d+$/).innerText()}"`);
-  await shot('03-swiped');
+  await shot('02-swiped');
 
   // Tap the card: the zoom viewer.
   await carousel.getByRole('button', { name: /^Zoom/ }).nth(1).click();
@@ -106,7 +105,7 @@ function pngSize(file) {
   await page.waitForTimeout(200);
   const after = await zoomImg.boundingBox();
   step(`zoom viewer: double-tap ${Math.round(before.width)} → ${Math.round(after.width)}px wide`);
-  await shot('04-zoomed');
+  await shot('03-zoomed');
   await zoom.getByRole('button', { name: 'Close' }).click();
   await zoom.waitFor({ state: 'detached' });
 
@@ -116,11 +115,11 @@ function pngSize(file) {
   await kb.waitFor();
   await page.waitForTimeout(300);
   step(`kneeboard mode opened at "${await kb.getByText(/^\d+ \/ \d+$/).innerText()}"`);
-  await shot('05-kneeboard-mode');
+  await shot('04-kneeboard-mode');
   await kb.locator('div.overflow-x-auto').evaluate((el) => el.scrollTo({ left: 2 * el.clientWidth }));
   await page.waitForTimeout(500);
   step(`kneeboard mode swiped to "${await kb.getByText(/^\d+ \/ \d+$/).innerText()}"`);
-  await shot('06-kneeboard-mode-swiped');
+  await shot('05-kneeboard-mode-swiped');
   await kb.getByRole('button', { name: 'Close' }).click();
   await kb.waitFor({ state: 'detached' });
   await page.waitForTimeout(300);
@@ -147,7 +146,7 @@ function pngSize(file) {
   const all = await shareAndCollect(/^Share all/, 3);
   step(`Share all (no share sheet): downloaded ${all.length}: ${all.join(', ')}`);
   step(`message: "${await page.getByText(/downloaded 3 cards/).innerText()}"`);
-  await shot('07-shared');
+  await shot('06-shared');
 
   // With a share sheet (stubbed), Share all hands over every card in one go.
   await page.evaluate(() => {
@@ -176,7 +175,7 @@ function pngSize(file) {
   await page.getByRole('button', { name: 'Kneeboard', exact: true }).click();
   await page.getByRole('dialog', { name: 'Kneeboard mode' }).waitFor();
   await page.waitForTimeout(400);
-  await shot('08-kneeboard-landscape');
+  await shot('07-kneeboard-landscape');
   await page.getByRole('dialog', { name: 'Kneeboard mode' }).getByRole('button', { name: 'Close' }).click();
   step('landscape kneeboard mode shown');
 
