@@ -38,12 +38,14 @@ function shareMessage(result: ShareResult, count: number, statuses: MapStatus[])
 }
 
 /**
- * The Cards tab on a phone: every card in a carousel you swipe through, tap
- * one to zoom in, share one or all through the phone's share sheet, or open
+ * The Cards tab on a phone: every card stacked in a vertical list, full sheet
+ * width, tap one to zoom in, share one under it or all from the top, or open
  * kneeboard mode to fly with them.
  *
- * The carousel fits the card to the sheet: small at half height, full width
- * once the sheet is pulled up.
+ * "Share all" and "Kneeboard" stay pinned above the list so they're always a
+ * thumb's reach away; the list itself scrolls. `useCardImages` only ever
+ * needs to know which card is closest to being looked at, so that's the one
+ * nearest the top of the scrolled list.
  */
 export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsProps) {
   // Only what this planner may see reaches a card (see useVisibleMission).
@@ -56,7 +58,10 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
   const [kneeboardMode, setKneeboardMode] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const scrollerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Keyed by attack id rather than an array, so a card leaving (or a re-order)
+  // never leaves a stale element behind at the wrong index.
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const entries = useMemo<CardEntry[]>(() => {
     if (!mission) return [];
@@ -72,14 +77,29 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
   const shown = Math.min(Math.max(0, index), Math.max(0, entries.length - 1));
   const { imageOf, mapLoading, finalImage } = useCardImages(entries, kneeboardMap, shown);
 
+  // Which card is nearest the top of the scrolled list — that's the one
+  // `useCardImages` should treat as "on screen" and draw first.
   const onScroll = () => {
-    const scroller = scrollerRef.current;
-    if (scroller && scroller.clientWidth) setIndex(Math.round(scroller.scrollLeft / scroller.clientWidth));
+    const list = listRef.current;
+    if (!list) return;
+    const listTop = list.getBoundingClientRect().top;
+    let nearest = 0;
+    let nearestDistance = Infinity;
+    entries.forEach((entry, i) => {
+      const el = itemRefs.current[entry.attackId];
+      if (!el) return;
+      const distance = Math.abs(el.getBoundingClientRect().top - listTop);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = i;
+      }
+    });
+    setIndex(nearest);
   };
 
   const scrollTo = (i: number) => {
-    const scroller = scrollerRef.current;
-    if (scroller) scroller.scrollTo({ left: i * scroller.clientWidth });
+    const entry = entries[i];
+    itemRefs.current[entry?.attackId ?? '']?.scrollIntoView({ block: 'start' });
     setIndex(i);
   };
 
@@ -136,73 +156,8 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
 
   return (
     <div className="h-full flex flex-col gap-2">
-      {/* The carousel: one card per page, swiped sideways */}
-      <div
-        ref={scrollerRef}
-        onScroll={onScroll}
-        className="flex-1 min-h-[160px] flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory overscroll-x-contain"
-        style={{ scrollbarWidth: 'none' }}
-        aria-label="Kneeboard cards"
-      >
-        {entries.map((entry) => {
-          const image = imageOf(entry.attackId);
-          return (
-            <div key={entry.attackId} className="w-full h-full shrink-0 snap-center snap-always flex items-center justify-center px-1">
-              {image ? (
-                <button
-                  onClick={() => setZoomed(entry.attackId)}
-                  className="h-full max-w-full flex items-center justify-center"
-                  aria-label={`Zoom ${entry.label}`}
-                >
-                  <img
-                    src={image.url}
-                    alt={entry.label}
-                    loading="lazy"
-                    decoding="async"
-                    draggable={false}
-                    className="max-w-full max-h-full object-contain rounded border border-gray-600"
-                  />
-                </button>
-              ) : (
-                <div className="h-full aspect-[3/4] max-w-full rounded border border-gray-700 bg-dcs-dark flex items-center justify-center text-xs text-gray-500">
-                  Drawing card…
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Which card this is */}
-      <div className="shrink-0 flex items-center gap-2">
-        <button
-          onClick={() => scrollTo(shown - 1)}
-          disabled={shown === 0}
-          className="w-11 h-11 shrink-0 text-2xl text-gray-300 disabled:opacity-30"
-          aria-label="Previous card"
-        >
-          ‹
-        </button>
-        <div className="flex-1 min-w-0 text-center">
-          <p className="text-xs text-gray-400">
-            {shown + 1} / {entries.length}
-          </p>
-          <p className="text-sm truncate">{current.label}</p>
-        </div>
-        <button
-          onClick={() => scrollTo(shown + 1)}
-          disabled={shown >= entries.length - 1}
-          className="w-11 h-11 shrink-0 text-2xl text-gray-300 disabled:opacity-30"
-          aria-label="Next card"
-        >
-          ›
-        </button>
-      </div>
-
-      <div className="shrink-0 grid grid-cols-3 gap-2">
-        <button onClick={() => void share([current])} disabled={sharing} className={`${button} bg-dcs-blue hover:bg-blue-600`}>
-          Share
-        </button>
+      {/* Pinned above the list: these stay in reach while it scrolls */}
+      <div className="shrink-0 grid grid-cols-2 gap-2">
         <button onClick={() => void share(entries)} disabled={sharing} className={`${button} bg-dcs-blue hover:bg-blue-600`}>
           {sharing ? 'Preparing…' : `Share all (${entries.length})`}
         </button>
@@ -253,6 +208,52 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
           {message}
         </button>
       )}
+
+      {/* The list: every card, full sheet width, stacked and scrolled vertically */}
+      <div
+        ref={listRef}
+        onScroll={onScroll}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4"
+        aria-label="Kneeboard cards"
+      >
+        {entries.map((entry) => {
+          const image = imageOf(entry.attackId);
+          return (
+            <div
+              key={entry.attackId}
+              ref={(el) => {
+                itemRefs.current[entry.attackId] = el;
+              }}
+              className="flex flex-col gap-2"
+            >
+              <p className="text-sm truncate">{entry.label}</p>
+              {image ? (
+                <button onClick={() => setZoomed(entry.attackId)} className="w-full" aria-label={`Zoom ${entry.label}`}>
+                  <img
+                    src={image.url}
+                    alt={entry.label}
+                    loading="lazy"
+                    decoding="async"
+                    draggable={false}
+                    className="w-full aspect-[3/4] object-contain rounded border border-gray-600"
+                  />
+                </button>
+              ) : (
+                <div className="w-full aspect-[3/4] rounded border border-gray-700 bg-dcs-dark flex items-center justify-center text-xs text-gray-500">
+                  Drawing card…
+                </div>
+              )}
+              <button
+                onClick={() => void share([entry])}
+                disabled={sharing}
+                className={`${button} w-full bg-dcs-blue hover:bg-blue-600`}
+              >
+                Share
+              </button>
+            </div>
+          );
+        })}
+      </div>
 
       {zoomed && imageOf(zoomed) && (
         <CardZoom
