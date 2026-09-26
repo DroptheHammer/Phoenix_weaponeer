@@ -3,7 +3,10 @@ node_modules/
 
 # Build outputs
 dist/
+dist-web/
 target/
+# The web build's WebAssembly bindings (npm run build:wasm)
+src/generated/
 
 # Environment
 .env
