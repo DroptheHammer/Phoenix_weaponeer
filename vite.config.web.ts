@@ -52,9 +52,11 @@ export default defineConfig({
     react(),
     webShell(),
     // Installable ("Add to Home Screen") and usable offline once loaded.
+    // A new version waits until the planner taps Reload (UpdateBanner),
+    // which registers the service worker itself.
     VitePWA({
-      registerType: "autoUpdate",
-      injectRegister: "auto",
+      registerType: "prompt",
+      injectRegister: false,
       manifest: {
         name: "Phoenix Weaponeer",
         short_name: "Weaponeer",
@@ -97,6 +99,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@platform": fileURLToPath(new URL("./src/lib/platform/web.ts", import.meta.url)),
+      "@pwa-update": fileURLToPath(new URL("./src/lib/pwaUpdate/web.ts", import.meta.url)),
     },
   },
 

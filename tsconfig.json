@@ -24,11 +24,13 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@platform": ["src/lib/platform/desktop.ts"]
+      "@platform": ["src/lib/platform/desktop.ts"],
+      "@pwa-update": ["src/lib/pwaUpdate/desktop.ts"]
     }
   },
   "include": ["src"],
-  /* The web platform needs the generated WebAssembly bindings; tsconfig.web.json checks it. */
-  "exclude": ["src/lib/platform/web.ts"],
+  /* The web-only files need the generated WebAssembly bindings and the PWA
+     plugin's virtual module; tsconfig.web.json checks them. */
+  "exclude": ["src/lib/platform/web.ts", "src/lib/pwaUpdate/web.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
