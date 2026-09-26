@@ -52,7 +52,7 @@ A cross-platform desktop application for planning F-16 (and other aircraft) atta
 
 ## Core Workflow
 
-1. **Import mission data** from FragOrders (via .miz file, Tacview XML, or URL scraping) or manual entry
+1. **Import mission data** from FragOrders (a public link, or the JSON the FragOrders CLI makes from a `.miz`) or manual entry
 2. **Define threat laydown** at target areas (SAMs, AAA, MANPADS)
 3. **Plan attack geometry** per flight member (popup, level, loft, dive bomb, etc.)
 4. **Select weapons and delivery parameters**
@@ -127,6 +127,10 @@ unsigned-binary SmartScreen/Gatekeeper workarounds.
 
 ## Development Phases
 
+**`ROADMAP.md` is the single to-do list** (open / in progress / shipped by
+release / decided-not-doing) — update it when something ships or is decided.
+Finished plans and reviews live in `docs/archive/`. Summary of the phases:
+
 Phases 1–3 (foundation, core planning, output) and most of Phase 4 are done —
 history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
 
@@ -184,7 +188,7 @@ history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
 - **Primary users:** DCS squadron members planning Saturday missions
 - **Data source:** FragOrders.com provides mission briefs, waypoints, threat info
 - **Output goal:** Kneeboard cards that fit DCS format with employment parameters
-- **Aircraft focus:** F-16C initially, expandable to F/A-18C, A-10C II
+- **Aircraft:** 10 with delivery profiles (F-16C, F/A-18C, A-10C II, F-15E, F-4E, A-4E-C, F-5E, F-14, Mirage F1, AV-8B); the F-16C is the most complete
 - **`Other Items/`** at the repo root is a git-ignored drop zone for screenshots, exported cards, and scratch reference pages the user wants read (e.g. `offset-leg-geometry.html`, a design reference — do not delete it). Never commit it. Private correspondence with the FragOrders author lives in `Other Items/fragorders-author-private/`.
 - **This repo is public** — see "Privacy" at the top. The full unscrubbed history is the private repo `DroptheHammer/Phoenix_weaponeer-archive`; this repo's history was rewritten on 2026-09-23, so **any clone older than that must be re-cloned, never merged** (a `git pull` there fails with "unrelated histories" — that's the signal). Commit hashes quoted in notes from before that date refer to the archive's history.
 - **Permissions run through the macOS Bash sandbox (auto-allow)**, configured in `.claude/settings.json`: commands inside the project run unprompted; outside folders need `/add-dir`, new sites prompt once per session. Use the Edit/Write/Read tools for files — never python/sed heredoc edits, `cd` prefixes, or loops/globs over outside folders (memory: `feedback-commands-that-dont-prompt`).

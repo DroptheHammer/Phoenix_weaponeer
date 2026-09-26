@@ -1,7 +1,7 @@
 # Bugfix Sprint Plan — Map & Geometry Bugs
 
 **Created:** 2026-07-12
-**Status:** ALL FOUR STAGES COMPLETE (2026-07-26) — pending manual in-app verification
+**Status:** COMPLETE (2026-07-26), every fix verified by hand in the running app. Archived 2026-09-26; current list: `ROADMAP.md`.
 **Context:** A code scan found 7 bugs, two of which explain the reported "weird movement around the waypoints" on the map. This plan fixes them in 4 stages. Each task is small, self-contained, and verifiable — designed to be executed one task at a time by Claude Sonnet 4.5/4.6 in a fresh session.
 
 **Rules for the executing session:**
@@ -190,4 +190,4 @@ Note on scope (2026-07-26): Task 4.1 as written covered only `MapView`'s own mar
 - [x] Stage 2 complete + gate green (commit `Bugfix Stage 2: overlay uses saved profile; tsc green`)
 - [x] Stage 3 complete + gate green (commit `Bugfix Stage 3: import robustness + type inference tests`)
 - [x] Stage 4 complete + gate green (commit `Bugfix Stage 4: map interaction + geo dedupe`)
-- [ ] Update `ROADMAP.md` and `CLAUDE.md` session notes
+- [x] Update `ROADMAP.md` and `CLAUDE.md` session notes

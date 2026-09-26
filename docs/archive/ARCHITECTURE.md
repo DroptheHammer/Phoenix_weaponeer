@@ -1,5 +1,11 @@
 # DCS Attack Planner - Architecture Document
 
+> **Archived 2026-09-26 — historical design sketch (2026-02), superseded.**
+> Most of it no longer matches the code: there is no Rust `MizParser`, cards
+> render in the frontend (`src/lib/renderKneeboardCanvas.ts`), missions save as
+> plain `.json`, and the command list has changed (see `src-tauri/src/lib.rs`).
+> What is built and what is still open: `ROADMAP.md`.
+
 ## 1. System Overview
 
 ### 1.1 Purpose

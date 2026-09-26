@@ -193,7 +193,8 @@ release floors) was considered and deliberately closed — see the note there.
    should stop storing `popDistance_nm` / `apexAltitude_ft` as independent
    truths.
 2. **Doctrinal angle-off is 2 × climb angle** — 40° for a 15° LALD, 60° for a
-   20° pop, 80° for a 30° pop. Larger than the 30° the tool defaults to today.
+   20° pop, 80° for a 30° pop. The tool uses this as its default (it used to
+   default to a flat 30°).
    Both stay adjustable; the straight-in warning fires inside ±5° either way.
 3. **Release floors drive everything upward.** The BEM example releases
    Mk-82s at 2,000 ft only because of a 4 s fuze delay. The tool's single

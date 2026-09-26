@@ -153,11 +153,13 @@ Prefer `nttr_redflag_viper1.json` for anything involving positions on a map.
 
 ### `sinai_SYNTHETIC_banner_check.json` — ⚠️ SYNTHETIC, UI CHECK ONLY
 
-Hand-built, **not** FragOrders output. It exists for exactly one purpose: Sinai
-is one of three theaters whose projection has never been independently
-confirmed (`verified: false`), so this file is a way to see the amber
-"coordinates unverified" warning in the import preview and the banner over the
-map without owning a Sinai mission.
+Hand-built, **not** FragOrders output. It was made for exactly one purpose: when
+Sinai was still one of three theaters whose projection had never been
+independently confirmed (`verified: false`), this file was a way to see the
+amber "coordinates unverified" warning in the import preview and the banner over
+the map without owning a Sinai mission. **Sinai has been verified since
+2026-09-11** (below), so this file no longer shows the warning; only Kola and
+Afghanistan missions still do.
 
 **Its coordinates prove nothing.** They were generated *from* the very Sinai
 projection the warning is about, by projecting chosen lat/lons backwards. Round-
@@ -171,9 +173,9 @@ four waypoints — DEPART, IP, TGT1, EGRESS — and one SA-6 near TGT1. Theater 
 is `theatre: "SinaiMap"`, which is the name DCS actually writes; plain `Sinai`
 matches nothing.
 
-Retiring the `verified: false` flag needs the opposite of this file: real
-ground-truth pairs (DCS x/y and lat/lon) read off the DCS F10 map by someone who
-owns Sinai.
+Retiring a `verified: false` flag needs the opposite of this file: real
+ground-truth pairs (DCS x/y and lat/lon) from a mission on that map — the method
+below is how Sinai's was retired.
 
 ## Sinai: how the projection was verified
 

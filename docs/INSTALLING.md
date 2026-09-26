@@ -4,7 +4,9 @@ Download the installer for your OS from the [latest release](https://github.com/
 
 - **Windows:** `Phoenix.Weaponeer_<version>_x64-setup.exe` — installs to your
   user profile (`%LOCALAPPDATA%\Phoenix Weaponeer`), no admin rights needed.
-  The installer lets you pick a different folder if you want one.
+  The installer lets you pick a different folder if you want one. There is
+  also a `Phoenix.Weaponeer_<version>_x64_en-US.msi`, the Windows Installer
+  package IT departments prefer; most people want the `-setup.exe`.
 - **macOS:** `Phoenix.Weaponeer_<version>_aarch64.dmg` — open it and drag
   Phoenix Weaponeer into the Applications shortcut shown.
 - **Linux:** `Phoenix.Weaponeer_<version>_amd64.deb` (Debian/Ubuntu,

@@ -714,7 +714,7 @@ fn convert_route(
                 // `i` is the pre-filter `enumerate` index deliberately:
                 // a dropped (unprojectable) point leaves a gap rather
                 // than renumbering the survivors out from under the
-                // planner. See docs/BUGFIX_PLAN.md.
+                // planner. See docs/archive/BUGFIX_PLAN.md.
                 steerpoint: i as i32,
                 name: waypoint_name(pt, i, params.normalized_name),
                 wp_type,

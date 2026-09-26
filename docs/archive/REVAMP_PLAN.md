@@ -1,5 +1,10 @@
 # Phoenix Weaponeer revamp — M0 → M1 → M2 → M3
 
+> **Archived 2026-09-26.** M0 and M1 shipped (2026-09-05 to 09-08); M2 and M3
+> are partly built. Their open pieces, and every other open item, are tracked
+> in `ROADMAP.md` only. The design principles and the profile field list below
+> still hold.
+
 ## Context
 
 The tool was built for a specific Saturday moment: after the PowerPoint brief and

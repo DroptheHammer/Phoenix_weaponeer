@@ -1,7 +1,13 @@
 # 0.2.1 review — bugs, cross-platform, security
 
-Reviewed 2026-09-12, before wider squadron use. **Nothing below is fixed yet** —
-pick which to fix, and each fix goes in with a test.
+> **Closed 2026-09-14, archived 2026-09-26.** Every item was fixed or decided;
+> the status table below has each one. Still open: L8 (Linux card fonts) and
+> L9 (map tiles on WebView2 / WebKitGTK), both carried in `ROADMAP.md`. M7's
+> Known Folder fix was later replaced by user-chosen per-aircraft folders
+> (`src-tauri/src/settings.rs`).
+
+Reviewed 2026-09-12, before wider squadron use. At the time nothing below was
+fixed yet; each fix went in with a test.
 
 The threat that matters most for a squadron tool is **a file someone else hands
 you**: a saved mission `.json`, a FragOrders export, or a profile dropped into the

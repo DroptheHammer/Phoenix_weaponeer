@@ -346,7 +346,7 @@ flying it:
   \"verified\": true, \"verifiedBy\": \"Callsign\", \"verifiedOn\": \"2026-09-05\"
 
 Each file is a JSON array of profiles. Copy one out of the app's bundled
-set as a starting point (see docs/REVAMP_PLAN.md in the project for the
+set as a starting point (see docs/archive/REVAMP_PLAN.md in the project for the
 field list). Every altitude is feet AGL over the target.
 
 A file that cannot be read is reported in the app; nothing loads from it.
