@@ -66,20 +66,32 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 
 ## In progress
 
-- [ ] **Phone web app (iPhone and Android), hosted on GitHub Pages.** The full
-      planner in a phone layout, plus autosave, kneeboard mode, share all and
-      "Strike near me". Branch `claude/mobile-app-distribution-b6uo76`. The
-      plan and the rolling handoff log are in `docs/MOBILE_WEB_PLAN.md`.
-      **Live since 2026-09-26** at https://dropthehammer.github.io/Phoenix_weaponeer/
-      (republish: Actions → "Web app (GitHub Pages)" → Run workflow).
-      Still to do:
-      - Real-phone checks.
-      - A FragOrders link import from the live site.
-      - A desktop click-through.
+- [ ] **Phone web app on a real Android phone.** The iPhone has been checked;
+      an Android phone hasn't yet.
 
 ---
 
 ## Shipped
+
+### Phone web app — live 2026-09-26 (not a desktop release)
+- **The full planner on iPhone and Android**, at
+  https://dropthehammer.github.io/Phoenix_weaponeer/:
+  - a phone layout;
+  - autosave and My missions;
+  - kneeboard mode;
+  - Share all;
+  - "Strike near me".
+
+  The plan and handoff log are in `docs/MOBILE_WEB_PLAN.md`.
+- **It follows the desktop app.** Every push to `main` builds it as a check, and
+  publishing a release publishes it.
+- **Pure-Rust map math in place of PROJ**, and no SQLite. It matches PROJ to 0.02 mm
+  on every theater, and the shared engine now lives in `crates/core`.
+- **Checked by the user on screen:**
+  - the desktop click-through;
+  - the live site on an iPhone;
+  - a FragOrders link import on the live site, which works straight from the
+    browser, so no proxy is needed.
 
 ### v0.3.1 — 2026-09-26
 - FragOrders `http://` share links accepted (GitHub issue #1).

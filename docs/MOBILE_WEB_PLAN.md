@@ -58,8 +58,9 @@ today's desktop layout from the web build.
 
 ### FragOrders from a browser
 - The Firestore manifest request **allows browser origins** (checked 2026-09-26).
-- The CloudFront bundle is not yet tested. If it refuses, add a free Cloudflare Worker
-  proxy locked to the two hosts.
+- The CloudFront bundle works too. The user imported a link on the live site on
+  2026-09-26, so **no proxy is needed**. The Cloudflare Worker idea is dropped
+  unless FragOrders changes its hosting.
 
 ### Frontend
 - 24 `invoke()` calls across 9 files, with no central wrapper.
@@ -269,8 +270,11 @@ today's desktop layout from the web build.
   - publishing a release publishes it;
   - "Run workflow" still publishes by hand.
   - The `github-pages` environment now allows `v*` tags as well as `main`.
-- **Desktop click-through: passed.** The user checked it on screen on 2026-09-26.
-- **Still open:** the real-iPhone checks, and a FragOrders link import on the live site.
+- **Checked by the user on 2026-09-26, all passed:**
+  - the desktop click-through;
+  - the live site on a real iPhone;
+  - a FragOrders link import on the live site, with no proxy needed.
+- **Still open:** only a real Android phone check.
 
 ### 2026-09-26 (afternoon): LIVE at https://dropthehammer.github.io/Phoenix_weaponeer/
 

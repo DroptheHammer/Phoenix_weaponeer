@@ -261,9 +261,9 @@ The `github-pages` environment was changed to allow `v*` tags to deploy.
 
   **The desktop app is clear for the next release.** `npm ci` was also run on this Mac.
 - **Still open:**
-  - Real-iPhone checks: Add to Home Screen, the share sheet, Wake Lock, the GPS prompt.
-  - A FragOrders link import on the live site. CloudFront CORS is untested. If it's
-    refused, add the planned Cloudflare Worker proxy.
+  - A real Android phone check. The iPhone check on the live site PASSED (user,
+    2026-09-26), and so did a FragOrders link import on the live site. It works
+    straight from the browser, so **no Cloudflare proxy is needed**.
   - Optional: `brew uninstall proj cmake pkgconf`. They're no longer needed.
 
 ### START OF NEXT SESSION
