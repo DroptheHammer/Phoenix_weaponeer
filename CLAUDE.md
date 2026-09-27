@@ -265,6 +265,11 @@ The `github-pages` environment was changed to allow `v*` tags to deploy.
     2026-09-26), and so did a FragOrders link import on the live site. It works
     straight from the browser, so **no Cloudflare proxy is needed**.
   - Optional: `brew uninstall proj cmake pkgconf`. They're no longer needed.
+- **No v0.3.2 for now** (the user agreed). Nothing desktop users would notice has
+  changed since 0.3.1, so the next release waits for a real desktop change.
+  `release.yml` lost its sqlite step and hasn't run since. Before or at the next
+  release, consider a throwaway `vX.Y.Z-test1` tag run: draft only, delete it after
+  (memory `project-cross-platform-installer-ci-fixed`).
 
 ### START OF NEXT SESSION
 
