@@ -249,18 +249,18 @@ The `github-pages` environment was changed to allow `v*` tags to deploy.
   - All seven `claude/mobile-app-distribution-*` branches were deleted from GitHub.
   - Memory was updated with the Pages, cloud-limits and option-branch lessons.
   - The obsolete proj-brew memory was dropped.
+- **Desktop click-through: PASSED.** The user checked it on screen on 2026-09-26, running
+  `npm run tauri dev` after the `crates/core` move. The list was:
+  - open a recent mission;
+  - import a FragOrders link;
+  - check that threats show and hidden ones stay hidden;
+  - build an attack and open Customize;
+  - check a multi-ship strike;
+  - export cards to the DCS folder;
+  - open Settings.
+
+  **The desktop app is clear for the next release.** `npm ci` was also run on this Mac.
 - **Still open:**
-  - `npm ci` on this Mac. `vite-plugin-pwa` is missing locally, and `build:web` needs it.
-    The permission check blocked Claude from running it, so the user runs it.
-  - **A desktop click-through (`npm run tauri dev`) before the next desktop release.**
-    The whole backend moved into `crates/core`. The list:
-    - open a recent mission;
-    - import a FragOrders link;
-    - check that threats show and hidden ones stay hidden;
-    - build an attack and open Customize;
-    - check a multi-ship strike;
-    - export cards to the DCS folder;
-    - open Settings.
   - Real-iPhone checks: Add to Home Screen, the share sheet, Wake Lock, the GPS prompt.
   - A FragOrders link import on the live site. CloudFront CORS is untested. If it's
     refused, add the planned Cloudflare Worker proxy.

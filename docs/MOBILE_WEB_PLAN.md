@@ -269,8 +269,8 @@ today's desktop layout from the web build.
   - publishing a release publishes it;
   - "Run workflow" still publishes by hand.
   - The `github-pages` environment now allows `v*` tags as well as `main`.
-- **Still open:** the desktop click-through, the real-iPhone checks, and a FragOrders
-  link import on the live site.
+- **Desktop click-through: passed.** The user checked it on screen on 2026-09-26.
+- **Still open:** the real-iPhone checks, and a FragOrders link import on the live site.
 
 ### 2026-09-26 (afternoon): LIVE at https://dropthehammer.github.io/Phoenix_weaponeer/
 
