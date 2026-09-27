@@ -254,6 +254,19 @@ today's desktop layout from the web build.
 
 ## Handoff log (newest first; keep this current)
 
+### 2026-09-26 (later): brought home to the Mac and checked
+
+- All seven `claude/mobile-app-distribution-*` branches were deleted from GitHub.
+- The two phone PR merges were restamped to UTC, and `main` was force-pushed. The
+  files are unchanged.
+- **Checks with the private missions:**
+  - geo-check: 320 passed.
+  - Rust tests: core 96 / desktop 21 passed, with zero skips.
+  - `npm run build` is clean.
+  - Pure-Rust tmerc vs PROJ: the largest difference is 0.02 mm on all 12 theaters.
+- **Still open:** the desktop click-through, the real-iPhone checks, and a FragOrders
+  link import on the live site.
+
 ### 2026-09-26 (afternoon): LIVE at https://dropthehammer.github.io/Phoenix_weaponeer/
 
 - The user approved going public from their phone.

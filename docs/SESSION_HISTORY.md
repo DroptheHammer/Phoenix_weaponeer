@@ -1,7 +1,38 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
-**Last session:** 2026-09-26 UTC, morning (Opus 5.5, user at the screen).
+**Session:** 2026-09-26 UTC, midday (Opus 5.5, cloud session; the user
+went overnight, then worked from their phone only).
+**The phone web app is LIVE: https://dropthehammer.github.io/Phoenix_weaponeer/**
+
+- **What was built** (the plan and a full handoff log are in `docs/MOBILE_WEB_PLAN.md`):
+  - Pure-Rust transverse Mercator in place of PROJ.
+  - The `crates/core` and `crates/wasm` split, with SQLite replaced by built-in reference data.
+  - The `@platform` layer, choosing desktop or web.
+  - The phone UI: map, bottom tabs and sheet, crosshair picking, the phone attack
+    editor, the cards carousel, Share all, kneeboard mode, autosave with My missions.
+  - "Strike near me", a GPS Easter egg that is web only.
+  - `pages.yml`, plus a privacy check on the published files.
+- **Overnight decisions:** 3 options were built per decision on branches, then
+  walked through with the user on a plain-language page. The picks were **1A 2B 3A**:
+  - Strike near me stays phone/web only.
+  - The Cards tab opens at full height.
+  - The sideways attack editor shows the map beside the settings.
+- **Shipped:**
+  - PR #2 merged into `main`, first as `cceebab`. It was restamped to UTC as `e3325b6`
+    in the next session.
+  - The user set Pages Source to GitHub Actions and started `pages.yml` from their phone.
+  - Run 36255418555 was green. The site is public.
+- **Republishing the site:** merge to `main`, then Actions → "Web app (GitHub
+  Pages)" → Run workflow. It is started by hand only; whether to publish on each
+  release tag is undecided. A desktop release does NOT update the site.
+- **What this cloud session could not do:** start a workflow (403), delete remote
+  branches (403), open github.io or the FragOrders CloudFront host, or reach the Mac
+  memory folder.
+- **Left open:** a real-iPhone check, a FragOrders link import from the live site
+  (CloudFront CORS), a desktop click-through, and the six leftover option branches.
+
+**Session:** 2026-09-26 UTC, morning (Opus 5.5, user at the screen).
 **Released v0.3.1** — first outside bug report fixed, plus a to-do sweep.
 
 - **GitHub issue #1** (from an outside user): the FragOrders share button

@@ -209,52 +209,54 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-26 UTC (Opus 5.5, cloud session; the user
-went overnight, then worked from their phone only).
+**Last session:** 2026-09-26 UTC, afternoon (Opus 5.5, main Mac). It brought the
+cloud session's phone web app work home and checked it. The cloud session's notes
+are at the top of `docs/SESSION_HISTORY.md`.
 **The phone web app is LIVE: https://dropthehammer.github.io/Phoenix_weaponeer/**
+It is published by hand (memory `project-phone-web-app-pages`).
 
-- **What was built** (the plan and a full handoff log are in `docs/MOBILE_WEB_PLAN.md`):
-  - Pure-Rust transverse Mercator in place of PROJ.
-  - The `crates/core` and `crates/wasm` split, with SQLite replaced by built-in reference data.
-  - The `@platform` layer, choosing desktop or web.
-  - The phone UI: map, bottom tabs and sheet, crosshair picking, the phone attack
-    editor, the cards carousel, Share all, kneeboard mode, autosave with My missions.
-  - "Strike near me", a GPS Easter egg that is web only.
-  - `pages.yml`, plus a privacy check on the published files.
-- **Overnight decisions:** 3 options were built per decision on branches, then
-  walked through with the user on a plain-language page. The picks were **1A 2B 3A**:
-  - Strike near me stays phone/web only.
-  - The Cards tab opens at full height.
-  - The sideways attack editor shows the map beside the settings.
-- **Shipped:**
-  - PR #2 merged into `main` (`cceebab`).
-  - The user set Pages Source to GitHub Actions and started `pages.yml` from their phone.
-  - Run 36255418555 was green. The site is public.
-- **Republishing the site:** merge to `main`, then Actions → "Web app (GitHub
-  Pages)" → Run workflow. It is started by hand only; whether to publish on each
-  release tag is undecided. A desktop release does NOT update the site.
-- **What this cloud session could not do, so don't retry, ask the user:**
-  - Start a workflow (403).
-  - Delete remote branches (403).
-  - Open github.io or the FragOrders CloudFront host (blocked by the sandbox network).
-  - Reach the Mac memory folder. **The Mac session should copy these lessons into memory:**
-    - Pages is published by hand.
-    - The cloud's GitHub limits above.
-    - The option-branch walkthrough worked well for decisions made while the user is away.
+- **Privacy:**
+  - The full-history scan is clean. Only the known false positives remain.
+  - The two phone PR merges (#2, #3) were stamped with the user's local time zone.
+    The user chose to restamp them. Those commits and the two between them were
+    rebuilt to UTC, with trees identical and the cloud commits' IDs and signatures
+    kept. `main` was force-pushed and is now `cad16ff`.
+  - PR #2/#3 pages may still link the old IDs.
+  - The local privacy scan now flags non-UTC dates.
+- **Checks on this Mac, with the private missions present:**
+  - geo-check: 320 passed.
+  - Rust tests: core 96 and desktop 21 (+1 ignored) passed, with zero private-fixture
+    skips.
+  - `npm run build` is clean.
+- **Pure-Rust projection vs the old PROJ library:** the largest difference is
+  0.02 mm across all 12 projected theaters, 2,401 points each. The throwaway check
+  lived in the scratchpad and is not in the repo.
+- **Cleanup:**
+  - All seven `claude/mobile-app-distribution-*` branches were deleted from GitHub.
+  - Memory was updated with the Pages, cloud-limits and option-branch lessons.
+  - The obsolete proj-brew memory was dropped.
 - **Still open:**
-  - The user checks the app on a real iPhone: Add to Home Screen, the share sheet,
-    Wake Lock, the GPS prompt.
-  - A **FragOrders link import from the live site**. CloudFront CORS is untested. If
-    it's refused, add the planned Cloudflare Worker proxy.
-  - A desktop Tauri click-through **before the next desktop release**. The whole backend
-    moved into `crates/core`. Tests are green, but no one has clicked through it.
-  - **The six `claude/mobile-app-distribution-b6uo76-opt-*` branches are still on
-    GitHub.** They are unused and safe to delete. The cloud session can't delete them.
+  - `npm ci` on this Mac. `vite-plugin-pwa` is missing locally, and `build:web` needs it.
+    The permission check blocked Claude from running it, so the user runs it.
+  - **A desktop click-through (`npm run tauri dev`) before the next desktop release.**
+    The whole backend moved into `crates/core`. The list:
+    - open a recent mission;
+    - import a FragOrders link;
+    - check that threats show and hidden ones stay hidden;
+    - build an attack and open Customize;
+    - check a multi-ship strike;
+    - export cards to the DCS folder;
+    - open Settings.
+  - Real-iPhone checks: Add to Home Screen, the share sheet, Wake Lock, the GPS prompt.
+  - A FragOrders link import on the live site. CloudFront CORS is untested. If it's
+    refused, add the planned Cloudflare Worker proxy.
+  - Optional: `brew uninstall proj cmake pkgconf`. They're no longer needed.
 
 ### START OF NEXT SESSION
 
-0. **Phone web app: merged and live.** There's no branch to check out. Read the
-   top of the **Handoff log** in `docs/MOBILE_WEB_PLAN.md` for its open items.
+0. **Phone web app: merged and live.** Its open items are at the top of the
+   **Handoff log** in `docs/MOBILE_WEB_PLAN.md`. Merge PRs from the Mac with
+   `TZ=UTC`, not with GitHub's phone button, which stamps the local time zone.
 1. `git pull origin main`. On any machine other than the main Mac, delete any
    clone older than 2026-09-23 and **clone fresh**. Copy `test-data/private/`
    over from the main Mac to run the full test suite.
