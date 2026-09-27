@@ -77,7 +77,9 @@ separately.
 1. **Pull and check the tree is clean:** `git pull origin main`, `git status`.
 2. **Run the gates:** `npm run geo-check`, `cargo test --manifest-path
    crates/core/Cargo.toml`, `cargo test --manifest-path src-tauri/Cargo.toml`,
-   `npm run build`. All must pass. Stop and report if not. (The shared Rust
+   `npm run build`. All must pass, and so must the latest "Web app (GitHub
+   Pages)" build on `main` (`gh run list --workflow pages.yml -L 3`). Stop
+   and report if not. (The shared Rust
    core lives in `crates/core` since 2026-09-26; `src-tauri` is the desktop shell.)
 3. **Bump the version** in all three: `package.json`, `src-tauri/Cargo.toml`,
    `src-tauri/tauri.conf.json`, plus the two top `version` lines of
@@ -94,9 +96,16 @@ separately.
 9. **Ask the user, then publish** the draft and mark it Latest. Publishing is
    the only point that is public, so this is the one confirmation stop.
 10. **Record it** in the Session Pickup Notes (version, CI run id, published).
-11. **Optional: republish the phone web app** so it matches. Ask the user first,
-    since the site is public. Actions → "Web app (GitHub Pages)" → Run workflow on
-    `main`. Locally, `npm run build:web` builds the same thing and runs the privacy check.
+11. **The phone web app follows on its own.** Publishing the release in step 9
+    starts `pages.yml`, which rebuilds and publishes the site, so one approval
+    covers both. Watch that "Web app (GitHub Pages)" run until it's green, and
+    record its run id with step 10. The user decided this 2026-09-26.
+    - Every push to `main` also builds the web app without publishing. A red
+      "Web app" run on `main` means a change broke the phone version: fix it
+      before releasing.
+    - Between releases, a hand-started "Run workflow" publishes a fix.
+    - Locally, `npm run build:web` needs `rustup target add wasm32-unknown-unknown`
+      and `cargo install wasm-bindgen-cli --version 0.2.129 --locked`.
 
 ### How the release build works
 
@@ -213,7 +222,12 @@ not here — this section is a snapshot for resuming work, not a journal.
 cloud session's phone web app work home and checked it. The cloud session's notes
 are at the top of `docs/SESSION_HISTORY.md`.
 **The phone web app is LIVE: https://dropthehammer.github.io/Phoenix_weaponeer/**
-It is published by hand (memory `project-phone-web-app-pages`).
+**It now follows the desktop app** (memory `project-phone-web-app-pages`):
+- every push to `main` builds it as a check;
+- publishing a release publishes it;
+- "Run workflow" publishes a fix in between.
+
+The `github-pages` environment was changed to allow `v*` tags to deploy.
 
 - **Privacy:**
   - The full-history scan is clean. Only the known false positives remain.

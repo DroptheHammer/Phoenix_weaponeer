@@ -264,6 +264,11 @@ today's desktop layout from the web build.
   - Rust tests: core 96 / desktop 21 passed, with zero skips.
   - `npm run build` is clean.
   - Pure-Rust tmerc vs PROJ: the largest difference is 0.02 mm on all 12 theaters.
+- **The web app now follows the desktop app** (`pages.yml`):
+  - a push to `main` builds it as a check;
+  - publishing a release publishes it;
+  - "Run workflow" still publishes by hand.
+  - The `github-pages` environment now allows `v*` tags as well as `main`.
 - **Still open:** the desktop click-through, the real-iPhone checks, and a FragOrders
   link import on the live site.
 

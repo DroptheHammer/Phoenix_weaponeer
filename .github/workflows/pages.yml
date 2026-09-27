@@ -1,19 +1,33 @@
 name: Web app (GitHub Pages)
 
-# Builds the web version (docs/MOBILE_WEB_PLAN.md) and publishes it to
-# GitHub Pages. Started by hand only, from the Actions tab ("Run workflow"),
-# until publishing on every release is decided — publishing makes it public.
-# One-time setup: repo Settings → Pages → Source: "GitHub Actions".
+# Builds the web version (docs/MOBILE_WEB_PLAN.md), so the web app follows
+# the desktop app:
+# - every push to main: build and check only, never publish. Catches a desktop
+#   change that breaks the web build the same day.
+# - a desktop release is published (the draft made Latest): build and publish,
+#   so the site goes live on the same approval as the installers.
+# - "Run workflow" by hand: build and publish, for a fix between releases.
+# One-time setup:
+# - Settings → Pages → Source: "GitHub Actions".
+# - Settings → Environments → github-pages must allow `main` and `v*` tags
+#   to deploy (both added 2026-09-26). A release run deploys from its tag.
 on:
+  push:
+    branches: [main]
+    # Notes-only pushes skip the build.
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# One publish at a time; a newer run waits rather than cancelling one mid-deploy.
+# A newer push to main cancels an older build-only run of the same ref.
+# Publishing runs never cancel; see the deploy job.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
 jobs:
   build:
@@ -53,13 +67,21 @@ jobs:
         run: npm run build:web
 
       - name: Upload the site
+        # Only for runs that publish: a published release or a hand-started run.
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist-web
 
   deploy:
     needs: build
+    # Must match the upload condition above.
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # One publish at a time. A newer one waits instead of cancelling one mid-deploy.
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write
