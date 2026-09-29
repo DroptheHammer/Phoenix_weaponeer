@@ -43,10 +43,17 @@ pub const BUNDLED: &[(&str, &str)] = &[
     ("av8b", include_str!("../../../src-tauri/resources/profiles/av8b.json")),
 ];
 
+/// Fixed-sight setting for the manual deliveries.
+///
+/// Unlike the profile around it, this keeps snake_case keys: the bundled files
+/// and `SightSetting` in `src/types/profile.types.ts` both say `depression_mils`.
+/// A `rename_all = "camelCase"` here once made serde drop every bundled value
+/// without a word, so no sight number reached a card. `depressionMils` is still
+/// read, for a squadron file written that way; any other key is an error.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct SightSetting {
-    #[serde(default)]
+    #[serde(default, alias = "depressionMils")]
     pub depression_mils: Option<f64>,
     #[serde(default)]
     pub notes: Option<String>,
@@ -484,5 +491,124 @@ mod tests {
 
         let ok: DeliveryProfile = serde_json::from_value(base).unwrap();
         ok.validate().unwrap();
+    }
+
+    /// The sight setting is what puts "SIGHT 100 mils" on a manual-dive card,
+    /// and it was once lost between the file and the frontend: the struct
+    /// expected `depressionMils`, the files and the TypeScript say
+    /// `depression_mils`, and serde dropped the mismatch without a word.
+    /// Loaded here the way both apps load the library.
+    #[test]
+    fn bundled_sight_setting_reaches_the_frontend() {
+        let library = load_all(Vec::new()).expect("the bundled library loads");
+        let profile = library
+            .profiles
+            .iter()
+            .find(|p| p.id == "a4ec.dive.man30")
+            .expect("a4ec.dive.man30 is bundled");
+
+        let sight = profile.sight.as_ref().expect("a4ec.dive.man30 carries a sight setting");
+        assert_eq!(sight.depression_mils, Some(100.0), "the bundled file says 100 mils");
+
+        // What the frontend receives; src/lib/autoBuildAttack.ts reads sight.depression_mils.
+        let sent = serde_json::to_value(profile).unwrap();
+        assert_eq!(
+            sent["sight"]["depression_mils"].as_f64(),
+            Some(100.0),
+            "the frontend reads sight.depression_mils, but was sent {}",
+            sent["sight"]
+        );
+    }
+
+    /// Every key path in `source` must come out of `sent` with the same value;
+    /// `sent` may carry more (a null for each optional field a file leaves out).
+    /// Numbers compare as f64, because serde_json keeps the integer 100 apart
+    /// from the float 100.0 that an `Option<f64>` turns it into.
+    fn collect_lost(path: &str, source: &Value, sent: &Value, lost: &mut Vec<String>) {
+        match (source, sent) {
+            (Value::Object(want), Value::Object(got)) => {
+                for (key, want_value) in want {
+                    let here = if path.is_empty() { key.clone() } else { format!("{path}.{key}") };
+                    match got.get(key) {
+                        Some(got_value) => collect_lost(&here, want_value, got_value, lost),
+                        None => lost.push(format!("{here} is missing from what the frontend receives")),
+                    }
+                }
+            }
+            (Value::Array(want), Value::Array(got)) => {
+                if want.len() != got.len() {
+                    lost.push(format!("{path} had {} entries, now {}", want.len(), got.len()));
+                    return;
+                }
+                for (i, (w, g)) in want.iter().zip(got).enumerate() {
+                    collect_lost(&format!("{path}[{i}]"), w, g, lost);
+                }
+            }
+            (Value::Number(want), Value::Number(got)) => {
+                if want.as_f64() != got.as_f64() {
+                    lost.push(format!("{path} was {want}, now {got}"));
+                }
+            }
+            (want, got) => {
+                if want != got {
+                    lost.push(format!("{path} was {want}, now {got}"));
+                }
+            }
+        }
+    }
+
+    /// No key in a bundled file may vanish on the way to the frontend. serde
+    /// drops a key it does not recognise unless the struct says
+    /// `deny_unknown_fields`, and a renamed field looks exactly like that. So
+    /// each file's raw JSON is compared with what its profiles serialize back to.
+    #[test]
+    fn no_bundled_profile_loses_a_key_on_the_way_to_the_frontend() {
+        let mut lost = Vec::new();
+        let mut checked = 0;
+        for (aircraft, json) in BUNDLED {
+            let file: Value = serde_json::from_str(json).unwrap_or_else(|e| panic!("{aircraft}.json: {e}"));
+            let entries = file.as_array().unwrap_or_else(|| panic!("{aircraft}.json is not an array of profiles"));
+            for source in entries {
+                let id = source["id"].as_str().unwrap_or("<no id>");
+                let profile: DeliveryProfile =
+                    serde_json::from_value(source.clone()).unwrap_or_else(|e| panic!("{id}: {e}"));
+                let sent = serde_json::to_value(&profile).unwrap();
+
+                let mut here = Vec::new();
+                collect_lost("", source, &sent, &mut here);
+                lost.extend(here.into_iter().map(|problem| format!("{id}: {problem}")));
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, bundled_profiles().unwrap().len(), "every bundled profile is compared");
+        assert!(lost.is_empty(), "keys lost between the bundled files and the frontend:\n{}", lost.join("\n"));
+    }
+
+    /// A squadron file may spell the key either way, and a misspelt one is an
+    /// error rather than a value that quietly never arrives.
+    #[test]
+    fn a_sight_setting_takes_either_spelling_and_rejects_a_typo() {
+        let snake: SightSetting = serde_json::from_str(r#"{ "depression_mils": 90 }"#).unwrap();
+        assert_eq!(snake.depression_mils, Some(90.0), "depression_mils is what the bundled files use");
+
+        let camel: SightSetting = serde_json::from_str(r#"{ "depressionMils": 90 }"#).unwrap();
+        assert_eq!(camel.depression_mils, Some(90.0), "depressionMils must still load");
+
+        let typo = serde_json::from_str::<SightSetting>(r#"{ "depresion_mils": 90 }"#);
+        assert!(typo.is_err(), "a misspelt sight key must be an error, not silently dropped");
+    }
+
+    /// The 0-400 mil check in `validate` never ran while the sight value was
+    /// being dropped on load. It has to fire on what a file says.
+    #[test]
+    fn an_implausible_sight_depression_in_a_file_is_rejected() {
+        let (_, json) = BUNDLED.iter().find(|(aircraft, _)| *aircraft == "a4ec").unwrap();
+        let mut file: Value = serde_json::from_str(json).unwrap();
+        file[0]["sight"]["depression_mils"] = serde_json::json!(900);
+
+        let Err(err) = parse_file("a4ec.json", &file.to_string()) else {
+            panic!("a sight depression of 900 mils in a file was accepted");
+        };
+        assert!(err.contains("not a plausible depression"), "{err}");
     }
 }

@@ -550,6 +550,12 @@ if (diveProfiles.length) {
   ok('rockets: Hydras build the A-10 rocket profile', build(hog, 'hydra70', lib('a10c')).attack?.sourceProfileId === 'a10c.dive.rockets');
 
   // The A-4's manual dive profile carries a sight setting worked out for a Mk-82.
+  // NB: `lib()` reads the profile JSON straight off disk, so these checks never
+  // run the Rust loader. Whether the sight value survives the loader and reaches
+  // the frontend as `sight.depression_mils` is covered by the Rust tests
+  // `bundled_sight_setting_reaches_the_frontend` and
+  // `no_bundled_profile_loses_a_key_on_the_way_to_the_frontend` in
+  // crates/core/src/profiles.rs.
   const a4Bombs = build(scooter, 'mk82', lib('a4ec'));
   const a4Rockets = build(scooter, 'ffar275', lib('a4ec'));
   ok('manual dive: the Mk-82 sight setting stays on a bomb attack',
