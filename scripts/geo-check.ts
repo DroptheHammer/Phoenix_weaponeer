@@ -45,6 +45,8 @@ import {
 } from '../src/lib/strike';
 import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
+import { useMissionStore } from '../src/stores/missionStore';
+import { HISTORY_LIMIT, EMPTY_HISTORY, recordEdit } from '../src/lib/missionHistory';
 import { importNotes } from '../src/lib/importNotes';
 import {
   lonLatToTile,
@@ -1596,4 +1598,75 @@ ok('validateMission: a non-numeric TOT offset is refused',
   } as never);
   ok('strike near me: an attack auto-builds with nothing but the IP, the target and the default loadout',
      built.attack != null, built.problems.join('; '));
+}
+
+// ─── Undo / redo ─────────────────────────────────────────────────────────────
+{
+  const store = useMissionStore;
+  const wp = { steerpoint: 1, name: 'A', type: 'target' as const, coordinates: { lat: 1, lon: 2 }, elevation_ft: 0 };
+  store.getState().createMission('Undo test', 'caucasus' as never);
+  ok('undo: a new mission has nothing to undo or redo',
+     store.getState().past.length === 0 && store.getState().future.length === 0 && !store.getState().isDirty);
+  store.getState().undo();
+  ok('undo: with nothing to undo it does nothing', store.getState().mission?.name === 'Undo test');
+
+  store.getState().addWaypoint(wp);
+  store.getState().addThreat({ systemId: 'sa6', position: { lat: 1, lon: 2 }, status: 'active', source: 'planning' } as never);
+  ok('undo: each edit adds a step and marks the mission unsaved',
+     store.getState().past.length === 2 && store.getState().isDirty);
+
+  store.getState().undo();
+  ok('undo: takes back the last edit only',
+     store.getState().mission?.threats.length === 0 && store.getState().mission?.waypoints.length === 1);
+  store.getState().undo();
+  ok('undo: walking back to the saved state clears the unsaved mark',
+     store.getState().mission?.waypoints.length === 0 && !store.getState().isDirty);
+  store.getState().redo();
+  ok('undo: redo brings the edit back and marks the mission unsaved again',
+     store.getState().mission?.waypoints.length === 1 && store.getState().isDirty);
+  store.getState().redo();
+  ok('undo: redo can replay every step', store.getState().mission?.threats.length === 1 && store.getState().future.length === 0);
+
+  store.getState().undo();
+  store.getState().addWaypoint({ ...wp, steerpoint: 2, name: 'B' });
+  ok('undo: a new edit drops the redo trail', store.getState().future.length === 0);
+
+  // Saving moves the "clean" mark to the saved mission.
+  store.getState().markClean();
+  const savedWaypoints = store.getState().mission?.waypoints.length;
+  store.getState().addWaypoint({ ...wp, steerpoint: 3, name: 'C' });
+  store.getState().undo();
+  ok('undo: back to what was saved is clean, not unsaved',
+     store.getState().mission?.waypoints.length === savedWaypoints && !store.getState().isDirty);
+  store.getState().undo();
+  ok('undo: further back than the save is unsaved', store.getState().isDirty);
+
+  // Typing in one field is one step.
+  store.getState().createMission('Typing', 'caucasus' as never);
+  for (const name of ['T', 'Ty', 'Typ', 'Typi', 'Typin', 'Typing!']) store.getState().updateMissionName(name);
+  ok('undo: keystrokes in one field are one step', store.getState().past.length === 1, `${store.getState().past.length} steps`);
+  store.getState().undo();
+  ok('undo: that one step restores the name from before the typing', store.getState().mission?.name === 'Typing');
+  store.getState().updateMissionName('Renamed');
+  store.getState().updateMissionNotes('some notes');
+  ok('undo: edits to different fields are separate steps', store.getState().past.length === 2);
+  store.getState().undo();
+  ok('undo: after an undo the next edit starts a new step, even in the same field',
+     store.getState().mission?.notes === '' && store.getState().mission?.name === 'Renamed');
+
+  // A different mission brings a fresh history.
+  store.getState().addWaypoint(wp);
+  const opened = store.getState().mission!;
+  store.getState().loadMission(opened);
+  ok('undo: opening a mission clears the history', store.getState().past.length === 0 && store.getState().future.length === 0 && !store.getState().isDirty);
+  store.getState().closeMission();
+  store.getState().undo();
+  ok('undo: with no mission open it does nothing', store.getState().mission === null);
+
+  // The trail is capped.
+  let history = EMPTY_HISTORY;
+  const mkMission = (n: number) => ({ id: String(n) }) as never;
+  for (let i = 0; i < HISTORY_LIMIT + 10; i++) history = recordEdit(history, mkMission(i), false);
+  ok(`undo: the trail keeps only the last ${HISTORY_LIMIT} steps`,
+     history.past.length === HISTORY_LIMIT && (history.past[0] as { id: string }).id === '10');
 }

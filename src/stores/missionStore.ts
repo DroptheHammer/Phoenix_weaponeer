@@ -4,6 +4,7 @@ import { normalizeImportedCallsign } from '../lib/callsign';
 import { importNotes } from '../lib/importNotes';
 import { removeAttackFrom, moveAttackCustomIp } from '../lib/missionOps';
 import { saveStrikeTo, removeStrikeFrom } from '../lib/strike';
+import { COALESCE_MS, EMPTY_HISTORY, recordEdit, redoStep, undoStep } from '../lib/missionHistory';
 import { useUiStore } from './uiStore';
 import type {
   Mission,
@@ -63,10 +64,35 @@ function normalizeAircraftType(dcsType: string): string {
   return dcsType.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/** The last edit that asked to be merged with its neighbours (typing in one field). */
+let lastEdit: { key: string; at: number } | null = null;
+
+/**
+ * Every change to the mission goes through here so Undo can take it back.
+ * `key` names what is being edited: repeated edits under one key within
+ * `COALESCE_MS` (keystrokes in a text box) are one Undo step.
+ */
+function edit(next: Mission, key?: string) {
+  const { mission, past, future } = useMissionStore.getState();
+  if (!mission) return;
+  const now = Date.now();
+  const coalesce = key !== undefined && lastEdit?.key === key && now - lastEdit.at < COALESCE_MS;
+  lastEdit = key === undefined ? null : { key, at: now };
+  useMissionStore.setState({ mission: next, ...recordEdit({ past, future }, mission, coalesce), isDirty: true });
+}
+
 interface MissionState {
   mission: Mission | null;
   isDirty: boolean;
   filePath: string | null;
+  /** Undo trail, oldest first. Cleared whenever a different mission is put in place. */
+  past: Mission[];
+  /** Redo trail; cleared by any new edit. */
+  future: Mission[];
+  /** The mission as last saved or opened, so undoing back to it clears `isDirty`. */
+  savedMission: Mission | null;
+  undo: () => void;
+  redo: () => void;
   /** Set by the attack editor's Save so the map can reframe on it once. */
   focusAttackId: string | null;
   setFocusAttackId: (id: string | null) => void;
@@ -120,6 +146,22 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   mission: null,
   isDirty: false,
   filePath: null,
+  ...EMPTY_HISTORY,
+  savedMission: null,
+  undo: () => {
+    const { mission, past, future } = get();
+    const step = mission && undoStep({ past, future }, mission);
+    if (!step) return;
+    lastEdit = null;
+    set({ mission: step.mission, ...step.history, isDirty: step.mission !== get().savedMission });
+  },
+  redo: () => {
+    const { mission, past, future } = get();
+    const step = mission && redoStep({ past, future }, mission);
+    if (!step) return;
+    lastEdit = null;
+    set({ mission: step.mission, ...step.history, isDirty: step.mission !== get().savedMission });
+  },
   focusAttackId: null,
   // Saving an attack un-hides its attacker on the map display filter — a
   // planner who just saved an attack for a hidden pilot should see it, not
@@ -148,33 +190,31 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       createdAt: now,
       updatedAt: now,
     };
-    set({ mission, isDirty: false, filePath: null });
+    lastEdit = null;
+    set({ mission, ...EMPTY_HISTORY, savedMission: mission, isDirty: false, filePath: null });
   },
 
   loadMission: (mission: Mission, filePath?: string) => {
-    set({ mission: { ...mission, strikes: mission.strikes ?? [] }, isDirty: false, filePath: filePath ?? null });
+    const loaded = { ...mission, strikes: mission.strikes ?? [] };
+    lastEdit = null;
+    set({ mission: loaded, ...EMPTY_HISTORY, savedMission: loaded, isDirty: false, filePath: filePath ?? null });
   },
 
   closeMission: () => {
-    set({ mission: null, isDirty: false, filePath: null });
+    lastEdit = null;
+    set({ mission: null, ...EMPTY_HISTORY, savedMission: null, isDirty: false, filePath: null });
   },
 
   updateMissionName: (name: string) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: { ...mission, name, updatedAt: new Date().toISOString() },
-      isDirty: true,
-    });
+    edit({ ...mission, name, updatedAt: new Date().toISOString() }, 'mission-name');
   },
 
   updateMissionNotes: (notes: string) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: { ...mission, notes, updatedAt: new Date().toISOString() },
-      isDirty: true,
-    });
+    edit({ ...mission, notes, updatedAt: new Date().toISOString() }, 'mission-notes');
   },
 
   importFromFragOrders: (data: FragOrdersData, groupIndex: number) => {
@@ -248,48 +288,44 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       updatedAt: now,
     };
 
-    set({ mission, isDirty: true, filePath: null });
+    lastEdit = null;
+    // Never saved, so `savedMission` stays empty and the mission counts as unsaved.
+    set({ mission, ...EMPTY_HISTORY, savedMission: null, isDirty: true, filePath: null });
   },
 
   addWaypoint: (waypointData) => {
     const { mission } = get();
     if (!mission) return;
     const waypoint: Waypoint = { ...waypointData, id: uuidv4() };
-    set({
-      mission: {
-        ...mission,
-        waypoints: [...mission.waypoints, waypoint],
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      waypoints: [...mission.waypoints, waypoint],
+      updatedAt: new Date().toISOString(),
     });
   },
 
   updateWaypoint: (id: string, waypointUpdate: Partial<Waypoint>) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: {
+    edit(
+      {
         ...mission,
         waypoints: mission.waypoints.map((wp) =>
           wp.id === id ? { ...wp, ...waypointUpdate } : wp
         ),
         updatedAt: new Date().toISOString(),
       },
-      isDirty: true,
-    });
+      `waypoint:${id}`,
+    );
   },
 
   removeWaypoint: (id: string) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: {
-        ...mission,
-        waypoints: mission.waypoints.filter((wp) => wp.id !== id),
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      waypoints: mission.waypoints.filter((wp) => wp.id !== id),
+      updatedAt: new Date().toISOString(),
     });
   },
 
@@ -300,13 +336,10 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const reorderedWaypoints = waypointIds
       .map((id) => waypointMap.get(id))
       .filter((wp): wp is Waypoint => wp !== undefined);
-    set({
-      mission: {
-        ...mission,
-        waypoints: reorderedWaypoints,
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      waypoints: reorderedWaypoints,
+      updatedAt: new Date().toISOString(),
     });
   },
 
@@ -314,41 +347,35 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const { mission } = get();
     if (!mission) return;
     const threat: ThreatInstance = { ...threatData, id: uuidv4() };
-    set({
-      mission: {
-        ...mission,
-        threats: [...mission.threats, threat],
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      threats: [...mission.threats, threat],
+      updatedAt: new Date().toISOString(),
     });
   },
 
   updateThreat: (id: string, threatUpdate: Partial<ThreatInstance>) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: {
+    edit(
+      {
         ...mission,
         threats: mission.threats.map((t) =>
           t.id === id ? { ...t, ...threatUpdate } : t
         ),
         updatedAt: new Date().toISOString(),
       },
-      isDirty: true,
-    });
+      `threat:${id}`,
+    );
   },
 
   removeThreat: (id: string) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: {
-        ...mission,
-        threats: mission.threats.filter((t) => t.id !== id),
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      threats: mission.threats.filter((t) => t.id !== id),
+      updatedAt: new Date().toISOString(),
     });
   },
 
@@ -356,41 +383,35 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const { mission } = get();
     if (!mission) return;
     const member: FlightMember = { ...memberData, id: uuidv4() };
-    set({
-      mission: {
-        ...mission,
-        flightMembers: [...mission.flightMembers, member],
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      flightMembers: [...mission.flightMembers, member],
+      updatedAt: new Date().toISOString(),
     });
   },
 
   updateFlightMember: (id: string, memberUpdate: Partial<FlightMember>) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: {
+    edit(
+      {
         ...mission,
         flightMembers: mission.flightMembers.map((m) =>
           m.id === id ? { ...m, ...memberUpdate } : m
         ),
         updatedAt: new Date().toISOString(),
       },
-      isDirty: true,
-    });
+      `flight-member:${id}`,
+    );
   },
 
   removeFlightMember: (id: string) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: {
-        ...mission,
-        flightMembers: mission.flightMembers.filter((m) => m.id !== id),
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      flightMembers: mission.flightMembers.filter((m) => m.id !== id),
+      updatedAt: new Date().toISOString(),
     });
   },
 
@@ -398,13 +419,10 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const { mission } = get();
     if (!mission) return '';
     const attack: Attack = { ...attackData, id: uuidv4() };
-    set({
-      mission: {
-        ...mission,
-        attacks: [...mission.attacks, attack],
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      attacks: [...mission.attacks, attack],
+      updatedAt: new Date().toISOString(),
     });
     return attack.id;
   },
@@ -412,52 +430,43 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   updateAttack: (id: string, attackUpdate: Partial<Attack>) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: {
-        ...mission,
-        attacks: mission.attacks.map((a) =>
-          a.id === id ? { ...a, ...attackUpdate } : a
-        ),
-        updatedAt: new Date().toISOString(),
-      },
-      isDirty: true,
+    edit({
+      ...mission,
+      attacks: mission.attacks.map((a) =>
+        a.id === id ? { ...a, ...attackUpdate } : a
+      ),
+      updatedAt: new Date().toISOString(),
     });
   },
 
   removeAttack: (id: string) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: { ...removeAttackFrom(mission, id), updatedAt: new Date().toISOString() },
-      isDirty: true,
-    });
+    edit({ ...removeAttackFrom(mission, id), updatedAt: new Date().toISOString() });
   },
 
   saveStrike: (strike, members) => {
     const { mission } = get();
     if (!mission) return [];
     const saved = saveStrikeTo(mission, strike, members, uuidv4);
-    set({ mission: { ...saved.mission, updatedAt: new Date().toISOString() }, isDirty: true });
+    edit({ ...saved.mission, updatedAt: new Date().toISOString() });
     return saved.attackIds;
   },
 
   removeStrike: (id) => {
     const { mission } = get();
     if (!mission) return;
-    set({ mission: { ...removeStrikeFrom(mission, id), updatedAt: new Date().toISOString() }, isDirty: true });
+    edit({ ...removeStrikeFrom(mission, id), updatedAt: new Date().toISOString() });
   },
 
   moveAttackCustomIp: (id, position) => {
     const { mission } = get();
     if (!mission) return;
-    set({
-      mission: { ...moveAttackCustomIp(mission, id, position), updatedAt: new Date().toISOString() },
-      isDirty: true,
-    });
+    edit({ ...moveAttackCustomIp(mission, id, position), updatedAt: new Date().toISOString() });
   },
 
   markClean: () => {
-    set({ isDirty: false });
+    set({ isDirty: false, savedMission: get().mission });
   },
 
   setFilePath: (path: string | null) => {

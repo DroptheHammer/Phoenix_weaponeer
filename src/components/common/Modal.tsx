@@ -69,7 +69,7 @@ export function Modal({ title, onClose, children, widthClass = 'w-[440px]', fill
 
   return createPortal(
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]">
-      <div className={`bg-dcs-navy text-white rounded-lg ${fill ? 'p-4' : 'p-6'} ${panel}`}>
+      <div className={`bg-dcs-navy text-white rounded-lg ${fill ? 'p-4' : 'p-6'} ${panel}`} role="dialog" aria-label={title}>
         <div className={`flex justify-between items-center ${fill ? 'mb-3' : 'mb-4'}`}>
           <h2 className="text-xl font-semibold">{title}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">

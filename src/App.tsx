@@ -204,12 +204,26 @@ function App() {
     });
   };
 
-  // Cmd/Ctrl+S. There was no keyboard layer at all before this.
+  // Cmd/Ctrl+S saves; Cmd/Ctrl+Z undoes, and Shift+Z (or Ctrl+Y) redoes. There
+  // was no keyboard layer at all before this.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') {
         event.preventDefault();
         if (useMissionStore.getState().mission) void handleSave();
+      } else if (key === 'z' || key === 'y') {
+        // A text box keeps the browser's own undo for what is typed in it, and
+        // an open dialog (the attack editor works on a draft) must not have the
+        // mission change under it.
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+        if (document.querySelector('[role="dialog"]')) return;
+        event.preventDefault();
+        const { undo, redo } = useMissionStore.getState();
+        if (key === 'y' || event.shiftKey) redo();
+        else undo();
       }
     };
     window.addEventListener('keydown', onKeyDown);

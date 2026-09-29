@@ -47,7 +47,6 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       drag handles on the attack (only the IP drags today), and exposure
       shading inside SAM rings.
 - [ ] Copy and paste attacks between flight members.
-- [ ] Undo and redo.
 
 ### Output
 - [ ] **One-click brief pack.** Part of the old revamp plan's M3 milestone:
@@ -74,6 +73,9 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 
 ### Unreleased (on `main`, next desktop release)
 - **⚙ Settings → Squadron profiles → Open profiles folder** (desktop).
+- **Undo and redo** for mission edits: ⌘/Ctrl+Z, and ⇧⌘/Ctrl+Z or Ctrl+Y to redo.
+  Keystrokes in one field are one step; 50 steps; the attack editor's draft is
+  outside it. No toolbar buttons yet, so the phone has no way to undo.
 
 ### Phone web app — live 2026-09-26 (not a desktop release)
 - **The full planner on iPhone and Android**, at
