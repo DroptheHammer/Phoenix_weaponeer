@@ -48,7 +48,6 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       shading inside SAM rings.
 - [ ] Copy and paste attacks between flight members.
 - [ ] Undo and redo.
-- [ ] "Open profiles folder" button (`reveal_profiles_dir` exists, no button).
 
 ### Output
 - [ ] **One-click brief pack.** Part of the old revamp plan's M3 milestone:
@@ -72,6 +71,9 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ---
 
 ## Shipped
+
+### Unreleased (on `main`, next desktop release)
+- **⚙ Settings → Squadron profiles → Open profiles folder** (desktop).
 
 ### Phone web app — live 2026-09-26 (not a desktop release)
 - **The full planner on iPhone and Android**, at

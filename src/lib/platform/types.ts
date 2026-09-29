@@ -78,6 +78,10 @@ export interface Platform {
   folderExists(path: string): Promise<boolean>;
   suggestKneeboardFolder(kneeboardPath: string): Promise<string | null>;
 
+  // ---- Squadron profiles (desktop only; the web build has no profiles folder) ----
+  /** Open the folder where squadron profile files go; resolves to its path. */
+  revealProfilesDir(): Promise<string>;
+
   // ---- The app itself ----
   /** Quit, after the caller's own unsaved-changes check. */
   quit(): void;

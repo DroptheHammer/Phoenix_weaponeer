@@ -211,6 +211,9 @@ export const platform: Platform = {
   },
 
   folderExists: async () => false,
+  revealProfilesDir: async () => {
+    throw new Error('The web app has no profiles folder.');
+  },
   suggestKneeboardFolder: async () => null,
 
   quit: () => window.close(),

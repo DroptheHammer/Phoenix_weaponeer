@@ -75,6 +75,7 @@ export const platform: Platform = {
   shareFiles: async () => 'unsupported',
 
   folderExists: (path) => invoke<boolean>('folder_exists', { path }),
+  revealProfilesDir: () => invoke<string>('reveal_profiles_dir'),
   suggestKneeboardFolder: (kneeboardPath) => invoke<string | null>('suggest_kneeboard_folder', { kneeboardPath }),
 
   quit: () => void invoke('exit_app'),

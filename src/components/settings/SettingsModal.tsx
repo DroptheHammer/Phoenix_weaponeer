@@ -123,6 +123,20 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
               );
             })}
           </div>
+          <div className="pt-3 mt-3 border-t border-gray-700">
+            <h3 className="font-medium text-dcs-accent">Squadron profiles</h3>
+            <p className="text-xs text-gray-400 mt-1">
+              Drop a profile <span className="font-mono">.json</span> here with the same id as a built-in one and it
+              replaces that profile. Restart the app to pick up changes.
+            </p>
+            <button
+              onClick={() => run('profiles', async () => void (await platform.revealProfilesDir()))}
+              disabled={busyId !== null}
+              className="mt-2 bg-dcs-blue hover:bg-blue-600 disabled:bg-gray-600 text-white text-xs font-medium px-2 py-1 rounded"
+            >
+              {busyId === 'profiles' ? '…' : 'Open profiles folder'}
+            </button>
+          </div>
           </>
           )}
 
