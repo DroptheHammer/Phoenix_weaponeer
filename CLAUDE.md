@@ -218,64 +218,55 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-26 UTC, afternoon (Opus 5.5, main Mac). It brought the
-cloud session's phone web app work home and checked it. The cloud session's notes
-are at the top of `docs/SESSION_HISTORY.md`.
-**The phone web app is LIVE: https://dropthehammer.github.io/Phoenix_weaponeer/**
-**It now follows the desktop app** (memory `project-phone-web-app-pages`):
-- every push to `main` builds it as a check;
-- publishing a release publishes it;
-- "Run workflow" publishes a fix in between.
-
-The `github-pages` environment was changed to allow `v*` tags to deploy.
-
-- **Privacy:**
-  - The full-history scan is clean. Only the known false positives remain.
-  - The two phone PR merges (#2, #3) were stamped with the user's local time zone.
-    The user chose to restamp them. Those commits and the two between them were
-    rebuilt to UTC, with trees identical and the cloud commits' IDs and signatures
-    kept. `main` was force-pushed and is now `cad16ff`.
-  - PR #2/#3 pages may still link the old IDs.
-  - The local privacy scan now flags non-UTC dates.
-- **Checks on this Mac, with the private missions present:**
-  - geo-check: 320 passed.
-  - Rust tests: core 96 and desktop 21 (+1 ignored) passed, with zero private-fixture
-    skips.
-  - `npm run build` is clean.
-- **Pure-Rust projection vs the old PROJ library:** the largest difference is
-  0.02 mm across all 12 projected theaters, 2,401 points each. The throwaway check
-  lived in the scratchpad and is not in the repo.
-- **Cleanup:**
-  - All seven `claude/mobile-app-distribution-*` branches were deleted from GitHub.
-  - Memory was updated with the Pages, cloud-limits and option-branch lessons.
-  - The obsolete proj-brew memory was dropped.
-- **Desktop click-through: PASSED.** The user checked it on screen on 2026-09-26, running
-  `npm run tauri dev` after the `crates/core` move. The list was:
-  - open a recent mission;
-  - import a FragOrders link;
-  - check that threats show and hidden ones stay hidden;
-  - build an attack and open Customize;
-  - check a multi-ship strike;
-  - export cards to the DCS folder;
-  - open Settings.
-
-  **The desktop app is clear for the next release.** `npm ci` was also run on this Mac.
-- **Still open:**
-  - A real Android phone check. The iPhone check on the live site PASSED (user,
-    2026-09-26), and so did a FragOrders link import on the live site. It works
-    straight from the browser, so **no Cloudflare proxy is needed**.
-  - Optional: `brew uninstall proj cmake pkgconf`. They're no longer needed.
-- **No v0.3.2 for now** (the user agreed). Nothing desktop users would notice has
-  changed since 0.3.1, so the next release waits for a real desktop change.
-  `release.yml` lost its sqlite step and hasn't run since. Before or at the next
-  release, consider a throwaway `vX.Y.Z-test1` tag run: draft only, delete it after
-  (memory `project-cross-platform-installer-ci-fixed`).
+**Last session:** 2026-09-29 UTC (Sonnet 5.5, main Mac). Read-only research on
+every open `ROADMAP.md` item, then the four quick, low-risk wins were built.
+They are on `main` and **unreleased**:
+- **Open profiles folder** button in ⚙ Settings (desktop only).
+- **Undo / redo** for mission edits: ⌘/Ctrl+Z, ⇧⌘/Ctrl+Z or Ctrl+Y. History lives
+  in `missionStore` (`src/lib/missionHistory.ts`); typing in one field is one step;
+  50 steps; undoing back to the saved mission clears the unsaved dot. Ignored in a
+  text box or while a dialog (the attack editor) is open.
+- **📦 Brief Pack (.zip)** on the Cards panel: `Kneeboard/<DCS folder>/…png`, the
+  mission file (hidden threats left out, like the cards) and a README. The zip is a
+  small stored-only writer, `src/lib/zip.ts`, **not `fflate`** (PNGs don't compress,
+  and it avoids a dependency). Desktop command `save_brief_pack` is locked to `.zip`.
+- **Copy to…** on each attack in the Attack Plan (`src/lib/copyAttack.ts`): a plain
+  attack for the other pilot. Same aircraft type keeps hand edits; another type is
+  rebuilt by auto-build and keeps the target, IP, flank and weapon.
+- **Checks:** geo-check passes (new undo, brief-pack and copy cases; mutation-tested
+  where it mattered), core 96, desktop 24, `npm run build`. **Not run:**
+  `npm run build:web` (the phone build), and **nothing was checked on screen.**
+- **Still to check on screen (user):** the Settings button opens the folder; edit a
+  waypoint then ⌘Z / ⇧⌘Z; export a Brief Pack, unzip it, check the layout; copy an
+  attack to an F-16 wingman and to a different-type jet.
+- **Gaps left on purpose:** no undo/redo toolbar buttons (so none on the phone);
+  the Brief Pack button is not on the phone layout; strikes are not copied as a group.
+- **Release decision: not cutting 0.3.2 yet.** The user wants more features folded
+  in first, so hold the release until then. `release.yml` lost its sqlite step and
+  hasn't run since; before or at the next release, consider a throwaway
+  `vX.Y.Z-test1` tag run (draft only, delete it after; memory
+  `project-cross-platform-installer-ci-fixed`).
+- **Roadmap corrections found while researching** (also fixed in `ROADMAP.md`):
+  rocket sight numbers are missing only for the F-4E manual-dive profiles (the A-4E,
+  Mirage F1 and F-5E carry Mk-82 sight values, and auto-build applies them to bombs
+  only, on purpose); the FragOrders link already carries loadout store *names*, so
+  only the CLI/.miz path needs a CLSID table; the weapon-table work and the
+  loadout import depend on each other.
+- **Process slip:** I once rewrote `missionStore.ts` with a Python script, which
+  broke it (reverted, redone with Edit), and appended two test blocks with `cat >>`.
+  Use Edit/Write only (memory `feedback-commands-that-dont-prompt`).
+- The 2026-09-26 notes (phone web app live, the desktop click-through, the privacy
+  restamp) are at the top of `docs/SESSION_HISTORY.md`. The phone web app is LIVE at
+  https://dropthehammer.github.io/Phoenix_weaponeer/ and follows the desktop app
+  (memory `project-phone-web-app-pages`). Still open: a real Android phone check.
 
 ### START OF NEXT SESSION
 
 0. **Phone web app: merged and live.** Its open items are at the top of the
    **Handoff log** in `docs/MOBILE_WEB_PLAN.md`. Merge PRs from the Mac with
    `TZ=UTC`, not with GitHub's phone button, which stamps the local time zone.
+   Check the latest "Web app (GitHub Pages)" run on `main` is green: this
+   session's changes touch code the phone build shares.
 1. `git pull origin main`. On any machine other than the main Mac, delete any
    clone older than 2026-09-23 and **clone fresh**. Copy `test-data/private/`
    over from the main Mac to run the full test suite.
@@ -283,9 +274,12 @@ The `github-pages` environment was changed to allow `v*` tags to deploy.
    (private, full history — keep) remain. The throwaway `-discard2` /
    `-discard3` repos were deleted by the user 2026-09-26.
 3. **What's next = `ROADMAP.md` "Open"**, cross-checked against this file and
-   the code (memory `feedback-check-shipped-work-not-one-doc`). Biggest open:
-   loft geometry; rocket sight tables for manual-dive profiles; bomb tables
-   for non-F-16 aircraft; Channel/Kola/Afghanistan projections.
+   the code (memory `feedback-check-shipped-work-not-one-doc`). Left after the
+   quick wins: the weapon-data cluster (bomb tables for non-F-16 aircraft, loadout
+   from FragOrders pylons, rocket sight numbers), loft geometry, the map-first
+   layout in pieces, and the projections that need someone with the maps
+   (Channel, Kola, Afghanistan). Candidates to fold into the next release:
+   undo/redo buttons and a Brief Pack button for the phone layout.
 4. **Never `cd` into a subfolder** — it made the harness drop a `.claude`
    folder in `src-tauri/resources/profiles` and broke geo-check (memory
    `feedback-commands-that-dont-prompt`).

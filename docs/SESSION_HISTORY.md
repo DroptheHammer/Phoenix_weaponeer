@@ -1,6 +1,59 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+**Session:** 2026-09-26 UTC, afternoon (Opus 5.5, main Mac). It brought the
+cloud session's phone web app work home and checked it. The cloud session's notes
+are just below.
+**The phone web app is LIVE: https://dropthehammer.github.io/Phoenix_weaponeer/**
+**It now follows the desktop app** (memory `project-phone-web-app-pages`):
+- every push to `main` builds it as a check;
+- publishing a release publishes it;
+- "Run workflow" publishes a fix in between.
+
+The `github-pages` environment was changed to allow `v*` tags to deploy.
+
+- **Privacy:**
+  - The full-history scan is clean. Only the known false positives remain.
+  - The two phone PR merges (#2, #3) were stamped with the user's local time zone.
+    The user chose to restamp them. Those commits and the two between them were
+    rebuilt to UTC, with trees identical and the cloud commits' IDs and signatures
+    kept. `main` was force-pushed and is now `cad16ff`.
+  - PR #2/#3 pages may still link the old IDs.
+  - The local privacy scan now flags non-UTC dates.
+- **Checks on this Mac, with the private missions present:**
+  - geo-check: 320 passed.
+  - Rust tests: core 96 and desktop 21 (+1 ignored) passed, with zero private-fixture
+    skips.
+  - `npm run build` is clean.
+- **Pure-Rust projection vs the old PROJ library:** the largest difference is
+  0.02 mm across all 12 projected theaters, 2,401 points each. The throwaway check
+  lived in the scratchpad and is not in the repo.
+- **Cleanup:**
+  - All seven `claude/mobile-app-distribution-*` branches were deleted from GitHub.
+  - Memory was updated with the Pages, cloud-limits and option-branch lessons.
+  - The obsolete proj-brew memory was dropped.
+- **Desktop click-through: PASSED.** The user checked it on screen on 2026-09-26, running
+  `npm run tauri dev` after the `crates/core` move. The list was:
+  - open a recent mission;
+  - import a FragOrders link;
+  - check that threats show and hidden ones stay hidden;
+  - build an attack and open Customize;
+  - check a multi-ship strike;
+  - export cards to the DCS folder;
+  - open Settings.
+
+  **The desktop app was clear for the next release.** `npm ci` was also run on this Mac.
+- **Still open then:**
+  - A real Android phone check. The iPhone check on the live site PASSED (user,
+    2026-09-26), and so did a FragOrders link import on the live site. It works
+    straight from the browser, so **no Cloudflare proxy is needed**.
+  - Optional: `brew uninstall proj cmake pkgconf`. They're no longer needed.
+- **No v0.3.2 for now** (the user agreed). Nothing desktop users would notice had
+  changed since 0.3.1, so the next release waits for a real desktop change.
+  `release.yml` lost its sqlite step and hadn't run since. Before or at the next
+  release, consider a throwaway `vX.Y.Z-test1` tag run: draft only, delete it after
+  (memory `project-cross-platform-installer-ci-fixed`).
+
 **Session:** 2026-09-26 UTC, midday (Opus 5.5, cloud session; the user
 went overnight, then worked from their phone only).
 **The phone web app is LIVE: https://dropthehammer.github.io/Phoenix_weaponeer/**

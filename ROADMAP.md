@@ -8,7 +8,7 @@ kneeboard cards.
 decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 (newest-first). Finished plans and reviews are in `docs/archive/`.
 
-**Last updated:** 2026-09-26
+**Last updated:** 2026-09-29
 
 ---
 
@@ -20,10 +20,14 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 - [ ] **Bomb and missile tables for aircraft other than the F-16C.** Every
       aircraft sees every bomb. `aircraft_weapons` maps bombs for the F-16C
       only; guns and rockets are mapped per aircraft since v0.3.1.
-- [ ] Sight settings for rockets on the manual-dive profiles. These cards
-      show no sight number yet.
+- [ ] Sight settings for rockets on the manual-dive profiles. Rocket cards show
+      no sight number, on purpose: the A-4E, Mirage F1 and F-5E profiles carry
+      Mk-82 values that auto-build applies to bombs only, and the F-4E ones carry
+      none. Needs per-rocket numbers from the manuals.
 - [ ] **Loadout from the FragOrders pylons.** Imports set an empty loadout.
-      Needs a DCS CLSID → weapon table.
+      The public link already carries store names (a name → weapon map is the
+      cheap first slice); the CLI/.miz path carries DCS CLSIDs and needs a
+      CLSID → weapon table. Depends on the per-aircraft weapon tables above.
 - [ ] **Pilot verification of the 62 seed profiles.** All are ESTIMATED; none
       is `verified: true` yet.
 - [ ] Weather. It is parsed at import but not used.
