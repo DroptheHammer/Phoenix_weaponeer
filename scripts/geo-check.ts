@@ -27,7 +27,7 @@ import { describeRunIn } from '../src/lib/runIn';
 import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor } from '../src/lib/autoBuildAttack';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, isRealWorld } from '../src/lib/strikeNearMe';
-import { buildAttackPicture, pictureFitPoints } from '../src/lib/attackPicture';
+import { buildAttackPicture, pictureFitPoints, LINE_STYLE, MARKER_COLOR } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
 import { targetCandidates, ipCandidates, waypointLabel } from '../src/lib/waypointOptions';
@@ -51,7 +51,8 @@ import { copyAttackTo } from '../src/lib/copyAttack';
 import { crc32, zipStore } from '../src/lib/zip';
 import { briefPackEntries, briefPackFilename, briefPackZip } from '../src/lib/briefPack';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { importNotes } from '../src/lib/importNotes';
@@ -66,8 +67,10 @@ import {
   MIN_BASEMAP_ZOOM,
   MAX_BASEMAP_ZOOM,
   MAX_BASEMAP_TILES,
+  type BasemapTiles,
 } from '../src/lib/kneeboardBasemap';
-import { planViewTransform, mapStatusOf, renderKneeboardCard } from '../src/lib/renderKneeboardCanvas';
+import { planViewTransform, mapStatusOf, renderKneeboardCard, renderKneeboardCardWithMap, drawSideProfile } from '../src/lib/renderKneeboardCanvas';
+import { DAY_THEME, themeColours, parseColour, type CardTheme } from '../src/lib/cardTheme';
 import { buildKneeboardCard } from '../src/lib/buildKneeboardCard';
 import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../src/lib/kneeboardExportPlan';
 import { validateMission } from '../src/lib/validateMission';
@@ -1905,4 +1908,285 @@ ok('validateMission: a non-numeric TOT offset is refused',
 
   ok('copy attack: to someone not in the flight it says so, and builds nothing',
      copyAttackTo(ctx, source as never, 'nobody').attack === undefined && copyAttackTo(ctx, source as never, 'nobody').problems.length === 1);
+}
+
+// ─── The card's colours: Day is the card as it always was ────────────────────
+// The card draws in a theme (lib/cardTheme.ts); Day is today's card and must stay
+// so. A recording canvas notes every call the renderer makes, in order: text with
+// its position and font, each fill and stroke colour, line widths, dashes, image
+// draws. The log of a fixed set of cards is pinned by hash, so one changed Day
+// colour, one moved coordinate or two draws swapped all fail. When a Day change
+// is meant, re-pin from the numbers a failure prints. To see what moved, dump the
+// logs before and after (CARD_LOG_DIR=/some/dir npm run geo-check) and diff them.
+//
+// Pinning Day cannot catch a colour typed into the renderer that happens to be the
+// Day one, or two slots that share a Day value swapped: they draw the same. So the
+// same cards are drawn again in a theme whose every colour is a unique marker; only
+// those markers may be drawn, every one must be reached, and that log is pinned too.
+{
+  /**
+   * A 2D context that logs every call and property set. Text is 0.6 em a character,
+   * as in Courier. `refuseBlends` is an engine that does not know any blend mode: it
+   * keeps `globalCompositeOperation` as it was.
+   */
+  const recordingContext = (refuseBlends = false) => {
+    const log: string[] = [];
+    const state: Record<string, unknown> = { font: '10px sans-serif', globalCompositeOperation: 'source-over' };
+    const em = () => parseFloat(/([\d.]+)px/.exec(String(state.font))?.[1] ?? '10');
+    const show = (v: unknown): string =>
+      typeof v === 'number' ? String(Math.round(v * 1000) / 1000)
+      : typeof v === 'string' ? JSON.stringify(v)
+      : Array.isArray(v) ? `[${v.map(show).join(',')}]`
+      : v === undefined || v === null ? String(v)
+      : `<${typeof v}>`;
+    const ctx = new Proxy(state, {
+      get: (s, name: string) =>
+        name === 'measureText' ? (text: string) => { log.push(`measureText(${show(text)})`); return { width: text.length * 0.6 * em() }; }
+        : name in s ? s[name]
+        : (...args: unknown[]) => { log.push(`${name}(${args.map(show).join(',')})`); },
+      set: (s, name: string, value) => {
+        if (!(refuseBlends && name === 'globalCompositeOperation')) s[name] = value;
+        log.push(`${name}=${show(value)}`);
+        return true;
+      },
+    });
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, log };
+  };
+  /** Map tiles that are all "there", so the map's wash and credit line are drawn. */
+  const fakeTiles: BasemapTiles = () => ({}) as never;
+
+  const lib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8'));
+  const bomb = (id: string, name: string, floor_ft: number) =>
+    ({ id, name, category: 'bomb_unguided', guidance: 'none', weight_lbs: 500, min_release_alt_ft: floor_ft, frag_min_safe_alt_ft: floor_ft, carried_by: ['f16c', 'a4ec'] });
+  const mk82 = bomb('mk82', 'Mk-82 LDGP', 1000);
+  // The pop-up is built for the 1,000 ft Mk-82, then printed against a 4,500 ft floor
+  // that sits above its release, so that card carries warning strips.
+  const strictMk82 = bomb('mk82', 'Mk-82 LDGP', 4500);
+  const viper = { id: 'p1', callsign: 'Viper 1-1', aircraftId: 'f16c', position: 1, loadout: [] };
+  const scooter = { id: 's1', callsign: 'Scooter 1-1', aircraftId: 'a4ec', position: 1, loadout: [] };
+  const system = (id: string, name: string, nato: string, type: string, range: number) => ({ id, name, nato_designation: nato, threat_type: type, max_range_nm: range });
+  const systems = [
+    system('sa6', '2K12 Kub', 'SA-6 Gainful', 'SAM', 13),
+    system('zsu23', 'ZSU-23-4 Shilka', 'ZSU-23-4', 'AAA', 1.5),
+    system('sa8', '9K33 Osa', 'SA-8 Gecko', 'SHORAD', 6),
+    system('sa2', 'S-75 Dvina', 'SA-2 Guideline', 'SAM', 24),
+  ];
+  // Inside its envelope (the SA-6), and three that are not: rows in both styles, and
+  // the Shilka's and Osa's rings pass close by the target so they cross the picture.
+  const threats = ([['sa6', 300, 7], ['zsu23', 100, 1.6], ['sa8', 200, 8], ['sa2', 30, 30]] as const).map(([systemId, bearing, nm], i) =>
+    ({ id: `t${i}`, systemId, position: calculateDestination(tgt, bearing, nm), status: 'active', source: 'mission' }));
+  const cardOf = (mission: object, attackId: string, weapons: object[]) =>
+    buildKneeboardCard({ ...mission, threats } as never, attackId, weapons as never, new Map(), systems)!;
+  const solo = (attack: object) => ({
+    id: 'm1', name: 'Card colours', date: '2026-09-29', theater: 'nevada', bullseye: tgt, waypoints: [wpIp, wpTgt],
+    flightMembers: [viper, scooter], attacks: [{ ...attack, id: 'atk' }], strikes: [], notes: '', createdAt: '', updatedAt: '',
+  });
+  const build = (attacker: { id: string }, weapon: object, profiles: unknown[], profileId?: string) =>
+    autoBuildAttack({
+      mission: { waypoints: [wpIp, wpTgt], flightMembers: [viper, scooter], threats, attacks: [] },
+      targetWaypointId: wpTgt.id, attackerId: attacker.id, weapons: [weapon], profiles, threatSystems: systems,
+      overrides: { weaponId: (weapon as { id: string }).id, profileId },
+    } as never).attack!;
+
+  // The four cards: A-4E manual dive (amber sight in the header, unverified-map and
+  // ESTIMATED strips, IP and egress labels), an F-16 in a strike (strike strip, the
+  // other two jets faint, level release, IP off the frame), and an F-16 pop-up
+  // (climb and pull-down lines, apex star, hard deck, warning strips).
+  const a4e = cardOf(solo(build(scooter, mk82, lib('a4ec'))), 'atk', [mk82]);
+  const strikeLead = strikeMembers(withIp, sId)[1];
+  const strike = cardOf({ ...withIp }, strikeLead.id, [gbu31]);
+  const popup = cardOf(solo(build(viper, mk82, lib('f16c'), 'f16c.popup.std')), 'atk', [strictMk82]);
+
+  // Two more layouts, for the branches those miss: a gun card with no threats, no caution and
+  // only the side view; and the plan view alone on a map whose tiles have not arrived.
+  const diagram = a4e.attackSection.diagram!;
+  const bare = {
+    ...a4e,
+    header: { ...a4e.header, cautions: undefined, sightDepression_mils: undefined },
+    threatSection: { threats: [] },
+    weaponSection: { ...a4e.weaponSection, fired: true, minSafeAlt_ft: undefined },
+    attackSection: { ...a4e.attackSection, diagram: { ...diagram, picture: undefined } },
+  };
+  const planOnly = { ...a4e, attackSection: { ...a4e.attackSection, diagram: { ...diagram, side: undefined } } };
+  const noTiles: BasemapTiles = () => undefined;
+
+  // Each drawing, in a theme or (theme left out) as the card has always been drawn. With no
+  // theme the call is the old three-argument one, so the pins below prove that call unchanged.
+  const paint = (ctx: CanvasRenderingContext2D, card: ReturnType<typeof cardOf>, tiles: BasemapTiles | undefined, theme?: CardTheme) => {
+    const canvas = { getContext: () => ctx } as never;
+    void (theme === undefined ? renderKneeboardCard(canvas, card, tiles) : renderKneeboardCard(canvas, card, tiles, theme));
+  };
+  const sideBox = { x: 0, y: 0, w: 480, h: 260 };
+  const fixtures: { id: string; name: string; draw: (ctx: CanvasRenderingContext2D, theme?: CardTheme) => void }[] = [
+    { id: 'a4e', name: 'A-4E manual dive', draw: (ctx, theme) => paint(ctx, a4e, undefined, theme) },
+    { id: 'a4e-map', name: 'A-4E manual dive, on the map', draw: (ctx, theme) => paint(ctx, a4e, fakeTiles, theme) },
+    { id: 'strike', name: 'F-16 strike #2, level', draw: (ctx, theme) => paint(ctx, strike, undefined, theme) },
+    { id: 'popup', name: 'F-16 pop-up with warnings', draw: (ctx, theme) => paint(ctx, popup, undefined, theme) },
+    { id: 'bare', name: 'a gun card with no threats and only a side view', draw: (ctx, theme) => paint(ctx, bare as never, undefined, theme) },
+    { id: 'no-tiles', name: 'the plan view alone, its map tiles not yet arrived', draw: (ctx, theme) => paint(ctx, planOnly as never, noTiles, theme) },
+    // The attack editor draws the side view alone, with no theme to give it.
+    { id: 'side', name: 'the side view alone, as the attack editor draws it',
+      draw: (ctx, theme) => theme === undefined ? drawSideProfile(ctx, popup.attackSection.diagram!.side!, sideBox) : drawSideProfile(ctx, popup.attackSection.diagram!.side!, sideBox, theme) },
+  ];
+  const runAll = (theme?: CardTheme, refuseBlends = false) =>
+    fixtures.map(({ id, name, draw }) => {
+      const { ctx, log } = recordingContext(refuseBlends);
+      draw(ctx, theme);
+      return { id, name, log };
+    });
+
+  const dumpDir = process.env.CARD_LOG_DIR;
+  if (dumpDir) mkdirSync(dumpDir, { recursive: true });
+  const digest = (log: string[]) => ({ ops: log.length, sha: createHash('sha256').update(log.join('\n')).digest('hex').slice(0, 16) });
+  // The Day draw log of each card above: number of calls and the start of its SHA-256.
+  const DAY_PIN: Record<string, { ops: number; sha: string }> = {
+    a4e: { ops: 1015, sha: 'a7f2b3bb6ab4e7df' },
+    'a4e-map': { ops: 1056, sha: 'f9f014b408ca4066' },
+    strike: { ops: 1149, sha: 'b008de99e30d7a63' },
+    popup: { ops: 1272, sha: 'd8f289730f76c237' },
+    side: { ops: 498, sha: '14b316f857f9e4b8' },
+    bare: { ops: 515, sha: 'b25f2ac117268a9d' },
+    'no-tiles': { ops: 590, sha: 'f441654cd70c780b' },
+  };
+  const runs = runAll();
+  for (const run of runs) {
+    if (dumpDir) writeFileSync(join(dumpDir, `${run.id}.log`), run.log.join('\n') + '\n');
+    const got = digest(run.log);
+    const want = DAY_PIN[run.id];
+    ok(`Day card: ${run.name} is drawn exactly as it always was`, got.sha === want.sha && got.ops === want.ops, `${got.ops} draw calls, ${got.sha}`);
+  }
+  ok('Day card: naming the Day theme draws the same as leaving the theme out',
+     runAll(DAY_THEME).every((run, i) => digest(run.log).sha === digest(runs[i].log).sha));
+
+  // ── Day's values ──
+  // As they stood before the card had a theme, written out here rather than read from
+  // cardTheme.ts, so a changed Day value fails even where the theme and its check moved together.
+  const OLD_DAY = {
+    id: 'day', name: 'Day',
+    bg: '#FFFDF5', headerBg: '#1C2B3A', headerText: '#FFFFFF', headerLabel: '#88AACC', headerDate: '#667788', headerRule: '#334455', headerAmber: '#FFC107',
+    sectionBg: '#E8E8E0', sectionLabel: '#1C2B3A', textPrimary: '#0F0F0F', textGray: '#505050', divider: '#999999',
+    accent: '#CC2200', accentBg: '#FFF0EE', accentLight: '#FFE0DC', threatClose: '#8B0000', caution: '#8A5A00', cautionBg: '#FFF1CC',
+    strike: '#0B3C5D', strikeBg: '#DCEBF5', footerText: '#667788', footerNote: '#445566',
+    diagramBg: '#F4F4EC', ground: '#888888', groundHatch: '#AAAAAA', leader: '#374151', ipArrow: '#2563eb', attributionBg: 'rgba(244, 244, 236, 0.85)',
+    threatRing: { color: 'rgba(239, 68, 68, 0.55)', width: 1.5 },
+    wingman: { color: 'rgba(80, 80, 80, 0.55)', width: 1.5, dash: [6, 6] },
+    lines: {
+      route: { color: '#60a5fa', width: 2, dash: [10, 10] },
+      leg: { color: '#60a5fa', width: 3 },
+      climb: { color: '#fbbf24', width: 3 },
+      pullDown: { color: '#f97316', width: 3 },
+      attack: { color: '#ef4444', width: 3 },
+      bomb: { color: '#ef4444', width: 1, dash: [4, 6] },
+      egress: { color: '#22c55e', width: 3 },
+      egressLeg: { color: '#22c55e', width: 2, dash: [10, 10] },
+    },
+    marker: {
+      colors: { AP: '#a855f7', ROLL: '#f97316', RUN: '#f97316', POP: '#eab308', PDP: '#f97316', TRK: '#6b7280', REL: '#eab308', TGT: '#ef4444' },
+      ring: '#ffffff', text: '#ffffff',
+    },
+    labels: {
+      tooltip: { bg: '#ffffff', fg: '#111827', border: '#374151' },
+      egress: { bg: '#14532d', fg: '#ffffff', border: '#4ade80' },
+      ip: { bg: '#1e3a8a', fg: '#ffffff', border: '#60a5fa' },
+    },
+    basemap: { invert: false, tint: null, washColor: '#F4F4EC', washAlpha: 0.2 },
+  };
+  /** Every leaf of a theme by path, as text: a key that is missing, extra or undefined shows up as a difference. */
+  const leaves = (value: unknown, path = ''): Record<string, string> =>
+    Array.isArray(value) || value === null || typeof value !== 'object'
+      ? { [path]: JSON.stringify(value) ?? 'undefined' }
+      : Object.assign({}, ...Object.entries(value).map(([key, inner]) => leaves(inner, path ? `${path}.${key}` : key)));
+  const nowDay = leaves(DAY_THEME), wasDay = leaves(OLD_DAY);
+  const changed = [...new Set([...Object.keys(nowDay), ...Object.keys(wasDay)])].filter((key) => nowDay[key] !== wasDay[key]);
+  ok('Day theme: every colour, width and dash is what the card always used, and no key is missing or extra',
+     changed.length === 0, changed.map((key) => `${key}: ${wasDay[key]} -> ${nowDay[key]}`).join('; '));
+  ok('Day theme: every key is set (no undefined), and each colour is one a canvas and the tile code can read',
+     Object.values(nowDay).every((v) => v !== 'undefined') && Object.values(themeColours(DAY_THEME)).every((c) => parseColour(c) !== undefined),
+     `${Object.keys(themeColours(DAY_THEME)).length} colours`);
+  ok('Day theme: its lines, marker colours and label boxes are the planner map\'s own tables, not copies, so the two stay one palette',
+     DAY_THEME.lines === LINE_STYLE && DAY_THEME.marker.colors === MARKER_COLOR);
+
+  // ── Nothing but the theme's colours ──
+  /** A copy of a theme with every colour replaced by its own path ("@lines.attack.color"). */
+  const marked = (() => {
+    const mark = (value: unknown, path = ''): unknown =>
+      typeof value === 'string' ? `@${path}`
+      : Array.isArray(value) || value === null || typeof value !== 'object' ? value
+      : Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, mark(inner, path ? `${path}.${key}` : key)]));
+    // The map is tinted and flipped here, so those two colours are drawn as well.
+    return { ...(mark(DAY_THEME) as object), basemap: { invert: true, tint: '@basemap.tint', washColor: '@basemap.washColor', washAlpha: 0.5 } } as CardTheme;
+  })();
+  const markers = themeColours(marked);
+  const isMarker = (colour: string) => Object.values(markers).includes(colour);
+  /** The colours a log fills and strokes with, bar the white that turns `difference` into a negative. */
+  const coloursDrawn = (log: string[]) => {
+    const drawn: string[] = [];
+    const modes = ['source-over'];
+    for (const line of log) {
+      const value = line.slice(line.indexOf('=') + 1);
+      if (line === 'save()') modes.push(modes[modes.length - 1]);
+      else if (line === 'restore()') modes.pop();
+      else if (line.startsWith('globalCompositeOperation=')) modes[modes.length - 1] = JSON.parse(value);
+      else if (/^(fillStyle|strokeStyle|shadowColor)=/.test(line)) {
+        const colour = JSON.parse(value) as string;
+        if (!(modes[modes.length - 1] === 'difference' && colour === '#ffffff')) drawn.push(colour);
+      }
+    }
+    return drawn;
+  };
+  const markedRuns = runAll(marked);
+  for (const run of markedRuns) {
+    const foreign = [...new Set(coloursDrawn(run.log).filter((colour) => !isMarker(colour)))];
+    ok(`themed card: ${run.name} is drawn in its theme's colours and no other`, foreign.length === 0, `not from the theme: ${foreign.join(' ')}`);
+  }
+  const reached = new Set(markedRuns.flatMap((run) => coloursDrawn(run.log)));
+  const unreached = Object.entries(markers).filter(([, colour]) => !reached.has(colour)).map(([path]) => path);
+  ok('themed cards: between them the fixed cards draw in every colour a theme holds', unreached.length === 0, `never drawn: ${unreached.join(', ')}`);
+  // Which slot each colour is drawn from is pinned as well. Slots that share a Day value (the
+  // header date and the footer, say) draw the same under Day, so swapping two of them passes
+  // every check above; the marked log tells them apart. A new slot changes these: re-pin.
+  const MARKED_PIN: Record<string, string> = {
+    a4e: 'a4f8cfe0a7b6af82',
+    'a4e-map': '6ce00dc057b5ae5e',
+    strike: '2c9f0902de385023',
+    popup: '821a4980f517ac77',
+    bare: 'a5eb3f3371400ef7',
+    'no-tiles': '1e86b08167a797c9',
+    side: '9b028ec17f0df312',
+  };
+  for (const run of markedRuns) {
+    if (dumpDir) writeFileSync(join(dumpDir, `${run.id}.marked.log`), run.log.join('\n') + '\n');
+    const got = digest(run.log).sha;
+    ok(`themed card: ${run.name} draws each theme colour where it did when pinned`, got === MARKED_PIN[run.id], got);
+  }
+  // A themed threat ring may be dashed. Its dash has to end with the rings, or every marker
+  // ring and label border drawn after them comes out dashed too (Day's rings are solid, so
+  // this never showed there).
+  const dashedRuns = runAll({ ...marked, threatRing: { ...marked.threatRing, dash: [3.5, 5.5] } }).filter((run) => ['a4e', 'strike', 'popup'].includes(run.id));
+  const leaks = dashedRuns.map((run) => {
+    const ring = run.log.lastIndexOf('setLineDash([3.5,5.5])');
+    const reset = run.log.findIndex((line, i) => i > ring && line.startsWith('setLineDash('));
+    const marker = run.log.findIndex((line, i) => i > ring && /^arc\([^,]+,[^,]+,16,0,6\.283\)$/.test(line));
+    return { id: run.id, ring: ring >= 0, cleared: reset > ring && run.log[reset] === 'setLineDash([])' && reset < marker };
+  });
+  ok('themed card: a dashed threat ring hands no dash on to the marker rings and label borders after it',
+     leaks.some((l) => l.ring) && leaks.filter((l) => l.ring).every((l) => l.cleared), JSON.stringify(leaks));
+  const wrapped = recordingContext();
+  void renderKneeboardCardWithMap({ getContext: () => wrapped.ctx } as never, a4e, { map: false, theme: marked }).then((status) =>
+    ok('themed card: the export path (renderKneeboardCardWithMap) hands its theme on',
+       status === 'off' && wrapped.log.includes('fillStyle="@bg"') && coloursDrawn(wrapped.log).every(isMarker)));
+
+  // ── The map's tiles ──
+  const mapLog = markedRuns.find((run) => run.id === 'a4e-map')!.log;
+  const tileOps = (log: string[]) =>
+    log.filter((l) => /^(drawImage\(|globalCompositeOperation=|globalAlpha=|fillStyle="(#ffffff|@basemap\.(tint|washColor))")/.test(l)).map((l) => (l.startsWith('drawImage(') ? 'drawImage' : l));
+  const tileCount = mapLog.filter((l) => l.startsWith('drawImage(')).length;
+  const perTile = (...ops: string[]) => [...Array(tileCount).fill(['drawImage', ...ops]).flat(), 'globalAlpha=0.5', 'fillStyle="@basemap.washColor"'];
+  ok('themed map: each tile is made a negative, then multiplied by the tint, and the map is washed once after',
+     tileCount > 0 && JSON.stringify(tileOps(mapLog)) === JSON.stringify(perTile('globalCompositeOperation="difference"', 'fillStyle="#ffffff"', 'globalCompositeOperation="multiply"', 'fillStyle="@basemap.tint"')),
+     `${tileCount} tiles`);
+  const refusedLog = runAll(marked, true).find((run) => run.id === 'a4e-map')!.log;
+  ok('themed map: an engine that ignores blend modes gets each tile covered, never left pale',
+     JSON.stringify(tileOps(refusedLog)) === JSON.stringify(perTile('globalCompositeOperation="difference"', 'globalCompositeOperation="source-over"', 'globalAlpha=0.92', 'fillStyle="@basemap.washColor"')),
+     tileOps(refusedLog).slice(0, 6).join(' '));
 }
