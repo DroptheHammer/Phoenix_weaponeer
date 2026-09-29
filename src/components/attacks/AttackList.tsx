@@ -4,6 +4,9 @@ import { useUiStore } from '../../stores/uiStore';
 import { AttackEditor } from './AttackEditor';
 import { strikeOf, strikeMembers } from '../../lib/strike';
 import { useIsPhone } from '../../hooks/useIsPhone';
+import { useVisibleMission } from '../../hooks/useVisibleMission';
+import { useProfileStore } from '../../stores/profileStore';
+import { copyAttackTo } from '../../lib/copyAttack';
 import { InfoButton } from '../common/InfoButton';
 import type { AttackProfileType, DbWeapon, FuzeOption, Attack, Strike } from '../../types';
 
@@ -38,7 +41,12 @@ interface AttackListProps {
 }
 
 export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAttackSaved }: AttackListProps) {
-  const { mission, removeAttack, removeStrike, setFocusAttackId } = useMissionStore();
+  const { mission, addAttack, removeAttack, removeStrike, setFocusAttackId } = useMissionStore();
+  // Copying rebuilds through auto-build, which is threat-aware: it must see only
+  // the threats this planner may see (like the attack editor).
+  const visibleMission = useVisibleMission();
+  const profiles = useProfileStore((s) => s.profiles);
+  const [copyMsg, setCopyMsg] = useState<{ text: string; error: boolean } | null>(null);
   const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
   const selectedAttackId = useUiStore((state) => state.selectedAttackId);
   const selectAttack = useUiStore((state) => state.selectAttack);
@@ -71,6 +79,24 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
   const handleCloseEditor = () => {
     setShowEditor(false);
     setEditingAttack(undefined);
+  };
+
+  /** Copy an attack to another pilot: a plain attack for them, rebuilt for their aircraft. */
+  const handleCopy = (attack: Attack, recipientId: string) => {
+    if (!visibleMission || !recipientId) return;
+    const recipient = visibleMission.flightMembers.find((m) => m.id === recipientId);
+    const copy = copyAttackTo(
+      { mission: visibleMission, weapons, profiles, threatSystems: threatSystems ?? [] },
+      attack,
+      recipientId,
+    );
+    if (!copy.attack) {
+      setCopyMsg({ text: `Could not copy to ${recipient?.callsign ?? 'that pilot'}: ${copy.problems.join('; ')}`, error: true });
+      return;
+    }
+    const id = addAttack(copy.attack);
+    setFocusAttackId(id);
+    setCopyMsg({ text: [`Copied to ${recipient?.callsign ?? 'that pilot'} as #${copy.attack.sequenceNumber}.`, ...copy.notes].join(' '), error: false });
   };
 
   // Sort by sequence number
@@ -129,6 +155,16 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
         <div className="-mt-2 mb-3 rounded-lg bg-dcs-dark p-3 text-sm text-gray-300 space-y-1">
           {canStrike && <p><span className="text-cyan-200">+ Add Strike</span> — {STRIKE_HINT}.</p>}
           {hasStrike && <p><span className="text-amber-300">Ungroup</span> — {UNGROUP_HINT}.</p>}
+        </div>
+      )}
+
+      {copyMsg && (
+        <div
+          onClick={() => setCopyMsg(null)}
+          className={`mb-3 rounded-lg p-2 text-xs cursor-pointer ${copyMsg.error ? 'bg-red-900 text-red-200' : 'bg-green-900 text-green-200'}`}
+          title="Click to dismiss"
+        >
+          {copyMsg.text}
         </div>
       )}
 
@@ -239,6 +275,23 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {(mission?.flightMembers.length ?? 0) > 1 && (
+                    <select
+                      value=""
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => { e.stopPropagation(); handleCopy(attack, e.target.value); }}
+                      className="bg-dcs-dark text-gray-300 text-xs rounded px-1 py-1 border border-gray-600 max-w-[8rem]"
+                      title="Copy this attack to another pilot"
+                      aria-label="Copy this attack to another pilot"
+                    >
+                      <option value="">Copy to…</option>
+                      {mission?.flightMembers
+                        .filter((m) => m.id !== attack.attackerId)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>{m.callsign}</option>
+                        ))}
+                    </select>
+                  )}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleEditAttack(attack); }}
                     className="text-gray-400 hover:text-blue-400 px-2 py-1"

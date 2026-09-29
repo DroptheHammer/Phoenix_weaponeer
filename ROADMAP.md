@@ -46,7 +46,6 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       by job with a readiness line, a threat palette you drag onto the map,
       drag handles on the attack (only the IP drags today), and exposure
       shading inside SAM rings.
-- [ ] Copy and paste attacks between flight members.
 
 ### Output
 - [ ] PDF export. Only if the squadron asks for it.
@@ -76,6 +75,10 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
   cards under `Kneeboard/<DCS aircraft folder>/`, the mission file (without
   author-hidden threats) and a README. Desktop asks where to save; the web app
   downloads it. Not on the phone layout yet.
+- **Copy to…** on each attack in the Attack Plan: copies it to another pilot as a
+  plain attack. The same aircraft type keeps hand edits; another type is rebuilt
+  by auto-build (its own profile and sight number) and keeps the target, IP,
+  flank and weapon. Coordinated strikes are not copied as a group.
 
 ### Phone web app — live 2026-09-26 (not a desktop release)
 - **The full planner on iPhone and Android**, at

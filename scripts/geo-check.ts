@@ -47,6 +47,7 @@ import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/li
 import { useUiStore } from '../src/stores/uiStore';
 import { useMissionStore } from '../src/stores/missionStore';
 import { HISTORY_LIMIT, EMPTY_HISTORY, recordEdit } from '../src/lib/missionHistory';
+import { copyAttackTo } from '../src/lib/copyAttack';
 import { crc32, zipStore } from '../src/lib/zip';
 import { briefPackEntries, briefPackFilename, briefPackZip } from '../src/lib/briefPack';
 import { execFileSync } from 'node:child_process';
@@ -1735,4 +1736,76 @@ ok('validateMission: a non-numeric TOT offset is refused',
      (unicode[6] | (unicode[7] << 8)) === 0x0800 &&
      nameBytes.every((b, i) => unicode[30 + i] === b));
   if (!haveUnzip) console.log('SKIP brief pack: no unzip on this machine, so the independent read-back did not run');
+}
+
+// ─── Copy an attack to another pilot ─────────────────────────────────────────
+{
+  const lib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8'));
+  const mk82 = { id: 'mk82', name: 'Mk-82 LDGP', category: 'bomb_unguided', guidance: 'none', weight_lbs: 500,
+                 frag_min_safe_alt_ft: 1000, carried_by: ['f16c'] };
+  const mk84 = { id: 'mk84', name: 'Mk-84 LDGP', category: 'bomb_unguided', guidance: 'none', weight_lbs: 2000,
+                 frag_min_safe_alt_ft: 1500, carried_by: ['f16c'] };
+  const weapons = [mk82, mk84];
+  const profiles = [...lib('f16c'), ...lib('a4ec')];
+  const viper1 = { id: 'v1', callsign: 'Viper 1-1', aircraftId: 'f16c', position: 1, loadout: [] };
+  const viper2 = { id: 'v2', callsign: 'Viper 1-2', aircraftId: 'f16c', position: 2, loadout: [] };
+  const scoot = { id: 's1', callsign: 'Scooter 1-1', aircraftId: 'a4ec', position: 1, loadout: [] };
+  const bare = { waypoints: [wpIp, wpTgt], flightMembers: [viper1, viper2, scoot], threats: [], attacks: [] };
+
+  const built = autoBuildAttack({
+    mission: bare, targetWaypointId: wpTgt.id, attackerId: viper1.id, weapons, profiles,
+    threatSystems: [], overrides: { weaponId: 'mk82', profileId: 'f16c.dive.ccip30' },
+  } as never);
+  const source = { ...built.attack!, id: 'atk1', strikeId: 'strike-x', totOffset_s: 30, notes: 'Lead only', sequenceNumber: 1 };
+  const mission = { ...bare, attacks: [source] };
+  const ctx = { mission, weapons, profiles, threatSystems: [] } as never;
+  ok('copy attack: the source attack builds', built.attack != null, built.problems.join('; '));
+
+  const same = copyAttackTo(ctx, source as never, viper2.id);
+  ok('copy attack: to another F-16 it builds', same.attack != null, same.problems.join('; '));
+  ok('copy attack: it is for the new pilot, on the same target, weapon and profile',
+     same.attack?.attackerId === viper2.id && same.attack?.targetWaypointId === source.targetWaypointId &&
+     same.attack?.weaponId === source.weaponId && same.attack?.sourceProfileId === source.sourceProfileId);
+  ok('copy attack: the run-in geometry is the same',
+     JSON.stringify(same.attack?.profile) === JSON.stringify(source.profile));
+  ok('copy attack: it is a plain attack, last in the sequence, without the original\'s strike or note',
+     same.attack?.strikeId === undefined && same.attack?.totOffset_s === undefined &&
+     same.attack?.notes === undefined && same.attack?.sequenceNumber === 2);
+
+  // Hand edits and a custom IP travel with a same-type copy.
+  const edited = { ...source, customized: true,
+                   profile: { ...(source.profile as object), diveAngle_deg: 41, customIp: calculateDestination(tgt, 200, 9) } };
+  const editedCopy = copyAttackTo({ ...(ctx as object), mission: { ...mission, attacks: [edited] } } as never, edited as never, viper2.id);
+  ok('copy attack: a hand-edited dive angle and a custom IP carry to the same airframe',
+     (editedCopy.attack?.profile as { diveAngle_deg?: number }).diveAngle_deg === 41 &&
+     JSON.stringify((editedCopy.attack?.profile as { customIp?: unknown }).customIp) === JSON.stringify(edited.profile.customIp),
+     editedCopy.problems.join('; '));
+
+  // Another airframe is rebuilt, never cloned.
+  const cross = copyAttackTo(ctx, source as never, scoot.id);
+  ok('copy attack: to an A-4E it builds', cross.attack != null, cross.problems.join('; '));
+  ok('copy attack: the A-4E gets its own profile, not the F-16\'s',
+     cross.attack?.sourceProfileId?.startsWith('a4ec.') === true, String(cross.attack?.sourceProfileId));
+  ok('copy attack: it keeps the target and the weapon',
+     cross.attack?.targetWaypointId === source.targetWaypointId && cross.attack?.weaponId === source.weaponId);
+  ok('copy attack: it says it was rebuilt', cross.notes.some((n) => n.includes('Rebuilt')), cross.notes.join('; '));
+
+  // The F-16's hand edits are the F-16's: they must not ride into another airframe,
+  // but the IP the pilot chose does.
+  const crossEdited = copyAttackTo({ ...(ctx as object), mission: { ...mission, attacks: [edited] } } as never, edited as never, scoot.id);
+  ok('copy attack: hand edits stay behind when the copy changes airframe',
+     crossEdited.attack != null && crossEdited.attack.customized !== true &&
+     (crossEdited.attack.profile as { diveAngle_deg?: number }).diveAngle_deg !== 41, crossEdited.problems.join('; '));
+  ok('copy attack: the custom IP still carries to the other airframe',
+     JSON.stringify((crossEdited.attack?.profile as { customIp?: unknown } | undefined)?.customIp) === JSON.stringify(edited.profile.customIp));
+
+  // A carried loadout that lacks the weapon is called out, and auto-build picks.
+  const armed = { ...viper2, loadout: [{ weaponType: 'Mk-84 LDGP', quantity: 2 }] };
+  const armedCopy = copyAttackTo({ ...(ctx as object), mission: { ...mission, flightMembers: [viper1, armed, scoot] } } as never, source as never, armed.id);
+  ok('copy attack: a pilot not carrying the weapon gets a note and auto-build\'s pick',
+     armedCopy.notes.some((n) => n.includes('not carrying')) && armedCopy.attack?.weaponId === 'mk84',
+     `${armedCopy.notes.join('; ')} / ${String(armedCopy.attack?.weaponId)} ${armedCopy.problems.join('; ')}`);
+
+  ok('copy attack: to someone not in the flight it says so, and builds nothing',
+     copyAttackTo(ctx, source as never, 'nobody').attack === undefined && copyAttackTo(ctx, source as never, 'nobody').problems.length === 1);
 }
