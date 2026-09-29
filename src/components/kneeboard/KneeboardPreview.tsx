@@ -15,6 +15,7 @@ import {
   KNEEBOARD_HEIGHT,
   type MapStatus,
 } from '../../lib/renderKneeboardCanvas';
+import { briefPackFilename, briefPackZip, type PackCard } from '../../lib/briefPack';
 import { cachedBasemapTiles, loadBasemapTiles } from '../../lib/kneeboardBasemap';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { isRealWorld, REAL_WORLD_SHARE_WARNING } from '../../lib/strikeNearMe';
@@ -263,6 +264,48 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     }
   }, [mission, weapons, fuzeOptions, threatSystems, renderForExport, aircraft, kneeboardFolders, setKneeboardFolder]);
 
+  /**
+   * One zip for the whole flight: every pilot's cards in a `Kneeboard/<aircraft>/`
+   * layout ready to merge into Saved Games, plus the mission file. Built from
+   * what this planner may see, like the cards, so a hidden threat is in neither.
+   */
+  const handleExportPack = useCallback(async () => {
+    if (!mission || !mission.attacks.length || !realWorldCleared()) return;
+
+    setExporting(true);
+    setExportMsg(null);
+    try {
+      const { groups, orphans } = groupAttacksByAircraft(mission);
+      const cards: PackCard[] = [];
+      const statuses: MapStatus[] = [];
+      for (const group of groups) {
+        for (const attack of group.attacks) {
+          const card = buildKneeboardCard(mission, attack.id, weapons, fuzeOptions, threatSystems);
+          if (!card) continue;
+          const { base64, status } = await renderForExport(card);
+          statuses.push(status);
+          cards.push({
+            aircraftId: group.aircraftId,
+            filename: kneeboardFilename(card.header.callsign, card.header.targetName, card.header.targetSteerpoint),
+            png: Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)),
+          });
+        }
+      }
+      const zip = briefPackZip({ missionName: mission.name, missionJson: JSON.stringify(mission, null, 2), cards, aircraft });
+      const saved = await platform.saveBriefPack(zip, briefPackFilename(mission.name));
+      if (!saved) return; // user cancelled
+      setExportMsg(
+        `Saved: ${saved.split(/[/\\]/).pop()} — ${cards.length} card(s) + the mission file` +
+          (orphans.length ? `\n${orphans.length} attack(s) skipped — their pilot is no longer in the flight` : '') +
+          exportMapNote(statuses),
+      );
+    } catch (e) {
+      setExportMsg(`Error: ${String(e)}`);
+    } finally {
+      setExporting(false);
+    }
+  }, [mission, weapons, fuzeOptions, threatSystems, renderForExport, aircraft]);
+
   const resetFolder = useCallback(
     (aircraftId: string) => {
       setKneeboardFolder(aircraftId, null).catch((e) => setExportMsg(`Error: ${String(e)}`));
@@ -348,6 +391,14 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
             {exporting ? 'Saving…' : `${platform.isWeb ? 'Download' : 'Export'} All (${mission.attacks.length})`}
           </button>
         </div>
+
+        <button
+          onClick={handleExportPack}
+          disabled={exporting}
+          className="w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium py-1.5 rounded transition-colors"
+        >
+          {exporting ? 'Saving…' : '📦 Brief Pack (.zip)'}
+        </button>
 
         {/* The browser has no DCS install to write into. */}
         {!platform.isWeb && (

@@ -68,6 +68,11 @@ export interface Platform {
   /** Write a card (PNG as base64) to a path from the two choosers above. */
   writeCard(path: string, base64Png: string): Promise<void>;
   /**
+   * Save a brief pack (a zip). The desktop asks where; the browser downloads
+   * it. Resolves to the saved file's path or name, `null` when the user cancels.
+   */
+  saveBriefPack(zip: Uint8Array, defaultName: string): Promise<string | null>;
+  /**
    * Hand files to the system share sheet, all in one go (Messages, AirDrop,
    * Files, Photos…). Must be called from a tap. The desktop app keeps its
    * export buttons and answers `unsupported`.

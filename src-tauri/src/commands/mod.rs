@@ -229,6 +229,26 @@ pub fn save_kneeboard_png(path: String, base64_data: String) -> Result<(), Strin
     std::fs::write(&path, bytes).map_err(|e| format!("Cannot write {path}: {e}"))
 }
 
+/// Every zip starts with a local file header.
+const ZIP_SIGNATURE: &[u8] = b"PK\x03\x04";
+
+/// Save a brief pack (`.zip` only), built by the frontend, from base64 bytes.
+///
+/// Like the PNG command: one file type, and the bytes must look like it, so
+/// this cannot be used to drop some other file on disk.
+#[tauri::command]
+pub fn save_brief_pack(path: String, base64_data: String) -> Result<(), String> {
+    use base64::Engine;
+    require_extension(&path, "zip", "Brief packs")?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+    if !bytes.starts_with(ZIP_SIGNATURE) {
+        return Err("Not a zip file".to_string());
+    }
+    std::fs::write(&path, bytes).map_err(|e| format!("Cannot write {path}: {e}"))
+}
+
 // ============================================================================
 // Settings Commands
 // ============================================================================
@@ -349,6 +369,36 @@ mod tests {
     fn a_kneeboard_save_refuses_bytes_that_are_not_a_png() {
         let path = scratch_dir("png_bytes").join("card.png");
         let result = save_kneeboard_png(path.to_string_lossy().into_owned(), base64_of(b"@echo off\r\n"));
+        assert!(result.is_err());
+        assert!(!path.exists());
+    }
+
+    fn zip_bytes() -> Vec<u8> {
+        [ZIP_SIGNATURE, b"rest of the archive"].concat()
+    }
+
+    #[test]
+    fn a_brief_pack_saves_as_a_zip() {
+        let path = scratch_dir("pack_ok").join("Op_brief_pack.ZIP");
+        save_brief_pack(path.to_string_lossy().into_owned(), base64_of(&zip_bytes())).expect("save");
+        assert_eq!(std::fs::read(&path).unwrap(), zip_bytes());
+    }
+
+    #[test]
+    fn a_brief_pack_save_refuses_any_other_file_type() {
+        let dir = scratch_dir("pack_ext");
+        for name in ["startup.bat", "pack.zip.exe", "pack"] {
+            let path = dir.join(name);
+            let result = save_brief_pack(path.to_string_lossy().into_owned(), base64_of(&zip_bytes()));
+            assert!(result.is_err(), "{name} was accepted");
+            assert!(!path.exists(), "{name} was written");
+        }
+    }
+
+    #[test]
+    fn a_brief_pack_save_refuses_bytes_that_are_not_a_zip() {
+        let path = scratch_dir("pack_bytes").join("pack.zip");
+        let result = save_brief_pack(path.to_string_lossy().into_owned(), base64_of(b"@echo off\r\n"));
         assert!(result.is_err());
         assert!(!path.exists());
     }

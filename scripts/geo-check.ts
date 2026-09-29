@@ -47,6 +47,12 @@ import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/li
 import { useUiStore } from '../src/stores/uiStore';
 import { useMissionStore } from '../src/stores/missionStore';
 import { HISTORY_LIMIT, EMPTY_HISTORY, recordEdit } from '../src/lib/missionHistory';
+import { crc32, zipStore } from '../src/lib/zip';
+import { briefPackEntries, briefPackFilename, briefPackZip } from '../src/lib/briefPack';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { importNotes } from '../src/lib/importNotes';
 import {
   lonLatToTile,
@@ -1669,4 +1675,64 @@ ok('validateMission: a non-numeric TOT offset is refused',
   for (let i = 0; i < HISTORY_LIMIT + 10; i++) history = recordEdit(history, mkMission(i), false);
   ok(`undo: the trail keeps only the last ${HISTORY_LIMIT} steps`,
      history.past.length === HISTORY_LIMIT && (history.past[0] as { id: string }).id === '10');
+}
+
+// ─── Brief pack ──────────────────────────────────────────────────────────────
+{
+  ok('zip: CRC-32 of "123456789" is the standard check value 0xCBF43926',
+     crc32(new TextEncoder().encode('123456789')) === 0xcbf43926);
+
+  const png = (n: number) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+  const aircraft = [
+    { id: 'f16c', name: 'F-16C', kneeboard_path: 'F-16C' },
+    { id: 'a10c', name: 'A-10C', kneeboard_path: 'A-10C' },
+  ];
+  const cards = [
+    { aircraftId: 'f16c', filename: 'Viper_1-1_TGT_5.png', png: png(1) },
+    { aircraftId: 'a10c', filename: 'Hawg_1-1_TGT_5.png', png: png(2) },
+    { aircraftId: 'f16c', filename: 'viper_1-1_tgt_5.png', png: png(3) }, // same name, other case
+  ];
+  const entries = briefPackEntries({ missionName: 'Op: Red Flag!', missionJson: '{"a":1}', cards, aircraft });
+  const paths = entries.map((e) => e.path);
+  ok('brief pack: cards sit under Kneeboard/<DCS aircraft folder>/',
+     paths.includes('Kneeboard/F-16C/Viper_1-1_TGT_5.png') && paths.includes('Kneeboard/A-10C/Hawg_1-1_TGT_5.png'), paths.join(', '));
+  ok('brief pack: two cards with one name in one folder both survive',
+     paths.includes('Kneeboard/F-16C/viper_1-1_tgt_5_2.png'), paths.join(', '));
+  ok('brief pack: the mission file and a README ride along, with a safe file name',
+     paths.includes('Op_Red_Flag.json') && paths.includes('README.txt'), paths.join(', '));
+  ok('brief pack: an aircraft type the database does not know still gets a folder',
+     briefPackEntries({ missionName: 'm', missionJson: '{}', aircraft: [], cards: [{ aircraftId: 'mod9', filename: 'a.png', png: png(1) }] })
+       .some((e) => e.path === 'Kneeboard/mod9/a.png'));
+  ok('brief pack: the file name is safe on every platform', briefPackFilename('Op: Red/Flag ') === 'Op_RedFlag_brief_pack.zip'
+     && briefPackFilename('???') === 'mission_brief_pack.zip', briefPackFilename('Op: Red/Flag '));
+
+  const zip = briefPackZip({ missionName: 'Op', missionJson: '{"a":1}', cards, aircraft });
+  ok('brief pack: the bytes start like a zip (the desktop command checks this)',
+     zip[0] === 0x50 && zip[1] === 0x4b && zip[2] === 3 && zip[3] === 4);
+
+  // An independent reader must accept it: same names, same bytes, every CRC good.
+  let haveUnzip = true;
+  const dir = mkdtempSync(join(tmpdir(), 'brief-pack-'));
+  const file = join(dir, 'pack.zip');
+  writeFileSync(file, zip);
+  try {
+    const listing = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8' }).split('\n').filter(Boolean).sort();
+    const zipped = briefPackEntries({ missionName: 'Op', missionJson: '{"a":1}', cards, aircraft }).map((e) => e.path).sort();
+    ok('brief pack: unzip lists exactly the files we put in', JSON.stringify(listing) === JSON.stringify(zipped), listing.join(', '));
+    let tested = true;
+    try { execFileSync('unzip', ['-tq', file], { stdio: 'pipe' }); } catch { tested = false; }
+    ok('brief pack: unzip -t finds every file intact (CRCs and sizes)', tested);
+    const back = execFileSync('unzip', ['-p', file, 'Kneeboard/A-10C/Hawg_1-1_TGT_5.png']);
+    ok('brief pack: a card comes back byte for byte', back.length === 5 && back[4] === 2);
+  } catch {
+    haveUnzip = false;
+  }
+  // Read back by hand, since unzip's own name display depends on the terminal's locale:
+  // the UTF-8 flag is set and the name's bytes are UTF-8.
+  const unicode = zipStore([{ path: 'Kneeboard/Übung/α.png', data: png(9) }]);
+  const nameBytes = new TextEncoder().encode('Kneeboard/Übung/α.png');
+  ok('zip: non-ASCII names carry the UTF-8 flag and are stored as UTF-8',
+     (unicode[6] | (unicode[7] << 8)) === 0x0800 &&
+     nameBytes.every((b, i) => unicode[30 + i] === b));
+  if (!haveUnzip) console.log('SKIP brief pack: no unzip on this machine, so the independent read-back did not run');
 }

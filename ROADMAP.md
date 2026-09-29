@@ -49,10 +49,6 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 - [ ] Copy and paste attacks between flight members.
 
 ### Output
-- [ ] **One-click brief pack.** Part of the old revamp plan's M3 milestone:
-      one zip laid out for Saved Games, with every pilot's PNGs and the
-      mission file. Export All to Folder and Export to DCS cover most of it
-      today.
 - [ ] PDF export. Only if the squadron asks for it.
 
 ### Untested platforms
@@ -76,6 +72,10 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 - **Undo and redo** for mission edits: ⌘/Ctrl+Z, and ⇧⌘/Ctrl+Z or Ctrl+Y to redo.
   Keystrokes in one field are one step; 50 steps; the attack editor's draft is
   outside it. No toolbar buttons yet, so the phone has no way to undo.
+- **Brief Pack (.zip)** button on the Cards panel: one zip with every pilot's
+  cards under `Kneeboard/<DCS aircraft folder>/`, the mission file (without
+  author-hidden threats) and a README. Desktop asks where to save; the web app
+  downloads it. Not on the phone layout yet.
 
 ### Phone web app — live 2026-09-26 (not a desktop release)
 - **The full planner on iPhone and Android**, at

@@ -71,6 +71,15 @@ export const platform: Platform = {
   },
   pathInFolder: (folder, filename) => join(folder, filename),
   writeCard: (path, base64Png) => invoke<void>('save_kneeboard_png', { path, base64Data: base64Png }),
+  async saveBriefPack(zip, defaultName) {
+    const path = await save({ defaultPath: defaultName, filters: [{ name: 'Zip archive', extensions: ['zip'] }], title: 'Save Brief Pack' });
+    if (!path) return null;
+    // btoa wants a string; build it in slices so a big pack cannot overflow the call stack.
+    let binary = '';
+    for (let i = 0; i < zip.length; i += 0x8000) binary += String.fromCharCode(...zip.subarray(i, i + 0x8000));
+    await invoke<void>('save_brief_pack', { path, base64Data: btoa(binary) });
+    return path;
+  },
   // The desktop exports into folders instead; the phone layout never shows here.
   shareFiles: async () => 'unsupported',
 

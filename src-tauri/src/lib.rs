@@ -39,6 +39,7 @@ pub fn run() {
             commands::fetch_fragorders_url,
             // Export commands
             commands::save_kneeboard_png,
+            commands::save_brief_pack,
             // Settings
             commands::get_settings,
             commands::set_kneeboard_folder,

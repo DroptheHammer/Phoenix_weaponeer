@@ -192,6 +192,10 @@ export const platform: Platform = {
     const bytes = Uint8Array.from(atob(base64Png), (c) => c.charCodeAt(0));
     download(new Blob([bytes], { type: 'image/png' }), basename(path));
   },
+  async saveBriefPack(zip, defaultName) {
+    download(new Blob([zip], { type: 'application/zip' }), defaultName);
+    return defaultName;
+  },
   async shareFiles(files, title) {
     // iOS Safari and Android Chrome share PNG files; most desktop browsers can't.
     const shareable = files.map((f) => new File([f.blob], f.name, { type: f.blob.type || 'image/png' }));
