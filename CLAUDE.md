@@ -218,68 +218,102 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-29 UTC (Sonnet 5.5, main Mac). Read-only research on
-every open `ROADMAP.md` item, then the four quick, low-risk wins were built.
-They are on `main` and **unreleased**:
-- **Open profiles folder** button in ⚙ Settings (desktop only).
-- **Undo / redo** for mission edits: ⌘/Ctrl+Z, ⇧⌘/Ctrl+Z or Ctrl+Y. History lives
-  in `missionStore` (`src/lib/missionHistory.ts`); typing in one field is one step;
-  50 steps; undoing back to the saved mission clears the unsaved dot. Ignored in a
-  text box or while a dialog (the attack editor) is open.
-- **📦 Brief Pack (.zip)** on the Cards panel: `Kneeboard/<DCS folder>/…png`, the
-  mission file (hidden threats left out, like the cards) and a README. The zip is a
-  small stored-only writer, `src/lib/zip.ts`, **not `fflate`** (PNGs don't compress,
-  and it avoids a dependency). Desktop command `save_brief_pack` is locked to `.zip`.
-- **Copy to…** on each attack in the Attack Plan (`src/lib/copyAttack.ts`): a plain
-  attack for the other pilot. Same aircraft type keeps hand edits; another type is
-  rebuilt by auto-build and keeps the target, IP, flank and weapon.
-- **Checks:** geo-check passes (new undo, brief-pack and copy cases; mutation-tested
-  where it mattered), core 96, desktop 24, `npm run build`. **Not run:**
-  `npm run build:web` (the phone build), and **nothing was checked on screen.**
-- **Still to check on screen (user):** the Settings button opens the folder; edit a
-  waypoint then ⌘Z / ⇧⌘Z; export a Brief Pack, unzip it, check the layout; copy an
-  attack to an F-16 wingman and to a different-type jet.
-- **Gaps left on purpose:** no undo/redo toolbar buttons (so none on the phone);
-  the Brief Pack button is not on the phone layout; strikes are not copied as a group.
-- **Release decision: not cutting 0.3.2 yet.** The user wants more features folded
-  in first, so hold the release until then. `release.yml` lost its sqlite step and
-  hasn't run since; before or at the next release, consider a throwaway
-  `vX.Y.Z-test1` tag run (draft only, delete it after; memory
-  `project-cross-platform-installer-ci-fixed`).
-- **Roadmap corrections found while researching** (also fixed in `ROADMAP.md`):
-  rocket sight numbers are missing only for the F-4E manual-dive profiles (the A-4E,
-  Mirage F1 and F-5E carry Mk-82 sight values, and auto-build applies them to bombs
-  only, on purpose); the FragOrders link already carries loadout store *names*, so
-  only the CLI/.miz path needs a CLSID table; the weapon-table work and the
-  loadout import depend on each other.
-- **Process slip:** I once rewrote `missionStore.ts` with a Python script, which
-  broke it (reverted, redone with Edit), and appended two test blocks with `cat >>`.
-  Use Edit/Write only (memory `feedback-commands-that-dont-prompt`).
-- The 2026-09-26 notes (phone web app live, the desktop click-through, the privacy
-  restamp) are at the top of `docs/SESSION_HISTORY.md`. The phone web app is LIVE at
-  https://dropthehammer.github.io/Phoenix_weaponeer/ and follows the desktop app
-  (memory `project-phone-web-app-pages`). Still open: a real Android phone check.
+**Last session:** 2026-09-29 UTC (Opus 5.5 orchestrating on the main Mac,
+with Sonnet 5.5 builders and Opus 5.5 agents for the audit and the palette
+design). Nothing was released. **0.3.2 now waits for the squadron's vote on
+the Night and NVG cards.**
+
+**Pushed to `main`, all gates green:** geo-check 402, core 100, desktop 24
+(+1 ignored), `npm run build`, and Pages runs 36586140247 and 36599807219.
+- `048bd5f` **The sight setting fix.** No manual-dive card had printed its
+  sight mils in any release since 0.2.0: Rust `SightSetting` had
+  `rename_all = "camelCase"` and silently dropped `depression_mils`. It is now
+  snake_case, with `deny_unknown_fields` and an alias. New Rust tests go
+  through the real loader, and all four fail when the bug is put back.
+- `d4c4a6a` **The user's three changes** after the on-screen check (all four
+  quick wins passed):
+  - the sight moved into the card header after the delivery mode ("· SIGHT
+    100 mils · set before IP", in amber) and into the editor's key numbers;
+  - Copy to… became a compact **Copy** button with a pop-up menu;
+  - imported waypoints are fixed: no delete, and the store has no waypoint
+    actions at all.
+- `0a3d260` **Card theme groundwork.** Every card colour comes from a
+  `CardTheme` (`src/lib/cardTheme.ts`). `DAY_THEME` draws byte for byte as
+  before, pinned by draw-call hashes in geo-check. Dark themes tint the map
+  tiles with blend modes, with a wash as a fallback.
+- **Checked but not committed:**
+  - A throwaway installer run, `v0.3.2-test1` (run 36532321132), passed on all
+    three platforms. All 7 installers came out, about half 0.3.1's size. The
+    draft and the tag are deleted.
+  - The privacy scan came back clean (known false positives only). Run it again
+    at the release.
+
+**Night and NVG cards, the 0.3.2 blocker:**
+- **Round 1 was superseded.** N1–N3 and G1–G3, each in flavours a and b. The
+  user then asked for WCAG 2.1 AA, and relaxed it to "closer to the standard",
+  with colour-blind squad members the real concern (memory
+  `project-card-accessibility-cvd`). The audit scored Day 67%, G1 and G2 about
+  90%, N1 about 78% and N3 about 5%.
+- **Round 2 is checked with the audit tool.** It has four palettes:
+  - **N4:** N1 brought up to the standard;
+  - **N5:** the dimmest red a red-blind pilot can read;
+  - **G4:** G1 brought up to the standard;
+  - **G5:** the dimmest green.
+
+  Each comes as **a** (today's attack colours) and **b** (the family colour,
+  with stages told apart by dash and width). 99% of checks pass, in normal
+  vision and in the colour-blind simulations. The only failures are the two
+  labels the renderer prints across a line.
+- **The squad vote is ready to post.** `Other Items/card-themes/squad-upload/`
+  holds the page (`Kneeboard-Lighting-Trials.html`), the test zip
+  (`Kneeboard-Test-Cards.zip`) and `discord-post.md` (the message and two Sesh
+  `/poll` commands). The user posts them and brings back one Night winner and
+  one NVG winner.
+- **All of this exists only on the main Mac,** in the git-ignored
+  `Other Items/card-themes/`:
+  - the theme definitions: `src/themes-aa.ts`;
+  - the audit: `wcag.sh` and `src/wcag.ts`, which has a colour-blind mode;
+  - the renders: `png-aa/`;
+  - the reports: `wcag/` and `wcag-aa-verify/`;
+  - the page and zip pipeline: `poll/` (see its README).
+- **Decided:** the Day card's colours stay as they are. Accessibility for Day is
+  parked for a far-future UI/UX overhaul (`ROADMAP.md`).
+
+**Designed, not built:** "Jets arrive loaded" for 0.3.3, meaning the loadout
+from the FragOrders link plus per-aircraft weapon lists. See
+`docs/LOADOUT_IMPORT_PLAN.md`.
+
+**Process notes:**
+- Two builders slipped with `cd`. No stray `.claude` folder appeared (checked).
+- One `git push` failed with no reason given; the retry went through.
 
 ### START OF NEXT SESSION
 
-0. **Phone web app: merged and live.** Its open items are at the top of the
-   **Handoff log** in `docs/MOBILE_WEB_PLAN.md`. Merge PRs from the Mac with
-   `TZ=UTC`, not with GitHub's phone button, which stamps the local time zone.
-   Check the latest "Web app (GitHub Pages)" run on `main` is green: this
-   session's changes touch code the phone build shares.
-1. `git pull origin main`. On any machine other than the main Mac, delete any
-   clone older than 2026-09-23 and **clone fresh**. Copy `test-data/private/`
-   over from the main Mac to run the full test suite.
-2. Repos: only `Phoenix_weaponeer` (public) and `Phoenix_weaponeer-archive`
-   (private, full history — keep) remain. The throwaway `-discard2` /
-   `-discard3` repos were deleted by the user 2026-09-26.
-3. **What's next = `ROADMAP.md` "Open"**, cross-checked against this file and
-   the code (memory `feedback-check-shipped-work-not-one-doc`). Left after the
-   quick wins: the weapon-data cluster (bomb tables for non-F-16 aircraft, loadout
-   from FragOrders pylons, rocket sight numbers), loft geometry, the map-first
-   layout in pieces, and the projections that need someone with the maps
-   (Channel, Kola, Afghanistan). Candidates to fold into the next release:
-   undo/redo buttons and a Brief Pack button for the phone layout.
-4. **Never `cd` into a subfolder** — it made the harness drop a `.claude`
-   folder in `src-tauri/resources/profiles` and broke geo-check (memory
-   `feedback-commands-that-dont-prompt`).
+1. `git pull origin main`. The Night and NVG work needs the **main Mac**,
+   because `Other Items/` isn't in git. On any other machine, delete clones
+   older than 2026-09-23 and clone fresh.
+2. **Get the vote result** from the user: one Night code and one NVG code,
+   e.g. N4b and G5a.
+3. **Build the winners into the app, for 0.3.2:**
+   - Move the two winning themes from
+     `Other Items/card-themes/src/themes-aa.ts` into `src/lib/cardTheme.ts`.
+   - Add a Day / Night / NVG dropdown to the Cards panel, on desktop and
+     phone. It defaults to Day and is saved with the mission: add a
+     `#[serde(default)]` field to the Rust `Mission`, as `strikes` has. The
+     preview, export, Brief Pack and phone cards all use it.
+   - Tests: the family rules and contrast of the two themes (port the maths
+     from `src/wcag.ts`). Day's draw-call pins must not change.
+   - Fix three things:
+     - the two labels drawn across a line ("→ STPT 2" and "#1");
+     - round the target elevation (it prints "5,249.344ft");
+     - the side-view ROLL letters spilling past their disc.
+   - The user checks on screen: the header sight, the Copy menu, the
+     waypoint list, and the new dropdown.
+4. **Release 0.3.2** with the full checklist. Run the privacy scan again. The
+   installer pipeline already passed after the core move.
+5. **Then "Jets arrive loaded"** for 0.3.3 (`docs/LOADOUT_IMPORT_PLAN.md`).
+6. **Phone web app:** a real Android phone check is still open
+   (`docs/MOBILE_WEB_PLAN.md`). Merge PRs from the Mac with `TZ=UTC`, never with
+   GitHub's phone button.
+7. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
+   folder that broke geo-check (memory `feedback-commands-that-dont-prompt`).

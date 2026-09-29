@@ -1,6 +1,57 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+**Session:** 2026-09-29 UTC, early (Sonnet 5.5, main Mac). Read-only research on
+every open `ROADMAP.md` item, then the four quick, low-risk wins were built.
+They are on `main` and **unreleased**:
+- **Open profiles folder** button in ⚙ Settings (desktop only).
+- **Undo / redo** for mission edits: ⌘/Ctrl+Z, ⇧⌘/Ctrl+Z or Ctrl+Y. History lives
+  in `missionStore` (`src/lib/missionHistory.ts`); typing in one field is one step;
+  50 steps; undoing back to the saved mission clears the unsaved dot. Ignored in a
+  text box or while a dialog (the attack editor) is open.
+- **📦 Brief Pack (.zip)** on the Cards panel: `Kneeboard/<DCS folder>/…png`, the
+  mission file (hidden threats left out, like the cards) and a README. The zip is a
+  small stored-only writer, `src/lib/zip.ts`, **not `fflate`** (PNGs don't compress,
+  and it avoids a dependency). Desktop command `save_brief_pack` is locked to `.zip`.
+- **Copy to…** on each attack in the Attack Plan (`src/lib/copyAttack.ts`): a plain
+  attack for the other pilot. Same aircraft type keeps hand edits; another type is
+  rebuilt by auto-build and keeps the target, IP, flank and weapon.
+- **Checks:** geo-check passes (new undo, brief-pack and copy cases; mutation-tested
+  where it mattered), core 96, desktop 24, `npm run build`. **Not run:**
+  `npm run build:web` (the phone build), and **nothing was checked on screen.**
+- **Still to check on screen (user):** the Settings button opens the folder; edit a
+  waypoint then ⌘Z / ⇧⌘Z; export a Brief Pack, unzip it, check the layout; copy an
+  attack to an F-16 wingman and to a different-type jet. (All four passed in the
+  next session.)
+- **Gaps left on purpose:** no undo/redo toolbar buttons (so none on the phone);
+  the Brief Pack button is not on the phone layout; strikes are not copied as a group.
+- **Release decision: not cutting 0.3.2 yet.** The user wants more features folded
+  in first, so hold the release until then. `release.yml` lost its sqlite step and
+  hasn't run since; before or at the next release, consider a throwaway
+  `vX.Y.Z-test1` tag run (draft only, delete it after; memory
+  `project-cross-platform-installer-ci-fixed`).
+- **Roadmap corrections found while researching** (also fixed in `ROADMAP.md`):
+  rocket sight numbers are missing only for the F-4E manual-dive profiles (the A-4E,
+  Mirage F1 and F-5E carry Mk-82 sight values, and auto-build applies them to bombs
+  only, on purpose); the FragOrders link already carries loadout store *names*, so
+  only the CLI/.miz path needs a CLSID table; the weapon-table work and the
+  loadout import depend on each other.
+- **Process slip:** I once rewrote `missionStore.ts` with a Python script, which
+  broke it (reverted, redone with Edit), and appended two test blocks with `cat >>`.
+  Use Edit/Write only (memory `feedback-commands-that-dont-prompt`).
+- The 2026-09-26 notes (phone web app live, the desktop click-through, the privacy
+  restamp) are just below. The phone web app is LIVE at
+  https://dropthehammer.github.io/Phoenix_weaponeer/ and follows the desktop app
+  (memory `project-phone-web-app-pages`). Still open: a real Android phone check.
+
+Its "start of next session" list: pull (re-clone anything older than
+2026-09-23); check the Pages run; what's next from `ROADMAP.md` cross-checked
+against the code (weapon-data cluster, loft, map-first, the projections that need
+the maps); candidates for the next release were undo/redo buttons and a Brief Pack
+button for the phone layout; never `cd` into a subfolder.
+
+---
+
 **Session:** 2026-09-26 UTC, afternoon (Opus 5.5, main Mac). It brought the
 cloud session's phone web app work home and checked it. The cloud session's notes
 are just below.

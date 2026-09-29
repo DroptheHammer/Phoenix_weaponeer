@@ -22,7 +22,8 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       picker ignores `aircraft_weapons` for them. Bombs and missiles are
       mapped for the F-16C only; guns and rockets for five aircraft (A-10C,
       A-4E, Mirage F1, F-5E, F-4E). **Next up**, with the loadout import
-      below, as "Jets arrive loaded" (planned for 0.3.3).
+      below, as "Jets arrive loaded" (planned for 0.3.3). The approved design
+      is in `docs/LOADOUT_IMPORT_PLAN.md`.
 - [ ] Sight settings for rockets on the manual-dive profiles. Rocket cards show
       no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
       carry Mk-82 values that auto-build applies to bombs only. Needs
@@ -54,6 +55,18 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       drag handles on the attack (only the IP drags today), and exposure
       shading inside SAM rings.
 
+### Far future (pinned, not scheduled)
+- [ ] **A full UI/UX overhaul,** with Day card accessibility folded in. The
+      2026-09-29 contrast audit asks for three things:
+  - a dash pattern and width for each attack stage, so green-blind pilots can
+    tell attack from egress;
+  - attack colours that stand out on the light map (the yellow climb line is
+    1.2:1);
+  - dark letters on the light marker discs.
+
+  The findings and the audit tool are in the git-ignored
+  `Other Items/card-themes/wcag/` on the main Mac.
+
 ### Output
 - [ ] PDF export. Only if the squadron asks for it.
 
@@ -71,11 +84,22 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       launch, the share sheet, screen wake lock, GPS for "Strike near me",
       crosshair precision.
 - [ ] **Day / Night / NVG kneeboard cards** (for 0.3.2, which waits for it).
-      Day stays the default; a dropdown on the Cards panel picks the mode.
-      Night: reds and deep reds with greys, and no white. NVG: colours that read
-      through DCS's green goggles. Several candidates of each go on one
-      side-by-side page for the user to pick from, with and without today's
-      attack-line colours, plus a zip of PNGs to try in DCS at night.
+  - Day stays the default, and a dropdown on the Cards panel picks the mode.
+  - Night: reds with dark greys, and no white. NVG: greens that read through
+    DCS's goggles.
+  - Candidates are checked against WCAG 2.1 AA contrast and colour-blind
+    simulations, as a target rather than a gate (memory
+    `project-card-accessibility-cvd`).
+  - **Now:** the squadron votes on the round-2 candidates N4, N5, G4 and G5,
+    each in flavours a and b. The page and zip for the vote are built.
+  - **Then:** build the winners into the app (see the session notes).
+  - [x] Card theme groundwork: every card colour comes from a theme, and Day is
+        proven unchanged (`0a3d260`).
+  - [ ] Squad vote: one Night and one NVG winner.
+  - [ ] Dropdown and the two winning themes, saved with the mission.
+  - [ ] Two labels drawn across their own line, found by the contrast audit:
+        "→ STPT 2" on the A-4E route line, and "#1" on the F-16 wingman track.
+  - [ ] Round the target elevation on the card: it prints "5,249.344ft".
 - [ ] **On-screen check of the 2026-09-29 changes** (user, desktop, `npm run
       tauri dev`):
   - [ ] A manual-dive card's header reads `… · MAN · SIGHT 100 mils · set
@@ -97,6 +121,9 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
   every release since 0.2.0; a Rust test now covers the loader. It sits in the
   card header after the delivery mode ("set before IP"), not at the roll-in,
   and leads the attack editor's key numbers.
+- Under the hood: every colour on the card now comes from a theme, as the
+  groundwork for Night and NVG cards. Day draws exactly as before, pinned by
+  draw-call hashes in geo-check.
 - **Waypoints are fixed.** The route is the mission author's: the waypoint
   list lost its delete button, and nothing in the app can add, edit, delete
   or move a waypoint. Custom IPs still drag.
@@ -230,3 +257,11 @@ Settled with the user. Don't reopen these without asking.
   (2026-09-23).
 - Rust attack calculators (deleted 2026-09-09) and a `weapon_class` DB column
   (derived in TypeScript instead).
+- Changing the Day card's or the planner's colours for accessibility
+  (2026-09-29). The contrast audit found Day passes 67% of WCAG 2.1 AA checks,
+  and its red attack and green egress lines merge for green-blind pilots.
+  The user keeps today's colours anyway, because users know them. This is
+  parked for a far-future UI/UX overhaul, not closed. The accessibility
+  targets apply to the new Night and NVG cards.
+- Deleting or editing imported waypoints: the route is the mission author's
+  and stays fixed (2026-09-29, memory `project-imported-waypoints-are-fixed`).
