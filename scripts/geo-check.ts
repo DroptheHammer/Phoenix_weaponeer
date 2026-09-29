@@ -67,7 +67,8 @@ import {
   MAX_BASEMAP_ZOOM,
   MAX_BASEMAP_TILES,
 } from '../src/lib/kneeboardBasemap';
-import { planViewTransform, mapStatusOf } from '../src/lib/renderKneeboardCanvas';
+import { planViewTransform, mapStatusOf, renderKneeboardCard } from '../src/lib/renderKneeboardCanvas';
+import { buildKneeboardCard } from '../src/lib/buildKneeboardCard';
 import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../src/lib/kneeboardExportPlan';
 import { validateMission } from '../src/lib/validateMission';
 import { isThreatVisible, visibleMission, probableThreats, hiddenCounts, type HideFlags } from '../src/lib/threatVisibility';
@@ -563,6 +564,84 @@ if (diveProfiles.length) {
   ok('manual dive: a rocket attack on the same profile carries no (Mk-82) sight setting',
      a4Rockets.attack?.sourceProfileId === 'a4ec.dive.man30' && a4Rockets.attack?.sightDepression_mils === undefined,
      `${a4Rockets.attack?.sourceProfileId} / ${a4Rockets.attack?.sightDepression_mils}`);
+
+  // The sight is set at or before the IP, while the pilot's head is still in the
+  // cockpit, not at the roll-in. So it rides in the card header, beside the
+  // profile label, and neither the roll-in marker nor the side view repeats it.
+  const cardOf = (attack: object | null) =>
+    buildKneeboardCard(
+      { id: 'm1', name: 'Sight', date: '2026-09-29', theater: 'nevada', bullseye: { lat: 0, lon: 0 }, waypoints: [wpIp, wpTgt],
+        threats: [], flightMembers: [hog, scooter, pilot], attacks: [{ ...attack, id: 'atk' }], notes: '', createdAt: '', updatedAt: '' } as never,
+      'atk', all as never, new Map(), [],
+    )!;
+  const a4Card = cardOf(a4Bombs.attack);
+  ok('manual dive card: the sight setting is carried at header level (A-4E, Mk-82: 100 mils)',
+     a4Card.header.sightDepression_mils === 100 && a4Card.attackSection.profileType.endsWith('· MAN'),
+     `${a4Card.attackSection.profileType} / ${a4Card.header.sightDepression_mils}`);
+
+  const rollMarker = buildAttackPicture({ ...a4Bombs.attack, id: 'atk' } as never, anchorOf(wpIp, wpTgt), wpTgt as never)?.markers.find((m) => m.kind === 'ROLL');
+  ok('manual dive: the ROLL marker carries no sight line (the pilot sets it before the IP)',
+     rollMarker != null && rollMarker.lines.some((l) => l.includes('dive from')) && !rollMarker.lines.some((l) => /sight|mils/i.test(l)),
+     JSON.stringify(rollMarker?.lines));
+
+  const viperBuilt = autoBuildAttack({
+    mission: { waypoints: [wpIp, wpTgt], flightMembers: [pilot], threats: [], attacks: [] },
+    targetWaypointId: wpTgt.id, attackerId: pilot.id, weapons: all, profiles: lib('f16c'), threatSystems: [],
+    overrides: { weaponId: 'mk82', profileId: 'f16c.dive.ccip30' },
+  } as never);
+  // A stray sight value on a non-manual attack (an old save, a hand edit) must not print.
+  const ccipCard = cardOf({ ...viperBuilt.attack, sightDepression_mils: 100 });
+  ok('CCIP dive card: no header sight, even when the attack carries a stray value',
+     viperBuilt.attack?.deliveryMode === 'CCIP' && ccipCard.header.sightDepression_mils === undefined,
+     `${viperBuilt.attack?.deliveryMode} / ${ccipCard.header.sightDepression_mils}`);
+
+  // The card as drawn: a stand-in canvas that records each line of text, so the
+  // header's sight can be found where it lands and shown to be the only one.
+  // Widths are 0.6 em a character, as in Courier.
+  const drawnText = (card: ReturnType<typeof cardOf>) => {
+    const lines: { text: string; x: number; y: number; font: string; fill: string; maxW?: number }[] = [];
+    const state: Record<string, unknown> = {};
+    const em = () => parseFloat(/([\d.]+)px/.exec(String(state.font))?.[1] ?? '10');
+    const ctx = new Proxy(state, {
+      get: (s, name: string) =>
+        name === 'measureText' ? (text: string) => ({ width: text.length * 0.6 * em() })
+        : name === 'fillText' ? (text: string, x: number, y: number, maxW?: number) => lines.push({ text, x, y, font: String(s.font), fill: String(s.fillStyle), maxW })
+        : name in s ? s[name] : () => undefined,
+      set: (s, name: string, value) => { s[name] = value; return true; },
+    });
+    renderKneeboardCard({ getContext: () => ctx } as never, card);
+    return lines;
+  };
+  const widthOf = (t: { text: string; font: string }) => t.text.length * 0.6 * parseFloat(/([\d.]+)px/.exec(t.font)![1]);
+  const isAmber = (fill: string) => {
+    const [red, green, blue] = [1, 3, 5].map((i) => parseInt(fill.slice(i, i + 2), 16));
+    return red >= 0xe0 && green >= 0xa0 && green <= 0xd0 && blue <= 0x60;
+  };
+  /** The header sight starts after the profile label and stops short of the date. */
+  const sightClearOfDate = (lines: ReturnType<typeof drawnText>, card: ReturnType<typeof cardOf>) => {
+    const sight = lines.find((t) => /sight/i.test(t.text) && t.y === 50);
+    const label = lines.find((t) => t.text === card.attackSection.profileType)!;
+    const date = lines.find((t) => t.text === card.header.missionDate)!;
+    return sight != null && sight.x >= label.x + widthOf(label) && sight.x + Math.min(widthOf(sight), sight.maxW ?? Infinity) <= date.x - widthOf(date);
+  };
+
+  const a4Lines = drawnText(a4Card);
+  const sightLines = a4Lines.filter((t) => /sight/i.test(t.text));
+  ok('manual dive card: the header prints the sight in bold amber, on the profile-label line',
+     sightLines[0] != null && sightLines[0].text.includes('SIGHT 100 mils · set before IP') && sightLines[0].y === 50 &&
+     sightLines[0].font.startsWith('bold') && isAmber(sightLines[0].fill),
+     JSON.stringify(sightLines[0]));
+  ok('manual dive card: the sight is printed nowhere else (not the roll-in marker, not the side view)',
+     sightLines.length === 1, JSON.stringify(sightLines.map((t) => t.text)));
+  ok('manual dive card: the header sight sits after the profile label and short of the date', sightClearOfDate(a4Lines, a4Card));
+  const longLabel = { ...a4Card, attackSection: { ...a4Card.attackSection, profileType: 'A-4E SKYHAWK 30 DEG MANUAL DIVE, LOW-ANGLE OFFSET VARIANT WITH A VERY LONG NAME · MAN' } };
+  ok('manual dive card: after a very long profile label the sight is still held short of the date', sightClearOfDate(drawnText(longLabel), longLabel));
+
+  const rocketCard = cardOf(a4Rockets.attack);
+  ok('manual dive card with no sight number (rockets): the header draws nothing extra',
+     rocketCard.header.sightDepression_mils === undefined && !drawnText(rocketCard).some((t) => /sight/i.test(t.text)));
+  ok('CCIP dive card: nothing about a sight is drawn, even with a stray value on the attack',
+     !drawnText(ccipCard).some((t) => /sight/i.test(t.text)));
 }
 
 // ─── Map display filter ──────────────────────────────────────────────────────
@@ -1616,43 +1695,46 @@ ok('validateMission: a non-numeric TOT offset is refused',
 // ─── Undo / redo ─────────────────────────────────────────────────────────────
 {
   const store = useMissionStore;
-  const wp = { steerpoint: 1, name: 'A', type: 'target' as const, coordinates: { lat: 1, lon: 2 }, elevation_ft: 0 };
+  // Threats are the sample edit: waypoints are the mission author's and cannot be edited.
+  const threat = (systemId: string, lat: number) => ({ systemId, position: { lat, lon: 2 }, status: 'active', source: 'planning' }) as never;
+  const systems = () => store.getState().mission?.threats.map((t) => t.systemId).join();
   store.getState().createMission('Undo test', 'caucasus' as never);
   ok('undo: a new mission has nothing to undo or redo',
      store.getState().past.length === 0 && store.getState().future.length === 0 && !store.getState().isDirty);
   store.getState().undo();
   ok('undo: with nothing to undo it does nothing', store.getState().mission?.name === 'Undo test');
 
-  store.getState().addWaypoint(wp);
-  store.getState().addThreat({ systemId: 'sa6', position: { lat: 1, lon: 2 }, status: 'active', source: 'planning' } as never);
+  store.getState().addThreat(threat('sa6', 1));
+  store.getState().addThreat(threat('sa2', 2));
   ok('undo: each edit adds a step and marks the mission unsaved',
      store.getState().past.length === 2 && store.getState().isDirty);
 
   store.getState().undo();
-  ok('undo: takes back the last edit only',
-     store.getState().mission?.threats.length === 0 && store.getState().mission?.waypoints.length === 1);
+  ok('undo: takes back the last edit only', systems() === 'sa6', systems());
   store.getState().undo();
   ok('undo: walking back to the saved state clears the unsaved mark',
-     store.getState().mission?.waypoints.length === 0 && !store.getState().isDirty);
+     systems() === '' && !store.getState().isDirty, systems());
   store.getState().redo();
   ok('undo: redo brings the edit back and marks the mission unsaved again',
-     store.getState().mission?.waypoints.length === 1 && store.getState().isDirty);
+     systems() === 'sa6' && store.getState().isDirty, systems());
   store.getState().redo();
-  ok('undo: redo can replay every step', store.getState().mission?.threats.length === 1 && store.getState().future.length === 0);
+  ok('undo: redo can replay every step', systems() === 'sa6,sa2' && store.getState().future.length === 0, systems());
 
   store.getState().undo();
-  store.getState().addWaypoint({ ...wp, steerpoint: 2, name: 'B' });
-  ok('undo: a new edit drops the redo trail', store.getState().future.length === 0);
+  const waiting = store.getState().future.length; // the step just taken back, waiting to be redone
+  store.getState().addThreat(threat('sa3', 3));
+  ok('undo: a new edit drops the redo trail', waiting === 1 && store.getState().future.length === 0, `${waiting} waiting, then ${store.getState().future.length}`);
 
   // Saving moves the "clean" mark to the saved mission.
   store.getState().markClean();
-  const savedWaypoints = store.getState().mission?.waypoints.length;
-  store.getState().addWaypoint({ ...wp, steerpoint: 3, name: 'C' });
+  const savedThreats = store.getState().mission?.threats.length;
+  store.getState().addThreat(threat('sa11', 4));
   store.getState().undo();
   ok('undo: back to what was saved is clean, not unsaved',
-     store.getState().mission?.waypoints.length === savedWaypoints && !store.getState().isDirty);
+     store.getState().mission?.threats.length === savedThreats && !store.getState().isDirty);
   store.getState().undo();
-  ok('undo: further back than the save is unsaved', store.getState().isDirty);
+  ok('undo: further back than the save is unsaved',
+     store.getState().mission?.threats.length === (savedThreats ?? 0) - 1 && store.getState().isDirty);
 
   // Typing in one field is one step.
   store.getState().createMission('Typing', 'caucasus' as never);
@@ -1668,7 +1750,7 @@ ok('validateMission: a non-numeric TOT offset is refused',
      store.getState().mission?.notes === '' && store.getState().mission?.name === 'Renamed');
 
   // A different mission brings a fresh history.
-  store.getState().addWaypoint(wp);
+  store.getState().addThreat(threat('sa6', 1));
   const opened = store.getState().mission!;
   store.getState().loadMission(opened);
   ok('undo: opening a mission clears the history', store.getState().past.length === 0 && store.getState().future.length === 0 && !store.getState().isDirty);
@@ -1682,6 +1764,15 @@ ok('validateMission: a non-numeric TOT offset is refused',
   for (let i = 0; i < HISTORY_LIMIT + 10; i++) history = recordEdit(history, mkMission(i), false);
   ok(`undo: the trail keeps only the last ${HISTORY_LIMIT} steps`,
      history.past.length === HISTORY_LIMIT && (history.past[0] as { id: string }).id === '10');
+}
+
+// ─── Waypoints are fixed ─────────────────────────────────────────────────────
+// The route is the mission author's. The store has no action that could add,
+// edit, remove or reorder a waypoint, so nothing in the app can.
+{
+  const waypointActions = Object.keys(useMissionStore.getState()).filter((key) => /waypoint/i.test(key));
+  ok('waypoints are fixed: the mission store has no action to add, edit, remove or reorder one',
+     waypointActions.length === 0, waypointActions.join(', ') || '(none)');
 }
 
 // ─── Brief pack ──────────────────────────────────────────────────────────────

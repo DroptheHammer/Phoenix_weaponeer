@@ -81,6 +81,10 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
 
   const profile = resolved.profile;
   const runIn = resolved.runIn;
+  // A manual delivery's sight setting, as the card prints it. The preview map no
+  // longer carries it (it is set before the IP, not at the roll-in), so it is
+  // shown here with the other numbers the pilot flies.
+  const sight = build.attack?.deliveryMode === 'MAN' ? build.attack.sightDepression_mils : undefined;
   const egress = (profile as { egressDirection?: string } | undefined)?.egressDirection ?? 'right';
   const ingressSideShown = runIn?.offsetTurn.direction;
   const angleOffIsAuto = draft.angleOffSide == null && !draft.customized;
@@ -226,7 +230,7 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
           </div>
           <div className="text-xs text-gray-400 mt-2">{angleOffHint}</div>
 
-          {profile && <KeyNumbers profile={profile} />}
+          {profile && <KeyNumbers profile={profile} sightDepression_mils={sight} />}
 
           {/* These describe what auto-build did. Once the numbers are
               hand-edited they no longer describe what is on screen, so they
@@ -357,8 +361,11 @@ export function Problems({ resolved, prefix }: { resolved: ResolvedDraft; prefix
   );
 }
 
-/** The numbers a pilot actually flies, in one line. */
-export function KeyNumbers({ profile }: { profile: AttackProfile }) {
+/**
+ * The numbers a pilot actually flies, in one line. A manual delivery's sight
+ * setting leads it: it is the first thing to set, before the IP.
+ */
+export function KeyNumbers({ profile, sightDepression_mils }: { profile: AttackProfile; sightDepression_mils?: number }) {
   const ft = (v: number) => `${Math.round(v).toLocaleString()} ft`;
   let text: string;
   switch (profile.type) {
@@ -374,5 +381,6 @@ export function KeyNumbers({ profile }: { profile: AttackProfile }) {
     default:
       text = '';
   }
-  return <div className="mt-3 text-sm font-mono text-gray-200 bg-dcs-dark rounded px-3 py-2">{text}</div>;
+  const line = [sightDepression_mils != null ? `Sight ${Math.round(sightDepression_mils)} mils (set before IP)` : '', text].filter(Boolean).join(' · ');
+  return <div className="mt-3 text-sm font-mono text-gray-200 bg-dcs-dark rounded px-3 py-2">{line}</div>;
 }

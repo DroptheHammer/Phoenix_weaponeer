@@ -105,11 +105,8 @@ interface MissionState {
   updateMissionNotes: (notes: string) => void;
   importFromFragOrders: (data: FragOrdersData, groupIndex: number) => void;
 
-  // Waypoint actions
-  addWaypoint: (waypoint: Omit<Waypoint, 'id'>) => void;
-  updateWaypoint: (id: string, waypoint: Partial<Waypoint>) => void;
-  removeWaypoint: (id: string) => void;
-  reorderWaypoints: (waypointIds: string[]) => void;
+  // No waypoint actions, on purpose: the route is the mission author's and stays
+  // fixed. It arrives with the import (or an opened mission) and is never edited.
 
   // Threat actions
   addThreat: (threat: Omit<ThreatInstance, 'id'>) => void;
@@ -291,56 +288,6 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     lastEdit = null;
     // Never saved, so `savedMission` stays empty and the mission counts as unsaved.
     set({ mission, ...EMPTY_HISTORY, savedMission: null, isDirty: true, filePath: null });
-  },
-
-  addWaypoint: (waypointData) => {
-    const { mission } = get();
-    if (!mission) return;
-    const waypoint: Waypoint = { ...waypointData, id: uuidv4() };
-    edit({
-      ...mission,
-      waypoints: [...mission.waypoints, waypoint],
-      updatedAt: new Date().toISOString(),
-    });
-  },
-
-  updateWaypoint: (id: string, waypointUpdate: Partial<Waypoint>) => {
-    const { mission } = get();
-    if (!mission) return;
-    edit(
-      {
-        ...mission,
-        waypoints: mission.waypoints.map((wp) =>
-          wp.id === id ? { ...wp, ...waypointUpdate } : wp
-        ),
-        updatedAt: new Date().toISOString(),
-      },
-      `waypoint:${id}`,
-    );
-  },
-
-  removeWaypoint: (id: string) => {
-    const { mission } = get();
-    if (!mission) return;
-    edit({
-      ...mission,
-      waypoints: mission.waypoints.filter((wp) => wp.id !== id),
-      updatedAt: new Date().toISOString(),
-    });
-  },
-
-  reorderWaypoints: (waypointIds: string[]) => {
-    const { mission } = get();
-    if (!mission) return;
-    const waypointMap = new Map(mission.waypoints.map((wp) => [wp.id, wp]));
-    const reorderedWaypoints = waypointIds
-      .map((id) => waypointMap.get(id))
-      .filter((wp): wp is Waypoint => wp !== undefined);
-    edit({
-      ...mission,
-      waypoints: reorderedWaypoints,
-      updatedAt: new Date().toISOString(),
-    });
   },
 
   addThreat: (threatData) => {

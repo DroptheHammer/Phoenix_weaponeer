@@ -29,6 +29,11 @@ export interface KneeboardHeader {
   cautions?: string[];
   /** In a strike: "STRIKE Viper 1 · #2 of 2 · R flank · TOT +0:30 · push IP T-2:05 (est)". */
   strikeLine?: string;
+  /**
+   * Manual deliveries: the fixed-sight setting a legacy pilot needs. Drawn in the
+   * header after the profile label: it is set at or before the IP, not at the roll-in.
+   */
+  sightDepression_mils?: number;
 }
 
 export interface KneeboardTargetSection {
@@ -69,8 +74,6 @@ export interface KneeboardDiagramData {
   attackHeading_deg?: number;
   egressDirection: string;
   egressHeading_deg: number;
-  /** Manual deliveries: the one number a legacy pilot needs at the roll-in. */
-  sightDepression_mils?: number;
   /** The rest of the strike, drawn thin and grey under this jet's attack. */
   wingmen?: { label: string; picture: AttackPicture }[];
 }

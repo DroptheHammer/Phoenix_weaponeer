@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMissionStore } from '../../stores/missionStore';
 import { useUiStore } from '../../stores/uiStore';
 import { AttackEditor } from './AttackEditor';
@@ -47,6 +48,8 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
   const visibleMission = useVisibleMission();
   const profiles = useProfileStore((s) => s.profiles);
   const [copyMsg, setCopyMsg] = useState<{ text: string; error: boolean } | null>(null);
+  // The attack whose Copy menu is open. One value, so only one menu is ever open.
+  const [copyMenuFor, setCopyMenuFor] = useState<string | null>(null);
   const hiddenAttackerIds = useUiStore((state) => state.hiddenAttackerIds);
   const selectedAttackId = useUiStore((state) => state.selectedAttackId);
   const selectAttack = useUiStore((state) => state.selectAttack);
@@ -276,21 +279,16 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                 </div>
                 <div className="flex items-center gap-2">
                   {(mission?.flightMembers.length ?? 0) > 1 && (
-                    <select
-                      value=""
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => { e.stopPropagation(); handleCopy(attack, e.target.value); }}
-                      className="bg-dcs-dark text-gray-300 text-xs rounded px-1 py-1 border border-gray-600 max-w-[8rem]"
-                      title="Copy this attack to another pilot"
-                      aria-label="Copy this attack to another pilot"
-                    >
-                      <option value="">Copy to…</option>
-                      {mission?.flightMembers
+                    <CopyMenu
+                      open={copyMenuFor === attack.id}
+                      onToggle={() => setCopyMenuFor(copyMenuFor === attack.id ? null : attack.id)}
+                      onClose={() => setCopyMenuFor(null)}
+                      pilots={(mission?.flightMembers ?? [])
                         .filter((m) => m.id !== attack.attackerId)
-                        .map((m) => (
-                          <option key={m.id} value={m.id}>{m.callsign}</option>
-                        ))}
-                    </select>
+                        .map((m) => ({ id: m.id, callsign: m.callsign, aircraft: aircraft.find((a) => a.id === m.aircraftId)?.name }))}
+                      onPick={(pilotId) => handleCopy(attack, pilotId)}
+                      isPhone={isPhone}
+                    />
                   )}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleEditAttack(attack); }}
@@ -310,4 +308,118 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
               </div>
             );
   }
+}
+
+/** Gap between the Copy button and its menu, and the least margin the menu keeps to the screen's edge. */
+const MENU_GAP = 4;
+const MENU_EDGE = 8;
+
+interface CopyMenuProps {
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  /** The other pilots in the flight: who the attack can be copied to. */
+  pilots: { id: string; callsign: string; aircraft?: string }[];
+  onPick: (pilotId: string) => void;
+  /** Thumb-sized items on a phone. */
+  isPhone: boolean;
+}
+
+/**
+ * "Copy": a plain text button, like Edit, and a small menu of the other pilots
+ * that opens from it. The attack list scrolls (in the side panel on a desktop,
+ * in the sheet on a phone), so a menu hung off the last rows would be clipped.
+ * This one is fixed to the screen, in a portal: placed against the button when
+ * it opens (below it if it fits, above if not), and closed by anything that
+ * would move the button out from under it.
+ */
+function CopyMenu({ open, onToggle, onClose, pilots, onPick, isPhone }: CopyMenuProps) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [spot, setSpot] = useState<{ left: number; top: number } | null>(null);
+
+  // Placed once it is measured and before it is painted, so it never shows in the wrong place.
+  useLayoutEffect(() => {
+    if (!open) {
+      setSpot(null);
+      return;
+    }
+    const button = buttonRef.current;
+    const menu = menuRef.current;
+    if (!button || !menu) return;
+    const b = button.getBoundingClientRect();
+    const { offsetWidth: w, offsetHeight: h } = menu;
+    const top = b.bottom + MENU_GAP + h <= window.innerHeight - MENU_EDGE ? b.bottom + MENU_GAP : b.top - MENU_GAP - h;
+    setSpot({
+      left: Math.max(MENU_EDGE, Math.min(b.right - w, window.innerWidth - w - MENU_EDGE)),
+      top: Math.max(MENU_EDGE, Math.min(top, window.innerHeight - h - MENU_EDGE)),
+    });
+  }, [open]);
+
+  // Any press outside it, Escape, or a scroll or resize (the menu is fixed to the
+  // screen and would be left behind) closes it, as with the phone's ⋯ menu.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onClose);
+    window.addEventListener('scroll', onClose, true);
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onClose);
+      window.removeEventListener('scroll', onClose, true);
+    };
+  }, [open, onClose]);
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onToggle(); }}
+        className="text-gray-400 hover:text-blue-400 px-2 py-1"
+        title="Copy this attack to another pilot"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        Copy
+      </button>
+      {open &&
+        createPortal(
+          // A click inside the menu must not reach the attack row behind it, which would select it.
+          // (A portal's clicks bubble through the React tree, not the page.)
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label="Copy to"
+            onClick={(e) => e.stopPropagation()}
+            className="fixed w-56 rounded-xl bg-dcs-blue text-white shadow-2xl py-1 z-[1300]"
+            style={{ left: spot?.left ?? 0, top: spot?.top ?? 0, visibility: spot ? 'visible' : 'hidden' }}
+          >
+            <div className="px-4 pt-1 pb-0.5 text-xs text-gray-400">Copy to…</div>
+            {pilots.map((pilot) => (
+              <button
+                key={pilot.id}
+                type="button"
+                role="menuitem"
+                onClick={(e) => { e.stopPropagation(); onPick(pilot.id); onClose(); }}
+                className={`block w-full text-left px-4 hover:bg-blue-600 ${isPhone ? 'min-h-[44px] text-base' : 'py-1.5 text-sm'}`}
+              >
+                {pilot.callsign}
+                {pilot.aircraft && <span className="ml-2 text-xs text-gray-300">{pilot.aircraft}</span>}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
 }

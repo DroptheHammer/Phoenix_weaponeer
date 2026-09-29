@@ -204,7 +204,6 @@ function divePicture(attack: Attack, profile: DiveCCIPProfile, ipAnchor: IpAncho
       lines: [
         `${nm1(g.rollInRange_nm)}nm: roll in ${turnText(g.rollInTurn, g.attackHeading)}`,
         `${profile.diveAngle_deg}° dive from ${ft(profile.rollInAltitude_ft)}ft AGL`,
-        ...(attack.sightDepression_mils != null ? [`Sight ${attack.sightDepression_mils} mils`] : []),
       ],
     },
     {

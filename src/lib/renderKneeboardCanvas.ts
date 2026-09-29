@@ -34,6 +34,8 @@ const C = {
   // Amber for cautions (unverified data). Red on this card means danger.
   caution: '#8A5A00',
   cautionBg: '#FFF1CC',
+  // The same amber, bright enough to read on the dark header (`caution` is for the light strips).
+  headerAmber: '#FFC107',
   threatClose: '#8B0000',
   diagramBg: '#F4F4EC',
   ground: '#888888',
@@ -107,8 +109,22 @@ function drawHeader(ctx: CanvasRenderingContext2D, card: KneeboardCard): number 
   fillRect(ctx, 0, 0, KNEEBOARD_WIDTH, 58, C.headerBg);
   // "Viper 1-1 — 30° Dive CCIP, Mk-84 attack on STPT 8 (TGT1)"
   txt(ctx, card.header.title ?? card.header.callsign, 10, 30, { color: C.headerText, size: 19, bold: true, family: SANS, maxW: KNEEBOARD_WIDTH - 20 });
-  txt(ctx, card.attackSection.profileType, 10, 50, { color: '#88AACC', size: 12, bold: true, family: MONO });
-  txt(ctx, card.header.missionDate, KNEEBOARD_WIDTH - 10, 50, { color: '#667788', size: 11, family: MONO, align: 'right' });
+  const label = card.attackSection.profileType;
+  const date = card.header.missionDate;
+  txt(ctx, label, 10, 50, { color: '#88AACC', size: 12, bold: true, family: MONO });
+  txt(ctx, date, KNEEBOARD_WIDTH - 10, 50, { color: '#667788', size: 11, family: MONO, align: 'right' });
+  // A manual delivery's sight setting rides on this line, after the profile label
+  // (where a CCIP note would sit): the pilot sets it at or before the IP, not at
+  // the roll-in, where their head is outside. It is placed by measuring each text
+  // in its own font, and held short of the date on the right.
+  const sight = card.header.sightDepression_mils;
+  if (sight != null) {
+    ctx.font = `11px ${MONO}`;
+    const dateLeft = KNEEBOARD_WIDTH - 10 - ctx.measureText(date).width;
+    ctx.font = `bold 12px ${MONO}`;
+    const x = 10 + ctx.measureText(label).width + 8;
+    txt(ctx, `·  SIGHT ${Math.round(sight)} mils · set before IP`, x, 50, { color: C.headerAmber, size: 12, bold: true, family: MONO, maxW: dateLeft - 12 - x });
+  }
   hLine(ctx, 58, '#334455', 2);
   return 60;
 }
@@ -701,7 +717,7 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
       y += 1;
     }
     if (diagram.side) {
-      const right = diagram.sightDepression_mils != null ? `SIGHT ${Math.round(diagram.sightDepression_mils)} mils   ·   altitudes AGL · release by = no lower` : 'altitudes AGL · release by = no lower';
+      const right = 'altitudes AGL · release by = no lower';
       y = sectionStrip(ctx, 'PROFILE — SIDE VIEW', y, diagram.picture ? right : `${headingText}   ·   ${right}`);
       drawSideProfile(ctx, diagram.side, { x: 0, y, w: KNEEBOARD_WIDTH, h: sideH });
       y += sideH;

@@ -14,13 +14,14 @@ const WAYPOINT_TYPE_LABELS: Record<WaypointType, string> = {
   departure: 'DEP',
 };
 
+/** The route as the mission author set it: shown, never edited here. */
 export function WaypointList() {
-  const { mission, removeWaypoint } = useMissionStore();
+  const { mission } = useMissionStore();
 
   if (!mission || mission.waypoints.length === 0) {
     return (
       <div className="text-gray-400 text-center py-8">
-        No waypoints defined. Import from a .miz file or add manually.
+        No waypoints yet. They come from the imported mission and can't be changed here.
       </div>
     );
   }
@@ -46,18 +47,9 @@ export function WaypointList() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-400">
-              {waypoint.elevation_ft.toLocaleString()} ft
-            </span>
-            <button
-              onClick={() => removeWaypoint(waypoint.id)}
-              className="text-gray-400 hover:text-red-500 p-1"
-              title="Remove waypoint"
-            >
-              &times;
-            </button>
-          </div>
+          <span className="text-sm text-gray-400">
+            {waypoint.elevation_ft.toLocaleString()} ft
+          </span>
         </div>
       ))}
     </div>

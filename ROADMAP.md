@@ -70,16 +70,22 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       an Android phone hasn't yet. In Chrome: Add to Home Screen, offline
       launch, the share sheet, screen wake lock, GPS for "Strike near me",
       crosshair precision.
-- [ ] **On-screen check of the four unreleased quick wins** (user, desktop, via
-      `npm run tauri dev`; nothing here is covered by a test):
-  - [ ] ⚙ Settings → Squadron profiles → Open profiles folder opens the folder.
-  - [ ] Edit a waypoint, then ⌘/Ctrl+Z undoes it and ⇧⌘/Ctrl+Z redoes it; undoing
-        back to the saved state clears the unsaved dot.
-  - [ ] Cards → 📦 Brief Pack (.zip): unzip it and check `Kneeboard/<aircraft>/`,
-        the mission file and the README.
-  - [ ] Attack Plan → Copy to… an F-16 wingman, then to a different-type jet.
-  - [ ] An A-4E or F-4E 30° manual-dive card shows `SIGHT … mils` and reads
-        well at kneeboard size.
+- [ ] **Day / Night / NVG kneeboard cards** (for 0.3.2, which waits for it).
+      Day stays the default; a dropdown on the Cards panel picks the mode.
+      Night: reds and deep reds with greys, and no white. NVG: colours that read
+      through DCS's green goggles. Several candidates of each go on one
+      side-by-side page for the user to pick from, with and without today's
+      attack-line colours, plus a zip of PNGs to try in DCS at night.
+- [ ] **On-screen check of the 2026-09-29 changes** (user, desktop, `npm run
+      tauri dev`):
+  - [ ] A manual-dive card's header reads `… · MAN · SIGHT 100 mils · set
+        before IP` in amber and is easy to read at kneeboard size; the ROLL
+        label no longer carries it.
+  - [ ] Attack Plan → **Copy** opens a small menu of pilots, and doesn't get
+        cut off on the last row, on desktop or phone.
+  - [ ] The waypoint list has no delete button.
+  - The four quick wins (profiles folder, undo/redo, Brief Pack, Copy to…)
+    were checked by the user on 2026-09-29, and all passed.
 
 ---
 
@@ -88,7 +94,12 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ### Unreleased (on `main`, next desktop release)
 - **Manual-dive cards show the sight setting** (e.g. `SIGHT 100 mils`) for the
   A-4E, F-4E, F-5E and Mirage F1. It was dropped as the profiles loaded, in
-  every release since 0.2.0; a Rust test now covers the loader.
+  every release since 0.2.0; a Rust test now covers the loader. It sits in the
+  card header after the delivery mode ("set before IP"), not at the roll-in,
+  and leads the attack editor's key numbers.
+- **Waypoints are fixed.** The route is the mission author's: the waypoint
+  list lost its delete button, and nothing in the app can add, edit, delete
+  or move a waypoint. Custom IPs still drag.
 - **⚙ Settings → Squadron profiles → Open profiles folder** (desktop).
 - **Undo and redo** for mission edits: ⌘/Ctrl+Z, and ⇧⌘/Ctrl+Z or Ctrl+Y to redo.
   Keystrokes in one field are one step; 50 steps; the attack editor's draft is
@@ -97,7 +108,8 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
   cards under `Kneeboard/<DCS aircraft folder>/`, the mission file (without
   author-hidden threats) and a README. Desktop asks where to save; the web app
   downloads it. Not on the phone layout yet.
-- **Copy to…** on each attack in the Attack Plan: copies it to another pilot as a
+- **Copy** on each attack in the Attack Plan: a small button, like Edit, that
+  opens a menu of the other pilots, and copies the attack to one as a
   plain attack. The same aircraft type keeps hand edits; another type is rebuilt
   by auto-build (its own profile and sight number) and keeps the target, IP,
   flank and weapon. Coordinated strikes are not copied as a group.

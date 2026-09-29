@@ -252,7 +252,6 @@ function buildDiagramData(mission: Mission, attack: Attack, target: Mission['way
     attackHeading_deg: heading,
     egressDirection: picture?.egressDirection ?? egress.direction,
     egressHeading_deg: picture?.egressHeading ?? egress.heading,
-    sightDepression_mils: attack.deliveryMode === 'MAN' ? attack.sightDepression_mils : undefined,
     wingmen: strikeCardInfo(mission, attack)?.wingmen,
   };
 }
@@ -389,6 +388,9 @@ export function buildKneeboardCard(
       targetSteerpoint: targetWp.steerpoint,
       cautions: cautions.length ? cautions : undefined,
       strikeLine: strikeCardInfo(mission, attack)?.strikeLine,
+      // A manual delivery's sight, and only a manual delivery's: a stray value on
+      // any other attack must not print a setting the jet has no use for.
+      sightDepression_mils: attack.deliveryMode === 'MAN' ? attack.sightDepression_mils : undefined,
     },
     targetSection: {
       name: targetWp.name,
