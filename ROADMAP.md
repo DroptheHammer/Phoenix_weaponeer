@@ -18,16 +18,19 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 - [ ] **Loft geometry** (LABS, F-16 loft). The profiles ship hidden
       (`f16c.loft.std`, `f4e.loft.labs45`) until the geometry exists.
 - [ ] **Bomb and missile tables for aircraft other than the F-16C.** Every
-      aircraft sees every bomb. `aircraft_weapons` maps bombs for the F-16C
-      only; guns and rockets are mapped per aircraft since v0.3.1.
+      aircraft, the F-16C included, is offered every bomb and missile: the
+      picker ignores `aircraft_weapons` for them. Bombs and missiles are
+      mapped for the F-16C only; guns and rockets for five aircraft (A-10C,
+      A-4E, Mirage F1, F-5E, F-4E). **Next up**, with the loadout import
+      below, as "Jets arrive loaded" (planned for 0.3.3).
 - [ ] Sight settings for rockets on the manual-dive profiles. Rocket cards show
-      no sight number, on purpose: the A-4E, Mirage F1 and F-5E profiles carry
-      Mk-82 values that auto-build applies to bombs only, and the F-4E ones carry
-      none. Needs per-rocket numbers from the manuals.
+      no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
+      carry Mk-82 values that auto-build applies to bombs only. Needs
+      per-rocket numbers from the manuals.
 - [ ] **Loadout from the FragOrders pylons.** Imports set an empty loadout.
       The public link already carries store names (a name → weapon map is the
-      cheap first slice); the CLI/.miz path carries DCS CLSIDs and needs a
-      CLSID → weapon table. Depends on the per-aircraft weapon tables above.
+      first slice); the CLI/.miz path carries DCS CLSIDs and needs a
+      CLSID → weapon table. **Next up**, with the weapon tables above.
 - [ ] **Pilot verification of the 62 seed profiles.** All are ESTIMATED; none
       is `verified: true` yet.
 - [ ] Weather. It is parsed at import but not used.
@@ -75,14 +78,17 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
   - [ ] Cards → 📦 Brief Pack (.zip): unzip it and check `Kneeboard/<aircraft>/`,
         the mission file and the README.
   - [ ] Attack Plan → Copy to… an F-16 wingman, then to a different-type jet.
-- [ ] **Latest "Web app (GitHub Pages)" run on `main` is green** (run
-      36524476363 was still going when the session ended).
+  - [ ] An A-4E or F-4E 30° manual-dive card shows `SIGHT … mils` and reads
+        well at kneeboard size.
 
 ---
 
 ## Shipped
 
 ### Unreleased (on `main`, next desktop release)
+- **Manual-dive cards show the sight setting** (e.g. `SIGHT 100 mils`) for the
+  A-4E, F-4E, F-5E and Mirage F1. It was dropped as the profiles loaded, in
+  every release since 0.2.0; a Rust test now covers the loader.
 - **⚙ Settings → Squadron profiles → Open profiles folder** (desktop).
 - **Undo and redo** for mission edits: ⌘/Ctrl+Z, and ⇧⌘/Ctrl+Z or Ctrl+Y to redo.
   Keystrokes in one field are one step; 50 steps; the attack editor's draft is
@@ -140,7 +146,7 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 
 ### v0.2.3 — 2026-09-23
 - **FragOrders public-link import:** paste the link and the mission loads
-  (`src-tauri/src/fragorders_link.rs`).
+  (now `crates/core/src/fragorders_link.rs`).
 
 ### v0.2.2 — 2026-09-15
 - **Threats the mission author hid** stay off the map, the geometry and the
