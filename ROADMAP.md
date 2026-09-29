@@ -64,7 +64,19 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ## In progress
 
 - [ ] **Phone web app on a real Android phone.** The iPhone has been checked;
-      an Android phone hasn't yet.
+      an Android phone hasn't yet. In Chrome: Add to Home Screen, offline
+      launch, the share sheet, screen wake lock, GPS for "Strike near me",
+      crosshair precision.
+- [ ] **On-screen check of the four unreleased quick wins** (user, desktop, via
+      `npm run tauri dev`; nothing here is covered by a test):
+  - [ ] ⚙ Settings → Squadron profiles → Open profiles folder opens the folder.
+  - [ ] Edit a waypoint, then ⌘/Ctrl+Z undoes it and ⇧⌘/Ctrl+Z redoes it; undoing
+        back to the saved state clears the unsaved dot.
+  - [ ] Cards → 📦 Brief Pack (.zip): unzip it and check `Kneeboard/<aircraft>/`,
+        the mission file and the README.
+  - [ ] Attack Plan → Copy to… an F-16 wingman, then to a different-type jet.
+- [ ] **Latest "Web app (GitHub Pages)" run on `main` is green** (run
+      36524476363 was still going when the session ended).
 
 ---
 
