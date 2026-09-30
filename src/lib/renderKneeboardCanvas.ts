@@ -23,6 +23,12 @@ export const KNEEBOARD_HEIGHT = 1024;
 // each drawing function as `theme`. This file holds none of its own: a literal
 // colour here would draw the same under every theme.
 
+// The type is two pixels larger than the card's first design, because the squadron
+// asked for text they can read at a glance in the cockpit. Every band, row and
+// marker below grew with it so nothing is cramped. labelLayout sizes a label's box
+// from the size it is handed (line height = size + 4, width = text + 12), so every
+// label request here passes its size explicitly.
+
 const MONO = "'Courier New', Courier, monospace";
 const SANS = "'Arial Narrow', Arial, sans-serif";
 
@@ -45,7 +51,7 @@ function txt(
   y: number,
   opts: { color: string; size?: number; bold?: boolean; family?: string; align?: CanvasTextAlign; maxW?: number },
 ) {
-  const { color, size = 13, bold = false, family = MONO, align = 'left', maxW } = opts;
+  const { color, size = 15, bold = false, family = MONO, align = 'left', maxW } = opts;
   ctx.fillStyle = color;
   ctx.font = `${bold ? 'bold ' : ''}${size}px ${family}`;
   ctx.textAlign = align;
@@ -59,11 +65,14 @@ function fmtHdg(h: number | undefined): string {
   return h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---';
 }
 
+/** Height of a section strip, and of the strike, caution and warning strips that match it. */
+const STRIP_H = 22;
+
 function sectionStrip(ctx: CanvasRenderingContext2D, theme: CardTheme, label: string, y: number, rightText?: string): number {
-  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, theme.sectionBg);
-  txt(ctx, label, 8, y + 14, { bold: true, size: 11, family: SANS, color: theme.sectionLabel });
-  if (rightText) txt(ctx, rightText, KNEEBOARD_WIDTH - 8, y + 14, { size: 10, family: SANS, color: theme.textGray, align: 'right' });
-  return y + 20;
+  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, STRIP_H, theme.sectionBg);
+  txt(ctx, label, 8, y + 16, { bold: true, size: 13, family: SANS, color: theme.sectionLabel });
+  if (rightText) txt(ctx, rightText, KNEEBOARD_WIDTH - 8, y + 16, { size: 12, family: SANS, color: theme.textGray, align: 'right' });
+  return y + STRIP_H;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -82,53 +91,59 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 
+const HEADER_H = 64;
+
 function drawHeader(ctx: CanvasRenderingContext2D, theme: CardTheme, card: KneeboardCard): number {
-  fillRect(ctx, 0, 0, KNEEBOARD_WIDTH, 58, theme.headerBg);
+  fillRect(ctx, 0, 0, KNEEBOARD_WIDTH, HEADER_H, theme.headerBg);
   // "Viper 1-1 — 30° Dive CCIP, Mk-84 attack on STPT 8 (TGT1)"
-  txt(ctx, card.header.title ?? card.header.callsign, 10, 30, { color: theme.headerText, size: 19, bold: true, family: SANS, maxW: KNEEBOARD_WIDTH - 20 });
+  txt(ctx, card.header.title ?? card.header.callsign, 10, 33, { color: theme.headerText, size: 21, bold: true, family: SANS, maxW: KNEEBOARD_WIDTH - 20 });
   const label = card.attackSection.profileType;
   const date = card.header.missionDate;
-  txt(ctx, label, 10, 50, { color: theme.headerLabel, size: 12, bold: true, family: MONO });
-  txt(ctx, date, KNEEBOARD_WIDTH - 10, 50, { color: theme.headerDate, size: 11, family: MONO, align: 'right' });
+  txt(ctx, label, 10, 55, { color: theme.headerLabel, size: 14, bold: true, family: MONO });
+  txt(ctx, date, KNEEBOARD_WIDTH - 10, 55, { color: theme.headerDate, size: 13, family: MONO, align: 'right' });
   // A manual delivery's sight setting rides on this line, after the profile label
   // (where a CCIP note would sit): the pilot sets it at or before the IP, not at
   // the roll-in, where their head is outside. It is placed by measuring each text
   // in its own font, and held short of the date on the right.
   const sight = card.header.sightDepression_mils;
   if (sight != null) {
-    ctx.font = `11px ${MONO}`;
+    ctx.font = `13px ${MONO}`;
     const dateLeft = KNEEBOARD_WIDTH - 10 - ctx.measureText(date).width;
-    ctx.font = `bold 12px ${MONO}`;
+    ctx.font = `bold 14px ${MONO}`;
     const x = 10 + ctx.measureText(label).width + 8;
-    txt(ctx, `·  SIGHT ${Math.round(sight)} mils · set before IP`, x, 50, { color: theme.headerAmber, size: 12, bold: true, family: MONO, maxW: dateLeft - 12 - x });
+    txt(ctx, `·  SIGHT ${Math.round(sight)} mils · set before IP`, x, 55, { color: theme.headerAmber, size: 14, bold: true, family: MONO, maxW: dateLeft - 12 - x });
   }
-  hLine(ctx, 58, theme.headerRule, 2);
-  return 60;
+  hLine(ctx, HEADER_H, theme.headerRule, 2);
+  return HEADER_H + 2;
 }
 
 /** Blue strip under the header for a strike member: seat, side, TOT, push. */
 function drawStrikeStrip(ctx: CanvasRenderingContext2D, theme: CardTheme, line: string, y: number): number {
-  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, theme.strikeBg);
-  txt(ctx, line, 10, y + 14, { size: 12, bold: true, family: SANS, color: theme.strike, maxW: KNEEBOARD_WIDTH - 20 });
-  return y + 20;
+  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, STRIP_H, theme.strikeBg);
+  txt(ctx, line, 10, y + 16, { size: 14, bold: true, family: SANS, color: theme.strike, maxW: KNEEBOARD_WIDTH - 20 });
+  return y + STRIP_H;
 }
 
 /** Amber strip directly under the header, e.g. "coordinates unverified". */
 function drawCautionStrip(ctx: CanvasRenderingContext2D, theme: CardTheme, caution: string, y: number): number {
-  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, theme.cautionBg);
-  txt(ctx, `⚠ ${caution}`, 10, y + 14, { size: 12, bold: true, family: SANS, color: theme.caution, maxW: KNEEBOARD_WIDTH - 20 });
-  return y + 20;
+  fillRect(ctx, 0, y, KNEEBOARD_WIDTH, STRIP_H, theme.cautionBg);
+  txt(ctx, `⚠ ${caution}`, 10, y + 16, { size: 14, bold: true, family: SANS, color: theme.caution, maxW: KNEEBOARD_WIDTH - 20 });
+  return y + STRIP_H;
 }
 
 // ─── Target + weapon (one compact line each) ─────────────────────────────────
 
+const LINE_H = 25;
+
 function drawTargetSection(ctx: CanvasRenderingContext2D, theme: CardTheme, card: KneeboardCard, y: number): number {
   y = sectionStrip(ctx, theme, 'TARGET', y);
   const stpt = card.header.targetSteerpoint != null ? `STPT ${card.header.targetSteerpoint}  ` : '';
-  txt(ctx, `${stpt}${card.targetSection.name}`, 10, y + 17, { size: 15, bold: true, family: SANS, color: theme.textPrimary });
-  txt(ctx, card.targetSection.coordinates, 250, y + 17, { size: 13, family: MONO, color: theme.textPrimary });
-  txt(ctx, `Elev ${card.targetSection.elevation_ft.toLocaleString()}ft MSL`, KNEEBOARD_WIDTH - 10, y + 17, { size: 12, family: MONO, color: theme.textGray, align: 'right' });
-  y += 22;
+  // Each text in this row has a width limit, so a long name cannot run into the
+  // coordinates at x = 250, nor the coordinates into the elevation.
+  txt(ctx, `${stpt}${card.targetSection.name}`, 10, y + 19, { size: 17, bold: true, family: SANS, color: theme.textPrimary, maxW: 230 });
+  txt(ctx, card.targetSection.coordinates, 250, y + 19, { size: 15, family: MONO, color: theme.textPrimary, maxW: 310 });
+  txt(ctx, `Elev ${card.targetSection.elevation_ft.toLocaleString()}ft MSL`, KNEEBOARD_WIDTH - 10, y + 19, { size: 14, family: MONO, color: theme.textGray, align: 'right', maxW: 200 });
+  y += LINE_H;
   hLine(ctx, y, theme.divider);
   return y + 1;
 }
@@ -137,16 +152,16 @@ function drawWeaponSection(ctx: CanvasRenderingContext2D, theme: CardTheme, card
   y = sectionStrip(ctx, theme, 'WEAPON', y);
   const w = card.weaponSection;
   const line = w.fired ? w.weaponName : `${w.quantity}× ${w.weaponName}   ${w.releaseMode}   ${w.fuze}`;
-  txt(ctx, line, 10, y + 17, { size: 13, bold: true, family: MONO, maxW: 480, color: theme.textPrimary });
+  txt(ctx, line, 10, y + 19, { size: 15, bold: true, family: MONO, maxW: 480, color: theme.textPrimary });
   if (w.minSafeAlt_ft != null) {
-    txt(ctx, `⚠ MIN SAFE ${w.minSafeAlt_ft.toLocaleString()}ft AGL`, KNEEBOARD_WIDTH - 10, y + 17, { size: 12, bold: true, family: SANS, color: theme.accent, align: 'right' });
+    txt(ctx, `⚠ MIN SAFE ${w.minSafeAlt_ft.toLocaleString()}ft AGL`, KNEEBOARD_WIDTH - 10, y + 19, { size: 14, bold: true, family: SANS, color: theme.accent, align: 'right' });
   }
-  y += 22;
+  y += LINE_H;
   // Sanity-check failures: the numbers on this card contradict the weapon.
   for (const warning of w.warnings ?? []) {
-    fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 20, theme.accentLight);
-    txt(ctx, `⚠ ${warning}`, 10, y + 14, { size: 12, bold: true, family: SANS, color: theme.accent, maxW: KNEEBOARD_WIDTH - 20 });
-    y += 20;
+    fillRect(ctx, 0, y, KNEEBOARD_WIDTH, STRIP_H, theme.accentLight);
+    txt(ctx, `⚠ ${warning}`, 10, y + 16, { size: 14, bold: true, family: SANS, color: theme.accent, maxW: KNEEBOARD_WIDTH - 20 });
+    y += STRIP_H;
   }
   hLine(ctx, y, theme.divider);
   return y + 1;
@@ -154,21 +169,23 @@ function drawWeaponSection(ctx: CanvasRenderingContext2D, theme: CardTheme, card
 
 // ─── Threats section (compact rows) ──────────────────────────────────────────
 
+const THREAT_ROW_H = 20;
+
 function drawThreatsSection(ctx: CanvasRenderingContext2D, theme: CardTheme, card: KneeboardCard, y: number): number {
   const threats = card.threatSection.threats.slice(0, CARD_THREAT_ROWS);
   y = sectionStrip(ctx, theme, 'THREATS IN AREA', y, 'BRG / DIST FROM TGT / MAX RNG');
   if (threats.length === 0) {
-    txt(ctx, 'No threats within 60nm', 10, y + 14, { size: 12, family: MONO, color: theme.textGray });
-    y += 18;
+    txt(ctx, 'No threats within 60nm', 10, y + 16, { size: 14, family: MONO, color: theme.textGray });
+    y += THREAT_ROW_H;
   } else {
     for (const threat of threats) {
       const isInRange = threat.distance_nm <= threat.maxRange_nm;
-      fillRect(ctx, 0, y, KNEEBOARD_WIDTH, 18, isInRange ? theme.accentBg : theme.bg);
-      txt(ctx, threat.name, 8, y + 13, { size: 12, bold: isInRange, family: MONO, color: isInRange ? theme.threatClose : theme.textPrimary, maxW: 340 });
-      txt(ctx, `${String(threat.bearing_deg).padStart(3, '0')}°`, 430, y + 13, { size: 12, bold: true, family: MONO, color: isInRange ? theme.accent : theme.textPrimary, align: 'right' });
-      txt(ctx, `${threat.distance_nm.toFixed(1)}nm`, 550, y + 13, { size: 12, family: MONO, color: isInRange ? theme.accent : theme.textPrimary, align: 'right' });
-      txt(ctx, `max ${threat.maxRange_nm.toFixed(0)}nm`, 720, y + 13, { size: 11, family: MONO, color: theme.textGray, align: 'right' });
-      y += 18;
+      fillRect(ctx, 0, y, KNEEBOARD_WIDTH, THREAT_ROW_H, isInRange ? theme.accentBg : theme.bg);
+      txt(ctx, threat.name, 8, y + 15, { size: 14, bold: isInRange, family: MONO, color: isInRange ? theme.threatClose : theme.textPrimary, maxW: 340 });
+      txt(ctx, `${String(threat.bearing_deg).padStart(3, '0')}°`, 430, y + 15, { size: 14, bold: true, family: MONO, color: isInRange ? theme.accent : theme.textPrimary, align: 'right' });
+      txt(ctx, `${threat.distance_nm.toFixed(1)}nm`, 550, y + 15, { size: 14, family: MONO, color: isInRange ? theme.accent : theme.textPrimary, align: 'right' });
+      txt(ctx, `max ${threat.maxRange_nm.toFixed(0)}nm`, 720, y + 15, { size: 13, family: MONO, color: theme.textGray, align: 'right' });
+      y += THREAT_ROW_H;
     }
   }
   hLine(ctx, y, theme.divider);
@@ -192,8 +209,25 @@ function strokePath(ctx: CanvasRenderingContext2D, pts: Array<[number, number]>,
   ctx.restore();
 }
 
+/** Marker disc radius in the north-up picture, in card pixels. */
+export const PLAN_MARKER_R = 18;
+/**
+ * Marker disc radius in the side view, smaller than the plan's because the picture is
+ * shorter. Not 14: "ROLL" in Arial Narrow bold at 11 px is 24.6 px wide, and a 14 px
+ * disc holds only 24 (2r - 4), so its letters spilled past the ring. 15 holds 26.
+ */
+export const SIDE_MARKER_R = 15;
+/** Marker letters are bold 12 px, or 11 px for a four-letter marker ("ROLL"), so they fit the disc. */
+export const MARKER_LABEL_SIZE = 12;
+export const MARKER_LONG_LABEL_SIZE = 11;
+
+/** The font size a marker's letters are drawn at. */
+export function markerLabelSize(label: string): number {
+  return label.length > 3 ? MARKER_LONG_LABEL_SIZE : MARKER_LABEL_SIZE;
+}
+
 /** A map marker as the planner draws it: coloured disc, ring, bold label. */
-function drawMarker(ctx: CanvasRenderingContext2D, theme: CardTheme, x: number, y: number, label: string, color: string, r = 13) {
+function drawMarker(ctx: CanvasRenderingContext2D, theme: CardTheme, x: number, y: number, label: string, color: string, r: number) {
   ctx.save();
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -203,11 +237,49 @@ function drawMarker(ctx: CanvasRenderingContext2D, theme: CardTheme, x: number, 
   ctx.strokeStyle = theme.marker.ring;
   ctx.stroke();
   ctx.fillStyle = theme.marker.text;
-  ctx.font = `bold ${label.length > 3 ? 9 : 10}px ${SANS}`;
+  ctx.font = `bold ${markerLabelSize(label)}px ${SANS}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(label, x, y + 0.5);
+  // Arial Narrow is not on every machine, and Arial is wider: the letters are held to
+  // the disc (less the ring) by condensing them, rather than left to spill over it.
+  ctx.fillText(label, x, y + 0.5, 2 * r - 4);
   ctx.restore();
+}
+
+/**
+ * A short note on the north-up picture, set on a small plate of the diagram's own
+ * background. A route or ring line crossing bare text leaves it unreadable (the
+ * "→ STPT 2" note measured 1.35:1 against the route line), so the note gets its own
+ * ground, 3 px wider than the text all round. `x` is the text's anchor: its left
+ * edge or its centre, as `align` says. `plate` is known before the note is drawn, so
+ * the labels can be laid out around it.
+ */
+interface PlatedNote {
+  str: string;
+  x: number;
+  y: number;
+  color: string;
+  size: number;
+  align: 'left' | 'center';
+  plate: Rect;
+}
+
+function platedNote(ctx: CanvasRenderingContext2D, str: string, x: number, y: number, opts: { color: string; size: number; align: 'left' | 'center' }): PlatedNote {
+  const { color, size, align } = opts;
+  ctx.font = `bold ${size}px ${SANS}`;
+  const textW = ctx.measureText(str).width;
+  const left = align === 'center' ? x - textW / 2 : x;
+  // Capitals and digits stand about 0.72 em above the baseline; the notes have no descenders.
+  const inkH = Math.round(size * 0.72);
+  return { str, x, y, color, size, align, plate: { x: left - 3, y: y - inkH - 3, w: textW + 6, h: inkH + 6 } };
+}
+
+function drawPlatedNote(ctx: CanvasRenderingContext2D, theme: CardTheme, note: PlatedNote) {
+  const { plate } = note;
+  ctx.fillStyle = theme.diagramBg;
+  roundRect(ctx, plate.x, plate.y, plate.w, plate.h, 3);
+  ctx.fill();
+  txt(ctx, note.str, note.x, note.y, { color: note.color, size: note.size, bold: true, family: SANS, align: note.align });
 }
 
 // ─── Labels: the planner's tooltips, laid out so they do not collide ──────────
@@ -217,7 +289,7 @@ function drawMarker(ctx: CanvasRenderingContext2D, theme: CardTheme, x: number, 
 
 function drawPlacedLabel(ctx: CanvasRenderingContext2D, theme: CardTheme, label: PlacedLabel) {
   const { rect, anchor, lines } = label;
-  const size = label.size ?? 11;
+  const size = label.size ?? 13;
   const lineH = size + 4;
   const bg = label.style?.bg ?? theme.labels.tooltip.bg;
   const fg = label.style?.fg ?? theme.labels.tooltip.fg;
@@ -308,7 +380,7 @@ export function planViewTransform(picture: AttackPicture, box: Rect): PlanViewTr
   const minY = Math.min(...fitPts.map((p) => p.y)), maxY = Math.max(...fitPts.map((p) => p.y));
   // As much zoom as keeps AP and TGT (and the break) in frame: the card is
   // small on a DCS kneeboard, so the picture, not the margin, gets the pixels.
-  const padPx = 44;
+  const padPx = 48;
   const scale = Math.min((box.w - 2 * padPx) / Math.max(maxX - minX, 0.5), (box.h - 2 * padPx) / Math.max(maxY - minY, 0.5));
   const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
   const mx = (minX + maxX) / 2, my = (minY + maxY) / 2;
@@ -439,6 +511,14 @@ function drawPlanView(
   // A dashed ring must not hand its dash on to the marker rings and label borders drawn next.
   if (theme.threatRing.dash) ctx.setLineDash([]);
 
+  // Everything the labels must keep clear of: the plated notes, the markers and the furniture.
+  const obstacles: Rect[] = [];
+  // The notes are measured as they come up but drawn after the labels, so that the leader
+  // of a label pointing at one (the IP label's leader ends on the edge note) stops at its
+  // plate instead of running across the text. The price: a plate beside a marker can cover
+  // a few pixels of its rim.
+  const notes: PlatedNote[] = [];
+
   // The rest of the strike, thin and grey under this jet: where the others
   // come from and leave by, without competing with the numbers this pilot
   // flies. The frame stays fitted to this jet's attack.
@@ -452,7 +532,7 @@ function drawPlanView(
     const joinPoint = w.picture.lines.find((l) => l.style === 'pullDown' || l.style === 'attack')?.points[0];
     if (joinPoint) {
       const [x, y] = toPx(joinPoint);
-      if (insideBox([x, y])) txt(ctx, w.label, x + 6, y - 6, { size: 11, bold: true, family: SANS, color: theme.textGray });
+      if (insideBox([x, y])) notes.push(platedNote(ctx, w.label, x + 6, y - 6, { color: theme.textGray, size: 13, align: 'left' }));
     }
   }
 
@@ -474,32 +554,37 @@ function drawPlanView(
         t = k;
       }
       if (t > 0) {
-        const tx = Math.min(Math.max(edge[0], box.x + 14), box.x + box.w - 14);
-        const ty = Math.min(Math.max(edge[1], box.y + 14), box.y + box.h - 8);
-        txt(ctx, `→ ${picture.ipShortLabel ?? 'IP'}`, tx, ty, { size: 10, bold: true, family: SANS, color: theme.ipArrow, align: 'center' });
+        const text = `→ ${picture.ipShortLabel ?? 'IP'}`;
+        // Centred on the edge crossing, but held far enough in that the whole plate stays on
+        // the card; a fixed margin let the end of a long note like "→ STPT 2" run off the edge.
+        ctx.font = `bold 12px ${SANS}`;
+        const noteW = ctx.measureText(text).width;
+        const tx = Math.min(Math.max(edge[0], box.x + noteW / 2 + 4), box.x + box.w - noteW / 2 - 4);
+        const ty = Math.min(Math.max(edge[1], box.y + 16), box.y + box.h - 8);
+        notes.push(platedNote(ctx, text, tx, ty, { color: theme.ipArrow, size: 12, align: 'center' }));
       }
     }
   }
+  for (const note of notes) obstacles.push(note.plate);
 
-  const markerR = 16;
-  const obstacles: Rect[] = [];
+  const markerR = PLAN_MARKER_R;
   for (const marker of picture.markers) {
     const [x, y] = toPx(marker.position);
     drawMarker(ctx, theme, x, y, marker.kind, theme.marker.colors[marker.kind], markerR);
     obstacles.push({ x: x - markerR - 1, y: y - markerR - 1, w: 2 * markerR + 2, h: 2 * markerR + 2 });
   }
   // North arrow and scale bar are obstacles too.
-  obstacles.push({ x: box.x + box.w - 40, y: box.y + 6, w: 36, h: 62 }, { x: box.x + 6, y: box.y + box.h - 30, w: scale + 20, h: 26 });
+  obstacles.push({ x: box.x + box.w - 44, y: box.y + 6, w: 40, h: 68 }, { x: box.x + 6, y: box.y + box.h - 34, w: scale + 24, h: 30 });
   // The map's credit line, bottom right, only when there is a map to credit.
-  ctx.font = `9px ${SANS}`;
+  ctx.font = `11px ${SANS}`;
   const attributionW = report && report.drawn > 0 ? ctx.measureText(OSM_ATTRIBUTION).width + 8 : 0;
-  if (attributionW) obstacles.push({ x: box.x + box.w - attributionW - 2, y: box.y + box.h - 15, w: attributionW + 2, h: 15 });
+  if (attributionW) obstacles.push({ x: box.x + box.w - attributionW - 2, y: box.y + box.h - 19, w: attributionW + 2, h: 19 });
 
   const requests: LabelRequest[] = [
     // Markers first, then the boxes, so the numbers a pilot flies win the space.
     ...picture.markers
       .filter((m) => m.permanent)
-      .map((m) => ({ lines: m.lines, anchor: toPx(m.position), side: m.side, size: 12, anchorRadius: markerR })),
+      .map((m) => ({ lines: m.lines, anchor: toPx(m.position), side: m.side, size: 14, anchorRadius: markerR })),
     ...picture.labels
       .map((l) => {
         let anchor = toPx(l.position);
@@ -520,16 +605,17 @@ function drawPlanView(
           lines: [l.text],
           anchor,
           side: (l.kind === 'egress' ? 'top' : 'bottom') as LabelSide,
-          size: 11,
+          size: 13,
           style: l.kind === 'egress' ? theme.labels.egress : theme.labels.ip,
         };
       })
       .filter((req) => req !== null) as LabelRequest[],
   ];
   for (const label of layoutLabels(ctx, requests, obstacles, box)) drawPlacedLabel(ctx, theme, label);
+  for (const note of notes) drawPlatedNote(ctx, theme, note);
 
   // North arrow and a one-mile bar.
-  const nx = box.x + box.w - 22, ny = box.y + 30;
+  const nx = box.x + box.w - 24, ny = box.y + 30;
   ctx.strokeStyle = theme.sectionLabel;
   ctx.fillStyle = theme.sectionLabel;
   ctx.lineWidth = 2;
@@ -544,7 +630,7 @@ function drawPlanView(
   ctx.lineTo(nx + 5, ny - 4);
   ctx.closePath();
   ctx.fill();
-  txt(ctx, 'N', nx, ny + 32, { size: 11, bold: true, family: SANS, color: theme.sectionLabel, align: 'center' });
+  txt(ctx, 'N', nx, ny + 35, { size: 13, bold: true, family: SANS, color: theme.sectionLabel, align: 'center' });
   const bx = box.x + 14, by = box.y + box.h - 14;
   ctx.beginPath();
   ctx.moveTo(bx, by);
@@ -556,10 +642,10 @@ function drawPlanView(
   ctx.moveTo(bx + scale, by - 4);
   ctx.lineTo(bx + scale, by + 4);
   ctx.stroke();
-  txt(ctx, '1 nm', bx + scale / 2, by - 6, { size: 10, family: SANS, color: theme.sectionLabel, align: 'center' });
+  txt(ctx, '1 nm', bx + scale / 2, by - 7, { size: 12, family: SANS, color: theme.sectionLabel, align: 'center' });
   if (attributionW) {
-    fillRect(ctx, box.x + box.w - attributionW, box.y + box.h - 13, attributionW, 13, theme.attributionBg);
-    txt(ctx, OSM_ATTRIBUTION, box.x + box.w - 4, box.y + box.h - 3, { size: 9, family: SANS, color: theme.textGray, align: 'right' });
+    fillRect(ctx, box.x + box.w - attributionW, box.y + box.h - 16, attributionW, 16, theme.attributionBg);
+    txt(ctx, OSM_ATTRIBUTION, box.x + box.w - 4, box.y + box.h - 4, { size: 11, family: SANS, color: theme.textGray, align: 'right' });
   }
   ctx.restore();
   return report;
@@ -573,7 +659,7 @@ function drawPlanView(
  */
 export function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile, box: Rect, theme: CardTheme = DAY_THEME) {
   fillRect(ctx, box.x, box.y, box.w, box.h, theme.diagramBg);
-  const padL = 28, padR = 28, padTop = 44, padBottom = 44;
+  const padL = 28, padR = 28, padTop = 48, padBottom = 48;
   const dists = side.points.map((p) => p.dist_nm);
   const maxD = Math.max(...dists) + 0.4;
   const minD = Math.min(...dists) - 0.3;
@@ -606,17 +692,56 @@ export function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile
     ctx.stroke();
   }
 
+  // Where each marker sits, worked out first: the hard-deck note and the labels keep clear of them.
+  const markerR = SIDE_MARKER_R;
+  const obstacles: Rect[] = [];
+  side.points.forEach((p, i) => {
+    const [x, y] = P(i);
+    if (p.kind === 'APEX') obstacles.push({ x: x - 10, y: y - 10, w: 20, h: 20 });
+    else if (p.kind !== 'EGRESS') obstacles.push({ x: x - markerR - 1, y: y - markerR - 1, w: 2 * markerR + 2, h: 2 * markerR + 2 });
+  });
+
   // Hard deck.
   if (side.hardDeck_ft != null && side.hardDeck_ft > 0) {
+    const deckY = Y(side.hardDeck_ft);
     ctx.strokeStyle = theme.accent;
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 3]);
     ctx.beginPath();
-    ctx.moveTo(box.x + 4, Y(side.hardDeck_ft));
-    ctx.lineTo(X(0) + 6, Y(side.hardDeck_ft));
+    ctx.moveTo(box.x + 4, deckY);
+    ctx.lineTo(X(0) + 6, deckY);
     ctx.stroke();
     ctx.setLineDash([]);
-    txt(ctx, `HARD DECK ${side.hardDeck_ft.toLocaleString()}ft AGL`, box.x + 8, Y(side.hardDeck_ft) - 3, { size: 9, family: MONO, color: theme.accent });
+    // The note sits in the first stretch of the line that no marker and no track crosses.
+    // At the left edge, a low ingress puts its first markers right on top of it.
+    const deckText = `HARD DECK ${side.hardDeck_ft.toLocaleString()}ft AGL`;
+    const deckSize = 11;
+    ctx.font = `${deckSize}px ${MONO}`;
+    const deckW = ctx.measureText(deckText).width;
+    const deckBase = deckY - 3;
+    const trackPts: Array<[number, number]> = [];
+    for (const s of side.segments) {
+      const [x1, y1] = P(s.from);
+      const [x2, y2] = P(s.to);
+      const via: [number, number] | undefined = s.via != null ? [P(s.via)[0], P(s.via)[1] - 10] : s.curve === 'up' ? [x1 + (x2 - x1) * 0.55, y1] : undefined;
+      const steps = Math.max(2, Math.ceil(Math.hypot(x2 - x1, y2 - y1) / 4));
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        trackPts.push(via
+          ? [(1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * via[0] + t * t * x2, (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * via[1] + t * t * y2]
+          : [x1 + (x2 - x1) * t, y1 + (y2 - y1) * t]);
+      }
+    }
+    const hits = (r: Rect) =>
+      obstacles.some((o) => r.x < o.x + o.w && r.x + r.w > o.x && r.y < o.y + o.h && r.y + r.h > o.y) ||
+      trackPts.some(([px, py]) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h);
+    const slot = (x: number): Rect => ({ x: x - 3, y: deckBase - deckSize - 3, w: deckW + 6, h: deckSize + 8 });
+    let deckX = box.x + 8;
+    for (let x = box.x + 8; x + deckW < X(0) - 10; x += 4) {
+      if (!hits(slot(x))) { deckX = x; break; }
+    }
+    txt(ctx, deckText, deckX, deckBase, { size: deckSize, family: MONO, color: theme.accent });
+    obstacles.push(slot(deckX));
   }
 
   // Segments, in the picture's colours.
@@ -655,25 +780,22 @@ export function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile
   }
 
   // Markers, then their labels laid out around them.
-  const obstacles: Rect[] = [];
   side.points.forEach((p, i) => {
     const [x, y] = P(i);
     if (p.kind === 'APEX') {
       ctx.fillStyle = theme.lines.pullDown.color;
-      ctx.font = `bold 16px ${SANS}`;
+      ctx.font = `bold 18px ${SANS}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('★', x, y);
-      obstacles.push({ x: x - 9, y: y - 9, w: 18, h: 18 });
     } else if (p.kind !== 'EGRESS') {
-      drawMarker(ctx, theme, x, y, p.kind, theme.marker.colors[p.kind], 12);
-      obstacles.push({ x: x - 13, y: y - 13, w: 26, h: 26 });
+      drawMarker(ctx, theme, x, y, p.kind, theme.marker.colors[p.kind], markerR);
     }
   });
   const requests: LabelRequest[] = side.points
     .map((p, i) => ({ p, i }))
     .filter(({ p }) => p.label)
-    .map(({ p, i }) => ({ lines: [p.label!], anchor: P(i), side: p.side ?? 'top', size: 11, anchorRadius: p.kind !== 'APEX' && p.kind !== 'EGRESS' ? 12 : 0 }));
+    .map(({ p, i }) => ({ lines: [p.label!], anchor: P(i), side: p.side ?? 'top', size: 13, anchorRadius: p.kind !== 'APEX' && p.kind !== 'EGRESS' ? markerR : 0 }));
   for (const label of layoutLabels(ctx, requests, obstacles, box)) drawPlacedLabel(ctx, theme, label);
 
   ctx.restore();
@@ -681,7 +803,7 @@ export function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile
 
 // ─── Main render function ─────────────────────────────────────────────────────
 
-const FOOTER_HEIGHT = 26;
+const FOOTER_HEIGHT = 28;
 
 /**
  * Draw the card. With `basemap`, the north-up picture sits on whatever map
@@ -710,7 +832,7 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
   const footerTop = KNEEBOARD_HEIGHT - FOOTER_HEIGHT;
   const diagram = card.attackSection.diagram;
   if (diagram?.picture || diagram?.side) {
-    const strips = (diagram.picture ? 20 : 0) + (diagram.side ? 20 : 0);
+    const strips = (diagram.picture ? STRIP_H : 0) + (diagram.side ? STRIP_H : 0);
     const remaining = footerTop - y - strips - 2;
     const planH = diagram.picture && diagram.side ? Math.round(remaining * 0.66) : remaining;
     const sideH = remaining - (diagram.picture ? planH : 0);
@@ -731,8 +853,8 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
   }
 
   fillRect(ctx, 0, KNEEBOARD_HEIGHT - FOOTER_HEIGHT, KNEEBOARD_WIDTH, FOOTER_HEIGHT, theme.headerBg);
-  txt(ctx, 'PHOENIX WEAPONEER', 10, KNEEBOARD_HEIGHT - 10, { size: 10, bold: true, family: MONO, color: theme.footerText });
-  txt(ctx, 'UNCLASSIFIED // TRAINING USE ONLY', KNEEBOARD_WIDTH / 2, KNEEBOARD_HEIGHT - 10, { size: 9, family: MONO, color: theme.footerNote, align: 'center' });
+  txt(ctx, 'PHOENIX WEAPONEER', 10, KNEEBOARD_HEIGHT - 10, { size: 12, bold: true, family: MONO, color: theme.footerText });
+  txt(ctx, 'UNCLASSIFIED // TRAINING USE ONLY', KNEEBOARD_WIDTH / 2, KNEEBOARD_HEIGHT - 10, { size: 11, family: MONO, color: theme.footerNote, align: 'center' });
   return report;
 }
 

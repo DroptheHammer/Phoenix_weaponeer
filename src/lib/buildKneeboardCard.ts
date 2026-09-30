@@ -396,7 +396,10 @@ export function buildKneeboardCard(
       name: targetWp.name,
       coordinates: formatCoords(targetPos.lat, targetPos.lon),
       coordinatesMGRS: '',
-      elevation_ft: targetWp.elevation_ft,
+      // Whole feet: the waypoint keeps its exact elevation for the maths (run-in, checks),
+      // but a card prints what a pilot reads, "5,249ft" and not "5,249.344ft". `|| 0` turns
+      // the -0 that an elevation like -0.3 rounds to into a plain 0.
+      elevation_ft: Math.round(targetWp.elevation_ft) || 0,
       description: targetWp.targetInfo?.description ?? '',
     },
     threatSection: { threats: nearbyThreats },

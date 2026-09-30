@@ -69,7 +69,10 @@ import {
   MAX_BASEMAP_TILES,
   type BasemapTiles,
 } from '../src/lib/kneeboardBasemap';
-import { planViewTransform, mapStatusOf, renderKneeboardCard, renderKneeboardCardWithMap, drawSideProfile } from '../src/lib/renderKneeboardCanvas';
+import {
+  planViewTransform, mapStatusOf, renderKneeboardCard, renderKneeboardCardWithMap, drawSideProfile,
+  PLAN_MARKER_R, SIDE_MARKER_R, markerLabelSize,
+} from '../src/lib/renderKneeboardCanvas';
 import { DAY_THEME, themeColours, parseColour, type CardTheme } from '../src/lib/cardTheme';
 import { buildKneeboardCard } from '../src/lib/buildKneeboardCard';
 import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../src/lib/kneeboardExportPlan';
@@ -622,7 +625,7 @@ if (diveProfiles.length) {
   };
   /** The header sight starts after the profile label and stops short of the date. */
   const sightClearOfDate = (lines: ReturnType<typeof drawnText>, card: ReturnType<typeof cardOf>) => {
-    const sight = lines.find((t) => /sight/i.test(t.text) && t.y === 50);
+    const sight = lines.find((t) => /sight/i.test(t.text) && t.y === 55);
     const label = lines.find((t) => t.text === card.attackSection.profileType)!;
     const date = lines.find((t) => t.text === card.header.missionDate)!;
     return sight != null && sight.x >= label.x + widthOf(label) && sight.x + Math.min(widthOf(sight), sight.maxW ?? Infinity) <= date.x - widthOf(date);
@@ -631,7 +634,7 @@ if (diveProfiles.length) {
   const a4Lines = drawnText(a4Card);
   const sightLines = a4Lines.filter((t) => /sight/i.test(t.text));
   ok('manual dive card: the header prints the sight in bold amber, on the profile-label line',
-     sightLines[0] != null && sightLines[0].text.includes('SIGHT 100 mils · set before IP') && sightLines[0].y === 50 &&
+     sightLines[0] != null && sightLines[0].text.includes('SIGHT 100 mils · set before IP') && sightLines[0].y === 55 &&
      sightLines[0].font.startsWith('bold') && isAmber(sightLines[0].fill),
      JSON.stringify(sightLines[0]));
   ok('manual dive card: the sight is printed nowhere else (not the roll-in marker, not the side view)',
@@ -2009,6 +2012,15 @@ ok('validateMission: a non-numeric TOT offset is refused',
   };
   const planOnly = { ...a4e, attackSection: { ...a4e.attackSection, diagram: { ...diagram, side: undefined } } };
   const noTiles: BasemapTiles = () => undefined;
+  // The A-4E again with a second jet whose track turns in inside the frame, so its "#1" tag is
+  // drawn (the strike card's other jets turn in outside its frame and print no tag at all). The
+  // jet's turn-in is moved 0.2 nm north, which puts the tag where the roll-in's label would go
+  // if the plate were not an obstacle to it.
+  const northOfIt = (picture: NonNullable<typeof diagram.picture>) => ({
+    ...picture,
+    lines: picture.lines.map((l) => (l.style === 'attack' || l.style === 'pullDown' ? { ...l, points: l.points.map((p, i) => (i === 0 ? { ...p, lat: p.lat + 0.2 / 60 } : p)) } : l)),
+  });
+  const withWingman = { ...a4e, attackSection: { ...a4e.attackSection, diagram: { ...diagram, wingmen: [{ label: '#1', picture: northOfIt(diagram.picture!) }] } } };
 
   // Each drawing, in a theme or (theme left out) as the card has always been drawn. With no
   // theme the call is the old three-argument one, so the pins below prove that call unchanged.
@@ -2024,6 +2036,7 @@ ok('validateMission: a non-numeric TOT offset is refused',
     { id: 'popup', name: 'F-16 pop-up with warnings', draw: (ctx, theme) => paint(ctx, popup, undefined, theme) },
     { id: 'bare', name: 'a gun card with no threats and only a side view', draw: (ctx, theme) => paint(ctx, bare as never, undefined, theme) },
     { id: 'no-tiles', name: 'the plan view alone, its map tiles not yet arrived', draw: (ctx, theme) => paint(ctx, planOnly as never, noTiles, theme) },
+    { id: 'wingman', name: 'A-4E manual dive with a wingman\'s tag', draw: (ctx, theme) => paint(ctx, withWingman as never, undefined, theme) },
     // The attack editor draws the side view alone, with no theme to give it.
     { id: 'side', name: 'the side view alone, as the attack editor draws it',
       draw: (ctx, theme) => theme === undefined ? drawSideProfile(ctx, popup.attackSection.diagram!.side!, sideBox) : drawSideProfile(ctx, popup.attackSection.diagram!.side!, sideBox, theme) },
@@ -2039,14 +2052,17 @@ ok('validateMission: a non-numeric TOT offset is refused',
   if (dumpDir) mkdirSync(dumpDir, { recursive: true });
   const digest = (log: string[]) => ({ ops: log.length, sha: createHash('sha256').update(log.join('\n')).digest('hex').slice(0, 16) });
   // The Day draw log of each card above: number of calls and the start of its SHA-256.
+  // Re-pinned on purpose when the card's type went two pixels larger (sizes, positions, the
+  // plates behind two notes). No colour moved: OLD_DAY and the marked pins below say so.
   const DAY_PIN: Record<string, { ops: number; sha: string }> = {
-    a4e: { ops: 1015, sha: 'a7f2b3bb6ab4e7df' },
-    'a4e-map': { ops: 1056, sha: 'f9f014b408ca4066' },
-    strike: { ops: 1149, sha: 'b008de99e30d7a63' },
-    popup: { ops: 1272, sha: 'd8f289730f76c237' },
-    side: { ops: 498, sha: '14b316f857f9e4b8' },
-    bare: { ops: 515, sha: 'b25f2ac117268a9d' },
-    'no-tiles': { ops: 590, sha: 'f441654cd70c780b' },
+    a4e: { ops: 1034, sha: '932f4c5c4fe1a7bd' },
+    'a4e-map': { ops: 1075, sha: 'a2139f7c70860e41' },
+    strike: { ops: 1153, sha: 'feed585ac37b5261' },
+    popup: { ops: 1294, sha: 'e4d102a90e9dc522' },
+    side: { ops: 500, sha: '5af01fbeeba5515e' },
+    bare: { ops: 515, sha: '31ca2d718569bf6f' },
+    'no-tiles': { ops: 609, sha: '846d1df69505c7c8' },
+    wingman: { ops: 1117, sha: 'e64adc0c6388f069' },
   };
   const runs = runAll();
   for (const run of runs) {
@@ -2146,13 +2162,14 @@ ok('validateMission: a non-numeric TOT offset is refused',
   // header date and the footer, say) draw the same under Day, so swapping two of them passes
   // every check above; the marked log tells them apart. A new slot changes these: re-pin.
   const MARKED_PIN: Record<string, string> = {
-    a4e: 'a4f8cfe0a7b6af82',
-    'a4e-map': '6ce00dc057b5ae5e',
-    strike: '2c9f0902de385023',
-    popup: '821a4980f517ac77',
-    bare: 'a5eb3f3371400ef7',
-    'no-tiles': '1e86b08167a797c9',
-    side: '9b028ec17f0df312',
+    a4e: '85d3198dfa9248fc',
+    'a4e-map': 'b9554c93c694ea89',
+    strike: '0350f4808aef9002',
+    popup: 'cedb967562312375',
+    bare: 'd7ca81b122feaa85',
+    'no-tiles': '9291b0a367e2e4dd',
+    wingman: '009034c75accabd2',
+    side: 'c5ad2258b64c94f0',
   };
   for (const run of markedRuns) {
     if (dumpDir) writeFileSync(join(dumpDir, `${run.id}.marked.log`), run.log.join('\n') + '\n');
@@ -2166,7 +2183,7 @@ ok('validateMission: a non-numeric TOT offset is refused',
   const leaks = dashedRuns.map((run) => {
     const ring = run.log.lastIndexOf('setLineDash([3.5,5.5])');
     const reset = run.log.findIndex((line, i) => i > ring && line.startsWith('setLineDash('));
-    const marker = run.log.findIndex((line, i) => i > ring && /^arc\([^,]+,[^,]+,16,0,6\.283\)$/.test(line));
+    const marker = run.log.findIndex((line, i) => i > ring && new RegExp(`^arc\\([^,]+,[^,]+,${PLAN_MARKER_R},0,6\\.283\\)$`).test(line));
     return { id: run.id, ring: ring >= 0, cleared: reset > ring && run.log[reset] === 'setLineDash([])' && reset < marker };
   });
   ok('themed card: a dashed threat ring hands no dash on to the marker rings and label borders after it',
@@ -2189,4 +2206,113 @@ ok('validateMission: a non-numeric TOT offset is refused',
   ok('themed map: an engine that ignores blend modes gets each tile covered, never left pale',
      JSON.stringify(tileOps(refusedLog)) === JSON.stringify(perTile('globalCompositeOperation="difference"', 'globalCompositeOperation="source-over"', 'globalAlpha=0.92', 'fillStyle="@basemap.washColor"')),
      tileOps(refusedLog).slice(0, 6).join(' '));
+
+  // ── The larger type: marker letters, notes on plates, the elevation ──
+  // The type is two pixels larger than it was, and the markers grew with it. The pins above
+  // notice any change; these say it is the right one.
+
+  // Do the letters of each marker fit its disc? The recording canvas measures everything as
+  // Courier, which says nothing about Arial capitals, so the widths come from a table: the
+  // advance widths of Arial Bold's capitals in thousandths of an em (Helvetica Bold's too).
+  // Arial Narrow, the face the card asks for first, is Arial condensed to 82%. It ships with
+  // Office, not with Windows, so on a bare Windows box the card is drawn in plain Arial, the
+  // worst case; the second check below is about that.
+  const ARIAL_BOLD_CAPS: Record<string, number> = {
+    A: 722, B: 722, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722, I: 278, J: 556, K: 722, L: 611, M: 833,
+    N: 722, O: 778, P: 667, Q: 778, R: 722, S: 667, T: 611, U: 722, V: 667, W: 944, X: 667, Y: 667, Z: 611,
+  };
+  const letterWidth = (label: string, narrow: boolean) =>
+    ([...label].reduce((sum, ch) => sum + ARIAL_BOLD_CAPS[ch], 0) * markerLabelSize(label) / 1000) * (narrow ? 0.82 : 1);
+  const discs = [['plan', PLAN_MARKER_R], ['side', SIDE_MARKER_R]] as const;
+  const fits = (narrow: boolean) =>
+    Object.keys(MARKER_COLOR).flatMap((kind) =>
+      discs.map(([disc, r]) => ({ kind, disc, width: letterWidth(kind, narrow), room: 2 * r - 4 })));
+  const tooWide = fits(true).filter((f) => f.width >= f.room);
+  const tightest = fits(true).sort((a, b) => b.width / b.room - a.width / a.room)[0];
+  ok('marker letters: in Arial Narrow every marker\'s letters are narrower than its disc (2r - 4), in the plan and the side view',
+     tooWide.length === 0 && Object.keys(MARKER_COLOR).length >= 8,
+     tooWide.length ? tooWide.map((f) => `${f.kind} in the ${f.disc} disc: ${f.width.toFixed(1)} of ${f.room} px`).join('; ')
+       : `tightest: ${tightest.kind} in the ${tightest.disc} disc, ${tightest.width.toFixed(1)} of ${tightest.room} px`);
+
+  // In Arial some do not fit at these sizes ("ROLL" in the side disc: 29.9 px of 26). So each
+  // marker's text is drawn with a width limit of its disc less the ring, and the canvas
+  // condenses it to that rather than let it spill. Read back out of what the cards drew.
+  const arialOver = fits(false).filter((f) => f.width >= f.room);
+  const markerTexts = runs.flatMap((run) => {
+    let radius = 0;
+    return run.log.flatMap((line) => {
+      const arc = /^arc\([^,]+,[^,]+,([^,]+),0,6\.283\)$/.exec(line);
+      if (arc) radius = Number(arc[1]);
+      const text = /^fillText\("([A-Z]+)",[^,]+,[^,]+(?:,([^,]+))?\)$/.exec(line);
+      return text && text[1] in MARKER_COLOR ? [{ id: run.id, label: text[1], radius, limit: text[2] === undefined ? undefined : Number(text[2]) }] : [];
+    });
+  });
+  const unlimited = markerTexts.filter((m) => m.limit !== 2 * m.radius - 4 || ![PLAN_MARKER_R, SIDE_MARKER_R].includes(m.radius));
+  ok('marker letters: every marker the cards draw carries a width limit of its disc less the ring, so a wider face is condensed, not spilled',
+     markerTexts.length > 20 && unlimited.length === 0,
+     unlimited.length ? JSON.stringify(unlimited.slice(0, 3)) : `${markerTexts.length} markers; in Arial, ${arialOver.map((f) => `${f.kind}/${f.disc} ${f.width.toFixed(1)} of ${f.room}`).join(', ') || 'all fit'}`);
+
+  // The "→ STPT 7" edge note and a wingman's "#1" tag are printed across lines, so each sits on a
+  // plate of the diagram's own colour, 3 px wider than its text each side. Read back out of the
+  // themed draw logs: the rounded fill just before the text, and every label box drawn.
+  type Box = { x0: number; y0: number; x1: number; y1: number };
+  const readPlates = (log: string[]) => {
+    const nums = (line: string) => line.slice(line.indexOf('(') + 1, -1).split(',').map(Number);
+    let font = '', align = 'left', colour = '';
+    let pts: number[][] = [];
+    let rounded = false;
+    let lastFill: (Box & { colour: string; rounded: boolean }) | undefined;
+    const boxes: (Box & { colour: string })[] = [];
+    const notes: { text: string; size: number; x: number; y: number; left: number; right: number; plate: (Box & { colour: string; rounded: boolean }) | undefined }[] = [];
+    for (const line of log) {
+      if (line.startsWith('font=')) font = JSON.parse(line.slice(5));
+      else if (line.startsWith('textAlign=')) align = JSON.parse(line.slice(10));
+      else if (line.startsWith('fillStyle=')) colour = JSON.parse(line.slice(10));
+      else if (line === 'beginPath()') { pts = []; rounded = false; }
+      else if (/^(moveTo|lineTo)\(/.test(line)) pts.push(nums(line));
+      else if (line.startsWith('quadraticCurveTo(')) { const [cx, cy, x, y] = nums(line); pts.push([cx, cy], [x, y]); rounded = true; }
+      else if (line === 'fill()' && pts.length) {
+        lastFill = { x0: Math.min(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), x1: Math.max(...pts.map((p) => p[0])), y1: Math.max(...pts.map((p) => p[1])), colour, rounded };
+        if (rounded) boxes.push(lastFill);
+      } else if (line.startsWith('fillText(')) {
+        const m = /^fillText\((".*"),([^,]+),([^,]+)(?:,([^,]+))?\)$/.exec(line)!;
+        const text = JSON.parse(m[1]) as string;
+        if (!/^(→ |#\d)/.test(text)) continue;
+        const size = parseFloat(/([\d.]+)px/.exec(font)![1]), x = Number(m[2]);
+        const width = text.length * 0.6 * size;
+        const left = align === 'center' ? x - width / 2 : x;
+        notes.push({ text, size, x, y: Number(m[3]), left, right: left + width, plate: lastFill });
+      }
+    }
+    return { boxes, notes };
+  };
+  const plateRuns = markedRuns.filter((run) => ['a4e', 'popup', 'wingman'].includes(run.id)).map((run) => ({ id: run.id, ...readPlates(run.log) }));
+  const allNotes = plateRuns.flatMap((run) => run.notes.map((n) => ({ id: run.id, ...n })));
+  const badPlates = allNotes.filter((n) => {
+    const p = n.plate;
+    return !p || !p.rounded || p.colour !== '@diagramBg' ||
+      Math.abs(p.x0 - (n.left - 3)) > 0.01 || Math.abs(p.x1 - (n.right + 3)) > 0.01 ||
+      p.y0 > n.y - 0.72 * n.size - 2.5 || Math.abs(p.y1 - (n.y + 3)) > 0.01;
+  });
+  ok('plated notes: each "→ IP" note and each wingman tag sits on a rounded plate of the diagram\'s colour, 3 px beyond its text',
+     allNotes.some((n) => n.text.startsWith('→')) && allNotes.some((n) => n.text.startsWith('#')) && badPlates.length === 0,
+     badPlates.length ? JSON.stringify(badPlates.slice(0, 2)) : allNotes.map((n) => `${n.id}: ${n.text}`).join(', '));
+
+  const overlap = (a: Box, b: Box) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+  const covered = plateRuns.flatMap((run) =>
+    run.boxes.filter((l) => l.colour.startsWith('@labels.')).flatMap((l) =>
+      run.notes.filter((n) => n.plate && overlap(l, n.plate)).map((n) => `${run.id}: label box over "${n.text}"`)));
+  ok('plated notes: no label box lands on a plate', covered.length === 0, covered.join('; '));
+
+  // The elevation prints in whole feet: the card data is rounded, the waypoint is not.
+  const elevationCard = (elevation_ft: number) =>
+    cardOf({ ...solo(build(scooter, mk82, lib('a4ec'))), waypoints: [wpIp, { ...wpTgt, elevation_ft }] }, 'atk', [mk82]);
+  const tall = elevationCard(5249.344);
+  const tallText = (() => { const { ctx, log } = recordingContext(); paint(ctx, tall, undefined); return log.find((l) => l.startsWith('fillText("Elev')); })();
+  ok('card elevation: 5,249.344 ft is rounded to 5,249 in the card data and prints as "Elev 5,249ft MSL"',
+     tall.targetSection.elevation_ft === 5249 && tallText?.startsWith(`fillText("Elev ${(5249).toLocaleString()}ft MSL"`) === true,
+     `${tall.targetSection.elevation_ft} / ${tallText}`);
+  const seaLevel = elevationCard(-0.3);
+  ok('card elevation: a target a fraction below sea level prints 0, never "-0"',
+     Object.is(seaLevel.targetSection.elevation_ft, 0), Object.is(seaLevel.targetSection.elevation_ft, -0) ? '-0' : String(seaLevel.targetSection.elevation_ft));
 }
