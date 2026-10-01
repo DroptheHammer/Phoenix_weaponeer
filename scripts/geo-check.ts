@@ -73,7 +73,8 @@ import {
   planViewTransform, mapStatusOf, renderKneeboardCard, renderKneeboardCardWithMap, drawSideProfile,
   PLAN_MARKER_R, SIDE_MARKER_R, markerLabelSize,
 } from '../src/lib/renderKneeboardCanvas';
-import { DAY_THEME, themeColours, parseColour, type CardTheme } from '../src/lib/cardTheme';
+import { DAY_THEME, NIGHT_THEME, NVG_THEME, CARD_LIGHTINGS, themeForLighting, themeColours, parseColour, type CardTheme } from '../src/lib/cardTheme';
+import { KEPT_FROM_DAY, CONTRAST_FLOOR, VISIONS, ruleFor, nightRule, nvgRule, contrastPairs, worstOf, ratio, type Family } from '../src/lib/cardContrast';
 import { buildKneeboardCard } from '../src/lib/buildKneeboardCard';
 import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../src/lib/kneeboardExportPlan';
 import { validateMission } from '../src/lib/validateMission';
@@ -2179,13 +2180,15 @@ ok('validateMission: a non-numeric TOT offset is refused',
   // A themed threat ring may be dashed. Its dash has to end with the rings, or every marker
   // ring and label border drawn after them comes out dashed too (Day's rings are solid, so
   // this never showed there).
-  const dashedRuns = runAll({ ...marked, threatRing: { ...marked.threatRing, dash: [3.5, 5.5] } }).filter((run) => ['a4e', 'strike', 'popup'].includes(run.id));
-  const leaks = dashedRuns.map((run) => {
-    const ring = run.log.lastIndexOf('setLineDash([3.5,5.5])');
-    const reset = run.log.findIndex((line, i) => i > ring && line.startsWith('setLineDash('));
-    const marker = run.log.findIndex((line, i) => i > ring && new RegExp(`^arc\\([^,]+,[^,]+,${PLAN_MARKER_R},0,6\\.283\\)$`).test(line));
-    return { id: run.id, ring: ring >= 0, cleared: reset > ring && run.log[reset] === 'setLineDash([])' && reset < marker };
-  });
+  /** Per card that draws rings: did the ring's dash (`setLineDash` text as logged) end before the marker rings after it? */
+  const ringDashLeaks = (themedRuns: { id: string; log: string[] }[], dashLog: string) =>
+    themedRuns.filter((run) => ['a4e', 'strike', 'popup'].includes(run.id)).map((run) => {
+      const ring = run.log.lastIndexOf(dashLog);
+      const reset = run.log.findIndex((line, i) => i > ring && line.startsWith('setLineDash('));
+      const marker = run.log.findIndex((line, i) => i > ring && new RegExp(`^arc\\([^,]+,[^,]+,${PLAN_MARKER_R},0,6\\.283\\)$`).test(line));
+      return { id: run.id, ring: ring >= 0, cleared: reset > ring && run.log[reset] === 'setLineDash([])' && reset < marker };
+    });
+  const leaks = ringDashLeaks(runAll({ ...marked, threatRing: { ...marked.threatRing, dash: [3.5, 5.5] } }), 'setLineDash([3.5,5.5])');
   ok('themed card: a dashed threat ring hands no dash on to the marker rings and label borders after it',
      leaks.some((l) => l.ring) && leaks.filter((l) => l.ring).every((l) => l.cleared), JSON.stringify(leaks));
   const wrapped = recordingContext();
@@ -2315,4 +2318,133 @@ ok('validateMission: a non-numeric TOT offset is refused',
   const seaLevel = elevationCard(-0.3);
   ok('card elevation: a target a fraction below sea level prints 0, never "-0"',
      Object.is(seaLevel.targetSection.elevation_ft, 0), Object.is(seaLevel.targetSection.elevation_ft, -0) ? '-0' : String(seaLevel.targetSection.elevation_ft));
+
+  // ── Night and NVG, drawn ──
+  // The two dim themes on the same cards (their colour families and contrast are checked in
+  // the next block). Pinned like Day, so a renderer change cannot alter them unseen: re-pin
+  // from the numbers a failure prints, after looking at what moved. Drawn in their own colours
+  // and no other, so no white and nothing of Day's leaks in; the dashed rings, the plates
+  // and the tinted map are held as they are for the marked theme.
+  const DARK_PIN: Record<string, Record<string, { ops: number; sha: string }>> = {
+    night: {
+      a4e: { ops: 1035, sha: '232c2a1720b29a2a' },
+      'a4e-map': { ops: 1300, sha: '145d40973b2171a3' },
+      strike: { ops: 1154, sha: '93715e628ae53193' },
+      popup: { ops: 1295, sha: '1d293d64ed9450b1' },
+      side: { ops: 500, sha: 'ec8d27b5fb7dd3c2' },
+      bare: { ops: 515, sha: '788377bf642dbd4e' },
+      'no-tiles': { ops: 610, sha: '4269d23222f93dfd' },
+      wingman: { ops: 1118, sha: '048729db3307552c' },
+    },
+    nvg: {
+      a4e: { ops: 1035, sha: 'b6404988f5c0957c' },
+      'a4e-map': { ops: 1300, sha: '63a803c286d2ebc2' },
+      strike: { ops: 1154, sha: '9b8ae3f51542edb5' },
+      popup: { ops: 1295, sha: '3aadf8f5cb4e6361' },
+      side: { ops: 500, sha: 'e3142dc060b86433' },
+      bare: { ops: 515, sha: '3698f46d08656f0c' },
+      'no-tiles': { ops: 610, sha: 'f9520fde483f2e1c' },
+      wingman: { ops: 1118, sha: '62086238f82ce588' },
+    },
+  };
+  for (const theme of [NIGHT_THEME, NVG_THEME]) {
+    const themed = runAll(theme);
+    for (const run of themed) {
+      if (dumpDir) writeFileSync(join(dumpDir, `${run.id}.${theme.id}.log`), run.log.join('\n') + '\n');
+      const got = digest(run.log);
+      const want = DARK_PIN[theme.id][run.id];
+      ok(`${theme.name} card: ${run.name} is drawn as it was when pinned`, got.sha === want.sha && got.ops === want.ops, `${got.ops} draw calls, ${got.sha}`);
+    }
+    const own = new Set(Object.values(themeColours(theme)));
+    const foreign = themed.flatMap((run) => [...new Set(coloursDrawn(run.log).filter((colour) => !own.has(colour)))].map((colour) => `${run.id}: ${colour}`));
+    ok(`${theme.name} card: every fixed card is drawn in the theme's colours and no other`, foreign.length === 0, foreign.join('; '));
+
+    const themedLeaks = ringDashLeaks(themed, `setLineDash(${JSON.stringify(theme.threatRing.dash)})`);
+    ok(`${theme.name} card: the dashed threat ring hands no dash on to the marker rings and label borders after it`,
+       themedLeaks.some((l) => l.ring) && themedLeaks.filter((l) => l.ring).every((l) => l.cleared), JSON.stringify(themedLeaks));
+
+    const themedNotes = themed.filter((run) => ['a4e', 'popup', 'wingman'].includes(run.id)).flatMap((run) => readPlates(run.log).notes.map((n) => ({ id: run.id, ...n })));
+    const offPlate = themedNotes.filter((n) => !n.plate || !n.plate.rounded || n.plate.colour !== theme.diagramBg);
+    ok(`${theme.name} card: the "→ IP" note and the wingman tag sit on plates of the diagram's own colour (${theme.diagramBg}), so neither is a white box`,
+       themedNotes.some((n) => n.text.startsWith('→')) && themedNotes.some((n) => n.text.startsWith('#')) && offPlate.length === 0,
+       offPlate.length ? JSON.stringify(offPlate.slice(0, 2)) : `${themedNotes.length} notes`);
+
+    const themedMap = themed.find((run) => run.id === 'a4e-map')!.log;
+    const count = (line: string) => themedMap.filter((l) => l === line).length;
+    ok(`${theme.name} map: each of the ${tileCount} tiles is made a negative, then multiplied by the ${theme.basemap.tint} tint`,
+       tileCount > 0 && count(`fillStyle=${JSON.stringify(theme.basemap.tint)}`) === tileCount && count('globalCompositeOperation="difference"') === tileCount
+         && count('globalCompositeOperation="multiply"') === tileCount,
+       `${count(`fillStyle=${JSON.stringify(theme.basemap.tint)}`)} tint fills`);
+  }
+}
+
+// ─── The Night and NVG looks: colour families and WCAG 2.1 AA contrast ────────
+// Two dim looks the squadron voted for (cardTheme.ts). Night keeps a dark-adapted eye, so
+// its colours are red or dim grey; NVG spares the goggles, so its are green or dim grey.
+// Both are held to AA contrast (text 4.5:1, lines and markers 3:1) in normal vision and in
+// simulated protanopia and deuteranopia, because some of the squadron are colour-blind. The
+// rules and the arithmetic are cardContrast.ts. The colours the attack picture takes from
+// the planner map (KEPT_FROM_DAY) are exempt from the family rule but not from the contrast.
+{
+  /** Every field of a theme by path; `dash` is optional per line, so it is left out. */
+  const keysOf = (theme: CardTheme) => {
+    const paths: string[] = [];
+    const walk = (value: unknown, path: string) => {
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        for (const [key, inner] of Object.entries(value)) walk(inner, path ? `${path}.${key}` : key);
+      } else if (!path.endsWith('.dash')) paths.push(path);
+    };
+    walk(theme, '');
+    return paths.sort().join('|');
+  };
+  const floor2 = (x: number) => (Math.floor(x * 100) / 100).toFixed(2);
+
+  // The arithmetic first, against numbers known independently: a port that drifted would show here.
+  const black = { r: 0, g: 0, b: 0 }, white = { r: 255, g: 255, b: 255 }, red = { r: 255, g: 0, b: 0 };
+  ok('contrast arithmetic: white on black is 21:1 in every vision (the simulation keeps white white)', VISIONS.every((v) => Math.abs(ratio(white, black, v) - 21) < 1e-3));
+  ok('contrast arithmetic: pure red on black is 5.25:1 to normal eyes but only about 3.3:1 to a protan (why Night text leans pink)',
+     floor2(ratio(red, black, 'normal')) === '5.25' && floor2(ratio(red, black, 'protan')) === '3.28',
+     VISIONS.map((v) => `${v} ${floor2(ratio(red, black, v))}`).join(', '));
+  ok('family rules: Night takes red and dim grey, NVG green and dim grey, and neither white',
+     nightRule({ r: 0xE4, g: 0x5B, b: 0x5B }).ok && nightRule({ r: 0x70, g: 0x70, b: 0x70 }).ok && !nightRule({ r: 0xE4, g: 0x60, b: 0x60 }).ok
+       && !nightRule({ r: 0x71, g: 0x71, b: 0x71 }).ok && !nightRule(white).ok && !nightRule({ r: 0x00, g: 0x8E, b: 0x00 }).ok
+       && nvgRule({ r: 0x00, g: 0x8E, b: 0x00 }).ok && nvgRule({ r: 0x50, g: 0x50, b: 0x50 }).ok && !nvgRule({ r: 0x51, g: 0x51, b: 0x51 }).ok
+       && !nvgRule(white).ok && !nvgRule({ r: 0x40, g: 0x60, b: 0x00 }).ok && !nvgRule({ r: 0xE4, g: 0x5B, b: 0x5B }).ok);
+
+  const dayKeys = keysOf(DAY_THEME);
+  for (const [theme, family] of [[NIGHT_THEME, 'night'], [NVG_THEME, 'nvg']] as [CardTheme, Family][]) {
+    const rule = ruleFor(family);
+    const colours = themeColours(theme);
+    const unknownKept = KEPT_FROM_DAY.filter((path) => !(path in colours));
+    const checked = Object.entries(colours).filter(([path]) => !KEPT_FROM_DAY.includes(path));
+    const offenders = checked.flatMap(([path, colour]) => {
+      const c = parseColour(colour);
+      if (!c) return [`${path} ${colour}: unreadable`];
+      const verdict = rule(c);
+      return verdict.ok ? [] : [`${path} ${colour}: ${verdict.why}`];
+    });
+    ok(`${theme.name} theme: every colour that is not the planner map's is ${family === 'night' ? 'a red hue or a dim grey' : 'a green hue or a dim grey'}`,
+       offenders.length === 0 && unknownKept.length === 0 && checked.length >= 30,
+       offenders.join('; ') || (unknownKept.length ? `KEPT_FROM_DAY names paths the theme lacks: ${unknownKept.join(', ')}` : `${checked.length} colours checked, ${KEPT_FROM_DAY.length} kept from the map`));
+    ok(`${theme.name} theme: the same keys as Day, nothing missing or extra`, keysOf(theme) === dayKeys);
+    ok(`${theme.name} theme: each colour is one a canvas and the tile code can read, and none has a transparency`,
+       Object.values(colours).every((c) => { const p = parseColour(c); return p !== undefined && p.a === 1; }));
+
+    const pairs = contrastPairs(theme);
+    const failures = pairs.flatMap((pair) =>
+      VISIONS.filter((v) => pair.ratio[v] < CONTRAST_FLOOR[pair.kind]).map((v) => `${pair.id} (${pair.fg} on ${pair.bg}) ${v} ${floor2(pair.ratio[v])} < ${CONTRAST_FLOOR[pair.kind]}`));
+    const worstText = worstOf(pairs, 'text'), worstGraphic = worstOf(pairs, 'graphic');
+    const complete = Object.keys(DAY_THEME.lines).every((k) => pairs.some((p) => p.id === `${k} line`))
+      && Object.keys(DAY_THEME.marker.colors).every((k) => pairs.some((p) => p.id === `${k} marker`) && pairs.some((p) => p.id === `letters on the ${k} disc`));
+    ok(`${theme.name} theme: all ${pairs.length} pairs meet AA (text 4.5:1, graphics 3:1) in normal, protan and deutan vision`,
+       failures.length === 0 && complete && pairs.length >= 50,
+       failures.join('; ') || VISIONS.map((v) => `${v}: worst text ${floor2(worstText[v].ratio)} (${worstText[v].id}), worst graphic ${floor2(worstGraphic[v].ratio)} (${worstGraphic[v].id})`).join('; '));
+  }
+
+  // ── Choosing a look ──
+  ok('card lighting: Day, Night and NVG, in that order', JSON.stringify(CARD_LIGHTINGS) === '["day","night","nvg"]');
+  ok('card lighting: each lighting gives its own theme', themeForLighting('day') === DAY_THEME && themeForLighting('night') === NIGHT_THEME && themeForLighting('nvg') === NVG_THEME
+     && CARD_LIGHTINGS.every((l) => themeForLighting(l).id === l));
+  ok('card lighting: no lighting, an empty one, or one this build does not know gives Day',
+     [undefined, null, '', 'banana', 'NIGHT', ' nvg'].every((l) => themeForLighting(l) === DAY_THEME));
 }
