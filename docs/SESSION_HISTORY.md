@@ -1,6 +1,43 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+**Session:** 2026-09-30 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **v0.3.2 released and published as Latest**:
+release run 36817925144 (all 3 platforms, all 7 installers), web app published
+by Pages run 36818732172. Privacy scan clean (known false positives only).
+
+**What went into 0.3.2 this session** (all gates green at the tag: geo-check
+479, core 102, desktop 24 + 1 ignored, `npm run build`):
+- `6029078` **Larger card text**, by squadron vote: every font +2 px, the
+  layout grown to fit, "→ STPT"/"#1" on plates, ROLL fits its disc, the
+  elevation in whole feet. The mockup page that won the vote is in
+  `Other Items/card-themes/large-text/`. Memory `project-card-text-size`.
+- `5461b91` **Night (N5a) and NVG (G5a) themes** in `src/lib/cardTheme.ts`.
+  geo-check enforces the family rules and AA contrast in protan and deutan
+  vision (`src/lib/cardContrast.ts`). The margins are thin on purpose.
+- `7809d8e` **Lighting dropdown** (Day / Night / NVG) on the Cards panel,
+  desktop and phone, saved with the mission as `cardLighting`. In Rust it is an
+  enum where an unknown value loads as Day. Memory `project-night-nvg-kneeboards`.
+- `4bca21d` **Cards export at 3×, 2304×3072.** The user found 1× soft in DCS.
+  The layout stays in 768×1024 units under one transform. The map is one zoom
+  level finer, never two. Still lossless PNG, 1–2.5 MB per card.
+
+**Not yet verified, and worth asking the user about:**
+- How DCS shows a 2304×3072 card. It was built without a DCS test, by choice.
+- iPhone memory in the cards carousel at 3×.
+- The attack editor's side view in the phone's 150 px strip.
+- The user ran the release without reporting the on-screen check item by item:
+  the Lighting dropdown, the header sight, the Copy menu, the waypoint list.
+  Ask whether anything looked off.
+
+**Process notes:**
+- I `cd`'d once into `Other Items/.../png`. The harness made a `.claude/.cc-writes`
+  folder there (empty; removed).
+- No project "run" skill exists. Building the phone web app locally needs the
+  wasm toolchain, which the user declined to install this session.
+
+---
+
 **Session:** 2026-09-29 UTC, later (Opus 5.5 orchestrating on the main Mac,
 with Sonnet 5.5 builders and Opus 5.5 agents for the audit and the palette
 design). Nothing was released. **0.3.2 then waited for the squadron's vote on

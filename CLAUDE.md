@@ -221,50 +221,57 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-30 UTC (Opus 5.5 orchestrating on the main Mac,
-Sonnet 5.5 builders). **v0.3.2 released and published as Latest**:
-release run 36817925144 (all 3 platforms, all 7 installers), web app published
-by Pages run 36818732172. Privacy scan clean (known false positives only).
+**Last session:** 2026-09-30 UTC, late (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **Nothing shipped. `main` carries the v0.3.2 app
+unchanged**: an artwork attempt was built, then rolled back at the user's
+request. Only these notes differ from the released tree.
 
-**What went into 0.3.2 this session** (all gates green at the tag: geo-check
-479, core 102, desktop 24 + 1 ignored, `npm run build`):
-- `6029078` **Larger card text**, by squadron vote: every font +2 px, the
-  layout grown to fit, "→ STPT"/"#1" on plates, ROLL fits its disc, the
-  elevation in whole feet. The mockup page that won the vote is in
-  `Other Items/card-themes/large-text/`. Memory `project-card-text-size`.
-- `5461b91` **Night (N5a) and NVG (G5a) themes** in `src/lib/cardTheme.ts`.
-  geo-check enforces the family rules and AA contrast in protan and deutan
-  vision (`src/lib/cardContrast.ts`). The margins are thin on purpose.
-- `7809d8e` **Lighting dropdown** (Day / Night / NVG) on the Cards panel,
-  desktop and phone, saved with the mission as `cardLighting`. In Rust it is an
-  enum where an unknown value loads as Day. Memory `project-night-nvg-kneeboards`.
-- `4bca21d` **Cards export at 3×, 2304×3072.** The user found 1× soft in DCS.
-  The layout stays in 768×1024 units under one transform. The map is one zoom
-  level finer, never two. Still lossless PNG, 1–2.5 MB per card.
+**What happened:**
+- The user supplied a splash picture and a phoenix app icon (AI-generated, in
+  git-ignored `Other Items/Artwork/`).
+- **A start-up splash was built and removed.** The user picked a style from a
+  preview page (`Other Items/splash-options/`), saw it in the real Mac app,
+  and turned it down. It was never committed. Do not propose one again.
+- **The icon was committed, then reverted.** `b2785a1` put the phoenix icon on
+  every platform (Pages run 36826214513, green). The user then reported a
+  white flash while the app loads and asked to go back to 0.3.2. `3ae5398`
+  reverts it; the tree is identical to `7bd266a` (Pages run 36826601626).
+- **The artwork is parked, not closed.** If the icon comes back,
+  `git show b2785a1` has the whole icon set and a `docs/ARTWORK.md` with the
+  commands. Memory `project-app-artwork-splash-icon`.
 
-**Not yet verified, and worth asking the user about:**
-- How DCS shows a 2304×3072 card. It was built without a DCS test, by choice.
-- iPhone memory in the cards carousel at 3×.
-- The attack editor's side view in the phone's 150 px strip.
-- The user ran the release without reporting the on-screen check item by item:
-  the Lighting dropdown, the header sight, the Copy menu, the waypoint list.
-  Ask whether anything looked off.
+**The white flash was not diagnosed.** What is known:
+- `b2785a1` changed only icon files, the browser-tab icon link and the phone
+  icon paths. Nothing in it touches how the window opens.
+- The window has no background colour set, and the page's dark background
+  comes from the CSS file. So any build can show white before the first
+  paint, and a freshly built app starts slower than an installed one.
+- The splash build had set the window background dark and painted dark from
+  the first HTML. The user saw that build just before, and reported no flash.
+- Not checked on screen by anyone: whether a plain 0.3.2 build flashes too.
+  The local bundle in `src-tauri/target/` was rebuilt from the reverted tree
+  for that comparison.
 
-**Process notes:**
-- I `cd`'d once into `Other Items/.../png`. The harness made a `.claude/.cc-writes`
-  folder there (empty; removed).
-- No project "run" skill exists. Building the phone web app locally needs the
-  wasm toolchain, which the user declined to install this session.
+**Still open from the 0.3.2 release** (see "In progress" in `ROADMAP.md`): 3×
+cards in DCS, the iPhone carousel at 3×, the Lighting dropdown, the header
+sight, the Copy menu, the waypoint list.
 
 ### START OF NEXT SESSION
 
 1. `git pull origin main`.
-2. **Ask about 0.3.2 in use:** 3× cards in DCS (monitor and VR), Night/NVG in
+2. **Ask whether the white flash shows on plain 0.3.2.** If it does, the
+   candidate fix is `"backgroundColor": "#1a1a2e"` on the window in
+   `tauri.conf.json` plus an inline dark `html` background in `index.html`.
+   On macOS that colour reaches the window only, not the web view, so it
+   needs the user's eyes, in the real app, before anything else is built on it.
+3. **Ask about 0.3.2 in use:** 3× cards in DCS (monitor and VR), Night/NVG in
    the cockpit, and the phone carousel. If the carousel is slow, show smaller
    images there and share the full-size ones.
-3. **"Jets arrive loaded"** for 0.3.3 (`docs/LOADOUT_IMPORT_PLAN.md`).
-4. **Phone web app:** a real Android phone check is still open
+4. **"Jets arrive loaded"** for 0.3.3 (`docs/LOADOUT_IMPORT_PLAN.md`).
+5. **Phone web app:** a real Android phone check is still open
    (`docs/MOBILE_WEB_PLAN.md`). Merge PRs from the Mac with `TZ=UTC`, never with
    GitHub's phone button.
-5. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
+6. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
    folder that broke geo-check (memory `feedback-commands-that-dont-prompt`).
+7. **Look-and-feel work goes in front of the user in the real app first**,
+   before it is polished, documented or committed.
