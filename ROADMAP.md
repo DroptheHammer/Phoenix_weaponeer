@@ -83,25 +83,13 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       an Android phone hasn't yet. In Chrome: Add to Home Screen, offline
       launch, the share sheet, screen wake lock, GPS for "Strike near me",
       crosshair precision.
-- [ ] **Day / Night / NVG kneeboard cards** (for 0.3.2, which waits for it).
-  - Day stays the default, and a dropdown on the Cards panel picks the mode.
-  - Night: reds with dark greys, and no white. NVG: greens that read through
-    DCS's goggles.
-  - Candidates are checked against WCAG 2.1 AA contrast and colour-blind
-    simulations, as a target rather than a gate (memory
-    `project-card-accessibility-cvd`).
-  - **Now:** the squadron votes on the round-2 candidates N4, N5, G4 and G5,
-    each in flavours a and b. The page and zip for the vote are built.
-  - **Then:** build the winners into the app (see the session notes).
-  - [x] Card theme groundwork: every card colour comes from a theme, and Day is
-        proven unchanged (`0a3d260`).
-  - [ ] Squad vote: one Night and one NVG winner.
-  - [ ] Dropdown and the two winning themes, saved with the mission.
-  - [ ] Two labels drawn across their own line, found by the contrast audit:
-        "→ STPT 2" on the A-4E route line, and "#1" on the F-16 wingman track.
-  - [ ] Round the target elevation on the card: it prints "5,249.344ft".
-- [ ] **On-screen check of the 2026-09-29 changes** (user, desktop, `npm run
-      tauri dev`):
+- [ ] **On-screen check of the 2026-09-29 and 2026-09-30 changes** (user,
+      desktop, `npm run tauri dev`):
+  - [ ] Cards panel → **Lighting** dropdown switches the preview between Day,
+        Night and NVG, survives save and reopen, and exports in that lighting.
+  - [ ] The larger card text reads well at kneeboard size, and the attack
+        editor's side view (desktop, and the 150 px strip on the phone) still
+        has room for its picture.
   - [ ] A manual-dive card's header reads `… · MAN · SIGHT 100 mils · set
         before IP` in amber and is easy to read at kneeboard size; the ROLL
         label no longer carries it.
@@ -116,14 +104,23 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ## Shipped
 
 ### Unreleased (on `main`, next desktop release)
+- **Night and NVG kneeboard cards.** A **Lighting** dropdown on the Cards panel
+  (desktop and phone) picks Day, Night or NVG for the whole mission, and is
+  saved with it; Day stays the default. Night is the squadron's pick N5a
+  (dimmest red), NVG is G5a (dimmest green), both with today's attack colours.
+  geo-check holds each to its red or green rule and to WCAG AA contrast in
+  normal and colour-blind vision.
+- **Larger card text.** Every piece of text on the card is two sizes larger
+  (squadron vote, 2026-09-30), with the rows, strips and marker discs grown to
+  fit. "→ STPT 2" and the wingman "#1" now sit on a plate instead of across a
+  line, ROLL fits its disc, and the target elevation prints in whole feet.
 - **Manual-dive cards show the sight setting** (e.g. `SIGHT 100 mils`) for the
   A-4E, F-4E, F-5E and Mirage F1. It was dropped as the profiles loaded, in
   every release since 0.2.0; a Rust test now covers the loader. It sits in the
   card header after the delivery mode ("set before IP"), not at the roll-in,
   and leads the attack editor's key numbers.
-- Under the hood: every colour on the card now comes from a theme, as the
-  groundwork for Night and NVG cards. Day draws exactly as before, pinned by
-  draw-call hashes in geo-check.
+- Under the hood: every colour on the card comes from a theme, and each
+  theme's drawing is pinned by draw-call hashes in geo-check.
 - **Waypoints are fixed.** The route is the mission author's: the waypoint
   list lost its delete button, and nothing in the app can add, edit, delete
   or move a waypoint. Custom IPs still drag.
