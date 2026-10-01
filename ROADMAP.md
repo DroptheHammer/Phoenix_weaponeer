@@ -106,11 +106,7 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ## Shipped
 
 ### Unreleased (on `main`, next desktop release)
-- **The phoenix app icon** replaces the placeholder: installers, taskbar and
-  window, browser tab, and the phone's home screen. The Mac and phone icons sit
-  on a dark tile; Windows and Linux use the clear background. The art is
-  AI-generated; `docs/ARTWORK.md` has where it lives and how to regenerate it.
-  Not yet seen on Windows or Linux.
+- Nothing yet.
 
 ### v0.3.2 — 2026-09-30
 - **Night and NVG kneeboard cards.** A **Lighting** dropdown on the Cards panel
@@ -274,6 +270,3 @@ Settled with the user. Don't reopen these without asking.
   targets apply to the new Night and NVG cards.
 - Deleting or editing imported waypoints: the route is the mission author's
   and stays fixed (2026-09-29, memory `project-imported-waypoints-are-fixed`).
-- A splash screen at start-up: built and seen in the real app, then removed
-  the same day (2026-09-30). The app opens straight to the planner. The
-  phoenix icon stays.

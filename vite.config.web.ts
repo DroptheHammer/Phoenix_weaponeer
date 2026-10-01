@@ -11,15 +11,11 @@ import { fileURLToPath } from "node:url";
 const THEME = "#16213e"; // dcs-navy, the header colour
 const BACKGROUND = "#1a1a2e"; // dcs-dark
 
-/**
- * The phone's home-screen icons, kept in `src-tauri/icons/web/` beside the desktop
- * set rather than copied into the repo: the phoenix on a full dark square, because
- * phones round the corners themselves.
- */
+/** The app icons, taken from the desktop app's set rather than copied into the repo. */
 const ICONS: [from: string, to: string][] = [
-  ["web/icon-192.png", "icons/icon-192.png"],
-  ["web/icon-512.png", "icons/icon-512.png"],
-  ["web/apple-touch-icon.png", "icons/apple-touch-icon.png"],
+  ["android/mipmap-xxxhdpi/ic_launcher.png", "icons/icon-192.png"],
+  ["icon.png", "icons/icon-512.png"],
+  ["ios/AppIcon-60x60@3x.png", "icons/apple-touch-icon.png"],
 ];
 
 /** Emits the icons and adds the phone-only tags to index.html (the desktop build keeps its own). */
