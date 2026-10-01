@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { platform } from '@platform';
 import { useVisibleMission } from '../../hooks/useVisibleMission';
 import { useUiStore } from '../../stores/uiStore';
+import { useMissionStore } from '../../stores/missionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { buildKneeboardCard, kneeboardFilename, type ThreatSystemInfo } from '../../lib/buildKneeboardCard';
 import { claimFilename } from '../../lib/kneeboardExportPlan';
@@ -9,7 +10,8 @@ import type { MapStatus } from '../../lib/renderKneeboardCanvas';
 import type { ShareResult } from '../../lib/platform/types';
 import type { DbWeapon, FuzeOption } from '../../types';
 import { isRealWorld, REAL_WORLD_SHARE_WARNING } from '../../lib/strikeNearMe';
-import { attackCardLabel, exportMapNote, previewMapNote } from './cardText';
+import { CARD_LIGHTINGS, themeForLighting, type CardLighting } from '../../lib/cardTheme';
+import { attackCardLabel, exportMapNote, LIGHTING_LABEL, previewMapNote } from './cardText';
 import { useCardImages, type CardEntry } from './useCardImages';
 import { CardZoom } from './CardZoom';
 import { KneeboardMode } from './KneeboardMode';
@@ -50,6 +52,9 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
   const mission = useVisibleMission();
   const kneeboardMap = useUiStore((state) => state.kneeboardMap);
   const setKneeboardMap = useSettingsStore((state) => state.setKneeboardMap);
+  // The lighting belongs to the mission, so the carousel, the zoom, kneeboard mode and every share draw the same look.
+  const setCardLighting = useMissionStore((state) => state.setCardLighting);
+  const theme = themeForLighting(mission?.cardLighting);
 
   const [index, setIndex] = useState(0);
   const [zoomed, setZoomed] = useState<string | null>(null);
@@ -70,7 +75,7 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
   }, [mission, weapons, fuzeOptions, threatSystems]);
 
   const shown = Math.min(Math.max(0, index), Math.max(0, entries.length - 1));
-  const { imageOf, mapLoading, finalImage } = useCardImages(entries, kneeboardMap, shown);
+  const { imageOf, mapLoading, finalImage } = useCardImages(entries, kneeboardMap, shown, theme);
 
   const onScroll = () => {
     const scroller = scrollerRef.current;
@@ -231,17 +236,35 @@ export function PhoneCards({ weapons, fuzeOptions, threatSystems }: PhoneCardsPr
         </div>
       )}
 
-      {/* Map under the north-up picture */}
-      <label className="shrink-0 flex items-center gap-2 min-h-[44px] text-sm text-gray-300 cursor-pointer">
-        <input
-          type="checkbox"
-          className="w-5 h-5"
-          checked={kneeboardMap}
-          onChange={(e) => void setKneeboardMap(e.target.checked)}
-        />
-        Map background
-        {mapNote && <span className="text-gray-500">· {mapNote}</span>}
-      </label>
+      {/* Map under the north-up picture, and the lighting the cards are drawn in. They wrap onto two lines when the map note is long. */}
+      <div className="shrink-0 flex flex-wrap items-center gap-x-4">
+        <label className="flex items-center gap-2 min-h-[44px] text-sm text-gray-300 cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-5 h-5"
+            checked={kneeboardMap}
+            onChange={(e) => void setKneeboardMap(e.target.checked)}
+          />
+          Map background
+          {mapNote && <span className="text-gray-500">· {mapNote}</span>}
+        </label>
+        <div className="ml-auto flex items-center gap-2">
+          <label htmlFor="card-lighting" className="text-sm text-gray-300">Lighting</label>
+          {/* 16px text and 44px tall: iOS zooms the page into anything smaller. */}
+          <select
+            id="card-lighting"
+            value={mission.cardLighting ?? 'day'}
+            onChange={(e) => setCardLighting(e.target.value as CardLighting)}
+            className="min-h-[44px] bg-dcs-dark text-white text-base rounded-lg px-3 border border-gray-600"
+          >
+            {CARD_LIGHTINGS.map((lighting) => (
+              <option key={lighting} value={lighting}>
+                {LIGHTING_LABEL[lighting]}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {message && (
         <button

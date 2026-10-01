@@ -1,7 +1,35 @@
 //! The saved-mission format.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+
+/// The lighting the kneeboard cards are drawn in: the plain Day card, the red
+/// Night card, or the green card for night-vision goggles. Saved as the words
+/// "day", "night" and "nvg".
+///
+/// A saved or shared file is not trusted to spell it right. Anything that is not
+/// one of the three words, whatever its type, loads as Day, so a typo can never
+/// stop a mission from opening.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CardLighting {
+    #[default]
+    Day,
+    Night,
+    Nvg,
+}
+
+impl<'de> Deserialize<'de> for CardLighting {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Read any JSON value, so a number or a null fails nowhere.
+        let value = Value::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            Some("night") => CardLighting::Night,
+            Some("nvg") => CardLighting::Nvg,
+            _ => CardLighting::Day,
+        })
+    }
+}
 
 /// Mission data structure
 ///
@@ -28,6 +56,9 @@ pub struct Mission {
     /// Coordinated multi-ship strikes (2026-09-23). Defaulted so earlier saves still load.
     #[serde(default)]
     pub strikes: Vec<Value>,
+    /// Which lighting the cards are drawn in (2026-09-30). Defaulted so earlier saves still load, as Day.
+    #[serde(default)]
+    pub card_lighting: CardLighting,
     pub notes: String,
     pub created_at: String,
     pub updated_at: String,
@@ -179,5 +210,54 @@ mod tests {
         assert_eq!(mission.strikes.len(), 1);
         let back = parse_saved_mission(&mission_to_json(&mission).unwrap()).expect("reload");
         assert_eq!(back.strikes[0]["name"], "Viper 1 strike");
+    }
+
+    /// A save from before card lighting existed has no `cardLighting` key and
+    /// must load as Day; Night and NVG must be written out and read back, under
+    /// the camelCase key the frontend uses. Without the field serde silently
+    /// drops it, and without `#[serde(default)]` the old save stops loading.
+    #[test]
+    fn card_lighting_defaults_to_day_and_survives_a_round_trip() {
+        let old = r#"{
+            "id":"m1","name":"Test","date":"2026-09-11","theater":"nevada",
+            "bullseye":{"lat":31.0,"lon":34.0},
+            "waypoints":[],"threats":[],"flightMembers":[],"attacks":[],
+            "notes":"","createdAt":"x","updatedAt":"x"
+        }"#;
+        assert_eq!(parse_saved_mission(old).expect("old save loads").card_lighting, CardLighting::Day);
+
+        for (word, lighting) in [("night", CardLighting::Night), ("nvg", CardLighting::Nvg)] {
+            let saved = old.replace(r#""notes":"","#, &format!(r#""cardLighting":"{word}","notes":"","#));
+            let mission = parse_saved_mission(&saved).expect("save with a lighting loads");
+            assert_eq!(mission.card_lighting, lighting);
+            let on_disk = mission_to_json(&mission).unwrap();
+            assert!(on_disk.contains(&format!("\"cardLighting\": \"{word}\"")), "got: {on_disk}");
+            let back = parse_saved_mission(&on_disk).expect("reload");
+            assert_eq!(back.card_lighting, lighting);
+        }
+    }
+
+    /// A shared mission file is untrusted, and a misspelt or mistyped lighting
+    /// must not stop it from opening: it loads as Day. This is the case a derived
+    /// enum would fail, with "unknown variant" for the word and "invalid type"
+    /// for the number.
+    #[test]
+    fn an_unrecognised_card_lighting_loads_as_day() {
+        let with = |lighting: &str| {
+            format!(
+                r#"{{
+                "id":"m1","name":"Test","date":"2026-09-11","theater":"nevada",
+                "bullseye":{{"lat":31.0,"lon":34.0}},
+                "waypoints":[],"threats":[],"flightMembers":[],"attacks":[],
+                "cardLighting":{lighting},
+                "notes":"","createdAt":"x","updatedAt":"x"
+            }}"#
+            )
+        };
+        for bad in [r#""banana""#, "7", "null", "true", r#"{"mode":"night"}"#, r#""NIGHT""#] {
+            let mission = parse_saved_mission(&with(bad))
+                .unwrap_or_else(|e| panic!("{bad} must not stop the mission loading: {e}"));
+            assert_eq!(mission.card_lighting, CardLighting::Day, "{bad} should load as Day");
+        }
     }
 }

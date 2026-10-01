@@ -1666,6 +1666,24 @@ ok('validateMission: a strike name that is not text is refused',
 ok('validateMission: a non-numeric TOT offset is refused',
    !validateMission({ ...goodMission, attacks: [{ ...goodMission.attacks[0], strikeId: 's1', totOffset_s: '30' }] }).ok);
 
+// The card lighting. An unknown one must not stop a shared file from opening, but
+// the mission that comes out must hold a lighting the picker can show.
+const lightingOf = (value: unknown) => {
+  const check = validateMission({ ...goodMission, cardLighting: value });
+  return check.ok ? (check.mission.cardLighting ?? null) : 'refused';
+};
+ok('validateMission: a save without a card lighting passes, and stays without one',
+   validateMission(goodMission).ok && lightingOf(undefined) === null);
+ok('validateMission: each known card lighting passes as it is',
+   CARD_LIGHTINGS.every((l) => lightingOf(l) === l), CARD_LIGHTINGS.map((l) => `${l} -> ${lightingOf(l)}`).join(', '));
+ok('validateMission: a card lighting this build does not know opens as day, not refused',
+   ['banana', 'NIGHT', '', 7, null, true, { mode: 'night' }, ['nvg']].every((v) => lightingOf(v) === 'day'),
+   ['banana', 'NIGHT', '', 7, null, true].map((v) => `${JSON.stringify(v)} -> ${lightingOf(v)}`).join(', '));
+const oddLighting = { ...goodMission, cardLighting: 'banana' };
+validateMission(oddLighting);
+ok('validateMission: fixing the lighting is done on a copy, never on the file that was read',
+   oddLighting.cardLighting === 'banana');
+
 // ─── Strike near me (real-world pseudo-theater) ──────────────────────────────
 // Synthetic points only: the repo never holds a real address (CLAUDE.md, Privacy).
 {
@@ -1771,6 +1789,39 @@ ok('validateMission: a non-numeric TOT offset is refused',
   for (let i = 0; i < HISTORY_LIMIT + 10; i++) history = recordEdit(history, mkMission(i), false);
   ok(`undo: the trail keeps only the last ${HISTORY_LIMIT} steps`,
      history.past.length === HISTORY_LIMIT && (history.past[0] as { id: string }).id === '10');
+}
+
+// ─── Card lighting is saved with the mission ─────────────────────────────────
+{
+  const store = useMissionStore;
+  const lighting = () => store.getState().mission?.cardLighting;
+  store.getState().createMission('Lighting test', 'caucasus' as never);
+  ok('card lighting: a new mission has none set, which draws as Day',
+     lighting() === undefined && themeForLighting(lighting()) === DAY_THEME);
+
+  store.getState().setCardLighting('night');
+  ok('card lighting: picking Night is saved on the mission and marks it unsaved',
+     lighting() === 'night' && store.getState().isDirty);
+  store.getState().undo();
+  ok('card lighting: Undo takes the pick back, and the mission is clean again',
+     (lighting() ?? 'day') === 'day' && !store.getState().isDirty, String(lighting()));
+  store.getState().redo();
+  store.getState().setCardLighting('nvg');
+  ok('card lighting: two picks in a row are two Undo steps, not one',
+     lighting() === 'nvg' && store.getState().past.length === 2, `${store.getState().past.length} steps`);
+  const stepsBefore = store.getState().past.length;
+  store.getState().setCardLighting('nvg');
+  ok('card lighting: picking the lighting already set is not an edit',
+     store.getState().past.length === stepsBefore);
+
+  // Opening a mission saved before lighting existed, or one the file gate repaired.
+  const saved = { ...store.getState().mission! } as Record<string, unknown>;
+  delete saved.cardLighting;
+  store.getState().loadMission(saved as never);
+  ok('card lighting: an opened mission with none loads as day', lighting() === 'day');
+  store.getState().loadMission({ ...saved, cardLighting: 'night' } as never);
+  ok('card lighting: an opened mission keeps the lighting it was saved with', lighting() === 'night');
+  store.getState().closeMission();
 }
 
 // ─── Waypoints are fixed ─────────────────────────────────────────────────────

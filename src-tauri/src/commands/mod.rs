@@ -328,7 +328,7 @@ pub fn suggest_kneeboard_folder(kneeboard_path: String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use weaponeer_core::mission::Coordinates;
+    use weaponeer_core::mission::{CardLighting, Coordinates};
 
     /// A fresh, empty scratch folder per test.
     fn scratch_dir(name: &str) -> PathBuf {
@@ -423,6 +423,7 @@ mod tests {
             flight_members: vec![],
             attacks: vec![],
             strikes: vec![],
+            card_lighting: CardLighting::Day,
             notes: String::new(),
             created_at: String::new(),
             updated_at: String::new(),
@@ -448,10 +449,12 @@ mod tests {
         let path = scratch_dir("mission_round_trip").join("m.json");
         let mut mission = empty_mission();
         mission.strikes = vec![serde_json::json!({"id": "s1", "name": "Viper 1 strike"})];
+        mission.card_lighting = CardLighting::Night;
         save_mission(mission, path.to_string_lossy().into_owned()).expect("save");
         let back = load_mission(path.to_string_lossy().into_owned()).expect("load");
         assert_eq!(back.name, "Op");
         assert_eq!(back.strikes[0]["name"], "Viper 1 strike");
+        assert_eq!(back.card_lighting, CardLighting::Night);
     }
 
     #[test]

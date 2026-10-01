@@ -3,6 +3,7 @@ import { ThreatInstance } from './threat.types';
 import { FlightMember } from './flight.types';
 import { Attack } from './attack.types';
 import type { Strike } from './strike.types';
+import type { CardLighting } from '../lib/cardTheme';
 
 export interface Mission {
   id: string;
@@ -17,6 +18,8 @@ export interface Mission {
   attacks: Attack[];
   /** Coordinated multi-ship attacks. Optional: saves from before strikes existed load without it. */
   strikes?: Strike[];
+  /** The lighting the cards are drawn in. Optional: a save from before it existed, or a mission never switched, is Day. */
+  cardLighting?: CardLighting;
 
   notes: string;
   createdAt: string; // ISO timestamp

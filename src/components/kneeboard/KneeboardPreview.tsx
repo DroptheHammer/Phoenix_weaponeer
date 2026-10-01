@@ -2,6 +2,8 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { platform } from '@platform';
 import { useVisibleMission } from '../../hooks/useVisibleMission';
 import { useUiStore } from '../../stores/uiStore';
+import { useMissionStore } from '../../stores/missionStore';
+import { CARD_LIGHTINGS, themeForLighting, type CardLighting } from '../../lib/cardTheme';
 import { buildKneeboardCard, kneeboardFilename, type ThreatSystemInfo } from '../../lib/buildKneeboardCard';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { chooseKneeboardFolder, folderStillThere } from '../../lib/dcsExport';
@@ -19,7 +21,7 @@ import { briefPackFilename, briefPackZip, type PackCard } from '../../lib/briefP
 import { cachedBasemapTiles, loadBasemapTiles } from '../../lib/kneeboardBasemap';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { isRealWorld, REAL_WORLD_SHARE_WARNING } from '../../lib/strikeNearMe';
-import { attackCardLabel, exportMapNote, previewMapNote } from './cardText';
+import { attackCardLabel, exportMapNote, LIGHTING_LABEL, previewMapNote } from './cardText';
 import { PhoneCards } from './PhoneCards';
 import type { KneeboardCard } from '../../types/kneeboard.types';
 import type { DbWeapon, FuzeOption } from '../../types';
@@ -48,6 +50,9 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
   const mission = useVisibleMission();
   const kneeboardMap = useUiStore((state) => state.kneeboardMap);
   const setKneeboardMap = useSettingsStore((state) => state.setKneeboardMap);
+  // The lighting belongs to the mission, so the preview, every export and the brief pack draw the same look.
+  const setCardLighting = useMissionStore((state) => state.setCardLighting);
+  const theme = themeForLighting(mission?.cardLighting);
   const kneeboardFolders = useSettingsStore((state) => state.settings.kneeboardFolders);
   const setKneeboardFolder = useSettingsStore((state) => state.setKneeboardFolder);
 
@@ -100,7 +105,7 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     if (!pCtx) return;
 
     const paint = () => {
-      const report = renderKneeboardCard(fullCanvas, card, kneeboardMap ? cachedBasemapTiles : undefined);
+      const report = renderKneeboardCard(fullCanvas, card, kneeboardMap ? cachedBasemapTiles : undefined, theme);
       previewCanvas.width = PREVIEW_WIDTH;
       previewCanvas.height = PREVIEW_HEIGHT;
       pCtx.drawImage(fullCanvas, 0, 0, KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, 0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT);
@@ -123,16 +128,16 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
     return () => {
       cancelled = true;
     };
-  }, [mission, selectedAttackId, weapons, fuzeOptions, threatSystems, kneeboardMap]);
+  }, [mission, selectedAttackId, weapons, fuzeOptions, threatSystems, kneeboardMap, theme]);
 
   /** Render one card on its own canvas, so a preview redraw can never land between draw and encode. */
   const renderForExport = useCallback(
     async (card: KneeboardCard) => {
       const canvas = document.createElement('canvas');
-      const status = await renderKneeboardCardWithMap(canvas, card, { map: kneeboardMap });
+      const status = await renderKneeboardCardWithMap(canvas, card, { map: kneeboardMap, theme });
       return { base64: canvasToBase64Png(canvas), status };
     },
-    [kneeboardMap],
+    [kneeboardMap, theme],
   );
 
   /** A "Strike near me" card shows a real location: ask before it is saved out. */
@@ -366,12 +371,29 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
         />
       </div>
 
-      {/* Map under the north-up picture */}
-      <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-        <input type="checkbox" checked={kneeboardMap} onChange={(e) => void setKneeboardMap(e.target.checked)} />
-        Map background
-        {mapNote && <span className="text-gray-500">· {mapNote}</span>}
-      </label>
+      {/* Map under the north-up picture, and the lighting the cards are drawn in. They wrap onto two lines when the map note is long. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+          <input type="checkbox" checked={kneeboardMap} onChange={(e) => void setKneeboardMap(e.target.checked)} />
+          Map background
+          {mapNote && <span className="text-gray-500">· {mapNote}</span>}
+        </label>
+        <div className="ml-auto flex items-center gap-2">
+          <label htmlFor="card-lighting" className="text-xs text-gray-400">Lighting</label>
+          <select
+            id="card-lighting"
+            value={mission.cardLighting ?? 'day'}
+            onChange={(e) => setCardLighting(e.target.value as CardLighting)}
+            className="bg-dcs-dark text-white text-sm rounded px-2 py-1 border border-gray-600"
+          >
+            {CARD_LIGHTINGS.map((lighting) => (
+              <option key={lighting} value={lighting}>
+                {LIGHTING_LABEL[lighting]}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {/* Export controls */}
       <div className="space-y-2">

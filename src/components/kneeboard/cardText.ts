@@ -1,5 +1,9 @@
 import type { Mission } from '../../types/mission.types';
 import type { MapStatus } from '../../lib/renderKneeboardCanvas';
+import type { CardLighting } from '../../lib/cardTheme';
+
+/** What each card lighting is called in the Lighting picker, desktop and phone. */
+export const LIGHTING_LABEL: Record<CardLighting, string> = { day: 'Day', night: 'Night', nvg: 'NVG' };
 
 /** "Viper 1-1 → TGT1 (DIVE CCIP)": which card is which, in the picker and under each card. */
 export function attackCardLabel(mission: Mission, attackId: string): string {

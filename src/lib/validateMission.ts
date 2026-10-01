@@ -1,4 +1,5 @@
 import type { Mission } from '../types/mission.types';
+import { CARD_LIGHTINGS, type CardLighting } from './cardTheme';
 
 /**
  * The gate between a saved mission file and the store.
@@ -134,7 +135,17 @@ export function validateMission(raw: unknown): MissionCheck {
     }
   }
 
-  if (problems.length === 0) return { ok: true, mission: raw as unknown as Mission };
+  if (problems.length === 0) {
+    const mission = raw as unknown as Mission;
+    // The card lighting is optional too, and a word this build does not know (a
+    // typo, or a newer version's) is not worth refusing the file for: the cards
+    // would only fall back to Day. Say so here, on a copy, so the store never
+    // holds a lighting the picker cannot show.
+    if (raw.cardLighting !== undefined && !CARD_LIGHTINGS.includes(raw.cardLighting as CardLighting)) {
+      return { ok: true, mission: { ...mission, cardLighting: 'day' } };
+    }
+    return { ok: true, mission };
+  }
   const extra = problems.length - MAX_PROBLEMS;
   return {
     ok: false,

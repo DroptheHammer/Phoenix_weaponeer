@@ -4,6 +4,7 @@ import { normalizeImportedCallsign } from '../lib/callsign';
 import { importNotes } from '../lib/importNotes';
 import { removeAttackFrom, moveAttackCustomIp } from '../lib/missionOps';
 import { saveStrikeTo, removeStrikeFrom } from '../lib/strike';
+import type { CardLighting } from '../lib/cardTheme';
 import { COALESCE_MS, EMPTY_HISTORY, recordEdit, redoStep, undoStep } from '../lib/missionHistory';
 import { useUiStore } from './uiStore';
 import type {
@@ -103,6 +104,8 @@ interface MissionState {
   closeMission: () => void;
   updateMissionName: (name: string) => void;
   updateMissionNotes: (notes: string) => void;
+  /** Which lighting the cards are drawn in. Saved with the mission, so it is an undoable edit. */
+  setCardLighting: (lighting: CardLighting) => void;
   importFromFragOrders: (data: FragOrdersData, groupIndex: number) => void;
 
   // No waypoint actions, on purpose: the route is the mission author's and stays
@@ -192,7 +195,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   },
 
   loadMission: (mission: Mission, filePath?: string) => {
-    const loaded = { ...mission, strikes: mission.strikes ?? [] };
+    const loaded = { ...mission, strikes: mission.strikes ?? [], cardLighting: mission.cardLighting ?? 'day' };
     lastEdit = null;
     set({ mission: loaded, ...EMPTY_HISTORY, savedMission: loaded, isDirty: false, filePath: filePath ?? null });
   },
@@ -212,6 +215,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const { mission } = get();
     if (!mission) return;
     edit({ ...mission, notes, updatedAt: new Date().toISOString() }, 'mission-notes');
+  },
+
+  // No coalescing key: a pick from a list is one step, and Undo should take it back whole.
+  setCardLighting: (cardLighting: CardLighting) => {
+    const { mission } = get();
+    if (!mission || (mission.cardLighting ?? 'day') === cardLighting) return;
+    edit({ ...mission, cardLighting, updatedAt: new Date().toISOString() });
   },
 
   importFromFragOrders: (data: FragOrdersData, groupIndex: number) => {

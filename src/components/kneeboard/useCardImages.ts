@@ -6,6 +6,7 @@ import {
   mapStatusOf,
   type MapStatus,
 } from '../../lib/renderKneeboardCanvas';
+import type { CardTheme } from '../../lib/cardTheme';
 import type { KneeboardCard } from '../../types/kneeboard.types';
 
 /** One attack's card, ready to draw. */
@@ -49,7 +50,7 @@ function nearestFirst(from: number, n: number): number[] {
  * whatever map tiles are cached, then once more when the rest arrive: the
  * carousel fills in quickly even on a slow connection.
  */
-export function useCardImages(entries: CardEntry[], map: boolean, current: number) {
+export function useCardImages(entries: CardEntry[], map: boolean, current: number, theme: CardTheme) {
   const images = useRef(new Map<string, CardImage>());
   const [, setVersion] = useState(0);
   const [mapLoading, setMapLoading] = useState(false);
@@ -86,7 +87,7 @@ export function useCardImages(entries: CardEntry[], map: boolean, current: numbe
         await nextFrame();
         if (cancelled) return;
         const entry = entries[i];
-        const report = renderKneeboardCard(canvas, entry.card, map ? cachedBasemapTiles : undefined);
+        const report = renderKneeboardCard(canvas, entry.card, map ? cachedBasemapTiles : undefined, theme);
         const blob = await toPngBlob(canvas);
         if (cancelled) return;
         const pending = map && report !== undefined && report.pending > 0;
@@ -102,7 +103,7 @@ export function useCardImages(entries: CardEntry[], map: boolean, current: numbe
       for (const { entry } of waiting) {
         await nextFrame();
         if (cancelled) return;
-        const report = renderKneeboardCard(canvas, entry.card, cachedBasemapTiles);
+        const report = renderKneeboardCard(canvas, entry.card, cachedBasemapTiles, theme);
         const blob = await toPngBlob(canvas);
         if (cancelled) return;
         publish(entry.attackId, { url: URL.createObjectURL(blob), blob, status: mapStatusOf(report, true), final: true });
@@ -118,7 +119,7 @@ export function useCardImages(entries: CardEntry[], map: boolean, current: numbe
       cancelled = true;
       setMapLoading(false);
     };
-  }, [entries, map, publish]);
+  }, [entries, map, theme, publish]);
 
   // Free every image when the Cards panel closes.
   useEffect(() => {
@@ -138,10 +139,10 @@ export function useCardImages(entries: CardEntry[], map: boolean, current: numbe
       const ready = images.current.get(entry.attackId);
       if (ready?.final) return ready;
       const canvas = document.createElement('canvas');
-      const status = await renderKneeboardCardWithMap(canvas, entry.card, { map });
+      const status = await renderKneeboardCardWithMap(canvas, entry.card, { map, theme });
       return { blob: await toPngBlob(canvas), status };
     },
-    [map],
+    [map, theme],
   );
 
   return {
