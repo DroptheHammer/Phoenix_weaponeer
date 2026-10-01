@@ -83,8 +83,10 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       an Android phone hasn't yet. In Chrome: Add to Home Screen, offline
       launch, the share sheet, screen wake lock, GPS for "Strike near me",
       crosshair precision.
-- [ ] **On-screen check of the 2026-09-29 and 2026-09-30 changes** (user,
-      desktop, `npm run tauri dev`):
+- [ ] **In-use check of 0.3.2** (released 2026-09-30 before each item below was
+      reported back; ask the user):
+  - [ ] Cards at 3× (2304×3072) look sharp in DCS, on a monitor and in VR.
+  - [ ] The phone cards carousel copes with 3× images on an iPhone.
   - [ ] Cards panel → **Lighting** dropdown switches the preview between Day,
         Night and NVG, survives save and reopen, and exports in that lighting.
   - [ ] The larger card text reads well at kneeboard size, and the attack
@@ -104,6 +106,9 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ## Shipped
 
 ### Unreleased (on `main`, next desktop release)
+- Nothing yet.
+
+### v0.3.2 — 2026-09-30
 - **Night and NVG kneeboard cards.** A **Lighting** dropdown on the Cards panel
   (desktop and phone) picks Day, Night or NVG for the whole mission, and is
   saved with it; Day stays the default. Night is the squadron's pick N5a

@@ -221,102 +221,50 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-29 UTC (Opus 5.5 orchestrating on the main Mac,
-with Sonnet 5.5 builders and Opus 5.5 agents for the audit and the palette
-design). Nothing was released. **0.3.2 now waits for the squadron's vote on
-the Night and NVG cards.**
+**Last session:** 2026-09-30 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **v0.3.2 released and published as Latest**:
+release run 36817925144 (all 3 platforms, all 7 installers), web app published
+by Pages run 36818732172. Privacy scan clean (known false positives only).
 
-**Pushed to `main`, all gates green:** geo-check 402, core 100, desktop 24
-(+1 ignored), `npm run build`, and Pages runs 36586140247 and 36599807219.
-- `048bd5f` **The sight setting fix.** No manual-dive card had printed its
-  sight mils in any release since 0.2.0: Rust `SightSetting` had
-  `rename_all = "camelCase"` and silently dropped `depression_mils`. It is now
-  snake_case, with `deny_unknown_fields` and an alias. New Rust tests go
-  through the real loader, and all four fail when the bug is put back.
-- `d4c4a6a` **The user's three changes** after the on-screen check (all four
-  quick wins passed):
-  - the sight moved into the card header after the delivery mode ("· SIGHT
-    100 mils · set before IP", in amber) and into the editor's key numbers;
-  - Copy to… became a compact **Copy** button with a pop-up menu;
-  - imported waypoints are fixed: no delete, and the store has no waypoint
-    actions at all.
-- `0a3d260` **Card theme groundwork.** Every card colour comes from a
-  `CardTheme` (`src/lib/cardTheme.ts`). `DAY_THEME` draws byte for byte as
-  before, pinned by draw-call hashes in geo-check. Dark themes tint the map
-  tiles with blend modes, with a wash as a fallback.
-- **Checked but not committed:**
-  - A throwaway installer run, `v0.3.2-test1` (run 36532321132), passed on all
-    three platforms. All 7 installers came out, about half 0.3.1's size. The
-    draft and the tag are deleted.
-  - The privacy scan came back clean (known false positives only). Run it again
-    at the release.
+**What went into 0.3.2 this session** (all gates green at the tag: geo-check
+479, core 102, desktop 24 + 1 ignored, `npm run build`):
+- `6029078` **Larger card text**, by squadron vote: every font +2 px, the
+  layout grown to fit, "→ STPT"/"#1" on plates, ROLL fits its disc, the
+  elevation in whole feet. The mockup page that won the vote is in
+  `Other Items/card-themes/large-text/`. Memory `project-card-text-size`.
+- `5461b91` **Night (N5a) and NVG (G5a) themes** in `src/lib/cardTheme.ts`.
+  geo-check enforces the family rules and AA contrast in protan and deutan
+  vision (`src/lib/cardContrast.ts`). The margins are thin on purpose.
+- `7809d8e` **Lighting dropdown** (Day / Night / NVG) on the Cards panel,
+  desktop and phone, saved with the mission as `cardLighting`. In Rust it is an
+  enum where an unknown value loads as Day. Memory `project-night-nvg-kneeboards`.
+- `4bca21d` **Cards export at 3×, 2304×3072.** The user found 1× soft in DCS.
+  The layout stays in 768×1024 units under one transform. The map is one zoom
+  level finer, never two. Still lossless PNG, 1–2.5 MB per card.
 
-**Night and NVG cards, the 0.3.2 blocker:**
-- **Round 1 was superseded.** N1–N3 and G1–G3, each in flavours a and b. The
-  user then asked for WCAG 2.1 AA, and relaxed it to "closer to the standard",
-  with colour-blind squad members the real concern (memory
-  `project-card-accessibility-cvd`). The audit scored Day 67%, G1 and G2 about
-  90%, N1 about 78% and N3 about 5%.
-- **Round 2 is checked with the audit tool.** It has four palettes:
-  - **N4:** N1 brought up to the standard;
-  - **N5:** the dimmest red a red-blind pilot can read;
-  - **G4:** G1 brought up to the standard;
-  - **G5:** the dimmest green.
-
-  Each comes as **a** (today's attack colours) and **b** (the family colour,
-  with stages told apart by dash and width). 99% of checks pass, in normal
-  vision and in the colour-blind simulations. The only failures are the two
-  labels the renderer prints across a line.
-- **The squad vote is ready to post.** `Other Items/card-themes/squad-upload/`
-  holds the page (`Kneeboard-Lighting-Trials.html`), the test zip
-  (`Kneeboard-Test-Cards.zip`) and `discord-post.md` (the message and two Sesh
-  `/poll` commands). The user posts them and brings back one Night winner and
-  one NVG winner.
-- **All of this exists only on the main Mac,** in the git-ignored
-  `Other Items/card-themes/`:
-  - the theme definitions: `src/themes-aa.ts`;
-  - the audit: `wcag.sh` and `src/wcag.ts`, which has a colour-blind mode;
-  - the renders: `png-aa/`;
-  - the reports: `wcag/` and `wcag-aa-verify/`;
-  - the page and zip pipeline: `poll/` (see its README).
-- **Decided:** the Day card's colours stay as they are. Accessibility for Day is
-  parked for a far-future UI/UX overhaul (`ROADMAP.md`).
-
-**Designed, not built:** "Jets arrive loaded" for 0.3.3, meaning the loadout
-from the FragOrders link plus per-aircraft weapon lists. See
-`docs/LOADOUT_IMPORT_PLAN.md`.
+**Not yet verified, and worth asking the user about:**
+- How DCS shows a 2304×3072 card. It was built without a DCS test, by choice.
+- iPhone memory in the cards carousel at 3×.
+- The attack editor's side view in the phone's 150 px strip.
+- The user ran the release without reporting the on-screen check item by item:
+  the Lighting dropdown, the header sight, the Copy menu, the waypoint list.
+  Ask whether anything looked off.
 
 **Process notes:**
-- Two builders slipped with `cd`. No stray `.claude` folder appeared (checked).
-- One `git push` failed with no reason given; the retry went through.
+- I `cd`'d once into `Other Items/.../png`. The harness made a `.claude/.cc-writes`
+  folder there (empty; removed).
+- No project "run" skill exists. Building the phone web app locally needs the
+  wasm toolchain, which the user declined to install this session.
 
 ### START OF NEXT SESSION
 
-1. `git pull origin main`. The Night and NVG work needs the **main Mac**,
-   because `Other Items/` isn't in git. On any other machine, delete clones
-   older than 2026-09-23 and clone fresh.
-2. **Get the vote result** from the user: one Night code and one NVG code,
-   e.g. N4b and G5a.
-3. **Build the winners into the app, for 0.3.2:**
-   - Move the two winning themes from
-     `Other Items/card-themes/src/themes-aa.ts` into `src/lib/cardTheme.ts`.
-   - Add a Day / Night / NVG dropdown to the Cards panel, on desktop and
-     phone. It defaults to Day and is saved with the mission: add a
-     `#[serde(default)]` field to the Rust `Mission`, as `strikes` has. The
-     preview, export, Brief Pack and phone cards all use it.
-   - Tests: the family rules and contrast of the two themes (port the maths
-     from `src/wcag.ts`). Day's draw-call pins must not change.
-   - Fix three things:
-     - the two labels drawn across a line ("→ STPT 2" and "#1");
-     - round the target elevation (it prints "5,249.344ft");
-     - the side-view ROLL letters spilling past their disc.
-   - The user checks on screen: the header sight, the Copy menu, the
-     waypoint list, and the new dropdown.
-4. **Release 0.3.2** with the full checklist. Run the privacy scan again. The
-   installer pipeline already passed after the core move.
-5. **Then "Jets arrive loaded"** for 0.3.3 (`docs/LOADOUT_IMPORT_PLAN.md`).
-6. **Phone web app:** a real Android phone check is still open
+1. `git pull origin main`.
+2. **Ask about 0.3.2 in use:** 3× cards in DCS (monitor and VR), Night/NVG in
+   the cockpit, and the phone carousel. If the carousel is slow, show smaller
+   images there and share the full-size ones.
+3. **"Jets arrive loaded"** for 0.3.3 (`docs/LOADOUT_IMPORT_PLAN.md`).
+4. **Phone web app:** a real Android phone check is still open
    (`docs/MOBILE_WEB_PLAN.md`). Merge PRs from the Mac with `TZ=UTC`, never with
    GitHub's phone button.
-7. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
+5. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
    folder that broke geo-check (memory `feedback-commands-that-dont-prompt`).

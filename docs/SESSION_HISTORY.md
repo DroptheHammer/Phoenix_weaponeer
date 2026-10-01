@@ -1,6 +1,68 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+**Session:** 2026-09-29 UTC, later (Opus 5.5 orchestrating on the main Mac,
+with Sonnet 5.5 builders and Opus 5.5 agents for the audit and the palette
+design). Nothing was released. **0.3.2 then waited for the squadron's vote on
+the Night and NVG cards** (it came in on 2026-09-30: N5a and G5a).
+
+**Pushed to `main`, all gates green:** geo-check 402, core 100, desktop 24
+(+1 ignored), `npm run build`, and Pages runs 36586140247 and 36599807219.
+- `048bd5f` **The sight setting fix.** No manual-dive card had printed its
+  sight mils in any release since 0.2.0: Rust `SightSetting` had
+  `rename_all = "camelCase"` and silently dropped `depression_mils`. It is now
+  snake_case, with `deny_unknown_fields` and an alias. New Rust tests go
+  through the real loader, and all four fail when the bug is put back.
+- `d4c4a6a` **The user's three changes** after the on-screen check (all four
+  quick wins passed):
+  - the sight moved into the card header after the delivery mode ("· SIGHT
+    100 mils · set before IP", in amber) and into the editor's key numbers;
+  - Copy to… became a compact **Copy** button with a pop-up menu;
+  - imported waypoints are fixed: no delete, and the store has no waypoint
+    actions at all.
+- `0a3d260` **Card theme groundwork.** Every card colour comes from a
+  `CardTheme` (`src/lib/cardTheme.ts`). `DAY_THEME` draws byte for byte as
+  before, pinned by draw-call hashes in geo-check. Dark themes tint the map
+  tiles with blend modes, with a wash as a fallback.
+- **Checked but not committed:**
+  - A throwaway installer run, `v0.3.2-test1` (run 36532321132), passed on all
+    three platforms. All 7 installers came out, about half 0.3.1's size. The
+    draft and the tag are deleted.
+  - The privacy scan came back clean (known false positives only).
+
+**Night and NVG cards:**
+- **Round 1 was superseded.** N1–N3 and G1–G3, each in flavours a and b. The
+  user then asked for WCAG 2.1 AA, and relaxed it to "closer to the standard",
+  with colour-blind squad members the real concern (memory
+  `project-card-accessibility-cvd`). The audit scored Day 67%, G1 and G2 about
+  90%, N1 about 78% and N3 about 5%.
+- **Round 2** had four palettes: **N4** (N1 brought up to the standard), **N5**
+  (the dimmest red a red-blind pilot can read), **G4** (G1 brought up to the
+  standard) and **G5** (the dimmest green). Each came as **a** (today's attack
+  colours) and **b** (the family colour, stages told apart by dash and width).
+  99% of checks passed; the only failures were two labels printed across a line.
+- **The squad vote package** is in `Other Items/card-themes/squad-upload/`
+  (page, test zip, `discord-post.md` with two Sesh `/poll` commands).
+- **Exploration files, main Mac only,** in git-ignored `Other Items/card-themes/`:
+  `src/themes-aa.ts`, `wcag.sh` + `src/wcag.ts`, `png-aa/`, `wcag/`,
+  `wcag-aa-verify/`, and the `poll/` page and zip pipeline.
+- **Decided:** the Day card's colours stay as they are. Accessibility for Day is
+  parked for a far-future UI/UX overhaul (`ROADMAP.md`).
+
+**Designed, not built:** "Jets arrive loaded" for 0.3.3
+(`docs/LOADOUT_IMPORT_PLAN.md`).
+
+**Process notes:** two builders slipped with `cd` (no stray `.claude` folder);
+one `git push` failed with no reason given and the retry went through.
+
+**Next steps as written then:** get the vote result; build the two winners,
+the Day/Night/NVG dropdown saved with the mission, the contrast and family-rule
+tests, and the three small fixes ("→ STPT 2"/"#1" across a line, elevation
+rounding, ROLL past its disc); user on-screen check; release 0.3.2; then
+"Jets arrive loaded".
+
+---
+
 **Session:** 2026-09-29 UTC, early (Sonnet 5.5, main Mac). Read-only research on
 every open `ROADMAP.md` item, then the four quick, low-risk wins were built.
 They are on `main` and **unreleased**:
