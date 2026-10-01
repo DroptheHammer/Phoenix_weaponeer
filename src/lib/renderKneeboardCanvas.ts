@@ -10,14 +10,36 @@ import {
   OSM_ATTRIBUTION,
   cachedBasemapTiles,
   loadBasemapTiles,
-  planBasemap,
+  planCardBasemap,
   tileRectPx,
   type BasemapReport,
   type BasemapTiles,
 } from './kneeboardBasemap';
 
+/** The size the card is laid out in. Every coordinate, font size and line width below is in these units. */
 export const KNEEBOARD_WIDTH = 768;
 export const KNEEBOARD_HEIGHT = 1024;
+
+/**
+ * How many pixels a card is drawn with for each layout unit. DCS stretches the card
+ * image to the kneeboard window, which is far bigger than 768 pixels on a 1440p or 4K
+ * screen and in VR, so a card with more pixels has sharper text there. The layout does
+ * not change: the canvas is scaled before anything is drawn, so a unit is 3 pixels.
+ */
+export const KNEEBOARD_SCALE = 3;
+/** The PNG's size in pixels at the default scale: 2304 x 3072, the same 3:4 shape. */
+export const KNEEBOARD_PIXEL_WIDTH = KNEEBOARD_WIDTH * KNEEBOARD_SCALE;
+export const KNEEBOARD_PIXEL_HEIGHT = KNEEBOARD_HEIGHT * KNEEBOARD_SCALE;
+
+/**
+ * Give a canvas's pixels back once its picture has been encoded. A card canvas is about
+ * 28 MB, and a phone caps the total memory of all its canvases (iOS Safari does), which
+ * canvases left for the garbage collector to find would use up.
+ */
+export function releaseCanvas(canvas: HTMLCanvasElement) {
+  canvas.width = 0;
+  canvas.height = 0;
+}
 
 // Every colour on the card comes from a `CardTheme` (cardTheme.ts), passed down to
 // each drawing function as `theme`. This file holds none of its own: a literal
@@ -433,10 +455,10 @@ function tintTile(ctx: CanvasRenderingContext2D, basemap: BasemapTreatment, tile
  * Grey OSM tiles under the picture, treated as the theme says (tinted, flipped),
  * then washed back so the attack stays loudest. Tiles not yet fetched are reported, not waited for.
  */
-function drawBasemap(ctx: CanvasRenderingContext2D, theme: CardTheme, basemap: BasemapTiles, view: PlanViewTransform, box: Rect): BasemapReport {
+function drawBasemap(ctx: CanvasRenderingContext2D, theme: CardTheme, basemap: BasemapTiles, view: PlanViewTransform, box: Rect, outputScale: number): BasemapReport {
   const nw = view.fromPx(box.x, box.y);
   const se = view.fromPx(box.x + box.w, box.y + box.h);
-  const tiles = planBasemap(nw, se, view.scale, view.target.lat);
+  const tiles = planCardBasemap(nw, se, view.scale, view.target.lat, outputScale);
   const report: BasemapReport = { tiles, drawn: 0, failed: 0, pending: 0 };
   for (const tile of tiles) {
     const image = basemap(tile);
@@ -466,6 +488,7 @@ function drawPlanView(
   box: Rect,
   basemap?: BasemapTiles,
   wingmen: { label: string; picture: AttackPicture }[] = [],
+  outputScale = 1,
 ): BasemapReport | undefined {
   fillRect(ctx, box.x, box.y, box.w, box.h, theme.diagramBg);
   const view = planViewTransform(picture, box);
@@ -478,7 +501,7 @@ function drawPlanView(
   ctx.rect(box.x, box.y, box.w, box.h);
   ctx.clip();
 
-  const report = basemap ? drawBasemap(ctx, theme, basemap, view, box) : undefined;
+  const report = basemap ? drawBasemap(ctx, theme, basemap, view, box, outputScale) : undefined;
 
   // Threat rings, as on the map: centre from bearing and distance off the target.
   for (const t of threats) {
@@ -810,12 +833,22 @@ const FOOTER_HEIGHT = 28;
  * tiles are already in hand; the report lists the tiles it wanted, so a caller
  * can fetch the rest and draw again. Without it the card is drawn plain.
  * `theme` is the card's look; left out, it is Day.
+ * `scale` is the pixels per layout unit (a whole number); left out, it is KNEEBOARD_SCALE.
+ * The card is laid out in 768 x 1024 whatever the scale, so only its sharpness changes.
  */
-export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCard, basemap?: BasemapTiles, theme: CardTheme = DAY_THEME): BasemapReport | undefined {
-  canvas.width = KNEEBOARD_WIDTH;
-  canvas.height = KNEEBOARD_HEIGHT;
+export function renderKneeboardCard(
+  canvas: HTMLCanvasElement,
+  card: KneeboardCard,
+  basemap?: BasemapTiles,
+  theme: CardTheme = DAY_THEME,
+  scale = KNEEBOARD_SCALE,
+): BasemapReport | undefined {
+  // Sizing the canvas also clears its transform, so the scale is set after it, every time.
+  canvas.width = KNEEBOARD_WIDTH * scale;
+  canvas.height = KNEEBOARD_HEIGHT * scale;
   const ctx = canvas.getContext('2d');
   if (!ctx) return undefined;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
   let report: BasemapReport | undefined;
 
   fillRect(ctx, 0, 0, KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, theme.bg);
@@ -839,7 +872,7 @@ export function renderKneeboardCard(canvas: HTMLCanvasElement, card: KneeboardCa
     const headingText = `ATTACK HDG ${fmtHdg(diagram.attackHeading_deg)}   ·   EGRESS ${diagram.egressDirection.toUpperCase()} ${fmtHdg(diagram.egressHeading_deg)}`;
     if (diagram.picture) {
       y = sectionStrip(ctx, theme, 'ATTACK — NORTH UP', y, headingText);
-      report = drawPlanView(ctx, theme, diagram.picture, card.threatSection.threats.slice(0, CARD_THREAT_ROWS), { x: 0, y, w: KNEEBOARD_WIDTH, h: planH }, basemap, diagram.wingmen);
+      report = drawPlanView(ctx, theme, diagram.picture, card.threatSection.threats.slice(0, CARD_THREAT_ROWS), { x: 0, y, w: KNEEBOARD_WIDTH, h: planH }, basemap, diagram.wingmen, scale);
       y += planH;
       hLine(ctx, y, theme.divider);
       y += 1;
@@ -882,16 +915,16 @@ export function mapStatusOf(report: BasemapReport | undefined, enabled: boolean)
 export async function renderKneeboardCardWithMap(
   canvas: HTMLCanvasElement,
   card: KneeboardCard,
-  opts: { map: boolean; timeoutMs?: number; theme?: CardTheme },
+  opts: { map: boolean; timeoutMs?: number; theme?: CardTheme; scale?: number },
 ): Promise<MapStatus> {
   if (!opts.map) {
-    renderKneeboardCard(canvas, card, undefined, opts.theme);
+    renderKneeboardCard(canvas, card, undefined, opts.theme, opts.scale);
     return 'off';
   }
-  let report = renderKneeboardCard(canvas, card, cachedBasemapTiles, opts.theme);
+  let report = renderKneeboardCard(canvas, card, cachedBasemapTiles, opts.theme, opts.scale);
   if (report && report.pending > 0) {
     await loadBasemapTiles(report.tiles, opts.timeoutMs);
-    report = renderKneeboardCard(canvas, card, cachedBasemapTiles, opts.theme);
+    report = renderKneeboardCard(canvas, card, cachedBasemapTiles, opts.theme, opts.scale);
   }
   return mapStatusOf(report, true);
 }

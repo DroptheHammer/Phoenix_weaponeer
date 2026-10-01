@@ -63,6 +63,7 @@ import {
   chooseZoom,
   tilesCovering,
   planBasemap,
+  planCardBasemap,
   tileRectPx,
   MIN_BASEMAP_ZOOM,
   MAX_BASEMAP_ZOOM,
@@ -72,6 +73,7 @@ import {
 import {
   planViewTransform, mapStatusOf, renderKneeboardCard, renderKneeboardCardWithMap, drawSideProfile,
   PLAN_MARKER_R, SIDE_MARKER_R, markerLabelSize,
+  KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, KNEEBOARD_SCALE, KNEEBOARD_PIXEL_WIDTH, KNEEBOARD_PIXEL_HEIGHT, releaseCanvas,
 } from '../src/lib/renderKneeboardCanvas';
 import { DAY_THEME, NIGHT_THEME, NVG_THEME, CARD_LIGHTINGS, themeForLighting, themeColours, parseColour, type CardTheme } from '../src/lib/cardTheme';
 import { KEPT_FROM_DAY, CONTRAST_FLOOR, VISIONS, ruleFor, nightRule, nvgRule, contrastPairs, worstOf, ratio, type Family } from '../src/lib/cardContrast';
@@ -1071,6 +1073,18 @@ ok('tilesCovering: includes the tile under every corner of the frame',
 const zoomedOut = planBasemap({ lat: 40, lon: 20 }, { lat: 20, lon: 50 }, 160, 30);
 ok('planBasemap: a frame zoomed far out steps down to a sane tile count instead of fetching thousands',
    zoomedOut.length > 0 && zoomedOut.length <= MAX_BASEMAP_TILES, `${zoomedOut.length} tiles at z${zoomedOut[0]?.z}`);
+// At 3x the map is one level finer than it is at 1x, which is at most four times the tiles
+// (two levels would be sixteen times), so even a frame that had to step down stays under 4 x 48.
+const zoomedOut3x = planCardBasemap({ lat: 40, lon: 20 }, { lat: 20, lon: 50 }, 160, 30, KNEEBOARD_SCALE);
+ok('planCardBasemap: a frame zoomed far out at 3x is one level finer than at 1x, within four times the tile budget',
+   zoomedOut3x.length > 0 && zoomedOut3x.length <= 4 * MAX_BASEMAP_TILES && zoomedOut3x.every((t) => t.z === zoomedOut[0].z + 1),
+   `${zoomedOut3x.length} tiles at z${zoomedOut3x[0]?.z}`);
+const closeNw = { lat: 31.0001, lon: 34.5 }, closeSe = { lat: 31, lon: 34.5001 };
+const closeIn = planCardBasemap(closeNw, closeSe, 1e7, 31, KNEEBOARD_SCALE);
+ok('planCardBasemap: at the finest zoom the map has there is no finer one to ask for',
+   closeIn.length > 0 && closeIn.every((t) => t.z === MAX_BASEMAP_ZOOM) && planBasemap(closeNw, closeSe, 1e7, 31)[0].z === MAX_BASEMAP_ZOOM, `z${closeIn[0]?.z}`);
+ok('planCardBasemap: a nonsense scale (0, NaN, negative) is the 1x plan',
+   [0, NaN, -3].every((s) => JSON.stringify(planCardBasemap(coverNw, coverSe, 160, 31, s)) === JSON.stringify(planBasemap(coverNw, coverSe, 160, 31))));
 
 // The real test: a point on a tile, placed the way drawBasemap places tiles,
 // must land where the card's own projection puts that point. Checked across a
@@ -1085,25 +1099,47 @@ for (const [theatre, pic] of [['NTTR', picture], ['Sinai', sinaiPicture]] as con
   const nw = view.fromPx(cardBox.x, cardBox.y), se = view.fromPx(cardBox.x + cardBox.w, cardBox.y + cardBox.h);
   const tiles = planBasemap(nw, se, view.scale, view.target.lat);
   const z = tiles[0].z;
-  let worstPx = 0, worstRoundTrip = 0;
-  for (let i = 0; i <= 8; i++) {
-    for (let j = 0; j <= 8; j++) {
-      const px = cardBox.x + (cardBox.w * i) / 8, py = cardBox.y + (cardBox.h * j) / 8;
-      const p = view.fromPx(px, py);
-      const back = view.toPx(p);
-      worstRoundTrip = Math.max(worstRoundTrip, Math.hypot(back[0] - px, back[1] - py));
-      const f = lonLatToTile(p.lat, p.lon, z);
-      const rect = tileRectPx({ x: Math.floor(f.x), y: Math.floor(f.y), z }, view.toPx);
-      const onTile: [number, number] = [rect.x + (f.x - Math.floor(f.x)) * rect.w, rect.y + (f.y - Math.floor(f.y)) * rect.h];
-      worstPx = Math.max(worstPx, Math.hypot(onTile[0] - back[0], onTile[1] - back[1]));
+  let worstRoundTrip = 0;
+  /** How far, in layout pixels, a point on a tile of zoom `zoom` lands from where the card's own projection puts it, over the 9x9 grid. */
+  const worstTilePx = (zoom: number) => {
+    let worst = 0;
+    for (let i = 0; i <= 8; i++) {
+      for (let j = 0; j <= 8; j++) {
+        const px = cardBox.x + (cardBox.w * i) / 8, py = cardBox.y + (cardBox.h * j) / 8;
+        const p = view.fromPx(px, py);
+        const back = view.toPx(p);
+        worstRoundTrip = Math.max(worstRoundTrip, Math.hypot(back[0] - px, back[1] - py));
+        const f = lonLatToTile(p.lat, p.lon, zoom);
+        const rect = tileRectPx({ x: Math.floor(f.x), y: Math.floor(f.y), z: zoom }, view.toPx);
+        const onTile: [number, number] = [rect.x + (f.x - Math.floor(f.x)) * rect.w, rect.y + (f.y - Math.floor(f.y)) * rect.h];
+        worst = Math.max(worst, Math.hypot(onTile[0] - back[0], onTile[1] - back[1]));
+      }
     }
-  }
+    return worst;
+  };
+  const worstPx = worstTilePx(z);
   ok(`${theatre} card: fromPx and toPx are inverses`, worstRoundTrip < 1e-6, worstRoundTrip.toExponential(1));
   ok(`${theatre} card: map tiles land within 1 px of the card's projection across the whole box`, worstPx < 1, `worst ${worstPx.toFixed(2)} px, z${z}, ${tiles.length} tiles, ${view.scale.toFixed(0)} px/nm`);
   const rects = tiles.map((t) => tileRectPx(t, view.toPx));
   ok(`${theatre} card: the tiles cover the box to its edges — no bare strip`,
      Math.min(...rects.map((r) => r.x)) <= cardBox.x && Math.min(...rects.map((r) => r.y)) <= cardBox.y &&
      Math.max(...rects.map((r) => r.x + r.w)) >= cardBox.x + cardBox.w && Math.max(...rects.map((r) => r.y + r.h)) >= cardBox.y + cardBox.h);
+
+  // The card is drawn at 3x, and its map follows it up exactly one zoom level and no further:
+  // two would be 16 times the tiles. At 1x nothing changes.
+  const lat = view.target.lat;
+  const same = planCardBasemap(nw, se, view.scale, lat, 1);
+  const fine = planCardBasemap(nw, se, view.scale, lat, KNEEBOARD_SCALE);
+  const finer = planCardBasemap(nw, se, view.scale, lat, 6);
+  ok(`${theatre} card: at 1x the map is planned exactly as before`, JSON.stringify(same) === JSON.stringify(tiles), `${same.length} tiles at z${same[0]?.z}`);
+  ok(`${theatre} card: at 3x the map's tiles are exactly one zoom level finer than at 1x`, fine.length > 0 && fine.every((t) => t.z === z + 1), `z${z} -> z${fine[0]?.z}, ${tiles.length} -> ${fine.length} tiles`);
+  ok(`${theatre} card: asking for 6x is still only one level finer, never a second`, finer.length > 0 && finer.every((t) => t.z === z + 1), `z${finer[0]?.z} at 6x`);
+  ok(`${theatre} card: the finer tiles still land within 1 px of the projection and cover the box`,
+     worstTilePx(z + 1) < 1 && (() => {
+       const r = fine.map((t) => tileRectPx(t, view.toPx));
+       return Math.min(...r.map((q) => q.x)) <= cardBox.x && Math.min(...r.map((q) => q.y)) <= cardBox.y &&
+         Math.max(...r.map((q) => q.x + q.w)) >= cardBox.x + cardBox.w && Math.max(...r.map((q) => q.y + q.h)) >= cardBox.y + cardBox.h;
+     })(), `worst ${worstTilePx(z + 1).toFixed(2)} px`);
 }
 
 const report = (drawn: number, failed: number, pending: number) => ({ tiles: Array(drawn + failed + pending).fill({ x: 0, y: 0, z: 1 }), drawn, failed, pending });
@@ -2106,15 +2142,18 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // The Day draw log of each card above: number of calls and the start of its SHA-256.
   // Re-pinned on purpose when the card's type went two pixels larger (sizes, positions, the
   // plates behind two notes). No colour moved: OLD_DAY and the marked pins below say so.
+  // Re-pinned on purpose again when the card went to 3x (2304 x 3072): every card but the
+  // side view gained its one setTransform line, and the map card its finer tiles (28 -> 84,
+  // one zoom level up). Diffing the logs before and after showed nothing else moved.
   const DAY_PIN: Record<string, { ops: number; sha: string }> = {
-    a4e: { ops: 1034, sha: '932f4c5c4fe1a7bd' },
-    'a4e-map': { ops: 1075, sha: 'a2139f7c70860e41' },
-    strike: { ops: 1153, sha: 'feed585ac37b5261' },
-    popup: { ops: 1294, sha: 'e4d102a90e9dc522' },
+    a4e: { ops: 1035, sha: '8619ecf21ce984e2' },
+    'a4e-map': { ops: 1132, sha: '35b9cc5e4187634a' },
+    strike: { ops: 1154, sha: '62b32a0f769ddc9b' },
+    popup: { ops: 1295, sha: '25b3d772d1ecbaf9' },
     side: { ops: 500, sha: '5af01fbeeba5515e' },
-    bare: { ops: 515, sha: '31ca2d718569bf6f' },
-    'no-tiles': { ops: 609, sha: '846d1df69505c7c8' },
-    wingman: { ops: 1117, sha: 'e64adc0c6388f069' },
+    bare: { ops: 516, sha: 'e2df81b66a426da2' },
+    'no-tiles': { ops: 610, sha: 'b8df503ed65c0b3b' },
+    wingman: { ops: 1118, sha: 'f4bc2152d5064957' },
   };
   const runs = runAll();
   for (const run of runs) {
@@ -2125,6 +2164,81 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   }
   ok('Day card: naming the Day theme draws the same as leaving the theme out',
      runAll(DAY_THEME).every((run, i) => digest(run.log).sha === digest(runs[i].log).sha));
+
+  // ── The card's size: three pixels to each layout unit, the layout itself unchanged ──
+  // DCS stretches the PNG to the kneeboard window, so a card with more pixels is sharper there.
+  // The renderer scales the canvas once, before anything is drawn, so every coordinate, font
+  // size and line width stays in 768 x 1024 layout units. The pins above are of the cards at the
+  // default scale, so they cover what ships; they were re-pinned on purpose for 3x, and the only
+  // difference from the old logs is the one setTransform line (and, on the map card, the finer tiles).
+  /** A stand-in canvas that keeps the size the renderer gives it, around a recording context. */
+  const sizedCanvas = (ctx: CanvasRenderingContext2D) => ({ width: 0, height: 0, getContext: () => ctx });
+  const atScale = (card: unknown, tiles?: BasemapTiles, scale?: number) => {
+    const { ctx, log } = recordingContext();
+    const canvas = sizedCanvas(ctx);
+    void renderKneeboardCard(canvas as never, card as never, tiles, undefined, scale);
+    return { width: canvas.width, height: canvas.height, log };
+  };
+  const shipped = atScale(a4e), flat = atScale(a4e, undefined, 1);
+  ok('card size: at the default scale a card is 2304 x 3072 pixels, three times the layout',
+     shipped.width === 2304 && shipped.height === 3072 && KNEEBOARD_PIXEL_WIDTH === 2304 && KNEEBOARD_PIXEL_HEIGHT === 3072, `${shipped.width} x ${shipped.height}`);
+  ok('card size: at scale 1 a card is still 768 x 1024',
+     flat.width === 768 && flat.height === 1024 && KNEEBOARD_WIDTH === 768 && KNEEBOARD_HEIGHT === 1024, `${flat.width} x ${flat.height}`);
+  const transforms = (log: string[]) => log.filter((line) => /^(setTransform|resetTransform|transform|scale)\(/.test(line));
+  ok('card size: the canvas is scaled once, before anything is drawn, and nothing resets or stacks on it',
+     shipped.log[0] === 'setTransform(3,0,0,3,0,0)' && transforms(shipped.log).length === 1 && flat.log[0] === 'setTransform(1,0,0,1,0,0)' && transforms(flat.log).length === 1,
+     `${shipped.log[0]} / ${transforms(shipped.log).length} transform calls`);
+
+  // The layout does not depend on the scale: with the transform line taken off, a card makes the
+  // same calls with the same numbers at 1x as at 3x. (The map card is left out: its tiles differ on purpose.)
+  const layoutCards: [string, unknown, BasemapTiles | undefined][] = [
+    ['A-4E manual dive', a4e, undefined], ['F-16 strike #2', strike, undefined], ['F-16 pop-up', popup, undefined],
+    ['gun card', bare, undefined], ['plan view, no tiles', planOnly, noTiles], ['wingman tag', withWingman, undefined],
+  ];
+  const relaid = layoutCards.filter(([, card, tiles]) => atScale(card, tiles).log.slice(1).join('\n') !== atScale(card, tiles, 1).log.slice(1).join('\n')).map(([name]) => name);
+  ok('card size: at scale 1 and at 3 every card makes the same drawing calls, bar the transform', relaid.length === 0, relaid.join(', '));
+
+  // Nothing is drawn outside the 768 x 1024 layout: a coordinate, a clip or a font multiplied by the
+  // scale as well as transformed would show here as a number up to three times too big.
+  let looked = 0;
+  const outside = runs.flatMap((run) => run.log.flatMap((line): string[] => {
+    const args = (text: string) => text.slice(text.indexOf('(') + 1, -1).split(',').map(Number);
+    if (line.startsWith('fillRect(') || line.startsWith('rect(')) {
+      looked++;
+      const [x, y, w, h] = args(line);
+      return x < 0 || y < 0 || x + w > KNEEBOARD_WIDTH || y + h > KNEEBOARD_HEIGHT ? [`${run.id}: ${line}`] : [];
+    }
+    if (line.startsWith('fillText(')) {
+      looked++;
+      const m = /^fillText\((".*"),([^,]+),([^,]+)(?:,([^,]+))?\)$/.exec(line)!;
+      const x = Number(m[2]), y = Number(m[3]);
+      return x < 0 || y < 0 || x > KNEEBOARD_WIDTH || y > KNEEBOARD_HEIGHT ? [`${run.id}: ${line}`] : [];
+    }
+    if (line.startsWith('font=')) {
+      looked++;
+      return parseFloat(/([\d.]+)px/.exec(line)![1]) > 30 ? [`${run.id}: ${line}`] : [];
+    }
+    return [];
+  }));
+  ok('card size: every fill, clip and piece of text the cards draw is inside 768 x 1024 layout units, and no font is above 30 px',
+     looked > 500 && outside.length === 0, outside.length ? outside.slice(0, 3).join('; ') : `${looked} calls looked at`);
+
+  // The map follows the card up exactly one zoom level and no further, whatever the scale.
+  const zoomsAsked = (scale: number) => {
+    const asked: number[] = [];
+    const recorder: BasemapTiles = (tile) => { asked.push(tile.z); return {} as never; };
+    atScale(a4e, recorder, scale);
+    return { zooms: [...new Set(asked)], count: asked.length };
+  };
+  const [z1, z2, z3, z6] = [1, 2, 3, 6].map(zoomsAsked);
+  ok('card map: the card asks for one zoom level of tiles at 1x and the very next level at 2x, 3x and 6x, never a second',
+     z1.zooms.length === 1 && [z2, z3, z6].every((z) => z.zooms.length === 1 && z.zooms[0] === z1.zooms[0] + 1),
+     `1x z${z1.zooms}, 2x z${z2.zooms}, 3x z${z3.zooms}, 6x z${z6.zooms}`);
+  ok('card map: one level finer is some three to four times the tiles (not sixteen), within four times the 1x budget',
+     z3.count > z1.count && z3.count <= 4 * MAX_BASEMAP_TILES && z6.count === z3.count, `${z1.count} tiles at 1x, ${z3.count} at 3x`);
+  const spent = { width: 2304, height: 3072 };
+  releaseCanvas(spent as never);
+  ok('card size: a canvas that has been encoded is released down to nothing', spent.width === 0 && spent.height === 0);
 
   // ── Day's values ──
   // As they stood before the card had a theme, written out here rather than read from
@@ -2213,14 +2327,15 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // Which slot each colour is drawn from is pinned as well. Slots that share a Day value (the
   // header date and the footer, say) draw the same under Day, so swapping two of them passes
   // every check above; the marked log tells them apart. A new slot changes these: re-pin.
+  // Re-pinned on purpose for 3x, like the Day pins: the setTransform line, and the map card's finer tiles.
   const MARKED_PIN: Record<string, string> = {
-    a4e: '85d3198dfa9248fc',
-    'a4e-map': 'b9554c93c694ea89',
-    strike: '0350f4808aef9002',
-    popup: 'cedb967562312375',
-    bare: 'd7ca81b122feaa85',
-    'no-tiles': '9291b0a367e2e4dd',
-    wingman: '009034c75accabd2',
+    a4e: '2effdfdfb429f55e',
+    'a4e-map': '55d5f1b6bb57f028',
+    strike: '438d5fa57855cc20',
+    popup: '91e2321633db837d',
+    bare: 'f2e477b07991ea1a',
+    'no-tiles': '0bd6a11f04ec133d',
+    wingman: '928f3bac5498e095',
     side: 'c5ad2258b64c94f0',
   };
   for (const run of markedRuns) {
@@ -2376,26 +2491,28 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // from the numbers a failure prints, after looking at what moved. Drawn in their own colours
   // and no other, so no white and nothing of Day's leaks in; the dashed rings, the plates
   // and the tinted map are held as they are for the marked theme.
+  // Re-pinned on purpose for 3x, like the Day pins: the setTransform line, and the map card's
+  // finer tiles (each one tinted, so that card's count grows by more than Day's does).
   const DARK_PIN: Record<string, Record<string, { ops: number; sha: string }>> = {
     night: {
-      a4e: { ops: 1035, sha: '232c2a1720b29a2a' },
-      'a4e-map': { ops: 1300, sha: '145d40973b2171a3' },
-      strike: { ops: 1154, sha: '93715e628ae53193' },
-      popup: { ops: 1295, sha: '1d293d64ed9450b1' },
+      a4e: { ops: 1036, sha: 'bd2007557636051e' },
+      'a4e-map': { ops: 1805, sha: '902214c520b24af1' },
+      strike: { ops: 1155, sha: '15fd6f15db966a3b' },
+      popup: { ops: 1296, sha: '7bcd5f747d44bbb5' },
       side: { ops: 500, sha: 'ec8d27b5fb7dd3c2' },
-      bare: { ops: 515, sha: '788377bf642dbd4e' },
-      'no-tiles': { ops: 610, sha: '4269d23222f93dfd' },
-      wingman: { ops: 1118, sha: '048729db3307552c' },
+      bare: { ops: 516, sha: '445adf8a4e25aa10' },
+      'no-tiles': { ops: 611, sha: '38562df4e75a1df1' },
+      wingman: { ops: 1119, sha: '0eaa1bb89fc092b0' },
     },
     nvg: {
-      a4e: { ops: 1035, sha: 'b6404988f5c0957c' },
-      'a4e-map': { ops: 1300, sha: '63a803c286d2ebc2' },
-      strike: { ops: 1154, sha: '9b8ae3f51542edb5' },
-      popup: { ops: 1295, sha: '3aadf8f5cb4e6361' },
+      a4e: { ops: 1036, sha: 'a3692daff0a78271' },
+      'a4e-map': { ops: 1805, sha: 'e171f657ccb8cb68' },
+      strike: { ops: 1155, sha: '85c17c1c16afd596' },
+      popup: { ops: 1296, sha: '38888a6623dc1167' },
       side: { ops: 500, sha: 'e3142dc060b86433' },
-      bare: { ops: 515, sha: '3698f46d08656f0c' },
-      'no-tiles': { ops: 610, sha: 'f9520fde483f2e1c' },
-      wingman: { ops: 1118, sha: '62086238f82ce588' },
+      bare: { ops: 516, sha: 'a38d43e526bf6dd5' },
+      'no-tiles': { ops: 611, sha: '8d892daeaabc3b71' },
+      wingman: { ops: 1119, sha: 'e4bccf86c8d6621e' },
     },
   };
   for (const theme of [NIGHT_THEME, NVG_THEME]) {

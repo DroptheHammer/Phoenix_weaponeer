@@ -56,7 +56,7 @@ A cross-platform desktop application for planning F-16 (and other aircraft) atta
 2. **Define threat laydown** at target areas (SAMs, AAA, MANPADS)
 3. **Plan attack geometry** per flight member (popup, level, loft, dive bomb, etc.)
 4. **Select weapons and delivery parameters**
-5. **Generate kneeboard cards** in DCS-compatible format (768x1024 PNG)
+5. **Generate kneeboard cards** in DCS-compatible format (3:4 PNG, 2304x3072)
 
 ## Development Setup (macOS)
 
@@ -125,8 +125,11 @@ unsigned-binary SmartScreen/Gatekeeper workarounds.
 
 ## DCS Kneeboard Format
 
-- **Dimensions:** 768 x 1024 pixels (3:4 portrait)
-- **Format:** PNG or JPG
+- **Dimensions:** laid out at 768 x 1024 (3:4 portrait), exported at 3× —
+  2304 x 3072 — since 2026-09-30, because DCS scales the image to the
+  kneeboard window and 1× looked soft on large monitors and in VR
+  (`KNEEBOARD_SCALE` in `renderKneeboardCanvas.ts`)
+- **Format:** PNG (lossless; never JPG)
 - **Location:** `Saved Games/DCS/Kneeboard/{aircraft}/{filename}.png`
 - **Design:** Dense but readable, dark text on light background
 

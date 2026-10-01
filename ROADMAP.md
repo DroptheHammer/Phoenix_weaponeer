@@ -114,6 +114,9 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
   (squadron vote, 2026-09-30), with the rows, strips and marker discs grown to
   fit. "→ STPT 2" and the wingman "#1" now sit on a plate instead of across a
   line, ROLL fits its disc, and the target elevation prints in whole feet.
+- **Sharper cards.** Cards export at 3× — 2304×3072, the same 3:4 layout — so
+  text stays crisp when DCS stretches the kneeboard on a big monitor or in VR.
+  Still lossless PNG, about 1–2.5 MB each; the map uses one zoom level finer.
 - **Manual-dive cards show the sight setting** (e.g. `SIGHT 100 mils`) for the
   A-4E, F-4E, F-5E and Mirage F1. It was dropped as the profiles loaded, in
   every release since 0.2.0; a Rust test now covers the loader. It sits in the

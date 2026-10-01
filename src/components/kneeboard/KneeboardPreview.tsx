@@ -13,8 +13,9 @@ import {
   renderKneeboardCardWithMap,
   mapStatusOf,
   canvasToBase64Png,
-  KNEEBOARD_WIDTH,
-  KNEEBOARD_HEIGHT,
+  releaseCanvas,
+  KNEEBOARD_PIXEL_WIDTH,
+  KNEEBOARD_PIXEL_HEIGHT,
   type MapStatus,
 } from '../../lib/renderKneeboardCanvas';
 import { briefPackFilename, briefPackZip, type PackCard } from '../../lib/briefPack';
@@ -108,7 +109,15 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
       const report = renderKneeboardCard(fullCanvas, card, kneeboardMap ? cachedBasemapTiles : undefined, theme);
       previewCanvas.width = PREVIEW_WIDTH;
       previewCanvas.height = PREVIEW_HEIGHT;
-      pCtx.drawImage(fullCanvas, 0, 0, KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, 0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+      // The card is several times the preview's size, so the smoothing has to be a good
+      // one (it is reset by sizing the canvas, hence set here) or the small text shimmers.
+      pCtx.imageSmoothingEnabled = true;
+      pCtx.imageSmoothingQuality = 'high';
+      // The whole card, at whatever size it was drawn: not the card's layout size, which
+      // is only the top-left corner of a canvas drawn at a higher scale.
+      pCtx.drawImage(fullCanvas, 0, 0, fullCanvas.width, fullCanvas.height, 0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+      // The card is only drawn to be shrunk into the preview; don't hold its 28 MB while idle.
+      releaseCanvas(fullCanvas);
       return report;
     };
 
@@ -134,8 +143,13 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
   const renderForExport = useCallback(
     async (card: KneeboardCard) => {
       const canvas = document.createElement('canvas');
-      const status = await renderKneeboardCardWithMap(canvas, card, { map: kneeboardMap, theme });
-      return { base64: canvasToBase64Png(canvas), status };
+      try {
+        const status = await renderKneeboardCardWithMap(canvas, card, { map: kneeboardMap, theme });
+        return { base64: canvasToBase64Png(canvas), status };
+      } finally {
+        // Export All draws many cards; each canvas is about 28 MB until it is released.
+        releaseCanvas(canvas);
+      }
     },
     [kneeboardMap, theme],
   );
@@ -336,13 +350,8 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
 
   return (
     <div className="space-y-3">
-      {/* Hidden full-res canvas for rendering */}
-      <canvas
-        ref={fullCanvasRef}
-        width={KNEEBOARD_WIDTH}
-        height={KNEEBOARD_HEIGHT}
-        className="hidden"
-      />
+      {/* Hidden full-res canvas for rendering. The card sizes it when it draws. */}
+      <canvas ref={fullCanvasRef} className="hidden" />
 
       {/* Attack selector */}
       <div>
@@ -476,12 +485,14 @@ function DesktopKneeboardPreview({ weapons, fuzeOptions, threatSystems, aircraft
 
       {platform.isWeb ? (
         <p className="text-xs text-gray-500">
-          Cards download as 768×1024 PNG (DCS kneeboard format). Copy them into{' '}
+          Cards download as {KNEEBOARD_PIXEL_WIDTH}×{KNEEBOARD_PIXEL_HEIGHT} PNG: the DCS kneeboard shape at three
+          times the size, so the text stays sharp when DCS scales it up. Copy them into{' '}
           <code className="font-mono">Saved Games/DCS/Kneeboard/&lt;aircraft&gt;</code> on the PC you fly on.
         </p>
       ) : (
         <p className="text-xs text-gray-500">
-          Cards saved as 768×1024 PNG (DCS kneeboard format). Export to DCS asks once per aircraft type
+          Cards saved as {KNEEBOARD_PIXEL_WIDTH}×{KNEEBOARD_PIXEL_HEIGHT} PNG: the DCS kneeboard shape at three
+          times the size, so the text stays sharp when DCS scales it up. Export to DCS asks once per aircraft type
           for its kneeboard folder (usually <code className="font-mono">Saved Games/DCS/Kneeboard/&lt;aircraft&gt;</code>),
           then remembers it.
         </p>

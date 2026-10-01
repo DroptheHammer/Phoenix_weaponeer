@@ -4,6 +4,7 @@ import {
   renderKneeboardCard,
   renderKneeboardCardWithMap,
   mapStatusOf,
+  releaseCanvas,
   type MapStatus,
 } from '../../lib/renderKneeboardCanvas';
 import type { CardTheme } from '../../lib/cardTheme';
@@ -49,6 +50,10 @@ function nearestFirst(from: number, n: number): number[] {
  * on screen, so ten cards never freeze a swipe. Each is drawn first with
  * whatever map tiles are cached, then once more when the rest arrive: the
  * carousel fills in quickly even on a slow connection.
+ *
+ * A card canvas is about 28 MB, and a phone limits the total across all of them, so
+ * the pass draws every card on one canvas and gives it back when the pass ends. Each
+ * PNG is encoded before the next card is drawn, so no two cards are ever live at once.
  */
 export function useCardImages(entries: CardEntry[], map: boolean, current: number, theme: CardTheme) {
   const images = useRef(new Map<string, CardImage>());
@@ -99,6 +104,8 @@ export function useCardImages(entries: CardEntry[], map: boolean, current: numbe
       // All the missing tiles at once: neighbouring cards share most of theirs,
       // and offline every card would otherwise wait out its own timeout.
       setMapLoading(true);
+      // Nothing is drawn while the tiles load, which can take seconds: don't hold the pixels.
+      releaseCanvas(canvas);
       await loadBasemapTiles(waiting.flatMap((w) => w.tiles));
       for (const { entry } of waiting) {
         await nextFrame();
@@ -109,11 +116,14 @@ export function useCardImages(entries: CardEntry[], map: boolean, current: numbe
         publish(entry.attackId, { url: URL.createObjectURL(blob), blob, status: mapStatusOf(report, true), final: true });
       }
       setMapLoading(false);
-    })().catch(() => {
-      // A card that can't be drawn stays a placeholder; sharing draws it afresh
-      // and reports the error there.
-      if (!cancelled) setMapLoading(false);
-    });
+    })()
+      .catch(() => {
+        // A card that can't be drawn stays a placeholder; sharing draws it afresh
+        // and reports the error there.
+        if (!cancelled) setMapLoading(false);
+      })
+      // However the pass ended (finished, superseded or failed), its canvas goes back.
+      .finally(() => releaseCanvas(canvas));
 
     return () => {
       cancelled = true;
@@ -139,8 +149,12 @@ export function useCardImages(entries: CardEntry[], map: boolean, current: numbe
       const ready = images.current.get(entry.attackId);
       if (ready?.final) return ready;
       const canvas = document.createElement('canvas');
-      const status = await renderKneeboardCardWithMap(canvas, entry.card, { map, theme });
-      return { blob: await toPngBlob(canvas), status };
+      try {
+        const status = await renderKneeboardCardWithMap(canvas, entry.card, { map, theme });
+        return { blob: await toPngBlob(canvas), status };
+      } finally {
+        releaseCanvas(canvas);
+      }
     },
     [map, theme],
   );

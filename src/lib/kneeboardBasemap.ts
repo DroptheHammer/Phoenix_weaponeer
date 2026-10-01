@@ -21,7 +21,7 @@ export const OSM_ATTRIBUTION = 'Map © OpenStreetMap contributors · real-world,
 export const TILE_SIZE = 256;
 export const MIN_BASEMAP_ZOOM = 3;
 export const MAX_BASEMAP_ZOOM = 17;
-/** A normal card needs about 35. More means a frame zoomed far out; step the zoom down instead. */
+/** A normal card needs about 35 (about 100 at the finer zoom a 3x card uses: see planCardBasemap). More means a frame zoomed far out; step the zoom down instead. */
 export const MAX_BASEMAP_TILES = 48;
 
 /** Web Mercator's equator, 2πR with R = 6 378 137 m. */
@@ -86,12 +86,33 @@ export function tilesCovering(nw: Coordinates, se: Coordinates, z: number): Tile
 }
 
 /** The zoom and tiles for a card frame, stepping the zoom down until the count is sane. */
-export function planBasemap(nw: Coordinates, se: Coordinates, pxPerNm: number, lat: number): TileKey[] {
+export function planBasemap(nw: Coordinates, se: Coordinates, pxPerNm: number, lat: number, maxTiles = MAX_BASEMAP_TILES): TileKey[] {
   for (let z = chooseZoom(pxPerNm, lat); z >= MIN_BASEMAP_ZOOM; z--) {
     const tiles = tilesCovering(nw, se, z);
-    if (tiles.length > 0 && tiles.length <= MAX_BASEMAP_TILES) return tiles;
+    if (tiles.length > 0 && tiles.length <= maxTiles) return tiles;
   }
   return [];
+}
+
+/**
+ * `planBasemap` for a card drawn at `outputScale` pixels per layout pixel. The card is
+ * drawn at 3x so DCS has more pixels to scale, and a map on tiles picked for 1x would
+ * look blurry under it. So above 1x the map gets tiles one zoom level finer than the 1x
+ * plan, and never a second level: that would be sixteen times the tiles, and
+ * OpenStreetMap asks clients not to fetch in bulk. At 1x this is `planBasemap` exactly.
+ * The map is washed back under the picture, so a tile a little soft at 3x does not show.
+ *
+ * A frame needs at most twice as many tiles across at the next zoom, so at most four
+ * times as many in all: never over 4 x MAX_BASEMAP_TILES = 192.
+ *
+ * (Asking `planBasemap` for tiles at a larger scale instead would not do: it steps the
+ * zoom down whenever there are over 48 tiles, which the finer level has on any normal
+ * card, so the finer map would silently never be used.)
+ */
+export function planCardBasemap(nw: Coordinates, se: Coordinates, pxPerNm: number, lat: number, outputScale = 1): TileKey[] {
+  const plain = planBasemap(nw, se, pxPerNm, lat);
+  if (!(outputScale > 1) || plain.length === 0 || plain[0].z >= MAX_BASEMAP_ZOOM) return plain;
+  return tilesCovering(nw, se, plain[0].z + 1);
 }
 
 /**
