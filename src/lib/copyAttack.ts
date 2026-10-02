@@ -8,7 +8,7 @@
  */
 
 import type { Attack } from '../types';
-import { weaponChoicesFor } from './autoBuildAttack';
+import { loadoutWeapons, weaponChoicesFor } from './autoBuildAttack';
 import { draftAttackData, draftFromAttack, resolveDraft, setAttacker, type DraftContext } from './attackDraft';
 
 export interface AttackCopy {
@@ -35,7 +35,10 @@ export function copyAttackTo(ctx: DraftContext, source: Attack, recipientId: str
     // Same airframe: everything transfers, hand edits included.
     draft = { ...base, attackerId: recipient.id };
     const carried = weaponChoicesFor(recipient, ctx.weapons);
-    if (base.weaponId && recipient.loadout?.length && !carried.some((w) => w.id === base.weaponId)) {
+    // "Has a loadout" means a store the weapon table knows: a jet carrying only
+    // unrecognised stores is treated like one with none.
+    const hasLoadout = loadoutWeapons(recipient, ctx.weapons).length > 0;
+    if (base.weaponId && hasLoadout && !carried.some((w) => w.id === base.weaponId)) {
       notes.push(`${recipient.callsign} is not carrying that weapon; auto-build chose another.`);
       draft = { ...draft, weaponId: '', fuzeId: '' };
     }

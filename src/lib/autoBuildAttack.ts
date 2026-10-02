@@ -1,4 +1,5 @@
 import type { Mission } from '../types/mission.types';
+import type { LoadoutItem } from '../types/flight.types';
 import type { Attack, DiveCCIPProfile, LevelCCRPProfile, PopupCCIPProfile } from '../types/attack.types';
 import type { DbWeapon } from '../types/weapon.types';
 import type { Coordinates, Waypoint } from '../types/waypoint.types';
@@ -115,18 +116,57 @@ export function weaponFloor_ft(weapon: DbWeapon | undefined): number {
   return Math.max(weapon.min_release_alt_ft ?? 0, weapon.frag_min_safe_alt_ft ?? 0);
 }
 
-/** Weapons the attacker is actually carrying, in loadout order, when a loadout exists. */
-export function loadoutWeapons(attacker: Mission['flightMembers'][number] | undefined, weapons: DbWeapon[]): DbWeapon[] {
-  if (!attacker?.loadout?.length) return [];
-  return attacker.loadout
-    .map((item) => weapons.find((w) => w.name === item.weaponType))
-    .filter((w): w is DbWeapon => !!w);
+/**
+ * The weapon row a loadout line is: by id first (an import or an editor pick
+ * wrote it, so it is the truth), then by name (older saves, free text). An id
+ * that matches no row falls back to the name.
+ */
+export function weaponForLoadoutItem<W extends { id: string; name: string }>(
+  item: Pick<LoadoutItem, 'weaponType' | 'weaponId'>,
+  weapons: W[],
+): W | undefined {
+  return (item.weaponId ? weapons.find((w) => w.id === item.weaponId) : undefined) ?? weapons.find((w) => w.name === item.weaponType);
 }
 
 /**
- * What the weapon picker offers: the loadout when there is one, else every
- * air-to-ground store the aircraft can carry — plus its internal gun, which no
- * loadout lists.
+ * Where a carried weapon sits in auto-build's default order: bombs and strike
+ * missiles, then anti-radiation missiles, then rockets, then guns — so a Hornet
+ * with a HARM and a JSOW defaults to the JSOW. Weapon class cannot tell a HARM
+ * from a Maverick (both are `agm`); guidance can. A row that is not an
+ * air-to-ground store goes last.
+ */
+function carriedRank(weapon: DbWeapon): number {
+  const weaponClass = weaponClassOf(weapon);
+  if (!weaponClass) return 4;
+  if (weaponClass === 'gun') return 3;
+  if (weaponClass === 'rocket') return 2;
+  return weapon.guidance === 'radar' ? 1 : 0;
+}
+
+/**
+ * Weapons the attacker is actually carrying, when a loadout exists: each one
+ * once, strike weapons first (`carriedRank`), the loadout's own order within a
+ * group. Lines that match no weapon row are left out (`unrecognisedStores`).
+ */
+export function loadoutWeapons(attacker: Mission['flightMembers'][number] | undefined, weapons: DbWeapon[]): DbWeapon[] {
+  if (!attacker?.loadout?.length) return [];
+  const carried: DbWeapon[] = [];
+  for (const item of attacker.loadout) {
+    const weapon = weaponForLoadoutItem(item, weapons);
+    if (weapon && !carried.includes(weapon)) carried.push(weapon);
+  }
+  return carried.sort((a, b) => carriedRank(a) - carriedRank(b));
+}
+
+/** The loadout lines that match no weapon row: stores the weapon table doesn't know. */
+export function unrecognisedStores(attacker: Mission['flightMembers'][number] | undefined, weapons: DbWeapon[]): LoadoutItem[] {
+  return (attacker?.loadout ?? []).filter((item) => !weaponForLoadoutItem(item, weapons));
+}
+
+/**
+ * What the weapon picker offers: the loadout when it holds a store the weapon
+ * table knows, else every air-to-ground store the aircraft can carry — plus its
+ * internal gun, which no loadout lists.
  */
 export function weaponChoicesFor(attacker: Mission['flightMembers'][number] | undefined, weapons: DbWeapon[]): DbWeapon[] {
   const aircraftId = attacker?.aircraftId;
@@ -241,10 +281,14 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   const carried = loadoutWeapons(attacker, weapons);
   const weapon = overrides.weaponId ? weapons.find((w) => w.id === overrides.weaponId) : carried[0];
   if (attacker && !weapon) {
+    // A loadout of stores the table doesn't know is not "no loadout": name them.
+    const unknown = [...new Set(unrecognisedStores(attacker, weapons).map((item) => item.weaponType))];
     problems.push(
       carried.length
         ? 'Pick a weapon'
-        : `${attacker.callsign} has no loadout — pick a weapon, or set the loadout in Flight`,
+        : unknown.length
+          ? `${attacker.callsign} carries only stores the weapon table doesn't know (${unknown.join(', ')}) — pick a weapon`
+          : `${attacker.callsign} has no loadout — pick a weapon, or set the loadout in Flight`,
     );
   }
   const weaponClass = weapon ? weaponClassOf(weapon) : undefined;

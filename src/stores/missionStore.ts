@@ -275,7 +275,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       position: (idx + 1) as 1 | 2 | 3 | 4,
       role: idx === 0 ? 'flight_lead' as const : 'wingman' as const,
       aircraftId: normalizeAircraftType(group.aircraft_type),
-      loadout: [],
+      // What the mission author loaded: the weapon row's name for a store the
+      // table knows (with its id), the DCS name for one it does not (no id).
+      loadout: (unit.loadout ?? []).map((store) => ({
+        weaponType: store.name,
+        quantity: store.quantity,
+        ...(store.weapon_id != null ? { weaponId: store.weapon_id } : {}),
+      })),
       pilotName: unit.name,
     }));
 

@@ -4,6 +4,10 @@ import { getConfidenceClass } from '../../types';
 import { useUiStore } from '../../stores/uiStore';
 import { isHiddenByAuthor, isThreatVisible, probableThreats } from '../../lib/threatVisibility';
 import { useIsPhone } from '../../hooks/useIsPhone';
+import { formatCallsign } from '../../lib/callsign';
+
+/** A flight is four jets at most: the import keeps the first four of a group (`importFromFragOrders`). */
+const IMPORTED_JETS = 4;
 
 /** The importer's snake_case flags, in the shape the visibility rule reads. */
 const flagsOf = (threat: FragOrdersThreat) => ({
@@ -295,6 +299,34 @@ function PlayerGroupDetails({ group, asCards = false }: { group: FragOrdersPlaye
           <span className="text-gray-400">Pilots:</span>{' '}
           <span className="font-medium">{group.units.length}</span>
         </div>
+      </div>
+
+      {/* What each imported jet carries. A store the weapon table doesn't know
+          is amber and says so: it imports, but auto-build cannot pick it. */}
+      <div>
+        <h4 className="text-sm text-gray-400 mb-2">Loadouts</h4>
+        <ul className="space-y-2">
+          {group.units.slice(0, IMPORTED_JETS).map((unit, idx) => (
+            <li key={idx} className="bg-dcs-navy rounded-lg px-3 py-2 min-w-0">
+              <p className="font-medium min-w-0 break-words">{formatCallsign(unit.callsign) || `Pilot ${idx + 1}`}</p>
+              {(unit.loadout ?? []).length === 0 ? (
+                <p className="text-xs text-gray-500 italic">no air-to-ground stores</p>
+              ) : (
+                <ul className="space-y-0.5">
+                  {unit.loadout.map((store, i) => (
+                    <li key={i} className={`text-xs min-w-0 break-words ${store.weapon_id === null ? 'text-amber-300' : 'text-gray-300'}`}>
+                      {store.quantity}× {store.name}
+                      {store.weapon_id === null && ' (not in the weapon table)'}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          ))}
+        </ul>
+        {group.units.length > IMPORTED_JETS && (
+          <p className="text-xs text-gray-500 mt-1">Only the first {IMPORTED_JETS} jets are imported.</p>
+        )}
       </div>
 
       {/* Waypoints */}

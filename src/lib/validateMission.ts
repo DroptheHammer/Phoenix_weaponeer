@@ -92,6 +92,24 @@ export function validateMission(raw: unknown): MissionCheck {
     text(member, 'id', where);
     text(member, 'callsign', where);
     text(member, 'aircraftId', where);
+    // The loadout is read without a guard (the editor opens with its length) and
+    // its names are drawn in the roster, so a shared file gets no latitude here.
+    if (!Array.isArray(member.loadout)) {
+      problems.push(`${where}: loadout must be a list (got ${show(member.loadout)})`);
+    } else {
+      member.loadout.forEach((item: unknown, i: number) => {
+        const line = `${where} loadout line ${i + 1}`;
+        if (!isObject(item)) {
+          problems.push(`${line} is not an object (got ${show(item)})`);
+          return;
+        }
+        text(item, 'weaponType', line);
+        if (!(typeof item.quantity === 'number' && Number.isFinite(item.quantity) && item.quantity >= 0)) {
+          problems.push(`${line}: quantity must be a number, zero or more (got ${show(item.quantity)})`);
+        }
+        if (item.weaponId !== undefined) text(item, 'weaponId', line);
+      });
+    }
   }
 
   for (const [attack, n] of entries('attacks')) {

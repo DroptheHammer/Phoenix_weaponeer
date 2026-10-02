@@ -23,6 +23,8 @@ export const REAL_WORLD_IP_DISTANCE_NM = 10;
 
 /** Every aircraft carries it, and it has a classic dive delivery. A weapon *name*, as loadouts store them. */
 export const REAL_WORLD_DEFAULT_WEAPON = 'Mk-82 LDGP';
+/** The same weapon's row id, so the loadout names it both ways. */
+export const REAL_WORLD_DEFAULT_WEAPON_ID = 'mk82';
 
 /** Shown before a real-world mission or card leaves the device. */
 export const REAL_WORLD_SHARE_WARNING =
@@ -90,7 +92,7 @@ export function realWorldMission(strike: RealWorldStrike): Mission {
     role: 'flight_lead',
     aircraftId: strike.aircraftId,
     // Something to drop, so Add Attack builds in one tap; changed in Flight.
-    loadout: [{ weaponType: REAL_WORLD_DEFAULT_WEAPON, quantity: 6 }],
+    loadout: [{ weaponType: REAL_WORLD_DEFAULT_WEAPON, quantity: 6, weaponId: REAL_WORLD_DEFAULT_WEAPON_ID }],
   };
   return {
     id: uuidv4(),

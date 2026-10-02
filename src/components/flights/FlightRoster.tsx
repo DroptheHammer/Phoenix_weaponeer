@@ -3,7 +3,8 @@ import { useMissionStore } from '../../stores/missionStore';
 import { FlightMemberEditor } from './FlightMemberEditor';
 import { LoadoutEditor } from './LoadoutEditor';
 import { formatCallsign } from '../../lib/callsign';
-import type { FlightMember, FlightRole, LoadoutItem } from '../../types';
+import { weaponForLoadoutItem } from '../../lib/autoBuildAttack';
+import type { DbWeapon, FlightMember, FlightRole, LoadoutItem } from '../../types';
 
 interface Aircraft {
   id: string;
@@ -13,6 +14,8 @@ interface Aircraft {
 
 interface FlightRosterProps {
   aircraft: Aircraft[];
+  /** The weapon table, to tell a store it knows from one it doesn't. */
+  weapons: DbWeapon[];
 }
 
 const ROLE_LABELS: Record<FlightRole, string> = {
@@ -21,12 +24,30 @@ const ROLE_LABELS: Record<FlightRole, string> = {
   wingman: 'Wingman',
 };
 
-function summariseLoadout(loadout: LoadoutItem[]): string {
-  if (!loadout || loadout.length === 0) return 'No loadout';
-  return loadout.map((item) => `${item.quantity}x ${item.weaponType}`).join(', ');
+/** One store per line, so a long loadout reads down the card (and wraps on a phone). */
+function LoadoutLines({ loadout, weapons }: { loadout: LoadoutItem[]; weapons: DbWeapon[] }) {
+  if (!loadout || loadout.length === 0) {
+    return <div className="text-xs text-gray-500 mt-0.5 italic">No loadout</div>;
+  }
+  return (
+    <ul className="mt-0.5 space-y-0.5">
+      {loadout.map((item, i) => {
+        const weapon = weaponForLoadoutItem(item, weapons);
+        // Amber, and said in words: colour alone would not reach everyone. Not
+        // before the table has loaded, when every store would look unknown.
+        const unknown = weapons.length > 0 && !weapon;
+        return (
+          <li key={i} className={`text-xs min-w-0 break-words ${unknown ? 'text-amber-300' : 'text-gray-500'}`}>
+            {item.quantity}× {weapon?.name ?? item.weaponType}
+            {unknown && ' (not in the weapon table)'}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
-export function FlightRoster({ aircraft }: FlightRosterProps) {
+export function FlightRoster({ aircraft, weapons }: FlightRosterProps) {
   const { mission, removeFlightMember, updateFlightMember } = useMissionStore();
   const [showEditor, setShowEditor] = useState(false);
   const [editingMember, setEditingMember] = useState<FlightMember | undefined>(undefined);
@@ -109,11 +130,11 @@ export function FlightRoster({ aircraft }: FlightRosterProps) {
                 className="bg-dcs-dark rounded-lg p-3 border border-gray-700"
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-dcs-blue px-3 py-1 rounded text-lg font-bold min-w-[48px] text-center">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="bg-dcs-blue px-3 py-1 rounded text-lg font-bold min-w-[48px] text-center shrink-0">
                       #{member.position}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="font-medium">{formatCallsign(member.callsign)}</div>
                       <div className="text-sm text-gray-400">
                         {ROLE_LABELS[member.role]}
@@ -122,12 +143,10 @@ export function FlightRoster({ aircraft }: FlightRosterProps) {
                       <div className="text-xs text-gray-500 mt-0.5">
                         {memberAircraft?.name || member.aircraftId}
                       </div>
-                      <div className="text-xs text-gray-500 mt-0.5 italic">
-                        {summariseLoadout(member.loadout)}
-                      </div>
+                      <LoadoutLines loadout={member.loadout} weapons={weapons} />
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => handleLoadout(member)}
                       className="text-gray-400 hover:text-green-400 text-sm px-2 py-1 rounded hover:bg-gray-700 transition-colors"

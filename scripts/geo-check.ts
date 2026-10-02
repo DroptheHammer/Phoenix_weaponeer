@@ -24,7 +24,8 @@ import {
   applyPopupPlan,
 } from '../src/lib/popupPlanning';
 import { describeRunIn } from '../src/lib/runIn';
-import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor } from '../src/lib/autoBuildAttack';
+import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor, loadoutWeapons, unrecognisedStores } from '../src/lib/autoBuildAttack';
+import { rowsFromLoadout, pickWeapon, loadoutFromRows } from '../src/lib/loadoutRows';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, isRealWorld } from '../src/lib/strikeNearMe';
 import { buildAttackPicture, pictureFitPoints, LINE_STYLE, MARKER_COLOR } from '../src/lib/attackPicture';
@@ -2073,6 +2074,209 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
 
   ok('copy attack: to someone not in the flight it says so, and builds nothing',
      copyAttackTo(ctx, source as never, 'nobody').attack === undefined && copyAttackTo(ctx, source as never, 'nobody').problems.length === 1);
+}
+
+// ─── Jets arrive loaded: a link import fills the loadouts ─────────────────────
+// A loadout line is a weapon row found by id first, then by name. Auto-build
+// defaults to what the jet carries, strike weapons before anti-radiation
+// missiles, rockets and guns; stores the weapon table doesn't know are named,
+// never silently dropped. Rows are shaped as get_all_weapons returns them.
+{
+  const lib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8'));
+  const row = (id: string, name: string, category: string, guidance = 'none') =>
+    ({ id, name, category, guidance, weight_lbs: 500, frag_min_safe_alt_ft: 1000, carried_by: ['f16c', 'f18c'] });
+  const mk82 = row('mk82', 'Mk-82 LDGP', 'bomb_unguided');
+  const mk84 = row('mk84', 'Mk-84 LDGP', 'bomb_unguided');
+  const gbu12 = row('gbu12', 'GBU-12 Paveway II', 'bomb_guided', 'laser');
+  const jsow = row('agm154a', 'AGM-154A JSOW', 'standoff', 'gps');
+  const harm = row('agm88c', 'AGM-88C HARM', 'missile_agm', 'radar');
+  const maverick = row('agm65f', 'AGM-65F Maverick', 'missile_agm', 'ir');
+  const hydra = row('hydra70', 'Hydra 70 2.75" rockets', 'rocket');
+  const gau12 = row('gau12', 'GAU-12/U 25 mm', 'gun');
+  const table = [mk82, mk84, gbu12, jsow, harm, maverick, hydra, gau12];
+  const jet = (loadout: unknown, callsign = 'Sword 1-1', aircraftId = 'f18c') => ({ id: callsign, callsign, aircraftId, position: 1, loadout });
+  const idsOf = (loadout: unknown[]) => loadoutWeapons(jet(loadout) as never, table as never).map((w) => w.id).join();
+  const build = (member: ReturnType<typeof jet>, extra: object = {}) => autoBuildAttack({
+    mission: { waypoints: [wpIp, wpTgt], flightMembers: [member], threats: [], attacks: [] },
+    targetWaypointId: wpTgt.id, attackerId: member.id, weapons: table, profiles: [], threatSystems: [], ...extra,
+  } as never);
+  const rockeye = { weaponType: 'Mk-20 Rockeye', quantity: 4 };
+
+  // ── The import ──
+  const store = (weapon_id: string | null, name: string, quantity: number) => ({ weapon_id, name, quantity });
+  const unit = (callsign: string, loadout?: unknown[]) => ({ name: 'Pilot', callsign, onboard_num: null, ...(loadout ? { loadout } : {}) });
+  const linkData = {
+    theater: 'nevada', theater_display_name: 'Nevada', projection_verified: true, bullseye: { lat: 36.2, lon: -115.0 },
+    player_groups: [{
+      name: 'Strike', callsign: 'Sword 1', aircraft_type: 'FA-18C_hornet', waypoints: [],
+      units: [
+        unit('Sword 1-1', [store('gbu12', 'GBU-12 Paveway II', 2), store(null, 'Mk-20 Rockeye', 4)]),
+        unit('Sword 1-2', [store('agm88c', 'AGM-88C HARM', 1), store('agm154a', 'AGM-154A JSOW', 2)]),
+        unit('Sword 1-3'), // a payload with no loadout key at all
+      ],
+    }],
+    threats: [], trigger_zones: [], warnings: [], notices: [], source: null,
+  };
+  useMissionStore.getState().importFromFragOrders(linkData as never, 0);
+  const imported = useMissionStore.getState().mission!;
+  const [lead, second, third] = imported.flightMembers;
+  ok('import: a jet\'s stores arrive as its loadout, the weapon id with each known one',
+     JSON.stringify(lead.loadout) === JSON.stringify([
+       { weaponType: 'GBU-12 Paveway II', quantity: 2, weaponId: 'gbu12' },
+       { weaponType: 'Mk-20 Rockeye', quantity: 4 },
+     ]), JSON.stringify(lead.loadout));
+  ok('import: a store the table does not know keeps its DCS name and carries no weaponId at all',
+     lead.loadout[1] != null && !('weaponId' in lead.loadout[1]) && lead.loadout[1].weaponType === 'Mk-20 Rockeye');
+  ok('import: each jet gets its own loadout', second.loadout.map((i) => i.weaponId).join() === 'agm88c,agm154a');
+  ok('import: a unit with no loadout key still imports, with an empty loadout',
+     imported.flightMembers.length === 3 && Array.isArray(third.loadout) && third.loadout.length === 0);
+  ok('import: the imported mission passes the file gate', validateMission(imported).ok,
+     validateMission(imported).ok ? '' : (validateMission(imported) as { problems: string[] }).problems.join('; '));
+  ok('import: auto-build defaults to the weapon the jet carries (the known one, not the first table row)',
+     build(lead as never).weapon?.id === 'gbu12', String(build(lead as never).weapon?.id));
+  ok('import: ...and the JSOW before the HARM the author listed first',
+     build(second as never).weapon?.id === 'agm154a', String(build(second as never).weapon?.id));
+
+  // ── Matching a loadout line to a weapon row ──
+  ok('match: an id beats a stale name', idsOf([{ weaponType: 'GBU-12 Paveway II', quantity: 2, weaponId: 'mk82' }]) === 'mk82', idsOf([{ weaponType: 'GBU-12 Paveway II', quantity: 2, weaponId: 'mk82' }]));
+  ok('match: a legacy line with only a name still matches', idsOf([{ weaponType: 'Mk-84 LDGP', quantity: 2 }]) === 'mk84');
+  ok('match: an id that matches no row falls back to the name', idsOf([{ weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'zz99' }]) === 'mk82');
+  ok('match: an id and a name that both match nothing is an unrecognised store, not a weapon',
+     idsOf([{ weaponType: 'Mk-20 Rockeye', quantity: 4, weaponId: 'zz99' }]) === '' &&
+     unrecognisedStores(jet([{ weaponType: 'Mk-20 Rockeye', quantity: 4, weaponId: 'zz99' }]) as never, table as never).length === 1);
+  const twice = [{ weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'mk82' }, { weaponType: 'Mk-82 LDGP', quantity: 2 }, { weaponType: 'Mk-84 LDGP', quantity: 1 }];
+  ok('duplicates: two lines for the same weapon give one carried weapon', idsOf(twice) === 'mk82,mk84', idsOf(twice));
+  const choiceIds = weaponChoicesFor(jet(twice) as never, table as never).map((w) => w.id);
+  ok('duplicates: ...so the weapon picker has no repeated option', new Set(choiceIds).size === choiceIds.length, choiceIds.join());
+
+  // ── What auto-build defaults to ──
+  ok('order: a JSOW is picked before a HARM, whichever the loadout lists first',
+     idsOf([{ weaponType: 'AGM-88C HARM', quantity: 1 }, { weaponType: 'AGM-154A JSOW', quantity: 1 }]) === 'agm154a,agm88c' &&
+     idsOf([{ weaponType: 'AGM-154A JSOW', quantity: 1 }, { weaponType: 'AGM-88C HARM', quantity: 1 }]) === 'agm154a,agm88c');
+  ok('order: ...and that is the weapon auto-build builds, not the HARM',
+     build(jet([{ weaponType: 'AGM-88C HARM', quantity: 1, weaponId: 'agm88c' }, { weaponType: 'AGM-154A JSOW', quantity: 1, weaponId: 'agm154a' }])).weapon?.id === 'agm154a');
+  ok('order: a Maverick is not an anti-radiation missile, so it keeps its place ahead of a later bomb',
+     idsOf([{ weaponType: 'AGM-65F Maverick', quantity: 2 }, { weaponType: 'Mk-82 LDGP', quantity: 2 }]) === 'agm65f,mk82');
+  ok('order: a HARM still ranks ahead of rockets and a gun, a bomb ahead of all three',
+     idsOf([
+       { weaponType: 'GAU-12/U 25 mm', quantity: 1 }, { weaponType: 'Hydra 70 2.75" rockets', quantity: 14 },
+       { weaponType: 'AGM-88C HARM', quantity: 1 }, { weaponType: 'Mk-82 LDGP', quantity: 2 },
+     ]) === 'mk82,agm88c,hydra70,gau12');
+  const tank = row('tank370', '370 gal tank', 'fuel_tank');
+  ok('order: a row that is not an air-to-ground store goes last, so it never becomes the default',
+     loadoutWeapons(jet([{ weaponType: '370 gal tank', quantity: 2 }, { weaponType: 'GAU-12/U 25 mm', quantity: 1 }, { weaponType: 'Mk-82 LDGP', quantity: 2 }]) as never, [...table, tank] as never).map((w) => w.id).join() === 'mk82,gau12,tank370');
+  ok('order: within a group the loadout\'s own order is kept',
+     idsOf([{ weaponType: 'GBU-12 Paveway II', quantity: 2 }, { weaponType: 'Mk-82 LDGP', quantity: 2 }, { weaponType: 'AGM-154A JSOW', quantity: 1 }]) === 'gbu12,mk82,agm154a');
+
+  // ── A loadout of stores the table doesn't know ──
+  const onlyUnknown = jet([rockeye, { weaponType: 'Mk-20 Rockeye', quantity: 2 }, { weaponType: 'ALQ-184 pod', quantity: 1 }]);
+  const unknownBuild = build(onlyUnknown);
+  const unknownMsg = unknownBuild.problems.join(' | ');
+  ok('unrecognised: a jet carrying only stores the table does not know gets a message naming them, once each',
+     unknownMsg === 'Sword 1-1 carries only stores the weapon table doesn\'t know (Mk-20 Rockeye, ALQ-184 pod) — pick a weapon', unknownMsg);
+  ok('unrecognised: ...and that is not the "no loadout" message',
+     !unknownMsg.includes('has no loadout') && unknownBuild.attack === null);
+  const emptyMsg = build(jet([])).problems.join(' | ');
+  ok('unrecognised: a truly empty loadout keeps the old wording',
+     emptyMsg === 'Sword 1-1 has no loadout — pick a weapon, or set the loadout in Flight', emptyMsg);
+  ok('unrecognised: picking a weapon clears the message',
+     build(onlyUnknown, { overrides: { weaponId: 'mk82' } }).problems.every((p: string) => !p.includes('carries only')));
+  ok('unrecognised: one known store beside an unknown one is carried, with no message',
+     build(jet([rockeye, { weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'mk82' }])).weapon?.id === 'mk82' &&
+     !build(jet([rockeye, { weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'mk82' }])).problems.some((p: string) => p.includes('carries only')));
+  ok('unrecognised: the picker still offers every store when none of the jet\'s is known',
+     weaponChoicesFor(onlyUnknown as never, table as never).some((w) => w.id === 'mk82'));
+
+  // ── Copy to… ──
+  const profiles = [...lib('a4ec'), ...lib('f16c')];
+  const hydraA4 = { ...hydra, carried_by: ['a10c'] }; // a row that does not list the A-4E
+  const copyWeapons = [mk82, mk84, hydraA4];
+  const scoot1 = jet([], 'Scooter 1-1', 'a4ec');
+  const makeSource = (attacker: ReturnType<typeof jet>, weaponId: string) => {
+    const bare = { waypoints: [wpIp, wpTgt], flightMembers: [attacker], threats: [], attacks: [] };
+    const built = autoBuildAttack({ mission: bare, targetWaypointId: wpTgt.id, attackerId: attacker.id, weapons: copyWeapons, profiles, threatSystems: [], overrides: { weaponId } } as never);
+    return { ...built.attack!, id: 'atk1', sequenceNumber: 1 };
+  };
+  const copyFor = (source: ReturnType<typeof makeSource>, attacker: ReturnType<typeof jet>, recipient: ReturnType<typeof jet>) =>
+    copyAttackTo({ mission: { waypoints: [wpIp, wpTgt], flightMembers: [attacker, recipient], threats: [], attacks: [source] }, weapons: copyWeapons, profiles, threatSystems: [] } as never, source as never, recipient.id);
+
+  const mk82Source = makeSource(jet([], 'Viper 1-1', 'f16c'), 'mk82');
+  ok('copy: the source attack builds', mk82Source.weaponId === 'mk82');
+  const carrier = copyFor(mk82Source, jet([], 'Viper 1-1', 'f16c'), jet([{ weaponType: 'stale name', quantity: 2, weaponId: 'mk82' }], 'Viper 1-2', 'f16c'));
+  ok('copy: a same-type jet that carries the weapon (by id) keeps it, with no note',
+     carrier.attack?.weaponId === 'mk82' && carrier.notes.length === 0, `${String(carrier.attack?.weaponId)} ${carrier.notes.join('; ')} ${carrier.problems.join('; ')}`);
+  const other = copyFor(mk82Source, jet([], 'Viper 1-1', 'f16c'), jet([{ weaponType: 'x', quantity: 2, weaponId: 'mk84' }], 'Viper 1-2', 'f16c'));
+  ok('copy: a same-type jet carrying something else gets a note and auto-build\'s pick',
+     other.attack?.weaponId === 'mk84' && other.notes.some((n) => n.includes('not carrying')), `${String(other.attack?.weaponId)} ${other.notes.join('; ')}`);
+
+  // The A-4E's attack uses a rocket the (hand-built) table does not offer an A-4E:
+  // whether a jet "has a loadout" decides whether that is called out.
+  const hydraSource = makeSource(scoot1, 'hydra70');
+  ok('copy: the A-4E rocket attack builds', hydraSource.weaponId === 'hydra70', String(hydraSource.weaponId));
+  const emptyRecipient = copyFor(hydraSource, scoot1, jet([], 'Scooter 1-2', 'a4ec'));
+  const unknownRecipient = copyFor(hydraSource, scoot1, jet([rockeye], 'Scooter 1-2', 'a4ec'));
+  ok('copy: a jet with no loadout is not asked whether it carries the weapon: kept, no note',
+     emptyRecipient.attack?.weaponId === 'hydra70' && emptyRecipient.notes.length === 0, `${emptyRecipient.notes.join('; ')} ${emptyRecipient.problems.join('; ')}`);
+  ok('copy: a jet carrying only unrecognised stores is treated the same as one with none',
+     unknownRecipient.attack?.weaponId === emptyRecipient.attack?.weaponId &&
+     JSON.stringify(unknownRecipient.notes) === JSON.stringify(emptyRecipient.notes) && unknownRecipient.problems.length === 0,
+     `${String(unknownRecipient.attack?.weaponId)} ${unknownRecipient.notes.join('; ')} ${unknownRecipient.problems.join('; ')}`);
+
+  // ── The file gate: a loadout is checked like everything else a shared file carries ──
+  const withLoadout = (loadout: unknown) => ({ ...goodMission, flightMembers: [{ ...goodMission.flightMembers[0], loadout }] });
+  const rejects = (loadout: unknown, word: string) => {
+    const check = validateMission(withLoadout(loadout));
+    return !check.ok && check.problems.some((p) => p.includes(word));
+  };
+  const noLoadout = { ...goodMission, flightMembers: [(({ loadout: _drop, ...rest }) => rest)(goodMission.flightMembers[0])] };
+  const noLoadoutCheck = validateMission(noLoadout);
+  ok('validateMission: a flight member with no loadout is rejected, not left to crash the editor',
+     !noLoadoutCheck.ok && noLoadoutCheck.problems.some((p) => p.includes('loadout must be a list')), JSON.stringify(noLoadoutCheck));
+  ok('validateMission: a loadout that is not a list is rejected', rejects('Mk-82', 'loadout must be a list') && rejects({ length: 1 }, 'loadout must be a list') && rejects(null, 'loadout must be a list'));
+  ok('validateMission: a loadout line that is not an object is rejected', rejects(['Mk-82'], 'not an object') && rejects([null], 'not an object'));
+  ok('validateMission: a weaponType that is not text is rejected (it is drawn in the roster)',
+     rejects([{ weaponType: 5, quantity: 1 }], 'weaponType') && rejects([{ weaponType: { html: payload }, quantity: 1 }], 'weaponType') && rejects([{ quantity: 1 }], 'weaponType'));
+  ok('validateMission: a quantity that is negative, not a number or not finite is rejected',
+     rejects([{ weaponType: 'x', quantity: -1 }], 'quantity') && rejects([{ weaponType: 'x', quantity: '4' }], 'quantity') &&
+     rejects([{ weaponType: 'x', quantity: Infinity }], 'quantity') && rejects([{ weaponType: 'x', quantity: NaN }], 'quantity') &&
+     rejects([{ weaponType: 'x' }], 'quantity') && rejects([{ weaponType: 'x', quantity: null }], 'quantity'));
+  ok('validateMission: a weaponId that is not text is rejected',
+     rejects([{ weaponType: 'x', quantity: 1, weaponId: 7 }], 'weaponId') && rejects([{ weaponType: 'x', quantity: 1, weaponId: null }], 'weaponId') &&
+     rejects([{ weaponType: 'x', quantity: 1, weaponId: { html: payload } }], 'weaponId'));
+  ok('validateMission: a loadout with and without weaponId passes, and so does an empty one',
+     validateMission(withLoadout([{ weaponType: 'Mk-82 LDGP', quantity: 4, weaponId: 'mk82' }, { weaponType: 'Mk-20 Rockeye', quantity: 4 }, { weaponType: 'x', quantity: 0 }])).ok &&
+     validateMission(withLoadout([])).ok);
+  const manyBad = validateMission(withLoadout(Array.from({ length: 20 }, () => ({ weaponType: 5, quantity: -1, weaponId: 1 }))));
+  ok('validateMission: a loadout broken on every line still reports a handful of problems', !manyBad.ok && manyBad.problems.length === 7, manyBad.ok ? '' : String(manyBad.problems.length));
+
+  // ── The loadout editor keeps the id, and keeps it true ──
+  const original = [
+    { weaponType: 'Mk-82 LDGP', quantity: 4, weaponId: 'mk82' },
+    { weaponType: 'Mk-20 Rockeye', quantity: 4 },
+    { weaponType: 'Mk-84 LDGP', quantity: 2 },
+  ];
+  ok('loadout editor: opening and saving changes nothing: ids kept, the unrecognised store kept and without an id',
+     JSON.stringify(loadoutFromRows(rowsFromLoadout(original))) === JSON.stringify(original), JSON.stringify(loadoutFromRows(rowsFromLoadout(original))));
+  const picked = pickWeapon(rowsFromLoadout(original)[0], 'GBU-12 Paveway II', table);
+  ok('loadout editor: picking another weapon takes that weapon\'s id with its name, never a stale id beside a new name',
+     picked.weaponType === 'GBU-12 Paveway II' && picked.weaponId === 'gbu12' && picked.quantity === 4, JSON.stringify(picked));
+  ok('loadout editor: ...so the saved loadout reads as the new weapon (the id wins over the name)',
+     idsOf(loadoutFromRows([picked])) === 'gbu12');
+  const overUnknown = pickWeapon(rowsFromLoadout(original)[1], 'Mk-84 LDGP', table);
+  ok('loadout editor: picking over an unrecognised store gives the row the new weapon\'s id',
+     overUnknown.weaponId === 'mk84' && overUnknown.weaponType === 'Mk-84 LDGP');
+  const cleared = pickWeapon(rowsFromLoadout(original)[0], '', table);
+  ok('loadout editor: clearing a row drops it on save, id and all',
+     !('weaponId' in cleared) && loadoutFromRows([cleared, ...rowsFromLoadout(original).slice(1)]).length === 2);
+  ok('loadout editor: an old line with only a name round-trips with no id invented',
+     !('weaponId' in loadoutFromRows(rowsFromLoadout([{ weaponType: 'Mk-84 LDGP', quantity: 2 }]))[0]));
+
+  // ── Strike near me's default store ──
+  const nearMe = realWorldMission({ target: { lat: 10, lon: 20 }, targetElevation_ft: 300, aircraftId: 'f16c', callsign: 'Viper 1-1', name: 'Strike near me' });
+  const nearMeStore = nearMe.flightMembers[0].loadout[0];
+  ok('strike near me: its default Mk-82 carries the weapon id as well as the name', nearMeStore.weaponId === 'mk82' && nearMeStore.weaponType === 'Mk-82 LDGP', JSON.stringify(nearMeStore));
+  ok('strike near me: the id is what finds the weapon (a row renamed in the table still matches)',
+     loadoutWeapons(nearMe.flightMembers[0], [{ ...mk82, name: 'Mk-82 renamed' }] as never).map((w) => w.id).join() === 'mk82');
 }
 
 // ─── The card's colours: Day is the card as it always was ────────────────────

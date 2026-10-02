@@ -389,7 +389,7 @@ function App() {
       case 'threats':
         return <ThreatList threatSystems={threatSystemMap} availableThreats={threats} />;
       case 'flight':
-        return <FlightRoster aircraft={aircraft} />;
+        return <FlightRoster aircraft={aircraft} weapons={weapons} />;
       case 'attacks':
         return <AttackList weapons={weapons} fuzeOptions={fuzeOptions} aircraft={aircraft} threatSystems={threats} onAttackSaved={() => setActivePanel(null)} />;
       case 'kneeboards':
