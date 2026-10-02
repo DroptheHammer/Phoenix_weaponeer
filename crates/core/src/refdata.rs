@@ -23,8 +23,18 @@
 //! - **Aircraft ids** must match `normalizeAircraftType` in
 //!   `src/stores/missionStore.ts` and the `aircraftId` in each
 //!   `src-tauri/resources/profiles/*.json`.
-//! - **Bombs and missiles** are mapped to aircraft for the F-16C only (see
-//!   ROADMAP.md).
+//! - **Bombs and missiles** (reference DB v5) are mapped to all ten aircraft.
+//!   Only the F-16C's original rows have station numbers; every row added in v5
+//!   uses station 0 and a quantity of 1, like the guns and rockets, so it only
+//!   says the aircraft carries the weapon. Each list was checked against the
+//!   module manuals and Chuck's Guides (2026-10-01) and leaves out what the DCS
+//!   module does not carry: the F/A-18C's AGM-65G, the A-4E-C's Mk-82 AIR and the
+//!   Mirage F1's Mk-82 Snakeye and Mk-84. The GBU-16, AGM-65F, AGM-122 and
+//!   GAU-12/U rows hold a name, a class and a guidance type only: weight 0 and
+//!   every release and frag field null, with `notes` saying so. The planner
+//!   flags an attack that uses a bomb with no frag floor or a missile with no
+//!   minimum release (`runAttackChecks`), since nothing else would stop it
+//!   releasing too low.
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -277,6 +287,167 @@ mod tests {
         assert_eq!(gau8.carried_by, vec!["a10c"]);
         let hydra = reference().get_weapon_by_id("hydra70").unwrap();
         assert_eq!(hydra.carried_by, vec!["a10c", "f4e", "f5e"], "sorted");
+    }
+
+    /// Four rows (reference DB v5) are name-only: the planner has no release or
+    /// frag figure for them and must not be handed an invented one. A number here
+    /// would also stop the "no data on file" note from firing on an attack.
+    #[test]
+    fn the_four_name_only_rows_carry_no_numbers() {
+        let rows = [
+            ("gbu16", "bomb_guided", "laser"),
+            ("agm65f", "missile_agm", "ir"),
+            ("agm122", "missile_agm", "radar"),
+            ("gau12", "gun", "none"),
+        ];
+        for (id, category, guidance) in rows {
+            let w = reference().get_weapon_by_id(id).unwrap_or_else(|| panic!("no weapon row {id}"));
+            assert_eq!((w.category.as_str(), w.guidance.as_str()), (category, guidance), "{id}");
+            assert_eq!(w.weight_lbs, 0.0, "{id}: weight 0 means not tracked");
+            let numbers = [
+                ("drag_index", w.drag_index),
+                ("min_release_alt_ft", w.min_release_alt_ft),
+                ("max_release_alt_ft", w.max_release_alt_ft),
+                ("min_release_speed_ktas", w.min_release_speed_ktas),
+                ("max_release_speed_ktas", w.max_release_speed_ktas),
+                ("frag_lethal_radius_ft", w.frag_lethal_radius_ft),
+                ("frag_effective_radius_ft", w.frag_effective_radius_ft),
+                ("frag_min_safe_alt_ft", w.frag_min_safe_alt_ft),
+            ];
+            for (field, value) in numbers {
+                assert_eq!(value, None, "{id}.{field} is a number; this row is name-only");
+            }
+            assert_eq!(w.dcs_weapon_name, None, "{id}: the internal name is for the CLSID follow-up");
+            let notes = w.notes.as_deref().unwrap_or("");
+            assert!(notes.contains("Name only"), "{id}: notes must say the row is name-only, not {notes:?}");
+        }
+    }
+
+    /// Saved missions and the planner's loadout match a weapon on its name, so a
+    /// reworded row would quietly orphan every attack that used it. Pinned by id.
+    #[test]
+    fn the_thirty_weapon_names_are_pinned_by_id() {
+        let expected: &[(&str, &str)] = &[
+            ("mk82", "Mk-82 LDGP"),
+            ("mk82air", "Mk-82 AIR"),
+            ("mk82se", "Mk-82 Snakeye"),
+            ("mk84", "Mk-84 LDGP"),
+            ("gbu10", "GBU-10 Paveway II"),
+            ("gbu12", "GBU-12 Paveway II"),
+            ("gbu16", "GBU-16 Paveway II"),
+            ("gbu24", "GBU-24 Paveway III"),
+            ("gbu31", "GBU-31 JDAM"),
+            ("gbu38", "GBU-38 JDAM"),
+            ("cbu87", "CBU-87 CEM"),
+            ("cbu97", "CBU-97 SFW"),
+            ("agm65d", "AGM-65D Maverick"),
+            ("agm65f", "AGM-65F Maverick"),
+            ("agm65g", "AGM-65G Maverick"),
+            ("agm65h", "AGM-65H Maverick"),
+            ("agm65k", "AGM-65K Maverick"),
+            ("agm88c", "AGM-88C HARM"),
+            ("agm122", "AGM-122 Sidearm"),
+            ("agm154a", "AGM-154A JSOW"),
+            ("agm154c", "AGM-154C JSOW"),
+            ("gau8", "GAU-8/A 30 mm"),
+            ("gau12", "GAU-12/U 25 mm"),
+            ("mk12gun", "Mk 12 20 mm"),
+            ("defa553", "DEFA 553 30 mm"),
+            ("m39", "M39A2 20 mm"),
+            ("hydra70", "Hydra 70 2.75\" rockets"),
+            ("ffar275", "2.75\" FFAR rockets (LAU-3/A)"),
+            ("zuni", "Zuni 5\" rockets (LAU-10)"),
+            ("sneb68", "SNEB 68 mm rockets"),
+        ];
+        let mut have: Vec<(String, String)> = reference().get_all_weapons().into_iter().map(|w| (w.id, w.name)).collect();
+        have.sort();
+        let mut want: Vec<(String, String)> = expected.iter().map(|(id, name)| (id.to_string(), name.to_string())).collect();
+        want.sort();
+        assert_eq!(have, want, "a weapon was added, removed or renamed: update this list on purpose");
+    }
+
+    /// A row nobody carries is never offered, never loaded from a link and
+    /// invisible to the picker's filter.
+    #[test]
+    fn every_weapon_row_is_carried_by_at_least_one_aircraft() {
+        for w in reference().get_all_weapons() {
+            assert!(!w.carried_by.is_empty(), "{} ({}) is carried by no aircraft", w.id, w.name);
+        }
+    }
+
+    /// What the F-16C is offered today, before the picker filters bombs and
+    /// missiles by aircraft: all 18 bomb and missile rows that existed before
+    /// reference DB v5. The filter must not take any of them away, the Mk-82 AIR
+    /// and Snakeye included (the F-16C had no row for those two until v5).
+    #[test]
+    fn the_f16c_keeps_every_bomb_and_missile_it_is_offered_today() {
+        let offered_before = [
+            "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "gbu31", "gbu38", "cbu87", "cbu97",
+            "agm65d", "agm65g", "agm65h", "agm65k", "agm88c", "agm154a", "agm154c",
+        ];
+        let carried: Vec<String> = reference().get_weapons_for_aircraft("f16c").into_iter().map(|w| w.id).collect();
+        for id in offered_before {
+            assert!(carried.iter().any(|c| c == id), "the F-16C no longer carries {id}");
+        }
+    }
+
+    /// Which aircraft carries what, whole, for all ten. Bombs, missiles and the
+    /// Harrier's gun pod were checked against the module manuals and Chuck's
+    /// Guides on 2026-10-01; the guns and rockets were already there. Left out on
+    /// purpose, because the DCS module does not carry them: the F/A-18C's AGM-65G,
+    /// the A-4E-C's Mk-82 AIR, the Mirage F1's Mk-82 Snakeye and Mk-84.
+    #[test]
+    fn what_each_aircraft_carries_is_pinned() {
+        let table: &[(&str, &[&str])] = &[
+            (
+                "f16c",
+                &[
+                    "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "gbu31", "gbu38", "cbu87", "cbu97",
+                    "agm65d", "agm65g", "agm65h", "agm65k", "agm88c", "agm154a", "agm154c",
+                ],
+            ),
+            (
+                "f18c",
+                &[
+                    "mk82", "mk82se", "mk84", "gbu10", "gbu12", "gbu16", "gbu24", "gbu31", "gbu38", "agm65f", "agm88c",
+                    "agm154a", "agm154c",
+                ],
+            ),
+            (
+                "a10c",
+                &[
+                    "mk82", "mk82air", "mk84", "gbu10", "gbu12", "gbu31", "gbu38", "cbu87", "cbu97", "agm65d", "agm65g",
+                    "agm65h", "agm65k", "gau8", "hydra70",
+                ],
+            ),
+            (
+                "f15e",
+                &["mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "gbu31", "gbu38", "cbu87", "cbu97"],
+            ),
+            (
+                "f4e",
+                &[
+                    "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "cbu87", "agm65d", "agm65g", "hydra70",
+                    "ffar275", "zuni",
+                ],
+            ),
+            ("a4ec", &["mk82", "mk82se", "mk84", "mk12gun", "ffar275", "zuni"]),
+            ("f5e", &["mk82", "mk82se", "mk84", "m39", "hydra70"]),
+            ("f14", &["mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu16", "gbu24"]),
+            ("f1", &["mk82", "gbu10", "gbu12", "gbu16", "defa553", "sneb68"]),
+            ("av8b", &["mk82", "mk82air", "mk82se", "gbu12", "gbu16", "gbu38", "agm65f", "agm122", "gau12"]),
+        ];
+        let aircraft: HashSet<String> = reference().get_all_aircraft().into_iter().map(|a| a.id).collect();
+        let pinned: HashSet<String> = table.iter().map(|(id, _)| id.to_string()).collect();
+        assert_eq!(aircraft, pinned, "an aircraft is missing from this table, or the table names one that is gone");
+        for (aircraft_id, ids) in table {
+            let mut carried: Vec<String> =
+                reference().get_weapons_for_aircraft(aircraft_id).into_iter().map(|w| w.id).collect();
+            carried.sort();
+            let mut want: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+            want.sort();
+            assert_eq!(carried, want, "{aircraft_id} carries a different set of weapons than pinned");
+        }
     }
 
     #[test]

@@ -355,6 +355,18 @@
       "weapon_id": "agm154c"
     },
     {
+      "aircraft_id": "f16c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82air"
+    },
+    {
+      "aircraft_id": "f16c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82se"
+    },
+    {
       "aircraft_id": "a10c",
       "max_quantity": 1,
       "station": 0,
@@ -365,6 +377,84 @@
       "max_quantity": 1,
       "station": 0,
       "weapon_id": "hydra70"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82air"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk84"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu10"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu12"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu31"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu38"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu87"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu97"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm65d"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm65g"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm65h"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm65k"
     },
     {
       "aircraft_id": "a4ec",
@@ -385,6 +475,24 @@
       "weapon_id": "zuni"
     },
     {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82se"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk84"
+    },
+    {
       "aircraft_id": "f1",
       "max_quantity": 1,
       "station": 0,
@@ -397,6 +505,30 @@
       "weapon_id": "sneb68"
     },
     {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu10"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu12"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu16"
+    },
+    {
       "aircraft_id": "f5e",
       "max_quantity": 1,
       "station": 0,
@@ -407,6 +539,24 @@
       "max_quantity": 1,
       "station": 0,
       "weapon_id": "hydra70"
+    },
+    {
+      "aircraft_id": "f5e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "f5e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82se"
+    },
+    {
+      "aircraft_id": "f5e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk84"
     },
     {
       "aircraft_id": "f4e",
@@ -425,6 +575,312 @@
       "max_quantity": 1,
       "station": 0,
       "weapon_id": "zuni"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82air"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82se"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk84"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu10"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu12"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu24"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu87"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm65d"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm65g"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82se"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk84"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu10"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu12"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu16"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu24"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu31"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu38"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm65f"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm88c"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm154a"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm154c"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82air"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82se"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk84"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu10"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu12"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu24"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu31"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu38"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu87"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu97"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82air"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82se"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk84"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu10"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu12"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu16"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu24"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82air"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk82se"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu12"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu16"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gbu38"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm65f"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "agm122"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "gau12"
     }
   ],
   "fuze_options": [
@@ -1121,6 +1577,23 @@
     },
     {
       "category": "bomb_guided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "laser",
+      "id": "gbu16",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "GBU-16 Paveway II",
+      "notes": "1000lb laser-guided bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_guided",
       "dcs_weapon_name": "GBU_24",
       "drag_index": 0.025,
       "frag_effective_radius_ft": 800.0,
@@ -1223,6 +1696,23 @@
     },
     {
       "category": "missile_agm",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "ir",
+      "id": "agm65f",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "AGM-65F Maverick",
+      "notes": "Imaging IR Maverick with the heavy warhead. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "missile_agm",
       "dcs_weapon_name": "AGM_65G",
       "drag_index": null,
       "frag_effective_radius_ft": 500.0,
@@ -1288,6 +1778,23 @@
       "name": "AGM-88C HARM",
       "notes": "Anti-radiation missile",
       "weight_lbs": 800.0
+    },
+    {
+      "category": "missile_agm",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "radar",
+      "id": "agm122",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "AGM-122 Sidearm",
+      "notes": "Anti-radiation missile. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
     },
     {
       "category": "standoff",
@@ -1389,6 +1896,23 @@
       "min_release_speed_ktas": null,
       "name": "M39A2 20 mm",
       "notes": "F-5E internal guns",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "gun",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "gau12",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "GAU-12/U 25 mm",
+      "notes": "AV-8B gun pod. Name only: no release or frag data on file.",
       "weight_lbs": 0.0
     },
     {

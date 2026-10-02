@@ -7,7 +7,7 @@ import { popupPlanOf } from './popupPlanning';
 import { describeRunIn } from './runIn';
 import { buildAttackPicture, buildSideProfile } from './attackPicture';
 import { attackIpAnchor } from './ipAnchor';
-import { runAttackChecks } from './attackChecks';
+import { runAttackChecks, noDataNote } from './attackChecks';
 import { getTheaterInfo } from '../stores/theaterStore';
 import { compareThreatsForCard, CARD_THREAT_POOL } from './cardThreats';
 import { strikeCardInfo } from './strike';
@@ -358,17 +358,24 @@ export function buildKneeboardCard(
       `ESTIMATED — ${attack.sourceProfileName ?? 'this profile'} has not been flown in DCS; verify the numbers before relying on them`,
     );
   }
-
+  // A weapon the table holds no floor for. Like the two cautions above this is a
+  // caveat about the data behind the plan, so it rides in the amber strip.
+  const noData = noDataNote(weapon);
+  if (noData) cautions.push(noData);
 
   // Sanity checks against the weapon's own limits. On a card these are
-  // printed, not hidden — a pilot must see that the numbers disagree.
+  // printed, not hidden — a pilot must see that the numbers disagree. The
+  // "no data on file" note is not one of them: it is the caution above, and
+  // listing it here too would print it twice.
   const checkWarnings = runAttackChecks({
     profileType: attack.profileType,
     profile: attack.profile,
     weapon: weapon ?? null,
     targetElevation_ft: targetWp.elevation_ft,
     directBearing_deg: runIn.directBearing,
-  }).map((c) => c.text);
+  })
+    .filter((c) => c.kind !== 'no-data')
+    .map((c) => c.text);
 
   const releaseMode =
     attack.releaseMode === 'ripple'

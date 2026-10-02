@@ -381,33 +381,104 @@ mod tests {
         }
     }
 
+    /// Whether a weapon row is of a profile weapon class. The same join as
+    /// `weaponClassOf` in `src/lib/weaponClass.ts`, high-drag name test included
+    /// (the TypeScript says `/\bAIR\b|Snakeye|\bSE\b|Retard|High.?Drag|\bHD\b/i`).
+    fn weapon_is_of_class(w: &crate::refdata::Weapon, class: &str) -> bool {
+        let lower = w.name.to_ascii_lowercase();
+        let high_drag = lower.split(|c: char| !c.is_ascii_alphanumeric()).any(|t| t == "air" || t == "se" || t == "hd")
+            || lower.contains("snakeye")
+            || lower.contains("retard")
+            || lower.replace(['-', ' '], "").contains("highdrag");
+        match class {
+            "gun" | "rocket" => w.category == class,
+            "bomb_ld" => w.category == "bomb_unguided" && !high_drag,
+            "bomb_hd" => w.category == "bomb_unguided" && high_drag,
+            "lgb" => w.category == "bomb_guided" && w.guidance != "gps",
+            "jdam" => w.category == "bomb_gps" || (w.category == "bomb_guided" && w.guidance == "gps"),
+            "cluster" => w.category == "cluster",
+            "agm" => w.category == "missile_agm" || w.category == "standoff",
+            other => panic!("unknown weapon class {other}"),
+        }
+    }
+
     /// A profile nobody can pick is dead weight: auto-build only offers a
     /// profile when the chosen weapon is of one of its classes. The strafe and
     /// rocket profiles shipped for months with no gun or rocket in the weapons
     /// table. Guns and rockets are aircraft-specific, so each must also be
-    /// mapped to the aircraft that flies the profile.
+    /// mapped to the aircraft that flies the profile. (Bombs and missiles are
+    /// checked per aircraft too, in
+    /// `every_weapon_class_an_aircrafts_profiles_need_is_one_it_carries`.)
     #[test]
     fn every_weapon_class_a_profile_needs_has_a_weapon_to_choose() {
         let weapons = crate::refdata::reference().get_all_weapons();
         for p in bundled_profiles().unwrap() {
             for class in &p.weapon_classes {
-                let category_ok = |w: &crate::refdata::Weapon| match class.as_str() {
-                    "gun" | "rocket" => w.category == *class && w.carried_by.contains(&p.aircraft_id),
-                    "bomb_ld" | "bomb_hd" => w.category == "bomb_unguided",
-                    "lgb" => w.category == "bomb_guided" && w.guidance != "gps",
-                    "jdam" => w.category == "bomb_gps" || (w.category == "bomb_guided" && w.guidance == "gps"),
-                    "cluster" => w.category == "cluster",
-                    "agm" => w.category == "missile_agm" || w.category == "standoff",
-                    other => panic!("{}: unknown weapon class {other}", p.id),
+                let fired = class == "gun" || class == "rocket";
+                let category_ok = |w: &crate::refdata::Weapon| {
+                    weapon_is_of_class(w, class) && (!fired || w.carried_by.contains(&p.aircraft_id))
                 };
                 assert!(
                     weapons.iter().any(category_ok),
                     "{} needs a {class} weapon{} — none in the reference data",
                     p.id,
-                    if class == "gun" || class == "rocket" { format!(" carried by {}", p.aircraft_id) } else { String::new() }
+                    if fired { format!(" carried by {}", p.aircraft_id) } else { String::new() }
                 );
             }
         }
+    }
+
+    /// The profile classes an aircraft's profiles name that the aircraft carries
+    /// no weapon of. Every one of them is a profile nobody on that aircraft can
+    /// pick. They are written out here rather than skipped: a gap that closes
+    /// (a row is added) must come off this list, and a new gap must go on it on
+    /// purpose, so the list can never go stale in either direction.
+    ///
+    /// - Cluster on the F/A-18C, A-4E-C, F-5E, F-14, Mirage F1 and AV-8B: their
+    ///   DCS cluster stores (Rockeye, CBU-99, CBU-52, Belouga) have no row, since
+    ///   the cluster rows are the CBU-87 and CBU-97 that these jets do not carry.
+    /// - High-drag bombs on the Mirage F1: no Mk-82 AIR or Snakeye row, because
+    ///   the module does not carry one.
+    const KNOWN_CLASS_GAPS: &[(&str, &str)] = &[
+        ("f18c", "cluster"),
+        ("a4ec", "cluster"),
+        ("f5e", "cluster"),
+        ("f14", "cluster"),
+        ("f1", "cluster"),
+        ("av8b", "cluster"),
+        ("f1", "bomb_hd"),
+    ];
+
+    #[test]
+    fn every_weapon_class_an_aircrafts_profiles_need_is_one_it_carries() {
+        let weapons = crate::refdata::reference().get_all_weapons();
+        let mut needed: HashSet<(String, String)> = HashSet::new();
+        for p in bundled_profiles().unwrap() {
+            for class in &p.weapon_classes {
+                needed.insert((p.aircraft_id.clone(), class.clone()));
+            }
+        }
+        let mut problems: Vec<String> = Vec::new();
+        for (aircraft, class) in &needed {
+            let carried = weapons.iter().any(|w| w.carried_by.contains(aircraft) && weapon_is_of_class(w, class));
+            let listed = KNOWN_CLASS_GAPS.contains(&(aircraft.as_str(), class.as_str()));
+            match (carried, listed) {
+                (false, false) => problems.push(format!(
+                    "{aircraft} has profiles for {class} but carries no {class} weapon: add a row, or list the gap"
+                )),
+                (true, true) => problems.push(format!(
+                    "{aircraft}/{class} is listed as a gap, but {aircraft} carries a {class} weapon: take it off the list"
+                )),
+                _ => {}
+            }
+        }
+        for (aircraft, class) in KNOWN_CLASS_GAPS {
+            if !needed.contains(&(aircraft.to_string(), class.to_string())) {
+                problems.push(format!("{aircraft}/{class} is listed as a gap, but no {aircraft} profile uses {class}"));
+            }
+        }
+        problems.sort();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 
     /// Auto-build picks "the default for this class"; two of them would make

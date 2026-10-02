@@ -35,8 +35,10 @@
 //!    nothing is guessed. A skipped store is dropped, so every skip list is kept
 //!    to what is certainly not an attack weapon.
 //!
-//! The GBU-16, AGM-65F, AGM-122 and GAU-12 have no reference row yet, so stores
-//! naming them are unrecognised until the rows (and their rules) are added.
+//! The GBU-16, AGM-65F, AGM-122 and the GAU-12 gun pod have rows that hold only
+//! a name, a class and a guidance type (reference DB v5), so they load, and the
+//! planner says so on an attack that uses one. The internal guns have no rule: a
+//! gun built into the jet is never a pylon store.
 //!
 //! Counts. "X with N x ..." is N of what X holds (a TER of 3 Mk-82 is 3). A
 //! rocket pod counts rockets, not pods ("pod - 7 x" is 7, and two such pods are
@@ -118,9 +120,8 @@ const fn rockets(pattern: &'static str, id: &'static str) -> StoreRule {
 /// resolve to its own row; `every_rule_names_a_real_reference_row_and_none_shadows_another`
 /// keeps both true.
 ///
-/// No rule for the GBU-16, AGM-65F, AGM-122 or GAU-12 yet: they have no row.
-/// The internal guns (GAU-8, M39, DEFA 553, Mk 12) have none either, since
-/// they are never a pylon store.
+/// The internal guns (GAU-8, M39, DEFA 553, Mk 12) have no rule, since they are
+/// never a pylon store. The one gun row with a rule is the Harrier's GAU-12 pod.
 static STORE_RULES: &[StoreRule] = &[
     // Unguided bombs. DCS: "Mk-82 - 500lb GP Bomb LD", "Mk-82 AIR Ballute -
     // 500lb GP Bomb HD", "Mk-82 Snakeye - 500lb GP Bomb HD", "Mk-84 - 2000lb GP
@@ -135,6 +136,7 @@ static STORE_RULES: &[StoreRule] = &[
     // Paveway III - 2000lb Laser Guided Bomb"; some modules write a bare "GBU-24".
     rule("GBU-10", "gbu10"),
     rule("GBU-12", "gbu12"),
+    rule("GBU-16", "gbu16"),
     rule("GBU-24", "gbu24"),
     // GPS bombs.
     rule("GBU-31", "gbu31"),
@@ -145,12 +147,16 @@ static STORE_RULES: &[StoreRule] = &[
     // Air-to-ground missiles. DCS: "LAU-117 with AGM-65D - Maverick D (IIR
     // ASM)", "AGM-88C HARM - High Speed Anti-Radiation Missile".
     rule("AGM-65D", "agm65d"),
+    rule("AGM-65F", "agm65f"),
     rule("AGM-65G", "agm65g"),
     rule("AGM-65H", "agm65h"),
     rule("AGM-65K", "agm65k"),
     rule("AGM-88C", "agm88c"),
+    rule("AGM-122", "agm122"),
     rule("AGM-154A", "agm154a"),
     rule("AGM-154C", "agm154c"),
+    // A gun pod, DCS: "GAU 12 Gunpod". It is a store of one, though its row is a gun.
+    rule("GAU-12", "gau12"),
     // Rockets, by the rocket's name in the pod's: "LAU-131 pod - 7 x 2.75
     // Hydra, UnGd Rkts M151, HE", "LAU-10 pod - 4 x 127 mm ZUNI, ...".
     rockets("Hydra", "hydra70"),
@@ -365,6 +371,7 @@ mod tests {
             ("Mk-82 Snakeye - 500lb GP Bomb HD", weapon("mk82se", 1)),
             ("BRU-33 with 2 x Mk-82 Snakeye - 500lb GP Bomb HD", weapon("mk82se", 2)),
             ("GBU-12 - 500lb Laser Guided Bomb", weapon("gbu12", 1)),
+            ("GBU-16", weapon("gbu16", 1)),
             ("GBU-10 - 2000lb Laser Guided Bomb", weapon("gbu10", 1)),
             ("GBU-24 Paveway III - 2000lb Laser Guided Bomb", weapon("gbu24", 1)),
             ("GBU-24", weapon("gbu24", 1)),
@@ -372,12 +379,17 @@ mod tests {
             ("GBU-38 - 500lb JDAM GPS Guided Bomb", weapon("gbu38", 1)),
             ("LAU-117 with AGM-65D - Maverick D (IIR ASM)", weapon("agm65d", 1)),
             ("LAU-88 with 3 x AGM-65D - Maverick D (IIR ASM)", weapon("agm65d", 3)),
+            ("LAU-117 with AGM-65F - Maverick F (IIR ASM)", weapon("agm65f", 1)),
             ("AGM-65G - Maverick G (IIR ASM, Lg Whd)", weapon("agm65g", 1)),
             ("LAU-117 with AGM-65H - Maverick H (CCD Imp ASM)", weapon("agm65h", 1)),
             ("AGM-65K - Maverick K (CCD Imp ASM)", weapon("agm65k", 1)),
             ("AGM-88C HARM - High Speed Anti-Radiation Missile", weapon("agm88c", 1)),
+            ("AGM-122 Sidearm", weapon("agm122", 1)),
             ("AGM-154A - JSOW CEB (CBU-type)", weapon("agm154a", 1)),
             ("AGM-154C - JSOW Unitary BROACH", weapon("agm154c", 1)),
+            // A gun pod is a store of one, under either spelling of its name.
+            ("GAU 12 Gunpod", weapon("gau12", 1)),
+            ("GAU-12", weapon("gau12", 1)),
             // A cluster bomb's own "N x" is submunitions, never a count. The
             // first "N x" anywhere in the name is 202 and 10 here.
             ("CBU-87 - 202 x CEM Cluster Bomb", weapon("cbu87", 1)),
@@ -490,15 +502,10 @@ mod tests {
     }
 
     /// The safe direction: a store we cannot place is kept and flagged, never
-    /// guessed and never dropped. These four have no reference row yet; when the
-    /// rows are added they move to `dcs_store_names_become_weapon_ids_and_counts`.
+    /// guessed and never dropped.
     #[test]
     fn anything_unknown_is_unrecognised_rather_than_skipped() {
         for name in [
-            "GBU-16",
-            "LAU-117 with AGM-65F - Maverick F (IIR ASM)",
-            "AGM-122 Sidearm",
-            "GAU 12 Gunpod",
             // No row and no rule, now or planned.
             "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
             "Some Future Bomb",
@@ -523,7 +530,21 @@ mod tests {
             // The rule's shape has to agree with the row it points at.
             match rule.count {
                 Count::Rockets => assert_eq!(row.category, "rocket", "{:?} counts rockets", rule.pattern),
-                Count::Stores => assert_ne!(row.category, "rocket", "{:?} is a rocket row", rule.pattern),
+                Count::Stores => {
+                    let stores =
+                        ["bomb_unguided", "bomb_guided", "bomb_gps", "cluster", "missile_agm", "standoff", "gun"];
+                    assert!(
+                        stores.contains(&row.category.as_str()),
+                        "{:?} counts stores but its row is a {}",
+                        rule.pattern,
+                        row.category
+                    );
+                    // A gun is only a store as a pod. A rule for a gun built into
+                    // the jet would load an internal gun as if it hung on a pylon.
+                    if row.category == "gun" {
+                        assert_eq!(row.id, "gau12", "{:?} names an internal gun", rule.pattern);
+                    }
+                }
             }
             assert_eq!(
                 rule.drag != Drag::NotApplicable,
@@ -549,10 +570,10 @@ mod tests {
             null,
             "Fuel tank 370 gal",
             "TER-9A with 3 x Mk-82 - 500lb GP Bomb LD",
-            "GAU 12 Gunpod",
+            "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
             "GBU-12 - 500lb Laser Guided Bomb",
             "LAU-131 pod - 7 x 2.75 Hydra, UnGd Rkts M257, Para Illum",
-            "GAU 12 Gunpod",
+            "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
         ]);
         let loadout = loadout_from_payload(Some(&payload), reference());
         let lines: Vec<(Option<&str>, &str, u32)> =
@@ -562,7 +583,7 @@ mod tests {
             vec![
                 (Some("mk82"), "Mk-82 LDGP", 6),
                 (Some("gbu12"), "GBU-12 Paveway II", 2),
-                (None, "GAU 12 Gunpod", 2),
+                (None, "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets", 2),
             ],
             "first appearance order, summed quantity, row names, the unrecognised store kept under its DCS name"
         );
@@ -611,17 +632,12 @@ mod tests {
         }
     }
 
-    /// The captured links' air-to-ground stores that no rule places yet, as DCS
-    /// names them. Slice 2 gives each a reference row, and this list empties.
-    const CAPTURED_UNRECOGNISED: &[&str] = &[
-        "AGM-122 Sidearm",
-        "GAU 12 Gunpod",
-        "GBU-16",
-        "LAU-117 with AGM-65F - Maverick F (IIR ASM)",
-    ];
-
+    /// Every air-to-ground store the four captured links carry has a rule. Until
+    /// the GBU-16, AGM-65F, AGM-122 and GAU-12 rows went in (reference DB v5) four
+    /// names did not, and this test pinned them; the set is now empty, so a store
+    /// that no rule places is a failure that names it.
     #[test]
-    fn every_store_in_the_four_captured_links_is_placed_skipped_for_a_reason_or_flagged() {
+    fn every_store_in_the_four_captured_links_is_placed_or_skipped_for_a_reason() {
         use crate::parsers::tasking_state::parse_tasking_state;
         use std::collections::BTreeSet;
 
@@ -659,8 +675,7 @@ mod tests {
             }
         }
         assert!(!seen.is_empty(), "the captured links carry stores");
-        let expected: BTreeSet<String> = CAPTURED_UNRECOGNISED.iter().map(|s| s.to_string()).collect();
-        assert_eq!(unrecognised, expected, "the unrecognised air-to-ground stores in the captured links");
+        assert!(unrecognised.is_empty(), "air-to-ground stores in the captured links that no rule places: {unrecognised:?}");
     }
 
     /// The design expects 38 jets to arrive loaded across the four links, 22
@@ -700,7 +715,7 @@ mod tests {
                                     let row = reference().get_weapon_by_id(id).expect("a recognised store has a row");
                                     assert_eq!(line.name, row.name);
                                 }
-                                None => assert!(CAPTURED_UNRECOGNISED.contains(&line.name.as_str()), "{line:?}"),
+                                None => panic!("{aircraft} arrived with a store no rule places: {line:?}"),
                             }
                         }
                     }

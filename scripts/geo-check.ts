@@ -577,11 +577,11 @@ if (diveProfiles.length) {
   // The sight is set at or before the IP, while the pilot's head is still in the
   // cockpit, not at the roll-in. So it rides in the card header, beside the
   // profile label, and neither the roll-in marker nor the side view repeats it.
-  const cardOf = (attack: object | null) =>
+  const cardOf = (attack: object | null, weapons: object[] = all) =>
     buildKneeboardCard(
       { id: 'm1', name: 'Sight', date: '2026-09-29', theater: 'nevada', bullseye: { lat: 0, lon: 0 }, waypoints: [wpIp, wpTgt],
         threats: [], flightMembers: [hog, scooter, pilot], attacks: [{ ...attack, id: 'atk' }], notes: '', createdAt: '', updatedAt: '' } as never,
-      'atk', all as never, new Map(), [],
+      'atk', weapons as never, new Map(), [],
     )!;
   const a4Card = cardOf(a4Bombs.attack);
   ok('manual dive card: the sight setting is carried at header level (A-4E, Mk-82: 100 mils)',
@@ -651,6 +651,36 @@ if (diveProfiles.length) {
      rocketCard.header.sightDepression_mils === undefined && !drawnText(rocketCard).some((t) => /sight/i.test(t.text)));
   ok('CCIP dive card: nothing about a sight is drawn, even with a stray value on the attack',
      !drawnText(ccipCard).some((t) => /sight/i.test(t.text)));
+
+  // A weapon row that holds only a name (the GBU-16): planned like any other, but
+  // the card says in its amber caution strip that no floor is enforced, and says
+  // it once — not again as a red weapon-section warning.
+  const gbu16 = { id: 'gbu16', name: 'GBU-16 Paveway II', category: 'bomb_guided', guidance: 'laser', weight_lbs: 0,
+                  min_release_alt_ft: null, frag_min_safe_alt_ft: null, carried_by: ['f16c'] };
+  const gbu16Built = autoBuildAttack({
+    mission: { waypoints: [wpIp, wpTgt], flightMembers: [pilot], threats: [], attacks: [] },
+    targetWaypointId: wpTgt.id, attackerId: pilot.id, weapons: [gbu16], profiles: lib('f16c'), threatSystems: [],
+    overrides: { weaponId: 'gbu16' },
+  } as never);
+  const gbu16Note = 'No frag data on file for GBU-16 Paveway II: no minimum safe altitude is enforced';
+  ok('no-data note: a GBU-16 attack still builds, and the note is a warning among its checks',
+     gbu16Built.attack != null && gbu16Built.problems.length === 0 && !hasErrors(gbu16Built.checks) &&
+     gbu16Built.checks.some((c) => c.level === 'warn' && c.text === gbu16Note),
+     `${gbu16Built.problems.join('; ')} / ${JSON.stringify(gbu16Built.checks)}`);
+
+  const gbu16Card = cardOf(gbu16Built.attack, [gbu16]);
+  ok('no-data note: the card for a GBU-16 attack carries it as a caution under the header',
+     (gbu16Card.header.cautions ?? []).includes(gbu16Note), JSON.stringify(gbu16Card.header.cautions));
+  ok('no-data note: the card does not repeat it as a weapon-section warning',
+     (gbu16Card.weaponSection.warnings ?? []).every((w) => !/on file/.test(w)), JSON.stringify(gbu16Card.weaponSection.warnings));
+  const gbu16Lines = drawnText(gbu16Card).filter((t) => t.text.includes('on file'));
+  ok('no-data note: it is drawn once, in the caution strip colour and bold, not the weapon warning colour',
+     gbu16Lines.length === 1 && gbu16Lines[0].text === `⚠ ${gbu16Note}` && gbu16Lines[0].fill === DAY_THEME.caution &&
+     gbu16Lines[0].fill !== DAY_THEME.accent && gbu16Lines[0].font.startsWith('bold'),
+     JSON.stringify(gbu16Lines));
+  const mk82Card = cardOf(a4Bombs.attack, [{ ...mk82, min_release_alt_ft: 3000, frag_min_safe_alt_ft: 3000 }]);
+  ok('no-data note: a weapon with data on file adds no such caution',
+     !(mk82Card.header.cautions ?? []).some((c) => c.includes('on file')) && !drawnText(mk82Card).some((t) => t.text.includes('on file')));
 }
 
 // ─── Map display filter ──────────────────────────────────────────────────────
@@ -1330,6 +1360,50 @@ ok('attackChecks: level releaseAltitude_ft = NaN is an error',
    hasErrors(runAttackChecks({ profileType: 'level_ccrp', profile: { ...cleanLevel, releaseAltitude_ft: NaN } as never, targetElevation_ft: 0 })));
 ok('attackChecks: an absent optional field (egress heading) is not an error',
    !hasErrors(runAttackChecks({ profileType: 'level_ccrp', profile: { ...cleanLevel, egressHeading_deg: undefined } as never, targetElevation_ft: 0 })));
+
+// ---------------------------------------------------------------------------
+// "No data on file" (reference DB v5). The GBU-16, AGM-65F and AGM-122 rows hold
+// only a name, so their floor is null and the limit checks skip it; without a
+// note the first such attack would plan and print as if it had been checked. A
+// bomb with no frag floor and a missile with no minimum release get a warning,
+// never an error (Save stays open). Rows shaped as get_all_weapons returns them.
+// ---------------------------------------------------------------------------
+{
+  const row = (id: string, name: string, category: string, guidance: string, fields: object = {}) =>
+    ({ id, name, category, guidance, weight_lbs: 0, min_release_alt_ft: null, frag_min_safe_alt_ft: null, ...fields });
+  const gbu16Row = row('gbu16', 'GBU-16 Paveway II', 'bomb_guided', 'laser');
+  const agm65fRow = row('agm65f', 'AGM-65F Maverick', 'missile_agm', 'ir');
+  const noteOf = (weapon: object) =>
+    runAttackChecks({ profileType: 'dive_ccip', profile: cleanDive as never, weapon: weapon as never }).filter((c) => c.kind === 'no-data');
+
+  const bombNote = noteOf(gbu16Row);
+  ok('no-data note: a GBU-16-shaped bomb (no frag floor) gets it, worded for a bomb',
+     bombNote.length === 1 && bombNote[0]?.text === 'No frag data on file for GBU-16 Paveway II: no minimum safe altitude is enforced',
+     JSON.stringify(bombNote));
+  const missileNote = noteOf(agm65fRow);
+  ok('no-data note: an AGM-65F-shaped missile (no minimum release) gets it, worded for a missile',
+     missileNote.length === 1 && missileNote[0]?.text === 'No release data on file for AGM-65F Maverick: no minimum release altitude is enforced',
+     JSON.stringify(missileNote));
+  ok('no-data note: it is a warning, so neither weapon blocks Save',
+     bombNote[0]?.level === 'warn' && missileNote[0]?.level === 'warn' &&
+     !hasErrors(runAttackChecks({ profileType: 'dive_ccip', profile: cleanDive as never, weapon: gbu16Row as never })) &&
+     !hasErrors(runAttackChecks({ profileType: 'dive_ccip', profile: cleanDive as never, weapon: agm65fRow as never })));
+
+  const withData: [string, object][] = [
+    ['an Mk-82', row('mk82', 'Mk-82 LDGP', 'bomb_unguided', 'none', { min_release_alt_ft: 3000, frag_min_safe_alt_ft: 3000 })],
+    ['a GBU-38', row('gbu38', 'GBU-38 JDAM', 'bomb_gps', 'gps', { min_release_alt_ft: 2500, frag_min_safe_alt_ft: 3000 })],
+    ['a CBU-87', row('cbu87', 'CBU-87 CEM', 'cluster', 'none', { min_release_alt_ft: 500, frag_min_safe_alt_ft: 500 })],
+    // The seven missile and standoff rows have no frag floor and a minimum release: no note for them.
+    ['an AGM-65D (no frag floor, a minimum release)', row('agm65d', 'AGM-65D Maverick', 'missile_agm', 'ir', { min_release_alt_ft: 500 })],
+    ['an AGM-154A (standoff, no frag floor, a minimum release)', row('agm154a', 'AGM-154A JSOW', 'standoff', 'gps', { min_release_alt_ft: 5000 })],
+    ['a gun', row('gau8', 'GAU-8/A 30 mm', 'gun', 'none')],
+    ['rockets', row('hydra70', 'Hydra 70 2.75" rockets', 'rocket', 'none')],
+  ];
+  for (const [what, weapon] of withData) {
+    ok(`no-data note: not for ${what}`, noteOf(weapon).length === 0, JSON.stringify(noteOf(weapon)));
+  }
+  ok('no-data note: none without a weapon', runAttackChecks({ profileType: 'dive_ccip', profile: cleanDive as never }).every((c) => c.kind !== 'no-data'));
+}
 
 // ---------------------------------------------------------------------------
 // Author-hidden threats. Either DCS flag hides a threat from the planner; each

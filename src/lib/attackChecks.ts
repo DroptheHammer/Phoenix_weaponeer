@@ -1,7 +1,7 @@
 import type { AttackProfile } from '../types/attack.types';
 import type { DbWeapon } from '../types/weapon.types';
 import type { WeaponClass } from '../types/profile.types';
-import { WEAPON_CLASS_LABEL } from './weaponClass';
+import { WEAPON_CLASS_LABEL, weaponClassOf } from './weaponClass';
 import { isStraightIn, STRAIGHT_IN_TOLERANCE_DEG } from './attackGeometry';
 
 /**
@@ -27,6 +27,12 @@ export type CheckLevel = 'error' | 'warn';
 export interface AttackCheck {
   level: CheckLevel;
   text: string;
+  /**
+   * Set on the "no data on file" note. It says something about the weapon's
+   * reference row, not about this attack's numbers, so the card prints it as a
+   * caution under the header instead of a weapon-section warning.
+   */
+  kind?: 'no-data';
 }
 
 export interface AttackCheckInput {
@@ -61,6 +67,37 @@ function ft(v: number): string {
 
 function hdg(v: number): string {
   return `${Math.round(v).toString().padStart(3, '0')}°`;
+}
+
+/**
+ * What the tool cannot check for this weapon, when its reference row has no
+ * figure for the floor the checks below compare against. A few rows hold only a
+ * name (the GBU-16, AGM-65F, AGM-122): the floor is then no floor at all, and
+ * without a note the attack would plan and print as if it had been checked.
+ *
+ * A bomb needs a frag min-safe altitude (that is where the aircraft is at
+ * impact). A missile needs a minimum release altitude: the seven missile and
+ * standoff rows have no frag floor and are not expected to. Guns and rockets
+ * are fired, not released, so they never have one.
+ */
+export function noDataNote(weapon: DbWeapon | null | undefined): string | undefined {
+  if (!weapon) return undefined;
+  switch (weaponClassOf(weapon)) {
+    case 'bomb_ld':
+    case 'bomb_hd':
+    case 'lgb':
+    case 'jdam':
+    case 'cluster':
+      return isNum(weapon.frag_min_safe_alt_ft)
+        ? undefined
+        : `No frag data on file for ${weapon.name}: no minimum safe altitude is enforced`;
+    case 'agm':
+      return isNum(weapon.min_release_alt_ft)
+        ? undefined
+        : `No release data on file for ${weapon.name}: no minimum release altitude is enforced`;
+    default:
+      return undefined;
+  }
 }
 
 /** The heading the attack axis is flown on, by profile type. */
@@ -173,6 +210,12 @@ export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
       text: `${input.sourceProfileName ?? 'This profile'} is not written for ${WEAPON_CLASS_LABEL[weaponClass].toLowerCase()} (${weapon.name})`,
     });
   }
+
+  // A weapon row with no floor to compare against: say so, since the limit
+  // checks below skip a missing number. A warning, never an error — the pilot
+  // may know the weapon better than the table does, and Save is never blocked.
+  const noData = noDataNote(weapon);
+  if (noData) checks.push({ level: 'warn', text: noData, kind: 'no-data' });
 
   // Does the release respect the weapon's own limits?
   if (isNum(rp.alt_agl)) {
