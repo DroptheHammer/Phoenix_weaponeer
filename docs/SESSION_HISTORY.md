@@ -1,6 +1,42 @@
 # Session History Archive
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
+
+**Session:** 2026-09-30 UTC, late (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **Nothing shipped. `main` carries the v0.3.2 app
+unchanged**: an artwork attempt was built, then rolled back at the user's
+request. Only these notes differ from the released tree.
+
+**What happened:**
+- The user supplied a splash picture and a phoenix app icon (AI-generated, in
+  git-ignored `Other Items/Artwork/`).
+- **A start-up splash was built and removed.** The user picked a style from a
+  preview page (`Other Items/splash-options/`), saw it in the real Mac app,
+  and turned it down. It was never committed. Do not propose one again.
+- **The icon was committed, then reverted.** `b2785a1` put the phoenix icon on
+  every platform (Pages run 36826214513, green). The user then reported a
+  white flash while the app loads and asked to go back to 0.3.2. `3ae5398`
+  reverts it; the tree is identical to `7bd266a` (Pages run 36826601626).
+- **The artwork is parked, not closed.** If the icon comes back,
+  `git show b2785a1` has the whole icon set and a `docs/ARTWORK.md` with the
+  commands. Memory `project-app-artwork-splash-icon`.
+
+**The white flash was not diagnosed** in that session (it was fixed in the
+next one, 2026-10-02, `bb2cfa5`: it was never the icon). What was known then:
+- `b2785a1` changed only icon files, the browser-tab icon link and the phone
+  icon paths. Nothing in it touches how the window opens.
+- The window had no background colour set, and the page's dark background
+  came from the CSS file. So any build could show white before the first
+  paint, and a freshly built app starts slower than an installed one.
+- The splash build had set the window background dark and painted dark from
+  the first HTML. The user saw that build just before, and reported no flash.
+
+**Still open from the 0.3.2 release at that point:** 3× cards in DCS, the
+iPhone carousel at 3×, the Lighting dropdown, the header sight, the Copy menu,
+the waypoint list.
+
+---
+
 **Session:** 2026-09-30 UTC (Opus 5.5 orchestrating on the main Mac,
 Sonnet 5.5 builders). **v0.3.2 released and published as Latest**:
 release run 36817925144 (all 3 platforms, all 7 installers), web app published

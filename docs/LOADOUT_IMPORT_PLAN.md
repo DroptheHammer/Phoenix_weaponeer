@@ -1,9 +1,10 @@
 # "Jets arrive loaded": loadout import and per-aircraft weapon lists
 
-**Status:** designed and approved 2026-09-29, not built. Planned for 0.3.3,
-after 0.3.2 ships (0.3.2 waits for the Night and NVG cards). This is the
-roadmap's "Bomb and missile tables" and "Loadout from the FragOrders pylons"
-work, built together.
+**Status:** designed and approved 2026-09-29, **built 2026-10-02** in four
+slices (`97ac6a6`, `b19c625`, `187f3b5`, `f343a06`), unreleased, planned for
+0.3.3. This was the roadmap's "Bomb and missile tables" and "Loadout from the
+FragOrders pylons" work, built together. The text below is the design as
+approved; where the build differs, "As built" at the end says how.
 
 ## Goal
 
@@ -181,3 +182,44 @@ gaps listed.
    loadouts.
 3. In the attack editor, the weapon is pre-picked and "Show all weapons" is
    easy to find.
+
+## As built (2026-10-02)
+
+Where the build differs from the design above:
+
+- **The "?" rows are settled**, from the module manuals and Chuck's Guides
+  (2026-10-01). Confirmed and added: F/A-18C GBU-24; A-10C GBU-10 and GBU-31;
+  F-15E Mk-82 Snakeye; F-4E Mk-82 AIR, GBU-10, GBU-12, CBU-87, AGM-65D (plus
+  GBU-24 and AGM-65G, which its manual also lists); A-4E-C Mk-84; F-5E Mk-84;
+  F-14 Mk-82 AIR; AV-8B Mk-82 AIR; Mirage F1 GBU-10, GBU-12, GBU-16. Left out:
+  F/A-18C AGM-65G, A-4E-C Mk-82 AIR, Mirage F1 Mk-82 Snakeye and Mk-84 (the
+  two Mirage ones rest on absence from the stores lists, not a published
+  denial). The whole table is pinned by `what_each_aircraft_carries_is_pinned`
+  in `crates/core/src/refdata.rs`. Item 1 of the eye checks is therefore closed.
+- **There is no "v5" to bump.** The version number went with SQLite; v5 is a
+  paragraph in the `refdata.rs` header. There are 30 weapon rows, not 26 plus
+  four to pin separately, and all 30 names are pinned.
+- **New aircraft rows use `station: 0, max_quantity: 1`**, the "not modelled"
+  convention. Only the F-16C's original rows have real stations.
+- **The "no data on file" note covers missiles too**: a bomb with no frag floor
+  (GBU-16) or a missile with no minimum release (AGM-65F, AGM-122). It is a
+  warning in the editor and an amber caution strip on the card, printed once.
+- **`Mk-82Y` is unrecognised by fallthrough**, not by the drag guard: its token
+  is `82y`, so no rule matches it at all.
+- **Pylons carrying the same weapon merge** into one loadout line with the
+  summed quantity.
+- **Known gaps, pinned in `KNOWN_CLASS_GAPS`** (`crates/core/src/profiles.rs`):
+  cluster on the F/A-18C, A-4E-C, F-5E, F-14, Mirage F1 and AV-8B, and
+  high-drag on the Mirage F1. The Harrier carries the GAU-12 pod but has no
+  strafe profile; picking it gives "No AV8B profile for gun yet".
+- **Show all weapons** lists every bomb, missile and rocket. Guns stay with
+  their own aircraft. The switch is not saved and is off each time an editor
+  opens.
+- **Copy to another aircraft type** follows the recipient's own list. A jet
+  with no loadout keeps a bomb or missile the table doesn't list for it, with
+  a note; a gun or rockets never transfer.
+- **Opening a mission file checks the loadout**: a list of lines with a text
+  name, a number quantity of zero or more, and an optional text weapon id.
+- **Not run:** the browser smoke scripts (`scripts/web-smoke*.cjs`). They need
+  the wasm toolchain and Playwright, which are not installed on the main Mac.
+  The web build itself is checked by the Pages workflow on every push.

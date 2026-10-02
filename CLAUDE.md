@@ -221,57 +221,60 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-09-30 UTC, late (Opus 5.5 orchestrating on the main Mac,
-Sonnet 5.5 builders). **Nothing shipped. `main` carries the v0.3.2 app
-unchanged**: an artwork attempt was built, then rolled back at the user's
-request. Only these notes differ from the released tree.
+**Last session:** 2026-10-02 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **"Jets arrive loaded" is built and on `main`,
+unreleased** (planned as 0.3.3), and the white flash is fixed. Rollback tag
+`pre-loadout-import` marks the tree before it.
 
-**What happened:**
-- The user supplied a splash picture and a phoenix app icon (AI-generated, in
-  git-ignored `Other Items/Artwork/`).
-- **A start-up splash was built and removed.** The user picked a style from a
-  preview page (`Other Items/splash-options/`), saw it in the real Mac app,
-  and turned it down. It was never committed. Do not propose one again.
-- **The icon was committed, then reverted.** `b2785a1` put the phoenix icon on
-  every platform (Pages run 36826214513, green). The user then reported a
-  white flash while the app loads and asked to go back to 0.3.2. `3ae5398`
-  reverts it; the tree is identical to `7bd266a` (Pages run 36826601626).
-- **The artwork is parked, not closed.** If the icon comes back,
-  `git show b2785a1` has the whole icon set and a `docs/ARTWORK.md` with the
-  commands. Memory `project-app-artwork-splash-icon`.
+**What was built** (gates at the last commit: geo-check 585, core 126,
+desktop 24 + 1 ignored, `npm run build`; Pages run 36973465158 green):
+- `bb2cfa5` **White flash fixed.** The user confirmed a plain 0.3.2 build
+  flashed too, so it was never the icon. Dark window colour in
+  `tauri.conf.json` plus an inline dark `html` background in `index.html`.
+  The user checked it in the Mac app.
+- `97ac6a6` **Slice 1:** a link import keeps each jet's store names and maps
+  them to weapons (`crates/core/src/parsers/store_mapping.rs`). 38 jets in the
+  four private links arrive loaded, as the design predicted.
+- `b19c625` **Slice 2:** bomb and missile lists for all ten aircraft (130
+  `aircraft_weapons` rows), four name-only weapon rows (GBU-16, AGM-65F,
+  AGM-122, GAU-12 pod) and a "no data on file" caution for them.
+- `187f3b5` **Slice 3:** the import fills each pilot's loadout
+  (`LoadoutItem.weaponId`), auto-build picks a carried weapon, the import
+  preview and roster show the stores.
+- `f343a06` **Slice 4:** each aircraft is offered its own weapons, with a
+  **Show all weapons** checkbox in the attack editor and the loadout editor.
+- The design doc has an "As built" section: `docs/LOADOUT_IMPORT_PLAN.md`.
 
-**The white flash was not diagnosed.** What is known:
-- `b2785a1` changed only icon files, the browser-tab icon link and the phone
-  icon paths. Nothing in it touches how the window opens.
-- The window has no background colour set, and the page's dark background
-  comes from the CSS file. So any build can show white before the first
-  paint, and a freshly built app starts slower than an installed one.
-- The splash build had set the window background dark and painted dark from
-  the first HTML. The user saw that build just before, and reported no flash.
-- Not checked on screen by anyone: whether a plain 0.3.2 build flashes too.
-  The local bundle in `src-tauri/target/` was rebuilt from the reverted tree
-  for that comparison.
+**Not seen by the user yet** (the Mac bundle in `src-tauri/target/` is built
+from `f343a06`): the Loadouts list in the import preview, the roster's store
+lines, the pre-picked weapon, and the Show all weapons checkbox. The look is
+plain on purpose and has not been polished. See "In progress" in `ROADMAP.md`.
 
-**Still open from the 0.3.2 release** (see "In progress" in `ROADMAP.md`): 3×
-cards in DCS, the iPhone carousel at 3×, the Lighting dropdown, the header
-sight, the Copy menu, the waypoint list.
+**Not run:** `scripts/web-smoke.cjs` and `web-smoke-cards.cjs`. They need the
+wasm toolchain and Playwright, which the user declined to install on the main
+Mac. A read of both says the new weapon list does not change what they pick.
+
+**0.3.2 in use:** the user reported 3× cards in DCS and the Lighting dropdown
+as fine (2026-10-01). Still open: the iPhone carousel at 3×, the amber SIGHT
+header, the Copy menu, the waypoint list.
 
 ### START OF NEXT SESSION
 
 1. `git pull origin main`.
-2. **Ask whether the white flash shows on plain 0.3.2.** If it does, the
-   candidate fix is `"backgroundColor": "#1a1a2e"` on the window in
-   `tauri.conf.json` plus an inline dark `html` background in `index.html`.
-   On macOS that colour reaches the window only, not the web view, so it
-   needs the user's eyes, in the real app, before anything else is built on it.
-3. **Ask about 0.3.2 in use:** 3× cards in DCS (monitor and VR), Night/NVG in
-   the cockpit, and the phone carousel. If the carousel is slow, show smaller
-   images there and share the full-size ones.
-4. **"Jets arrive loaded"** for 0.3.3 (`docs/LOADOUT_IMPORT_PLAN.md`).
-5. **Phone web app:** a real Android phone check is still open
+2. **Ask what the user saw in the app:** the import preview's Loadouts list,
+   the roster, the pre-picked weapon, and Show all weapons, on desktop and
+   iPhone. Adjust the look from what they say before anything else.
+3. **Release 0.3.3 only when the user says "release 0.3.3"**, by the checklist
+   above. The privacy scan in `Other Items/privacy-scan/` runs first.
+4. **Ask about the rest of 0.3.2 in use:** the phone carousel, the SIGHT
+   header, the Copy menu, the waypoint list.
+5. **Follow-ups from this build** (all in `ROADMAP.md`): rows for Rockeye,
+   CBU-52, Belouga and the SAMP bombs; numbers for the four name-only rows;
+   loadouts from a CLI/.miz import; more air-to-air names to skip.
+6. **Phone web app:** a real Android phone check is still open
    (`docs/MOBILE_WEB_PLAN.md`). Merge PRs from the Mac with `TZ=UTC`, never with
    GitHub's phone button.
-6. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
+7. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
    folder that broke geo-check (memory `feedback-commands-that-dont-prompt`).
-7. **Look-and-feel work goes in front of the user in the real app first**,
+8. **Look-and-feel work goes in front of the user in the real app first**,
    before it is polished, documented or committed.

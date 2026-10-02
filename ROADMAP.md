@@ -8,7 +8,7 @@ kneeboard cards.
 decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 (newest-first). Finished plans and reviews are in `docs/archive/`.
 
-**Last updated:** 2026-09-29
+**Last updated:** 2026-10-02
 
 ---
 
@@ -17,21 +17,27 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ### Attacks and weapons
 - [ ] **Loft geometry** (LABS, F-16 loft). The profiles ship hidden
       (`f16c.loft.std`, `f4e.loft.labs45`) until the geometry exists.
-- [ ] **Bomb and missile tables for aircraft other than the F-16C.** Every
-      aircraft, the F-16C included, is offered every bomb and missile: the
-      picker ignores `aircraft_weapons` for them. Bombs and missiles are
-      mapped for the F-16C only; guns and rockets for five aircraft (A-10C,
-      A-4E, Mirage F1, F-5E, F-4E). **Next up**, with the loadout import
-      below, as "Jets arrive loaded" (planned for 0.3.3). The approved design
-      is in `docs/LOADOUT_IMPORT_PLAN.md`.
+- [ ] **Cluster and high-drag rows the other aircraft actually carry.** The
+      only cluster rows are the CBU-87 and CBU-97. The F/A-18C, F-14, AV-8B
+      and A-4E-C carry Rockeye, the F-5E the CBU-52 and the Mirage F1 the
+      Belouga, so those six have cluster profiles and no cluster weapon of
+      their own ("Show all weapons" reaches the CBU-87). The Mirage F1 also
+      has no high-drag bomb: its SAMP bombs have no row. The gaps are pinned
+      in `crates/core/src/profiles.rs` (`KNOWN_CLASS_GAPS`).
+- [ ] **Release and frag numbers for the four name-only rows** (GBU-16,
+      AGM-65F, AGM-122, GAU-12 pod). Until then their attacks and cards carry
+      a "no data on file" caution and no floor is enforced.
 - [ ] Sight settings for rockets on the manual-dive profiles. Rocket cards show
       no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
       carry Mk-82 values that auto-build applies to bombs only. Needs
       per-rocket numbers from the manuals.
-- [ ] **Loadout from the FragOrders pylons.** Imports set an empty loadout.
-      The public link already carries store names (a name → weapon map is the
-      first slice); the CLI/.miz path carries DCS CLSIDs and needs a
-      CLSID → weapon table. **Next up**, with the weapon tables above.
+- [ ] **Loadout from a CLI/.miz import.** A FragOrders link import fills the
+      loadout (see Unreleased). The CLI/.miz path carries DCS CLSIDs, needs a
+      CLSID → weapon table, and still arrives with an empty loadout.
+- [ ] Store names the link import does not place yet. Russian and Chinese
+      air-to-air missiles, and pods outside the skip list, show as "not in
+      the weapon table" where they should be dropped. Rockets are mapped for
+      five aircraft only; the others have not been checked.
 - [ ] **Pilot verification of the 62 seed profiles.** All are ESTIMATED; none
       is `verified: true` yet.
 - [ ] Weather. It is parsed at import but not used.
@@ -83,12 +89,20 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       an Android phone hasn't yet. In Chrome: Add to Home Screen, offline
       launch, the share sheet, screen wake lock, GPS for "Strike near me",
       crosshair precision.
+- [ ] **On-screen check of "Jets arrive loaded"** (built 2026-10-02, not yet
+      seen by the user in the app):
+  - [ ] The import preview's **Loadouts** list and the Flight roster read
+        clearly with long loadouts, on desktop and iPhone.
+  - [ ] An attack for a loaded jet opens with the weapon already picked.
+  - [ ] **Show all weapons** is easy to find under the weapon list, in the
+        attack editor and the loadout editor.
 - [ ] **In-use check of 0.3.2** (released 2026-09-30 before each item below was
       reported back; ask the user):
-  - [ ] Cards at 3× (2304×3072) look sharp in DCS, on a monitor and in VR.
+  - [x] Cards at 3× (2304×3072) look sharp in DCS (user, 2026-10-01).
   - [ ] The phone cards carousel copes with 3× images on an iPhone.
-  - [ ] Cards panel → **Lighting** dropdown switches the preview between Day,
-        Night and NVG, survives save and reopen, and exports in that lighting.
+  - [x] Cards panel → **Lighting** dropdown switches the preview between Day,
+        Night and NVG, survives save and reopen, and exports in that lighting
+        (user, 2026-10-01).
   - [ ] The larger card text reads well at kneeboard size, and the attack
         editor's side view (desktop, and the 150 px strip on the phone) still
         has room for its picture.
@@ -105,8 +119,24 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 
 ## Shipped
 
-### Unreleased (on `main`, next desktop release)
-- Nothing yet.
+### Unreleased (on `main`, next desktop release — planned as 0.3.3)
+- **Jets arrive loaded.** After a FragOrders link import each pilot's loadout
+  holds the air-to-ground stores the mission author loaded. Auto-build starts
+  on a weapon the jet carries: bombs and strike missiles first, then
+  anti-radiation missiles, rockets and gun pods. The import preview lists each
+  jet's stores and the roster shows one store per line. A store the weapon
+  table doesn't know is kept and marked "not in the weapon table". A CLI/.miz
+  import still arrives empty.
+- **Each aircraft is offered its own weapons.** All ten aircraft have a bomb
+  and missile list, checked against the module manuals and Chuck's Guides. A
+  **Show all weapons** checkbox under the weapon list lifts the filter, and a
+  jet's carried weapons and an attack's current weapon are always listed.
+- **Four new weapons, by name only:** GBU-16, AGM-65F, AGM-122 and the GAU-12
+  gun pod. No release or frag numbers were invented, so their attacks and
+  cards carry a "no data on file" caution.
+- **The window opens dark.** Every launch used to show a white frame before
+  the first paint (checked by the user in the Mac app).
+- Design and build notes: `docs/LOADOUT_IMPORT_PLAN.md`.
 
 ### v0.3.2 — 2026-09-30
 - **Night and NVG kneeboard cards.** A **Lighting** dropdown on the Cards panel
