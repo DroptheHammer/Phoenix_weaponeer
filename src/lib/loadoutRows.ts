@@ -1,4 +1,6 @@
 import type { LoadoutItem } from '../types/flight.types';
+import type { DbWeapon } from '../types/weapon.types';
+import { offeredTo, storesMappedFor, weaponClassOf } from './weaponClass';
 
 /**
  * The loadout editor's rows, and the rules for turning picks into a saved
@@ -43,4 +45,26 @@ export function loadoutFromRows(rows: LoadoutRow[]): LoadoutItem[] {
       quantity: r.quantity,
       ...(r.weaponId ? { weaponId: r.weaponId } : {}),
     }));
+}
+
+/**
+ * The weapons one loadout row's picker lists for an aircraft: the bombs,
+ * missiles and rockets the table says it carries, or everything but guns for a
+ * type the table has no stores for. `showAll` lifts the filter. Guns are built
+ * in, so they are never offered here, but a row's own weapon (`ownId`) is
+ * always listed: a gun pod that came in with the jet, or a store the table
+ * maps to another aircraft. Table order.
+ */
+export function loadoutPickerWeapons<W extends Pick<DbWeapon, 'id' | 'name' | 'category' | 'guidance' | 'carried_by'>>(
+  weapons: W[],
+  aircraftId: string | undefined,
+  showAll: boolean,
+  ownId?: string,
+): W[] {
+  const mapped = storesMappedFor(aircraftId, weapons);
+  return weapons.filter((w) => {
+    if (w.id === ownId) return true;
+    if (weaponClassOf(w) === 'gun') return false;
+    return showAll || !mapped || offeredTo(w, aircraftId, mapped);
+  });
 }

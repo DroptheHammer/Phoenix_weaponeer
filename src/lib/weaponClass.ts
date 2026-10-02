@@ -37,16 +37,33 @@ export function isFired(weaponClass: WeaponClass | undefined): boolean {
   return weaponClass === 'gun' || weaponClass === 'rocket';
 }
 
+type PickerWeapon = Pick<DbWeapon, 'category' | 'guidance' | 'name' | 'carried_by'>;
+
+/**
+ * Whether the weapon table maps any bombs or missiles to this aircraft. A type
+ * it has no rows for (an imported AH-64D, say) is unmapped, so the picker has
+ * nothing to filter its stores by and offers every one (`offeredTo`).
+ */
+export function storesMappedFor(aircraftId: string | undefined, weapons: PickerWeapon[]): boolean {
+  if (!aircraftId) return false;
+  return weapons.some((w) => {
+    const weaponClass = weaponClassOf(w);
+    return !!weaponClass && !isFired(weaponClass) && (w.carried_by ?? []).includes(aircraftId);
+  });
+}
+
 /**
  * Whether the weapon picker offers this weapon for an aircraft. Guns and
  * rockets belong to particular aircraft (`carried_by`, from the database's
- * aircraft_weapons); every other air-to-ground store is offered to all, as
- * it always has been.
+ * aircraft_weapons). A bomb or missile is offered to an aircraft the table
+ * maps stores for (`mapped`, from `storesMappedFor`) only when it carries it;
+ * an unmapped aircraft is offered every one, so a gap in the table never
+ * leaves a pilot with nothing to pick.
  */
-export function offeredTo(weapon: Pick<DbWeapon, 'category' | 'guidance' | 'name' | 'carried_by'>, aircraftId: string | undefined): boolean {
+export function offeredTo(weapon: PickerWeapon, aircraftId: string | undefined, mapped: boolean): boolean {
   const weaponClass = weaponClassOf(weapon);
   if (!weaponClass) return false;
-  if (!isFired(weaponClass)) return true;
+  if (!isFired(weaponClass) && !mapped) return true;
   return !!aircraftId && (weapon.carried_by ?? []).includes(aircraftId);
 }
 

@@ -25,9 +25,10 @@ import {
 } from '../src/lib/popupPlanning';
 import { describeRunIn } from '../src/lib/runIn';
 import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor, loadoutWeapons, unrecognisedStores } from '../src/lib/autoBuildAttack';
-import { rowsFromLoadout, pickWeapon, loadoutFromRows } from '../src/lib/loadoutRows';
+import { rowsFromLoadout, pickWeapon, loadoutFromRows, loadoutPickerWeapons } from '../src/lib/loadoutRows';
+import { storesMappedFor } from '../src/lib/weaponClass';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
-import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, isRealWorld } from '../src/lib/strikeNearMe';
+import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, REAL_WORLD_DEFAULT_WEAPON, REAL_WORLD_DEFAULT_WEAPON_ID, isRealWorld } from '../src/lib/strikeNearMe';
 import { buildAttackPicture, pictureFitPoints, LINE_STYLE, MARKER_COLOR } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
@@ -2007,10 +2008,12 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
 // ─── Copy an attack to another pilot ─────────────────────────────────────────
 {
   const lib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8'));
+  // Both airframes carry both bombs: the copy to the A-4E below keeps its weapon because
+  // the table says the A-4E carries it, not because an aircraft with no row is unfiltered.
   const mk82 = { id: 'mk82', name: 'Mk-82 LDGP', category: 'bomb_unguided', guidance: 'none', weight_lbs: 500,
-                 frag_min_safe_alt_ft: 1000, carried_by: ['f16c'] };
+                 frag_min_safe_alt_ft: 1000, carried_by: ['a4ec', 'f16c'] };
   const mk84 = { id: 'mk84', name: 'Mk-84 LDGP', category: 'bomb_unguided', guidance: 'none', weight_lbs: 2000,
-                 frag_min_safe_alt_ft: 1500, carried_by: ['f16c'] };
+                 frag_min_safe_alt_ft: 1500, carried_by: ['a4ec', 'f16c'] };
   const weapons = [mk82, mk84];
   const profiles = [...lib('f16c'), ...lib('a4ec')];
   const viper1 = { id: 'v1', callsign: 'Viper 1-1', aircraftId: 'f16c', position: 1, loadout: [] };
@@ -2277,6 +2280,230 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   ok('strike near me: its default Mk-82 carries the weapon id as well as the name', nearMeStore.weaponId === 'mk82' && nearMeStore.weaponType === 'Mk-82 LDGP', JSON.stringify(nearMeStore));
   ok('strike near me: the id is what finds the weapon (a row renamed in the table still matches)',
      loadoutWeapons(nearMe.flightMembers[0], [{ ...mk82, name: 'Mk-82 renamed' }] as never).map((w) => w.id).join() === 'mk82');
+}
+
+// ─── The weapon filter and "Show all weapons" ────────────────────────────────
+// A bomb or missile is offered to an aircraft the table maps stores for only when
+// the table says it carries it; an aircraft the table has no stores for is offered
+// all of them. What a jet is carrying and what an attack already holds are always
+// listed, whatever the table says. "Show all" lifts the filter for bombs, missiles
+// and rockets, never for guns: an internal gun is bolted to its own jet.
+{
+  type Row = { id: string; name: string; category: string; guidance: string; weight_lbs: number; carried_by: string[] };
+  const lib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8'));
+  const ids = (ws: { id: string }[]) => ws.map((w) => w.id).join();
+  const jet = (aircraftId: string, loadout: unknown[] = [], callsign = `${aircraftId} 1-1`) =>
+    ({ id: callsign, callsign, aircraftId, position: 1, role: 'flight_lead', loadout }) as never;
+
+  // ── Hand-built rows: the filter's own rules, with a table small enough to read ──
+  const row = (id: string, name: string, category: string, guidance: string, carried_by: string[]): Row =>
+    ({ id, name, category, guidance, weight_lbs: 500, carried_by });
+  const mk82 = row('mk82', 'Mk-82 LDGP', 'bomb_unguided', 'none', ['a10c', 'f16c', 'f18c']);
+  const gbu12 = row('gbu12', 'GBU-12 Paveway II', 'bomb_guided', 'laser', ['f16c', 'f18c']);
+  const cbu97 = row('cbu97', 'CBU-97 SFW', 'cluster', 'none', ['a10c', 'f16c']); // not the Hornet's
+  const harm = row('agm88c', 'AGM-88C HARM', 'missile_agm', 'radar', ['f16c', 'f18c']);
+  const hydra = row('hydra70', 'Hydra 70 2.75" rockets', 'rocket', 'none', ['a10c']);
+  const gau8 = row('gau8', 'GAU-8/A 30 mm', 'gun', 'none', ['a10c']);
+  const table = [mk82, gbu12, cbu97, harm, hydra, gau8];
+  const choices = (member: never, options?: { showAll?: boolean; currentWeaponId?: string }, weapons: Row[] = table) =>
+    ids(weaponChoicesFor(member, weapons, options));
+  const line = (weapon: Row, quantity = 2) => ({ weaponType: weapon.name, quantity, weaponId: weapon.id });
+  const hornet = jet('f18c');
+  const apache = jet('ah64d'); // an imported type the table has no stores for
+
+  // ── Which aircraft the table maps ──
+  ok('mapped: an aircraft with a bomb or missile row is mapped; one with none, or no aircraft at all, is not',
+     storesMappedFor('f18c', table) && storesMappedFor('a10c', table) && !storesMappedFor('ah64d', table) && !storesMappedFor(undefined, table));
+  ok('mapped: a gun or rocket row alone does not map an aircraft (those were always aircraft-specific)',
+     !storesMappedFor('f5e', [row('hydra70', 'Hydra', 'rocket', 'none', ['f5e']), row('m39', 'M39', 'gun', 'none', ['f5e'])]));
+
+  // ── A mapped aircraft sees what the table gives it ──
+  ok('filter: a mapped Hornet is offered the bombs and missiles the table gives it: no CBU-97, rockets or gun',
+     choices(hornet) === 'mk82,gbu12,agm88c', choices(hornet));
+  ok('filter: ...Show all adds the CBU-97 and the rockets, in table order',
+     choices(hornet, { showAll: true }) === 'mk82,gbu12,cbu97,agm88c,hydra70', choices(hornet, { showAll: true }));
+  ok('filter: ...and the A-10\'s GAU-8 is never the Hornet\'s, with or without Show all',
+     !choices(hornet).includes('gau8') && !choices(hornet, { showAll: true }).includes('gau8'));
+  ok('filter: the A-10 keeps its own gun and rockets, guns last',
+     choices(jet('a10c')) === 'mk82,cbu97,hydra70,gau8' && choices(jet('a10c'), { showAll: true }) === 'mk82,gbu12,cbu97,agm88c,hydra70,gau8',
+     `${choices(jet('a10c'))} / ${choices(jet('a10c'), { showAll: true })}`);
+
+  // ── An aircraft the table does not know sees every bomb and missile ──
+  ok('filter: an aircraft type the table has no stores for is offered every bomb and missile, with no switch pressed',
+     choices(apache) === 'mk82,gbu12,cbu97,agm88c', choices(apache));
+  ok('filter: ...its rockets and guns stay aircraft-specific, so Show all is what brings the rockets, and the gun never comes',
+     choices(apache, { showAll: true }) === 'mk82,gbu12,cbu97,agm88c,hydra70', choices(apache, { showAll: true }));
+
+  // ── What a jet carries is always offered ──
+  const cbuOnly = jet('f18c', [line(cbu97)]);
+  ok('carried: a store in the jet\'s loadout that the table does not map to its aircraft is still offered',
+     choices(cbuOnly) === 'cbu97', choices(cbuOnly));
+  ok('carried: ...and a loaded jet\'s default list is its loadout, nothing else (a Hornet has no gun row)',
+     choices(jet('f18c', [line(gbu12), line(mk82)])) === 'gbu12,mk82', choices(jet('f18c', [line(gbu12), line(mk82)])));
+  ok('carried: ...Show all lists the carried store first, then the rest in table order, once each',
+     choices(cbuOnly, { showAll: true }) === 'cbu97,mk82,gbu12,agm88c,hydra70', choices(cbuOnly, { showAll: true }));
+  ok('carried: a loaded A-10 is offered its loadout plus its own gun, and Show all adds the rest',
+     choices(jet('a10c', [line(mk82)])) === 'mk82,gau8' && choices(jet('a10c', [line(mk82)]), { showAll: true }) === 'mk82,gbu12,cbu97,agm88c,hydra70,gau8',
+     `${choices(jet('a10c', [line(mk82)]))} / ${choices(jet('a10c', [line(mk82)]), { showAll: true })}`);
+  const gunPod = jet('f18c', [line(gau8, 1)]);
+  ok('carried: a gun pod in a Hornet\'s own loadout is offered to it, though no Hornet owns a GAU-8 row',
+     choices(gunPod) === 'gau8' && choices(gunPod, { showAll: true }) === 'gau8,mk82,gbu12,cbu97,agm88c,hydra70', `${choices(gunPod)} / ${choices(gunPod, { showAll: true })}`);
+
+  // ── An old attack keeps its weapon ──
+  ok('current weapon: one neither carried nor mapped is still in the list, in its table place',
+     choices(hornet, { currentWeaponId: 'cbu97' }) === 'mk82,gbu12,cbu97,agm88c', choices(hornet, { currentWeaponId: 'cbu97' }));
+  ok('current weapon: ...also when the jet has a loadout of its own',
+     choices(jet('f18c', [line(mk82)]), { currentWeaponId: 'cbu97' }) === 'mk82,cbu97', choices(jet('f18c', [line(mk82)]), { currentWeaponId: 'cbu97' }));
+  ok('current weapon: ...a gun that is not the aircraft\'s too, after the stores',
+     choices(hornet, { currentWeaponId: 'gau8' }) === 'mk82,gbu12,agm88c,gau8', choices(hornet, { currentWeaponId: 'gau8' }));
+  ok('current weapon: with none named, or an id the table lacks, the list is the plain one',
+     choices(hornet, { currentWeaponId: undefined }) === choices(hornet) && choices(hornet, { currentWeaponId: 'zz99' }) === choices(hornet));
+
+  // ── No weapon twice, whatever the combination ──
+  const twice = jet('a10c', [line(mk82), line(mk82, 4), line(gau8, 1)]);
+  const everyList: string[] = [];
+  for (const member of [hornet, apache, jet('a10c'), cbuOnly, gunPod, twice, jet('f16c', [line(mk82), line(cbu97)])]) {
+    for (const showAll of [false, true]) {
+      for (const currentWeaponId of [undefined, 'mk82', 'cbu97', 'hydra70', 'gau8']) everyList.push(choices(member, { showAll, currentWeaponId }));
+    }
+  }
+  const repeated = everyList.filter((list) => new Set(list.split(',')).size !== list.split(',').length);
+  ok(`no duplicates: none of ${everyList.length} lists (7 jets x Show all x current weapon) repeats a weapon`, repeated.length === 0, repeated.join(' | '));
+
+  // ── The real table ──
+  // reference.json folded the way crates/core/src/refdata.rs does at load: each weapon's
+  // carried_by is the aircraft in aircraft_weapons, once each and sorted, and the rows
+  // come in get_all_weapons' order (category, then name), which is what the picker sees.
+  const reference = JSON.parse(readFileSync('crates/core/data/reference.json', 'utf8')) as {
+    aircraft: { id: string }[];
+    weapons: Omit<Row, 'carried_by'>[];
+    aircraft_weapons: { aircraft_id: string; weapon_id: string }[];
+  };
+  const foldReference = (links: { aircraft_id: string; weapon_id: string }[]): Row[] =>
+    reference.weapons
+      .map((w) => ({ ...w, carried_by: [...new Set(links.filter((l) => l.weapon_id === w.id).map((l) => l.aircraft_id))].sort() }))
+      .sort((a, b) => (a.category < b.category ? -1 : a.category > b.category ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const real = foldReference(reference.aircraft_weapons);
+  const aircraftIds = reference.aircraft.map((a) => a.id);
+  const carriedBy = (id: string) => real.find((w) => w.id === id)?.carried_by.join();
+  ok('real table: the loader folds aircraft_weapons into carried_by the way the Rust core does (sorted, once each)',
+     carriedBy('gau8') === 'a10c' && carriedBy('agm88c') === 'f16c,f18c' && carriedBy('mk82air') === 'a10c,av8b,f14,f15e,f16c,f4e' && aircraftIds.length === 10,
+     `${carriedBy('gau8')} / ${carriedBy('agm88c')} / ${carriedBy('mk82air')} / ${aircraftIds.length} aircraft`);
+  ok('real table: every aircraft in it is one the filter treats as mapped', aircraftIds.every((id) => storesMappedFor(id, real)),
+     aircraftIds.filter((id) => !storesMappedFor(id, real)).join());
+  ok('real table: an aircraft id it has never heard of is not', !storesMappedFor('ah64d', real) && !storesMappedFor('', real));
+
+  const viperIds = choices(jet('f16c'), undefined, real);
+  ok('real table: the F-16C is still offered the Mk-82 AIR and the Snakeye, and a CBU-97 and a HARM too',
+     ['mk82air', 'mk82se', 'cbu97', 'agm88c'].every((id) => viperIds.split(',').includes(id)), viperIds);
+  const hogIds = choices(jet('a10c'), undefined, real).split(',');
+  ok('real table: the A-10C is offered no HARM by default, with its own gun and rockets, and no other aircraft\'s gun',
+     !hogIds.includes('agm88c') && hogIds.includes('gau8') && hogIds.includes('hydra70') && !['mk12gun', 'defa553', 'm39', 'gau12'].some((g) => hogIds.includes(g)), hogIds.join());
+  const hogAll = choices(jet('a10c'), { showAll: true }, real).split(',');
+  ok('real table: ...Show all gives the A-10C the HARM, still not another aircraft\'s gun, and its own gun stays last',
+     hogAll.includes('agm88c') && hogAll.at(-1) === 'gau8' && !['mk12gun', 'defa553', 'm39', 'gau12'].some((g) => hogAll.includes(g)), hogAll.join());
+  const hornetReal = choices(jet('f18c'), undefined, real).split(',');
+  const hornetRealAll = choices(jet('f18c'), { showAll: true }, real).split(',');
+  ok('real table: a Hornet gets no CBU-97 by default, gets it with Show all, and never gets the GAU-8',
+     !hornetReal.includes('cbu97') && hornetRealAll.includes('cbu97') && !hornetReal.includes('gau8') && !hornetRealAll.includes('gau8'),
+     `${hornetReal.length} offered, ${hornetRealAll.length} with Show all`);
+  ok('real table: ...Show all is every bomb, missile and rocket, with the Hornet\'s own default list inside it',
+     hornetReal.every((id) => hornetRealAll.includes(id)) &&
+     real.filter((w) => w.category !== 'gun').every((w) => hornetRealAll.includes(w.id)) && hornetRealAll.length === real.filter((w) => w.category !== 'gun').length,
+     `${hornetRealAll.length} of ${real.filter((w) => w.category !== 'gun').length}`);
+  ok('real table: an unmapped type is offered every bomb and missile in it without the switch',
+     real.filter((w) => !['gun', 'rocket'].includes(w.category)).every((w) => choices(apache, undefined, real).split(',').includes(w.id)));
+
+  // ── Strike near me: "every aircraft carries it" ──
+  const nearMeWeapon = real.find((w) => w.id === REAL_WORLD_DEFAULT_WEAPON_ID);
+  ok('strike near me: its default weapon is a row of the real table, under that name',
+     nearMeWeapon?.name === REAL_WORLD_DEFAULT_WEAPON, String(nearMeWeapon?.name));
+  ok('strike near me: ...and every one of the ten aircraft carries it, so the planner picks it whatever the jet',
+     aircraftIds.every((id) => nearMeWeapon?.carried_by.includes(id)), aircraftIds.filter((id) => !nearMeWeapon?.carried_by.includes(id)).join());
+  ok('strike near me: ...so it is on every aircraft\'s default list even with an empty loadout',
+     aircraftIds.every((id) => choices(jet(id), undefined, real).split(',').includes(REAL_WORLD_DEFAULT_WEAPON_ID)));
+
+  // ── Copy to…: the filter applies to another airframe, and a same-type copy still works ──
+  const profiles = [...lib('f16c'), ...lib('f18c')];
+  const viper = jet('f16c', [], 'Viper 1-1');
+  const viper2 = jet('f16c', [], 'Viper 1-2');
+  const buildSource = (weaponId: string) => {
+    const built = autoBuildAttack({
+      mission: { waypoints: [wpIp, wpTgt], flightMembers: [viper], threats: [], attacks: [] },
+      targetWaypointId: wpTgt.id, attackerId: (viper as { id: string }).id, weapons: real, profiles, threatSystems: [],
+      overrides: { weaponId, profileId: 'f16c.dive.ccip30' },
+    } as never);
+    return { ...built.attack!, id: 'atk1', sequenceNumber: 1 };
+  };
+  const copyTo = (source: ReturnType<typeof buildSource>, recipient: never) =>
+    copyAttackTo({
+      mission: { waypoints: [wpIp, wpTgt], flightMembers: [viper, recipient], threats: [], attacks: [source] }, weapons: real, profiles, threatSystems: [],
+    } as never, source as never, (recipient as { id: string }).id);
+  const cbuSource = buildSource('cbu97');
+  const mk82Source = buildSource('mk82');
+  ok('copy: the Viper\'s CBU-97 and Mk-82 attacks build', cbuSource.weaponId === 'cbu97' && mk82Source.weaponId === 'mk82');
+  const toArmedHornet = copyTo(cbuSource, jet('f18c', [{ weaponType: 'Mk-84 LDGP', quantity: 2, weaponId: 'mk84' }], 'Hornet 1-1'));
+  ok('copy: another airframe that does not carry the weapon gets the "not on offer" note, and auto-build\'s pick from its loadout',
+     toArmedHornet.notes.some((n) => n.includes('not on offer')) && toArmedHornet.attack?.weaponId === 'mk84',
+     `${toArmedHornet.notes.join('; ')} / ${String(toArmedHornet.attack?.weaponId)} ${toArmedHornet.problems.join('; ')}`);
+  const toBareHornet = copyTo(cbuSource, jet('f18c', [], 'Hornet 1-1'));
+  // No loadout means auto-build has nothing to choose instead: the copy must
+  // still be made (warn, don't block), with the weapon kept and flagged.
+  ok('copy: ...a Hornet with no loadout still gets its copy: the CBU-97 is kept, with a note that the table does not list it',
+     toBareHornet.attack?.weaponId === 'cbu97' && toBareHornet.problems.length === 0 &&
+     toBareHornet.notes.some((n) => n === 'The weapon table does not list CBU-97 SFW for the F18C; kept — check the jet can carry it.') &&
+     !toBareHornet.notes.some((n) => n.includes('not on offer')),
+     `${toBareHornet.notes.join('; ')} / ${String(toBareHornet.attack?.weaponId)} ${toBareHornet.problems.join('; ')}`);
+  // A gun is bolted to its own jet: it is never kept on another airframe, with
+  // or without a loadout, so that copy is refused rather than built on a GAU-8.
+  const hogJet = jet('a10c', [], 'Hawg 1-1');
+  const gunProfiles = [...lib('a10c'), ...lib('f18c')];
+  const gunBuilt = autoBuildAttack({
+    mission: { waypoints: [wpIp, wpTgt], flightMembers: [hogJet], threats: [], attacks: [] },
+    targetWaypointId: wpTgt.id, attackerId: (hogJet as { id: string }).id, weapons: real, profiles: gunProfiles, threatSystems: [],
+    overrides: { weaponId: 'gau8' },
+  } as never);
+  const gunSource = { ...gunBuilt.attack!, id: 'atk2', sequenceNumber: 1 };
+  const bareHornet = jet('f18c', [], 'Hornet 1-1');
+  const gunToHornet = copyAttackTo({
+    mission: { waypoints: [wpIp, wpTgt], flightMembers: [hogJet, bareHornet], threats: [], attacks: [gunSource] }, weapons: real, profiles: gunProfiles, threatSystems: [],
+  } as never, gunSource as never, (bareHornet as { id: string }).id);
+  ok('copy: a gun never follows to another airframe: the A-10\'s GAU-8 is not kept on a Hornet, loadout or not',
+     gunBuilt.attack?.weaponId === 'gau8' && gunToHornet.attack?.weaponId !== 'gau8' &&
+     gunToHornet.notes.some((n) => n.includes('not on offer')) && !gunToHornet.notes.some((n) => n.includes('does not list')),
+     `${String(gunBuilt.attack?.weaponId)} -> ${String(gunToHornet.attack?.weaponId)} / ${gunToHornet.notes.join('; ')} ${gunToHornet.problems.join('; ')}`);
+  const mk82ToHornet = copyTo(mk82Source, jet('f18c', [], 'Hornet 1-1'));
+  ok('copy: another airframe that does carry the weapon keeps it, with no "not on offer" note',
+     mk82ToHornet.attack?.weaponId === 'mk82' && !mk82ToHornet.notes.some((n) => n.includes('not on offer')),
+     `${mk82ToHornet.notes.join('; ')} / ${String(mk82ToHornet.attack?.weaponId)} ${mk82ToHornet.problems.join('; ')}`);
+  const carriedToHornet = copyTo(cbuSource, jet('f18c', [line(cbu97)], 'Hornet 1-1'));
+  ok('copy: ...and so does one whose loadout holds it, though the table does not map it to a Hornet',
+     carriedToHornet.attack?.weaponId === 'cbu97' && !carriedToHornet.notes.some((n) => n.includes('not on offer')),
+     `${carriedToHornet.notes.join('; ')} / ${String(carriedToHornet.attack?.weaponId)} ${carriedToHornet.problems.join('; ')}`);
+  const toViper = copyTo(cbuSource, viper2);
+  ok('copy: a same-type copy of the CBU-97 still works, weapon kept, no note',
+     toViper.attack?.weaponId === 'cbu97' && toViper.notes.length === 0, `${toViper.notes.join('; ')} / ${String(toViper.attack?.weaponId)} ${toViper.problems.join('; ')}`);
+
+  // ── The loadout editor's list ──
+  const picker = (aircraftId: string | undefined, showAll: boolean, ownId?: string, weapons: Row[] = table) =>
+    ids(loadoutPickerWeapons(weapons, aircraftId, showAll, ownId));
+  ok('loadout editor: a mapped aircraft\'s default list is the bombs, missiles and rockets it carries, and no guns',
+     picker('f18c', false) === 'mk82,gbu12,agm88c' && picker('a10c', false) === 'mk82,cbu97,hydra70', `${picker('f18c', false)} / ${picker('a10c', false)}`);
+  ok('loadout editor: Show all is every bomb, missile and rocket, still no guns',
+     picker('f18c', true) === 'mk82,gbu12,cbu97,agm88c,hydra70' && picker('a10c', true) === 'mk82,gbu12,cbu97,agm88c,hydra70', picker('f18c', true));
+  ok('loadout editor: an aircraft the table has no stores for sees everything but guns, as it always did',
+     picker('ah64d', false) === 'mk82,gbu12,cbu97,agm88c,hydra70' && picker(undefined, false) === 'mk82,gbu12,cbu97,agm88c,hydra70');
+  ok('loadout editor: a row\'s own weapon is always listed, a store the table maps elsewhere or a gun pod',
+     picker('f18c', false, 'cbu97') === 'mk82,gbu12,cbu97,agm88c' && picker('f18c', false, 'gau8') === 'mk82,gbu12,agm88c,gau8',
+     `${picker('f18c', false, 'cbu97')} / ${picker('f18c', false, 'gau8')}`);
+  ok('loadout editor: ...and only for that row: with no own weapon the gun is gone again',
+     !picker('f18c', false, undefined).includes('gau8') && !picker('f18c', true, 'cbu97').split(',').includes('gau8'));
+  ok('loadout editor: on the real table a Hornet\'s default list holds the Mk-82 and GBU-16 and not the CBU-97; Show all holds it',
+     (() => {
+       const own = picker('f18c', false, undefined, real).split(',');
+       const all = picker('f18c', true, undefined, real).split(',');
+       return own.includes('mk82') && own.includes('gbu16') && !own.includes('cbu97') && all.includes('cbu97') && !all.includes('gau8');
+     })());
 }
 
 // ─── The card's colours: Day is the card as it always was ────────────────────

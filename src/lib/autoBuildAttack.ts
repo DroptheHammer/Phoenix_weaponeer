@@ -5,7 +5,7 @@ import type { DbWeapon } from '../types/weapon.types';
 import type { Coordinates, Waypoint } from '../types/waypoint.types';
 import type { DeliveryProfile, WeaponClass } from '../types/profile.types';
 import { SUPPORTED_GEOMETRIES, diveParams, levelParams, popupParams } from '../types/profile.types';
-import { weaponClassOf, offeredTo, WEAPON_CLASS_LABEL } from './weaponClass';
+import { weaponClassOf, offeredTo, storesMappedFor, WEAPON_CLASS_LABEL } from './weaponClass';
 import { calculateBearing, calculateDistance } from './coordinates';
 import { runAttackChecks, type AttackCheck } from './attackChecks';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, type IpAnchor } from './ipAnchor';
@@ -163,17 +163,43 @@ export function unrecognisedStores(attacker: Mission['flightMembers'][number] | 
   return (attacker?.loadout ?? []).filter((item) => !weaponForLoadoutItem(item, weapons));
 }
 
+export interface WeaponChoiceOptions {
+  /**
+   * "Show all weapons": every bomb, missile and rocket in the table, loaded or
+   * not. Guns stay with their own aircraft even then.
+   */
+  showAll?: boolean;
+  /** The attack's current weapon. Always listed, so reopening an old attack never loses it. */
+  currentWeaponId?: string;
+}
+
 /**
  * What the weapon picker offers: the loadout when it holds a store the weapon
- * table knows, else every air-to-ground store the aircraft can carry — plus its
- * internal gun, which no loadout lists.
+ * table knows, else every air-to-ground store the aircraft can carry (`offeredTo`)
+ * — plus its internal gun, which no loadout lists. The jet's carried weapons and
+ * the attack's current weapon are offered whatever the table says: a wrong or
+ * missing table row must never keep a pilot from a weapon they are holding.
+ *
+ * Order: what the jet carries (strike weapons first), the rest in table order,
+ * guns last. Each weapon once.
  */
-export function weaponChoicesFor(attacker: Mission['flightMembers'][number] | undefined, weapons: DbWeapon[]): DbWeapon[] {
+export function weaponChoicesFor(
+  attacker: Mission['flightMembers'][number] | undefined,
+  weapons: DbWeapon[],
+  { showAll = false, currentWeaponId }: WeaponChoiceOptions = {},
+): DbWeapon[] {
   const aircraftId = attacker?.aircraftId;
   const carried = loadoutWeapons(attacker, weapons);
-  const stores = carried.length ? carried : weapons.filter((w) => weaponClassOf(w) !== 'gun' && offeredTo(w, aircraftId));
-  const guns = weapons.filter((w) => weaponClassOf(w) === 'gun' && offeredTo(w, aircraftId) && !stores.includes(w));
-  return [...stores, ...guns];
+  const mapped = storesMappedFor(aircraftId, weapons);
+  const isGun = (w: DbWeapon) => weaponClassOf(w) === 'gun';
+  const offered = (w: DbWeapon): boolean => {
+    if (w.id === currentWeaponId) return true;
+    if (isGun(w)) return offeredTo(w, aircraftId, mapped);
+    if (showAll) return weaponClassOf(w) !== undefined;
+    return carried.length === 0 && offeredTo(w, aircraftId, mapped);
+  };
+  const rest = weapons.filter((w) => !carried.includes(w) && offered(w));
+  return [...carried, ...rest.filter((w) => !isGun(w)), ...rest.filter(isGun)];
 }
 
 /**

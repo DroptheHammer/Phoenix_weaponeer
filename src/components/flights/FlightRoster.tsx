@@ -189,6 +189,7 @@ export function FlightRoster({ aircraft, weapons }: FlightRosterProps) {
       {/* Loadout modal */}
       {loadoutMember && (
         <LoadoutEditor
+          aircraftId={loadoutMember.aircraftId}
           aircraftName={
             aircraft.find((a) => a.id === loadoutMember.aircraftId)?.name ??
             loadoutMember.aircraftId

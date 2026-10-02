@@ -77,7 +77,16 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
   const attacker = mission.flightMembers.find((fm) => fm.id === draft.attackerId);
   const ipWaypoints = ipCandidates(mission.waypoints, target?.id);
   const carried = loadoutWeapons(attacker, weapons);
-  const weaponChoices: DbWeapon[] = weaponChoicesFor(attacker, weapons);
+  // The attack's own weapon stays in its list whatever the filter says. "Show
+  // all" is the way out of the filter, never saved, and only offered where it
+  // would add something.
+  const [showAllWeapons, setShowAllWeapons] = useState(false);
+  const currentWeaponId = resolved.weaponId || undefined;
+  const weaponChoices: DbWeapon[] = weaponChoicesFor(attacker, weapons, { showAll: showAllWeapons, currentWeaponId });
+  const canShowAllWeapons =
+    !!attacker &&
+    weaponChoicesFor(attacker, weapons, { showAll: true, currentWeaponId }).length >
+    weaponChoicesFor(attacker, weapons, { currentWeaponId }).length;
 
   const profile = resolved.profile;
   const runIn = resolved.runIn;
@@ -139,6 +148,12 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
                 <option key={w.id} value={w.id}>{w.name}</option>
               ))}
             </select>
+            {canShowAllWeapons && (
+              <label className="flex items-center gap-2 mt-1 text-xs text-gray-300 cursor-pointer max-md:min-h-[44px]">
+                <input type="checkbox" checked={showAllWeapons} onChange={(e) => setShowAllWeapons(e.target.checked)} />
+                Show all weapons
+              </label>
+            )}
           </div>
         </div>
         {seat && (

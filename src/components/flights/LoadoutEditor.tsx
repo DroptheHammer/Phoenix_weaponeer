@@ -1,26 +1,24 @@
 import { useState, useEffect } from 'react';
 import { platform } from '@platform';
 import { Modal } from '../common/Modal';
-import type { LoadoutItem } from '../../types';
+import type { DbWeapon, LoadoutItem } from '../../types';
 import { weaponForLoadoutItem } from '../../lib/autoBuildAttack';
-import { loadoutFromRows, pickWeapon, rowsFromLoadout, type LoadoutRow } from '../../lib/loadoutRows';
-
-interface DbWeapon {
-  id: string;
-  name: string;
-  weight_lbs: number;
-  category: string;
-}
+import { loadoutFromRows, loadoutPickerWeapons, pickWeapon, rowsFromLoadout, type LoadoutRow } from '../../lib/loadoutRows';
 
 interface LoadoutEditorProps {
+  aircraftId: string;
   aircraftName: string;
   loadout: LoadoutItem[];
   onSave: (loadout: LoadoutItem[]) => void;
   onClose: () => void;
 }
 
-export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: LoadoutEditorProps) {
+export function LoadoutEditor({ aircraftId, aircraftName, loadout, onSave, onClose }: LoadoutEditorProps) {
   const [weapons, setWeapons] = useState<DbWeapon[]>([]);
+  // Off each time the editor opens, and never saved: the list is the jet's own
+  // stores until the pilot asks for the whole table.
+  const [showAll, setShowAll] = useState(false);
+  const canShowAll = loadoutPickerWeapons(weapons, aircraftId, true).length > loadoutPickerWeapons(weapons, aircraftId, false).length;
 
   const [rows, setRows] = useState<LoadoutRow[]>(
     loadout.length > 0
@@ -73,16 +71,16 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
                   >
                     <option value="">— Select weapon —</option>
                     {unknown && <option value={row.weaponType}>{row.weaponType} (not in the weapon table)</option>}
-                    {/* Guns are built in: the attack editor always offers the aircraft's own.
-                        A gun pod that arrived on the jet stays listed for its own row. */}
-                    {weapons
-                      .filter((w) => w.category !== 'gun' || w === known)
-                      .map((w) => (
-                        <option key={w.id} value={w.name}>
-                          {w.name}
-                          {w.weight_lbs > 0 ? ` (${w.weight_lbs} lbs)` : ''}
-                        </option>
-                      ))}
+                    {/* The jet's own stores, or the whole table with "Show all weapons".
+                        Guns are built in: the attack editor always offers the aircraft's own.
+                        A row's own weapon (a gun pod that arrived on the jet, a store the
+                        table maps elsewhere) stays listed for that row. */}
+                    {loadoutPickerWeapons(weapons, aircraftId, showAll, known?.id).map((w) => (
+                      <option key={w.id} value={w.name}>
+                        {w.name}
+                        {w.weight_lbs > 0 ? ` (${w.weight_lbs} lbs)` : ''}
+                      </option>
+                    ))}
                   </select>
 
                   <input
@@ -112,6 +110,13 @@ export function LoadoutEditor({ aircraftName, loadout, onSave, onClose }: Loadou
           >
             + Add weapon
           </button>
+
+          {canShowAll && (
+            <label className="flex items-center gap-2 mt-2 text-xs text-gray-300 cursor-pointer max-md:min-h-[44px]">
+              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+              Show all weapons
+            </label>
+          )}
         </div>
 
         {/* Footer */}
