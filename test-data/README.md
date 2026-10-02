@@ -188,7 +188,28 @@ Shilka near TGT1.
 
 The route reuses the Nevada landmark x/y from `test_dcs_to_latlon_nevada_landmarks`,
 so the waypoints land on real places, but the threats are invented positions. It
-proves the import *flow*, not any projection.
+proves the import *flow*, not any projection. Its units carry no `payload`, which
+is why `scripts/web-smoke.cjs` sees empty loadouts; leave it that way.
+
+### `nevada_SYNTHETIC_loaded_jets.json` — ⚠️ SYNTHETIC, LOADOUT IMPORT CHECK
+
+The same synthetic mission as above, with a `payload` (a list of DCS store
+display names, `null` for an empty pylon) on each of four F-16C units. Safe to
+commit: the loadouts are invented, though the store names are DCS's own.
+
+| Unit | Carries | Arrives as |
+|---|---|---|
+| `Venom 1-1` | Mavericks, GBU-12s, an Mk-84, AIM-9s and tanks | AGM-65D x2, GBU-12 x2, Mk-84 x1 |
+| `Venom 1-2` | two CBU-97, two TERs of three Mk-82 | CBU-97 x2, Mk-82 x6 |
+| `Venom 1-3` | Rockeyes, GBU-38s, a HE and an illumination Hydra pod, a targeting pod | Rockeye x2 (no weapon row, kept under its DCS name), GBU-38 x2, Hydra x7 |
+| `Venom 1-4` | AIM-9s, AMRAAMs and tanks only | nothing |
+
+The flight is `Venom 1` here, not `Viper 1`, so the two synthetic files can be
+told apart in a flight list.
+
+Pinned by `a_link_with_loaded_jets_imports_each_jets_air_to_ground_stores` in
+`crates/core/src/import.rs`. The mapping rules are in
+`crates/core/src/parsers/store_mapping.rs`.
 
 ## Sinai: how the projection was verified
 

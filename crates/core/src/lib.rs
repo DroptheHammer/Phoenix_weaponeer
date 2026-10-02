@@ -28,6 +28,39 @@ macro_rules! private_fixture {
     };
 }
 
+/// The four captured public-link payloads (see
+/// `test-data/private/fragorders-links/README.md` for the publish options behind
+/// each). Like `private_fixture!`, each skips the calling test when its file is
+/// absent. They live here so every module's tests can use them.
+#[cfg(test)]
+#[macro_export]
+macro_rules! link_sinai_v7 {
+    () => {
+        $crate::private_fixture!("fragorders-links/sinai_m01v7_all-red-hidden-in-miz.json")
+    };
+}
+#[cfg(test)]
+#[macro_export]
+macro_rules! link_neon_mirror {
+    () => {
+        $crate::private_fixture!("fragorders-links/syria_neonmirror_showgroups-off.json")
+    };
+}
+#[cfg(test)]
+#[macro_export]
+macro_rules! link_arctic_fury {
+    () => {
+        $crate::private_fixture!("fragorders-links/kola_arcticfury_threats-visible.json")
+    };
+}
+#[cfg(test)]
+#[macro_export]
+macro_rules! link_nttr_dtc {
+    () => {
+        $crate::private_fixture!("fragorders-links/nttr_dtc_threats-visible.json")
+    };
+}
+
 pub mod fragorders_link;
 pub mod import;
 pub mod mission;

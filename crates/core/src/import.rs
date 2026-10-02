@@ -254,6 +254,7 @@ pub fn process_tasking_state(
                     .map(|c| c.to_string_representation())
                     .unwrap_or_default(),
                 onboard_num: u.tail_number.as_ref().map(|n| n.as_string()),
+                loadout: parsers::store_mapping::loadout_from_payload(u.payload.as_ref(), db),
             })
             .collect();
 
@@ -387,6 +388,8 @@ fn process_player_group(
                 .map(|c| c.to_string_representation())
                 .unwrap_or_default(),
             onboard_num: u.onboard_num.as_ref().map(|n| n.as_string()),
+            // The CLI's pylons are CLSIDs, which `store_mapping` does not read.
+            loadout: Vec::new(),
         })
         .collect();
 
@@ -1008,28 +1011,8 @@ mod tests {
     //
     // Fixtures are payloads captured from real public links; see
     // test-data/private/fragorders-links/README.md for the publish options
-    // behind each. Each macro skips the calling test when the file is absent.
-
-    macro_rules! link_sinai_v7 {
-        () => {
-            crate::private_fixture!("fragorders-links/sinai_m01v7_all-red-hidden-in-miz.json")
-        };
-    }
-    macro_rules! link_neon_mirror {
-        () => {
-            crate::private_fixture!("fragorders-links/syria_neonmirror_showgroups-off.json")
-        };
-    }
-    macro_rules! link_arctic_fury {
-        () => {
-            crate::private_fixture!("fragorders-links/kola_arcticfury_threats-visible.json")
-        };
-    }
-    macro_rules! link_nttr_dtc {
-        () => {
-            crate::private_fixture!("fragorders-links/nttr_dtc_threats-visible.json")
-        };
-    }
+    // behind each. Each macro (defined in lib.rs, beside `private_fixture!`)
+    // skips the calling test when the file is absent.
 
     /// The strongest check on the link import: Sinai M01 V7 was captured both
     /// as CLI output and as a public link. Every flight the link offers must
@@ -1190,6 +1173,105 @@ mod tests {
         assert!(
             process_fragorders_json(link_sinai_v7!(), &db).is_err(),
             "a link payload must not import as an empty CLI mission"
+        );
+    }
+
+    // ---- Loadouts ------------------------------------------------------
+    //
+    // The link's pylons become each jet's loadout (`parsers::store_mapping`
+    // holds the rules). The fixture is public and synthetic, so these run on
+    // every machine; the four captured links are checked in `store_mapping`.
+
+    /// What a jet's imported loadout says, as (weapon id, name, quantity).
+    fn loadout_of(unit: &ProcessedUnit) -> Vec<(Option<&str>, &str, u32)> {
+        unit.loadout.iter().map(|l| (l.weapon_id.as_deref(), l.name.as_str(), l.quantity)).collect()
+    }
+
+    /// Four jets: a strike loadout, bombs and a cluster, a mix with a store the
+    /// tool has no row for, and a jet that carries only air-to-air missiles and
+    /// tanks. The first three arrive loaded, the last with nothing.
+    #[test]
+    fn a_link_with_loaded_jets_imports_each_jets_air_to_ground_stores() {
+        let json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test-data/nevada_SYNTHETIC_loaded_jets.json"
+        ));
+        let db = crate::refdata::reference();
+        let data = import_json(json, db).expect("the synthetic loaded-jets link must import");
+
+        assert_eq!(data.player_groups.len(), 1);
+        let units = &data.player_groups[0].units;
+        assert_eq!(units.len(), 4);
+        assert_eq!(
+            loadout_of(&units[0]),
+            vec![
+                (Some("agm65d"), "AGM-65D Maverick", 2),
+                (Some("gbu12"), "GBU-12 Paveway II", 2),
+                (Some("mk84"), "Mk-84 LDGP", 1),
+            ],
+            "two pylons of the same weapon are one line, in order of first appearance"
+        );
+        assert_eq!(
+            loadout_of(&units[1]),
+            vec![(Some("cbu97"), "CBU-97 SFW", 2), (Some("mk82"), "Mk-82 LDGP", 6)],
+            "two TERs of three Mk-82 are six; a cluster bomb's submunitions are not a count"
+        );
+        assert_eq!(
+            loadout_of(&units[2]),
+            vec![
+                (None, "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets", 2),
+                (Some("gbu38"), "GBU-38 JDAM", 2),
+                (Some("hydra70"), "Hydra 70 2.75\" rockets", 7),
+            ],
+            "a store with no row stays under its DCS name; the illumination pod and the targeting pod are dropped"
+        );
+        assert!(units[3].loadout.is_empty(), "air-to-air missiles and tanks are not an attack loadout");
+
+        // A recognised line carries its reference row's name, so the planner's
+        // weapon list and the loadout agree.
+        for line in units.iter().flat_map(|u| &u.loadout) {
+            if let Some(id) = &line.weapon_id {
+                assert_eq!(line.name, db.get_weapon_by_id(id).expect("a row").name);
+            }
+        }
+    }
+
+    /// A payload that is not a list of names costs that jet its loadout and
+    /// nothing else. The shape is the publisher's, and it has changed before.
+    /// Hand-written, because every real payload is a list of names or nulls.
+    #[test]
+    fn a_malformed_payload_costs_the_jet_its_loadout_not_the_import() {
+        let json = r#"{
+            "theater": "NEVADA",
+            "plannedGroups": [{
+                "name": "Odd 1", "category": "plane", "isPlayer": true,
+                "units": [
+                    {"name": "a", "type": "F-16C_50", "x": -399114, "y": -18563.8,
+                     "payload": {"3": "GBU-12 - 500lb Laser Guided Bomb"}},
+                    {"name": "b", "type": "F-16C_50", "x": -399114, "y": -18563.8, "payload": 12},
+                    {"name": "c", "type": "F-16C_50", "x": -399114, "y": -18563.8,
+                     "payload": [["GBU-12 - 500lb Laser Guided Bomb"], null]},
+                    {"name": "d", "type": "F-16C_50", "x": -399114, "y": -18563.8, "payload": [null, null, null]},
+                    {"name": "e", "type": "F-16C_50", "x": -399114, "y": -18563.8, "payload": null},
+                    {"name": "f", "type": "F-16C_50", "x": -399114, "y": -18563.8},
+                    {"name": "g", "type": "F-16C_50", "x": -399114, "y": -18563.8,
+                     "payload": [7, null, "GBU-12 - 500lb Laser Guided Bomb"]}
+                ],
+                "waypoints": []
+            }]
+        }"#;
+        let db = crate::refdata::reference();
+        let data = import_json(json, db).expect("a strange payload must not fail the import");
+
+        let units = &data.player_groups[0].units;
+        assert_eq!(units.len(), 7);
+        for unit in &units[..6] {
+            assert!(unit.loadout.is_empty(), "{}: nothing readable, so no loadout", unit.name);
+        }
+        assert_eq!(
+            loadout_of(&units[6]),
+            vec![(Some("gbu12"), "GBU-12 Paveway II", 1)],
+            "the readable store in a payload with a stray number still loads"
         );
     }
 

@@ -1,0 +1,91 @@
+{
+  "theater": "NEVADA",
+  "bullseye": { "x": -400000, "y": -20000 },
+  "plannedGroups": [
+    {
+      "name": "Venom 1",
+      "category": "plane",
+      "isPlayer": true,
+      "units": [
+        {
+          "name": "Venom 1-1", "type": "F-16C_50", "callsign": "Venom11", "tailNumber": "101", "x": -399114, "y": -18563.8,
+          "payload": [
+            "AIM-9X Sidewinder IR AAM",
+            "LAU-117 with AGM-65D - Maverick D (IIR ASM)",
+            "GBU-12 - 500lb Laser Guided Bomb",
+            "Fuel tank 370 gal",
+            "Mk-84 - 2000lb GP Bomb LD",
+            "Fuel tank 370 gal",
+            "GBU-12 - 500lb Laser Guided Bomb",
+            "LAU-117 with AGM-65D - Maverick D (IIR ASM)",
+            "AIM-9X Sidewinder IR AAM"
+          ]
+        },
+        {
+          "name": "Venom 1-2", "type": "F-16C_50", "callsign": "Venom12", "tailNumber": "102", "x": -399150, "y": -18600,
+          "payload": [
+            "AIM-9M Sidewinder IR AAM",
+            "CBU-97 - 10 x SFW Cluster Bomb",
+            "TER-9A with 3 x Mk-82 - 500lb GP Bomb LD",
+            null,
+            "Fuel tank 300 gal",
+            null,
+            "TER-9A with 3 x Mk-82 - 500lb GP Bomb LD",
+            "CBU-97 - 10 x SFW Cluster Bomb",
+            "AIM-9M Sidewinder IR AAM"
+          ]
+        },
+        {
+          "name": "Venom 1-3", "type": "F-16C_50", "callsign": "Venom13", "tailNumber": "103", "x": -399186, "y": -18636,
+          "payload": [
+            "AIM-9M Sidewinder IR AAM",
+            "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
+            "GBU-38 - 500lb JDAM GPS Guided Bomb",
+            "AN/AAQ-28 LITENING - Targeting Pod",
+            null,
+            "LAU-131 pod - 7 x 2.75 Hydra, UnGd Rkts M151, HE",
+            "GBU-38 - 500lb JDAM GPS Guided Bomb",
+            "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
+            "LAU-131 pod - 7 x 2.75 Hydra, UnGd Rkts M257, Para Illum"
+          ]
+        },
+        {
+          "name": "Venom 1-4", "type": "F-16C_50", "callsign": "Venom14", "tailNumber": "104", "x": -399222, "y": -18672,
+          "payload": [
+            "AIM-9X Sidewinder IR AAM",
+            "AIM-120C-5 AMRAAM - Active Rdr AAM",
+            null,
+            "Fuel tank 370 gal",
+            null,
+            "Fuel tank 370 gal",
+            null,
+            "AIM-120C-5 AMRAAM - Active Rdr AAM",
+            "AIM-9X Sidewinder IR AAM"
+          ]
+        }
+      ],
+      "waypoints": [
+        { "name": "", "type": "TakeOffParking", "action": "From Parking Area", "x": -399114, "y": -18563.8, "alt": 560, "airdromeId": 4 },
+        { "name": "ALAMO", "type": "Turning Point", "action": "Turning Point", "x": -273087.4, "y": -31442, "alt": 6100, "speed": 231 },
+        { "name": "IP", "type": "Turning Point", "action": "Turning Point", "x": -228744.7, "y": -134384, "alt": 6100, "speed": 231 },
+        { "name": "TGT1", "type": "Turning Point", "action": "Turning Point", "x": -239390.1, "y": -160753.4, "alt": 1600, "speed": 231 },
+        { "name": "LAND", "type": "Land", "action": "Landing", "x": -399114, "y": -18563.8, "alt": 560, "airdromeId": 4 }
+      ]
+    }
+  ],
+  "opforVehicles": [
+    {
+      "name": "SA-6 site",
+      "category": "vehicle",
+      "units": [
+        { "name": "SA-6 LN", "type": "Kub 2P25 ln", "x": -233000, "y": -172000 },
+        { "name": "SA-6 STR", "type": "Kub 1S91 str", "x": -233100, "y": -172050 }
+      ]
+    },
+    {
+      "name": "Shilka",
+      "category": "vehicle",
+      "units": [{ "name": "ZSU", "type": "ZSU-23-4 Shilka", "x": -238500, "y": -158000 }]
+    }
+  ]
+}

@@ -362,6 +362,22 @@ pub struct ProcessedUnit {
     pub name: String,
     pub callsign: String,
     pub onboard_num: Option<String>,
+    /// The air-to-ground stores the mission author loaded, one line per weapon.
+    /// Empty when the jet carries none, and always for a CLI import (its pylons
+    /// are CLSIDs, which are not mapped yet).
+    #[serde(default)]
+    pub loadout: Vec<ImportedStore>,
+}
+
+/// One line of an imported loadout (see `parsers::store_mapping`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportedStore {
+    /// The reference weapon this is, or `None` when the store is air-to-ground
+    /// but not one the reference data knows.
+    pub weapon_id: Option<String>,
+    /// The reference weapon's name, or the DCS display name when unrecognised.
+    pub name: String,
+    pub quantity: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

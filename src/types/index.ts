@@ -98,6 +98,7 @@ export type {
   FragOrdersSource,
   FragOrdersPlayerGroup,
   FragOrdersUnit,
+  FragOrdersStore,
   FragOrdersWaypoint,
   FragOrdersThreat,
   ThreatMatchConfidence,

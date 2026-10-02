@@ -109,7 +109,7 @@ pub(crate) static DCS_THREAT_RULES: &[(&str, &str)] = &[
     ("55G6", "55G6"),
     ("Nebo", "55G6"),
     // Western and other systems. Every one of these has a reference-database
-    // row as of DB v3; `every_mapping_rule_resolves_to_a_database_row` keeps
+    // row as of DB v3; `every_mapping_rule_resolves_to_a_reference_row` keeps
     // it that way.
     ("Gepard", "Gepard"),
     ("Flakpanzer", "Gepard"),
@@ -180,7 +180,7 @@ static THREAT_CATEGORIES: &[&str] = &[
 /// Canonical token form: lower-case, split on anything that is not a letter or
 /// a digit. "SA-11 Buk LN 9A310M1", "SA-11_Buk_LN_9A310M1" and
 /// "sa-11 buk ln 9a310m1" all reduce to the same list.
-fn tokens(name: &str) -> Vec<String> {
+pub(crate) fn tokens(name: &str) -> Vec<String> {
     name.split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
         .map(|t| t.to_lowercase())
@@ -188,7 +188,7 @@ fn tokens(name: &str) -> Vec<String> {
 }
 
 /// True when `needle` appears as a contiguous run of whole tokens in `hay`.
-fn contains_run(hay: &[String], needle: &[String]) -> bool {
+pub(crate) fn contains_run(hay: &[String], needle: &[String]) -> bool {
     !needle.is_empty() && hay.windows(needle.len()).any(|window| window == needle)
 }
 

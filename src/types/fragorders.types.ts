@@ -59,6 +59,22 @@ export interface FragOrdersUnit {
   name: string;
   callsign: string;
   onboard_num: string | null;
+  /**
+   * The air-to-ground stores the mission author loaded, one line per weapon.
+   * Empty when the jet carries none, and always for a CLI import.
+   */
+  loadout: FragOrdersStore[];
+}
+
+/**
+ * One line of an imported loadout.
+ */
+export interface FragOrdersStore {
+  /** The reference weapon, or null for a store the weapon table doesn't know. */
+  weapon_id: string | null;
+  /** The reference weapon's name, or the DCS display name when unrecognised. */
+  name: string;
+  quantity: number;
 }
 
 /**

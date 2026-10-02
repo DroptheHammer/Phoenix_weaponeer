@@ -78,6 +78,12 @@ pub struct TaskingUnit {
     pub x: f64,
     #[serde(default, deserialize_with = "deserialize_null_as_zero")]
     pub y: f64,
+    /// The pylons, positionally: a DCS store display name, or null for an empty
+    /// pylon. Kept as a raw `Value` on purpose: a payload that is not that shape
+    /// must cost the jet its loadout, never the whole import. `store_names`
+    /// (in `store_mapping`) is what reads it.
+    #[serde(default)]
+    pub payload: Option<serde_json::Value>,
 }
 
 impl TaskingGroup {
@@ -137,6 +143,33 @@ mod tests {
         let unit = &ts.planned_groups[0].units[0];
         assert_eq!(unit.callsign.as_ref().unwrap().to_string_representation(), "Springfield11");
         assert_eq!(unit.tail_number.as_ref().unwrap().as_string(), "014");
+    }
+
+    /// The payload is read raw, so whatever shape it arrives in parses: the
+    /// loadout code decides what to make of it, and a surprise costs a jet its
+    /// loadout, never the mission.
+    #[test]
+    fn a_units_payload_is_kept_exactly_as_it_arrived() {
+        let json = r#"{"plannedGroups": [{"units": [
+            {"payload": ["AIM-9M Sidewinder IR AAM", null]},
+            {"payload": {"1": "AIM-9M Sidewinder IR AAM"}},
+            {"payload": 12},
+            {"payload": null},
+            {}
+        ]}]}"#;
+        let ts = parse_tasking_state(json).expect("every payload shape parses");
+        let payloads: Vec<Option<serde_json::Value>> =
+            ts.planned_groups[0].units.iter().map(|u| u.payload.clone()).collect();
+        assert_eq!(
+            payloads,
+            vec![
+                Some(serde_json::json!(["AIM-9M Sidewinder IR AAM", null])),
+                Some(serde_json::json!({"1": "AIM-9M Sidewinder IR AAM"})),
+                Some(serde_json::json!(12)),
+                None,
+                None,
+            ]
+        );
     }
 
     #[test]
