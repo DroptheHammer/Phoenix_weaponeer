@@ -17,16 +17,19 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 ### Attacks and weapons
 - [ ] **Loft geometry** (LABS, F-16 loft). The profiles ship hidden
       (`f16c.loft.std`, `f4e.loft.labs45`) until the geometry exists.
-- [ ] **Cluster and high-drag rows the other aircraft actually carry.** The
-      only cluster rows are the CBU-87 and CBU-97. The F/A-18C, F-14, AV-8B
-      and A-4E-C carry Rockeye, the F-5E the CBU-52 and the Mirage F1 the
-      Belouga, so those six have cluster profiles and no cluster weapon of
-      their own ("Show all weapons" reaches the CBU-87). The Mirage F1 also
-      has no high-drag bomb: its SAMP bombs have no row. The gaps are pinned
-      in `crates/core/src/profiles.rs` (`KNOWN_CLASS_GAPS`).
-- [ ] **Release and frag numbers for the four name-only rows** (GBU-16,
-      AGM-65F, AGM-122, GAU-12 pod). Until then their attacks and cards carry
-      a "no data on file" caution and no floor is enforced.
+- [ ] **Release and frag numbers for the thirteen name-only rows**: GBU-16,
+      AGM-65F, AGM-122 and the GAU-12 pod, and the nine cluster and SAMP rows
+      (Mk-20 Rockeye, CBU-99, CBU-52B, BLG-66 Belouga, SAMP-125/250/400 and
+      SAMP-250/400 HD). Until then their attacks and cards carry a "no data
+      on file" caution and no floor is enforced.
+- [ ] **Bombs the modules carry that still have no row.** Seen in the DCS
+      pylon tables: Mk-81, Mk-83, CBU-103 and CBU-105 (F-16C, A-10C), BL-755,
+      CBU-1/A and CBU-2/A (A-4E-C), BLU-107 Durandal, BR-250 and BR-500. A
+      link import keeps each one and marks it "not in the weapon table".
+- [ ] **Rack counts written as a bare number.** The F-14's `MAK79 2 MK-20`
+      and legacy names such as `Mk-20 Rockeye * 3` load as one bomb, because
+      a number with no "x" is never read as a count (a rack's own number,
+      like the 42 in BRU-42, would be read too).
 - [ ] Sight settings for rockets on the manual-dive profiles. Rocket cards show
       no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
       carry Mk-82 values that auto-build applies to bombs only. Needs
@@ -108,7 +111,17 @@ waypoint list on 2026-10-03).
 ## Shipped
 
 ### Unreleased (on `main`, next desktop release)
-- Nothing yet.
+- **Cluster bombs for the jets that had none, and the Mirage F1's own
+  bombs** (2026-10-03). Nine new weapons, by name only: Mk-20 Rockeye
+  (F/A-18C, F-14, AV-8B, A-4E-C, F-4E, F-15E), CBU-99 (F/A-18C, F-14,
+  AV-8B), CBU-52B (F-5E, F-4E), BLG-66 Belouga (Mirage F1), and the SAMP-125,
+  -250 and -400 bombs, with high-drag SAMP-250 and -400 (Mirage F1; the
+  SAMP-250s also on the F-4E). Every aircraft now carries a weapon for each
+  of its delivery profiles. No release or frag numbers were invented, so
+  their attacks and cards carry the "no data on file" caution.
+- **A link import knows these stores and counts racks of them.** A count
+  written straight before the weapon's name (`BRU-42 - 3 x Mk-20 …`,
+  `2x CBU-52B … (TER)`) is now read, for every bomb and missile.
 
 ### v0.3.3 — 2026-10-03
 - **Jets arrive loaded.** After a FragOrders link import each pilot's loadout

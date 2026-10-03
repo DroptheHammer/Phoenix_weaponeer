@@ -223,3 +223,29 @@ Where the build differs from the design above:
 - **Not run:** the browser smoke scripts (`scripts/web-smoke*.cjs`). They need
   the wasm toolchain and Playwright, which are not installed on the main Mac.
   The web build itself is checked by the Pages workflow on every push.
+
+## Follow-up (2026-10-03): the cluster and SAMP rows
+
+The seven gaps listed above are closed, and `KNOWN_CLASS_GAPS` is empty.
+
+- **Nine name-only rows:** Mk-20 Rockeye, CBU-99, CBU-52B, BLG-66 Belouga,
+  SAMP-125 LD, SAMP-250 LD, SAMP-400 LD, SAMP-250 HD and SAMP-400 HD. No
+  numbers, like the GBU-16 row, so the "no data on file" caution applies.
+- **Who carries what** comes from each DCS module's own pylon table, as
+  published in the public pydcs library (`dcs/planes.py`), and for the A-4E-C
+  from the community mod's aircraft file. That is a more direct source than
+  the manuals for "does the module load it". The pairs are pinned by
+  `what_each_aircraft_carries_is_pinned`.
+- **A bomb's drag class comes from its name**, so the SAMP rows say `LD` or
+  `HD`. The DCS names for the two share the same leading words and differ
+  only at the far end, so the store rules pair a low-drag and a high-drag
+  rule on one pattern, and the name's own drag words pick between them.
+- **Rack counts:** a count straight before the weapon's name is read
+  (`- 3 x Mk-20`, `2x CBU-52B`), alongside `with N x`. A cluster bomb's
+  bomblet count comes after the name and is never read. A bare number is
+  never a count, so the F-14's `MAK79 2 MK-20` loads as one.
+- **The synthetic loaded-jets file** now has `Venom 1-3` carrying recognised
+  Rockeyes and one BL-755, which has no row, so the "not in the weapon table"
+  mark can still be seen.
+- **Still no row:** Mk-81, Mk-83, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A,
+  Durandal, BR-250 and BR-500 (on the roadmap).
