@@ -89,31 +89,19 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       an Android phone hasn't yet. In Chrome: Add to Home Screen, offline
       launch, the share sheet, screen wake lock, GPS for "Strike near me",
       crosshair precision.
-- [ ] **On-screen check of "Jets arrive loaded"** (released in 0.3.3 on
-      2026-10-03 before the user reported on it; ask):
-  - [ ] The import preview's **Loadouts** list and the Flight roster read
-        clearly with long loadouts, on desktop and iPhone.
-  - [ ] An attack for a loaded jet opens with the weapon already picked.
-  - [ ] **Show all weapons** is easy to find under the weapon list, in the
-        attack editor and the loadout editor.
-- [ ] **In-use check of 0.3.2** (released 2026-09-30 before each item below was
-      reported back; ask the user):
-  - [x] Cards at 3× (2304×3072) look sharp in DCS (user, 2026-10-01).
-  - [ ] The phone cards carousel copes with 3× images on an iPhone.
-  - [x] Cards panel → **Lighting** dropdown switches the preview between Day,
-        Night and NVG, survives save and reopen, and exports in that lighting
-        (user, 2026-10-01).
-  - [ ] The larger card text reads well at kneeboard size, and the attack
-        editor's side view (desktop, and the 150 px strip on the phone) still
-        has room for its picture.
-  - [ ] A manual-dive card's header reads `… · MAN · SIGHT 100 mils · set
-        before IP` in amber and is easy to read at kneeboard size; the ROLL
-        label no longer carries it.
-  - [ ] Attack Plan → **Copy** opens a small menu of pilots, and doesn't get
-        cut off on the last row, on desktop or phone.
-  - [ ] The waypoint list has no delete button.
-  - The four quick wins (profiles folder, undo/redo, Brief Pack, Copy to…)
-    were checked by the user on 2026-09-29, and all passed.
+- [ ] **On-screen check of "Jets arrive loaded"** (0.3.3). The user checked
+      the desktop app on 2026-10-03 with
+      `test-data/nevada_SYNTHETIC_loaded_jets.json`, and all four passed: the
+      import preview's **Loadouts** list, the Flight roster, the weapon
+      already picked on a new attack, and **Show all weapons**. Still open:
+  - [ ] The Loadouts list and the roster with long loadouts (a real link,
+        such as the Syria capture in `test-data/private/fragorders-links/`).
+  - [ ] The same screens on the iPhone.
+
+The in-use check of 0.3.2 is closed: the user reported every item as fine
+(3× cards in DCS and the Lighting dropdown on 2026-10-01; the iPhone carousel
+at 3×, the larger card text, the amber SIGHT header, the Copy menu and the
+waypoint list on 2026-10-03).
 
 ---
 
