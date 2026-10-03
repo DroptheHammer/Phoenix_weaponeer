@@ -226,9 +226,13 @@ Sonnet 5.5 builders). **v0.3.3 released and published as Latest** on
 2026-10-03: "Jets arrive loaded" and the white-flash fix. Release run
 37096299835 (all 3 platforms, all 7 installers), web app published by Pages
 run 37096813977. Privacy scan clean (known false positives only). Rollback tag
-`pre-loadout-import` marks the tree before the loadout work. Release CI warns
-that its actions run on deprecated Node.js 20 (forced to 24); not yet a
-failure.
+`pre-loadout-import` marks the tree before the loadout work. After the
+release, `9c37c10` moved both workflows to actions that run on Node 24
+(checkout/setup-node v7, upload-pages-artifact/deploy-pages v5) and the
+release build to Node 22. A throwaway tag `v0.3.3-test1` (run 37097265237)
+built all 7 installers with no Node 20 warning, and was deleted. The web
+app's upload and publish steps only run on a release, so they are first
+exercised at the next one (or a hand-started "Run workflow").
 
 **What was built** (gates at the last commit: geo-check 585, core 126,
 desktop 24 + 1 ignored, `npm run build`; Pages run 36973465158 green):
