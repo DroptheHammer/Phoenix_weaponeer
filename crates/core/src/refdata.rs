@@ -35,6 +35,17 @@
 //!   flags an attack that uses a bomb with no frag floor or a missile with no
 //!   minimum release (`runAttackChecks`), since nothing else would stop it
 //!   releasing too low.
+//! - **Cluster bombs and the SAMP bombs** (added 2026-10-03) are the stores the
+//!   v5 lists left without a row: the Mk-20 Rockeye, CBU-99, CBU-52B and BLG-66
+//!   Belouga, and the SAMP-125, -250 and -400 low-drag bombs and the -250 and
+//!   -400 high-drag ones. Like the GBU-16 row they hold a name, a class and a
+//!   guidance type only (weight 0, every release and frag field null, `notes`
+//!   saying so), and their `aircraft_weapons` rows use station 0 and a quantity
+//!   of 1. A bomb's class comes from its name (`weaponClassOf`), so the whole
+//!   word "HD" in a SAMP name is what makes it high-drag. Who carries what comes
+//!   from each DCS module's own pylon table as published in the public pydcs
+//!   library (`dcs/planes.py`), and for the A-4E-C from the community mod's
+//!   aircraft definition, checked 2026-10-03.
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -289,16 +300,26 @@ mod tests {
         assert_eq!(hydra.carried_by, vec!["a10c", "f4e", "f5e"], "sorted");
     }
 
-    /// Four rows (reference DB v5) are name-only: the planner has no release or
-    /// frag figure for them and must not be handed an invented one. A number here
+    /// Thirteen rows are name-only: the four from reference DB v5 and the nine
+    /// cluster and SAMP rows added 2026-10-03. The planner has no release or frag
+    /// figure for them and must not be handed an invented one. A number here
     /// would also stop the "no data on file" note from firing on an attack.
     #[test]
-    fn the_four_name_only_rows_carry_no_numbers() {
+    fn the_name_only_rows_carry_no_numbers() {
         let rows = [
             ("gbu16", "bomb_guided", "laser"),
             ("agm65f", "missile_agm", "ir"),
             ("agm122", "missile_agm", "radar"),
             ("gau12", "gun", "none"),
+            ("mk20", "cluster", "none"),
+            ("cbu99", "cluster", "none"),
+            ("cbu52b", "cluster", "none"),
+            ("blg66", "cluster", "none"),
+            ("samp125", "bomb_unguided", "none"),
+            ("samp250", "bomb_unguided", "none"),
+            ("samp400", "bomb_unguided", "none"),
+            ("samp250hd", "bomb_unguided", "none"),
+            ("samp400hd", "bomb_unguided", "none"),
         ];
         for (id, category, guidance) in rows {
             let w = reference().get_weapon_by_id(id).unwrap_or_else(|| panic!("no weapon row {id}"));
@@ -324,9 +345,11 @@ mod tests {
     }
 
     /// Saved missions and the planner's loadout match a weapon on its name, so a
-    /// reworded row would quietly orphan every attack that used it. Pinned by id.
+    /// reworded row would quietly orphan every attack that used it. Pinned by id,
+    /// all 39 rows. The SAMP names are deliberate too: a bomb's drag class comes
+    /// from its name, so the whole word "HD" is what makes a SAMP high-drag.
     #[test]
-    fn the_thirty_weapon_names_are_pinned_by_id() {
+    fn the_thirty_nine_weapon_names_are_pinned_by_id() {
         let expected: &[(&str, &str)] = &[
             ("mk82", "Mk-82 LDGP"),
             ("mk82air", "Mk-82 AIR"),
@@ -340,6 +363,15 @@ mod tests {
             ("gbu38", "GBU-38 JDAM"),
             ("cbu87", "CBU-87 CEM"),
             ("cbu97", "CBU-97 SFW"),
+            ("mk20", "Mk-20 Rockeye"),
+            ("cbu99", "CBU-99"),
+            ("cbu52b", "CBU-52B"),
+            ("blg66", "BLG-66 Belouga"),
+            ("samp125", "SAMP-125 LD"),
+            ("samp250", "SAMP-250 LD"),
+            ("samp400", "SAMP-400 LD"),
+            ("samp250hd", "SAMP-250 HD"),
+            ("samp400hd", "SAMP-400 HD"),
             ("agm65d", "AGM-65D Maverick"),
             ("agm65f", "AGM-65F Maverick"),
             ("agm65g", "AGM-65G Maverick"),
@@ -396,6 +428,12 @@ mod tests {
     /// Guides on 2026-10-01; the guns and rockets were already there. Left out on
     /// purpose, because the DCS module does not carry them: the F/A-18C's AGM-65G,
     /// the A-4E-C's Mk-82 AIR, the Mirage F1's Mk-82 Snakeye and Mk-84.
+    ///
+    /// The cluster stores and the SAMP bombs were added on 2026-10-03 from each
+    /// DCS module's own pylon table as published in the public pydcs library
+    /// (`dcs/planes.py`), and for the A-4E-C from the community mod's aircraft
+    /// definition. They are what gives the F/A-18C, A-4E-C, F-5E, F-14, Mirage F1
+    /// and AV-8B a cluster weapon of their own, and the Mirage F1 a high-drag bomb.
     #[test]
     fn what_each_aircraft_carries_is_pinned() {
         let table: &[(&str, &[&str])] = &[
@@ -409,8 +447,8 @@ mod tests {
             (
                 "f18c",
                 &[
-                    "mk82", "mk82se", "mk84", "gbu10", "gbu12", "gbu16", "gbu24", "gbu31", "gbu38", "agm65f", "agm88c",
-                    "agm154a", "agm154c",
+                    "mk82", "mk82se", "mk84", "gbu10", "gbu12", "gbu16", "gbu24", "gbu31", "gbu38", "mk20", "cbu99",
+                    "agm65f", "agm88c", "agm154a", "agm154c",
                 ],
             ),
             (
@@ -422,20 +460,34 @@ mod tests {
             ),
             (
                 "f15e",
-                &["mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "gbu31", "gbu38", "cbu87", "cbu97"],
+                &[
+                    "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "gbu31", "gbu38", "cbu87", "cbu97",
+                    "mk20",
+                ],
             ),
             (
                 "f4e",
                 &[
-                    "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "cbu87", "agm65d", "agm65g", "hydra70",
-                    "ffar275", "zuni",
+                    "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "cbu87", "mk20", "cbu52b", "samp250",
+                    "samp250hd", "agm65d", "agm65g", "hydra70", "ffar275", "zuni",
                 ],
             ),
-            ("a4ec", &["mk82", "mk82se", "mk84", "mk12gun", "ffar275", "zuni"]),
-            ("f5e", &["mk82", "mk82se", "mk84", "m39", "hydra70"]),
-            ("f14", &["mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu16", "gbu24"]),
-            ("f1", &["mk82", "gbu10", "gbu12", "gbu16", "defa553", "sneb68"]),
-            ("av8b", &["mk82", "mk82air", "mk82se", "gbu12", "gbu16", "gbu38", "agm65f", "agm122", "gau12"]),
+            ("a4ec", &["mk82", "mk82se", "mk84", "mk20", "mk12gun", "ffar275", "zuni"]),
+            ("f5e", &["mk82", "mk82se", "mk84", "cbu52b", "m39", "hydra70"]),
+            ("f14", &["mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu16", "gbu24", "mk20", "cbu99"]),
+            (
+                "f1",
+                &[
+                    "mk82", "gbu10", "gbu12", "gbu16", "blg66", "samp125", "samp250", "samp400", "samp250hd", "samp400hd",
+                    "defa553", "sneb68",
+                ],
+            ),
+            (
+                "av8b",
+                &[
+                    "mk82", "mk82air", "mk82se", "gbu12", "gbu16", "gbu38", "mk20", "cbu99", "agm65f", "agm122", "gau12",
+                ],
+            ),
         ];
         let aircraft: HashSet<String> = reference().get_all_aircraft().into_iter().map(|a| a.id).collect();
         let pinned: HashSet<String> = table.iter().map(|(id, _)| id.to_string()).collect();

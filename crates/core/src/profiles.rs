@@ -434,20 +434,18 @@ mod tests {
     /// (a row is added) must come off this list, and a new gap must go on it on
     /// purpose, so the list can never go stale in either direction.
     ///
-    /// - Cluster on the F/A-18C, A-4E-C, F-5E, F-14, Mirage F1 and AV-8B: their
-    ///   DCS cluster stores (Rockeye, CBU-99, CBU-52, Belouga) have no row, since
-    ///   the cluster rows are the CBU-87 and CBU-97 that these jets do not carry.
-    /// - High-drag bombs on the Mirage F1: no Mk-82 AIR or Snakeye row, because
-    ///   the module does not carry one.
-    const KNOWN_CLASS_GAPS: &[(&str, &str)] = &[
-        ("f18c", "cluster"),
-        ("a4ec", "cluster"),
-        ("f5e", "cluster"),
-        ("f14", "cluster"),
-        ("f1", "cluster"),
-        ("av8b", "cluster"),
-        ("f1", "bomb_hd"),
-    ];
+    /// The list has been empty since 2026-10-03, when the cluster and SAMP rows
+    /// went into the reference data and closed the seven gaps it held:
+    /// - Cluster on the F/A-18C, A-4E-C, F-5E, F-14, Mirage F1 and AV-8B: the
+    ///   Mk-20 Rockeye (all but the F-5E and Mirage F1), the CBU-99 (F/A-18C,
+    ///   F-14, AV-8B), the CBU-52B (F-5E) and the BLG-66 Belouga (Mirage F1).
+    /// - High-drag bombs on the Mirage F1: the SAMP-250 HD and SAMP-400 HD. The
+    ///   module still carries no Mk-82 AIR or Snakeye; its high-drag bombs are
+    ///   the French ones.
+    ///
+    /// Keep the constant and the test: a gap that opens later (a new aircraft or
+    /// profile class) is listed here on purpose, with what would close it.
+    const KNOWN_CLASS_GAPS: &[(&str, &str)] = &[];
 
     #[test]
     fn every_weapon_class_an_aircrafts_profiles_need_is_one_it_carries() {

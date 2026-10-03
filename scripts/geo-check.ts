@@ -1364,8 +1364,10 @@ ok('attackChecks: an absent optional field (egress heading) is not an error',
    !hasErrors(runAttackChecks({ profileType: 'level_ccrp', profile: { ...cleanLevel, egressHeading_deg: undefined } as never, targetElevation_ft: 0 })));
 
 // ---------------------------------------------------------------------------
-// "No data on file" (reference DB v5). The GBU-16, AGM-65F and AGM-122 rows hold
-// only a name, so their floor is null and the limit checks skip it; without a
+// "No data on file" (reference DB v5, and the cluster and SAMP rows added
+// 2026-10-03). The GBU-16, AGM-65F and AGM-122 rows, and the Rockeye, CBU-99,
+// CBU-52B, Belouga and SAMP rows, hold only a name, so their floor is null and
+// the limit checks skip it; without a
 // note the first such attack would plan and print as if it had been checked. A
 // bomb with no frag floor and a missile with no minimum release get a warning,
 // never an error (Save stays open). Rows shaped as get_all_weapons returns them.

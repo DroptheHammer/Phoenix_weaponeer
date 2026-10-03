@@ -881,6 +881,120 @@
       "max_quantity": 1,
       "station": 0,
       "weapon_id": "gau12"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk20"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk20"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk20"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk20"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk20"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk20"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu99"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu99"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu99"
+    },
+    {
+      "aircraft_id": "f5e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu52b"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu52b"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "blg66"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "samp125"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "samp250"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "samp250"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "samp400"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "samp250hd"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "samp250hd"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "samp400hd"
     }
   ],
   "fuze_options": [
@@ -1542,6 +1656,91 @@
       "weight_lbs": 2000.0
     },
     {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "samp125",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "SAMP-125 LD",
+      "notes": "French low-drag general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "samp250",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "SAMP-250 LD",
+      "notes": "French low-drag general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "samp400",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "SAMP-400 LD",
+      "notes": "French low-drag general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "samp250hd",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "SAMP-250 HD",
+      "notes": "French high-drag (retarded) general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "samp400hd",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "SAMP-400 HD",
+      "notes": "French high-drag (retarded) general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
       "category": "bomb_guided",
       "dcs_weapon_name": "GBU_12",
       "drag_index": 0.028,
@@ -1676,6 +1875,74 @@
       "name": "CBU-97 SFW",
       "notes": "Sensor Fuzed Weapon",
       "weight_lbs": 920.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "mk20",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "Mk-20 Rockeye",
+      "notes": "Cluster bomb of anti-armour bomblets. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "cbu99",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "CBU-99",
+      "notes": "Rockeye-type cluster bomb of anti-armour bomblets. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "cbu52b",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "CBU-52B",
+      "notes": "Anti-personnel cluster bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "blg66",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "BLG-66 Belouga",
+      "notes": "French cluster bomb of bomblets. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
     },
     {
       "category": "missile_agm",
