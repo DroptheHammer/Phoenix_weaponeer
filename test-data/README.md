@@ -201,7 +201,7 @@ commit: the loadouts are invented, though the store names are DCS's own.
 |---|---|---|
 | `Venom 1-1` | Mavericks, GBU-12s, an Mk-84, AIM-9s and tanks | AGM-65D x2, GBU-12 x2, Mk-84 x1 |
 | `Venom 1-2` | two CBU-97, two TERs of three Mk-82 | CBU-97 x2, Mk-82 x6 |
-| `Venom 1-3` | Rockeyes, GBU-38s, a HE and an illumination Hydra pod, a targeting pod | Rockeye x2 (no weapon row, kept under its DCS name), GBU-38 x2, Hydra x7 |
+| `Venom 1-3` | Rockeyes, GBU-38s, a BL-755, a HE and an illumination Hydra pod, a targeting pod | Mk-20 Rockeye x2, GBU-38 x2, BL-755 x1 (no weapon row, kept under its DCS name), Hydra x7 |
 | `Venom 1-4` | AIM-9s, AMRAAMs and tanks only | nothing |
 
 The flight is `Venom 1` here, not `Viper 1`, so the two synthetic files can be

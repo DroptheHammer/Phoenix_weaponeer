@@ -2105,7 +2105,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     mission: { waypoints: [wpIp, wpTgt], flightMembers: [member], threats: [], attacks: [] },
     targetWaypointId: wpTgt.id, attackerId: member.id, weapons: table, profiles: [], threatSystems: [], ...extra,
   } as never);
-  const rockeye = { weaponType: 'Mk-20 Rockeye', quantity: 4 };
+  const bl755 = { weaponType: 'BL-755 CBU', quantity: 4 };
 
   // ── The import ──
   const store = (weapon_id: string | null, name: string, quantity: number) => ({ weapon_id, name, quantity });
@@ -2115,7 +2115,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     player_groups: [{
       name: 'Strike', callsign: 'Sword 1', aircraft_type: 'FA-18C_hornet', waypoints: [],
       units: [
-        unit('Sword 1-1', [store('gbu12', 'GBU-12 Paveway II', 2), store(null, 'Mk-20 Rockeye', 4)]),
+        unit('Sword 1-1', [store('gbu12', 'GBU-12 Paveway II', 2), store(null, 'BL-755 CBU', 4)]),
         unit('Sword 1-2', [store('agm88c', 'AGM-88C HARM', 1), store('agm154a', 'AGM-154A JSOW', 2)]),
         unit('Sword 1-3'), // a payload with no loadout key at all
       ],
@@ -2128,10 +2128,10 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   ok('import: a jet\'s stores arrive as its loadout, the weapon id with each known one',
      JSON.stringify(lead.loadout) === JSON.stringify([
        { weaponType: 'GBU-12 Paveway II', quantity: 2, weaponId: 'gbu12' },
-       { weaponType: 'Mk-20 Rockeye', quantity: 4 },
+       { weaponType: 'BL-755 CBU', quantity: 4 },
      ]), JSON.stringify(lead.loadout));
   ok('import: a store the table does not know keeps its DCS name and carries no weaponId at all',
-     lead.loadout[1] != null && !('weaponId' in lead.loadout[1]) && lead.loadout[1].weaponType === 'Mk-20 Rockeye');
+     lead.loadout[1] != null && !('weaponId' in lead.loadout[1]) && lead.loadout[1].weaponType === 'BL-755 CBU');
   ok('import: each jet gets its own loadout', second.loadout.map((i) => i.weaponId).join() === 'agm88c,agm154a');
   ok('import: a unit with no loadout key still imports, with an empty loadout',
      imported.flightMembers.length === 3 && Array.isArray(third.loadout) && third.loadout.length === 0);
@@ -2147,8 +2147,8 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   ok('match: a legacy line with only a name still matches', idsOf([{ weaponType: 'Mk-84 LDGP', quantity: 2 }]) === 'mk84');
   ok('match: an id that matches no row falls back to the name', idsOf([{ weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'zz99' }]) === 'mk82');
   ok('match: an id and a name that both match nothing is an unrecognised store, not a weapon',
-     idsOf([{ weaponType: 'Mk-20 Rockeye', quantity: 4, weaponId: 'zz99' }]) === '' &&
-     unrecognisedStores(jet([{ weaponType: 'Mk-20 Rockeye', quantity: 4, weaponId: 'zz99' }]) as never, table as never).length === 1);
+     idsOf([{ weaponType: 'BL-755 CBU', quantity: 4, weaponId: 'zz99' }]) === '' &&
+     unrecognisedStores(jet([{ weaponType: 'BL-755 CBU', quantity: 4, weaponId: 'zz99' }]) as never, table as never).length === 1);
   const twice = [{ weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'mk82' }, { weaponType: 'Mk-82 LDGP', quantity: 2 }, { weaponType: 'Mk-84 LDGP', quantity: 1 }];
   ok('duplicates: two lines for the same weapon give one carried weapon', idsOf(twice) === 'mk82,mk84', idsOf(twice));
   const choiceIds = weaponChoicesFor(jet(twice) as never, table as never).map((w) => w.id);
@@ -2174,11 +2174,11 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
      idsOf([{ weaponType: 'GBU-12 Paveway II', quantity: 2 }, { weaponType: 'Mk-82 LDGP', quantity: 2 }, { weaponType: 'AGM-154A JSOW', quantity: 1 }]) === 'gbu12,mk82,agm154a');
 
   // ── A loadout of stores the table doesn't know ──
-  const onlyUnknown = jet([rockeye, { weaponType: 'Mk-20 Rockeye', quantity: 2 }, { weaponType: 'ALQ-184 pod', quantity: 1 }]);
+  const onlyUnknown = jet([bl755, { weaponType: 'BL-755 CBU', quantity: 2 }, { weaponType: 'ALQ-184 pod', quantity: 1 }]);
   const unknownBuild = build(onlyUnknown);
   const unknownMsg = unknownBuild.problems.join(' | ');
   ok('unrecognised: a jet carrying only stores the table does not know gets a message naming them, once each',
-     unknownMsg === 'Sword 1-1 carries only stores the weapon table doesn\'t know (Mk-20 Rockeye, ALQ-184 pod) — pick a weapon', unknownMsg);
+     unknownMsg === 'Sword 1-1 carries only stores the weapon table doesn\'t know (BL-755 CBU, ALQ-184 pod) — pick a weapon', unknownMsg);
   ok('unrecognised: ...and that is not the "no loadout" message',
      !unknownMsg.includes('has no loadout') && unknownBuild.attack === null);
   const emptyMsg = build(jet([])).problems.join(' | ');
@@ -2187,8 +2187,8 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   ok('unrecognised: picking a weapon clears the message',
      build(onlyUnknown, { overrides: { weaponId: 'mk82' } }).problems.every((p: string) => !p.includes('carries only')));
   ok('unrecognised: one known store beside an unknown one is carried, with no message',
-     build(jet([rockeye, { weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'mk82' }])).weapon?.id === 'mk82' &&
-     !build(jet([rockeye, { weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'mk82' }])).problems.some((p: string) => p.includes('carries only')));
+     build(jet([bl755, { weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'mk82' }])).weapon?.id === 'mk82' &&
+     !build(jet([bl755, { weaponType: 'Mk-82 LDGP', quantity: 2, weaponId: 'mk82' }])).problems.some((p: string) => p.includes('carries only')));
   ok('unrecognised: the picker still offers every store when none of the jet\'s is known',
      weaponChoicesFor(onlyUnknown as never, table as never).some((w) => w.id === 'mk82'));
 
@@ -2219,7 +2219,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   const hydraSource = makeSource(scoot1, 'hydra70');
   ok('copy: the A-4E rocket attack builds', hydraSource.weaponId === 'hydra70', String(hydraSource.weaponId));
   const emptyRecipient = copyFor(hydraSource, scoot1, jet([], 'Scooter 1-2', 'a4ec'));
-  const unknownRecipient = copyFor(hydraSource, scoot1, jet([rockeye], 'Scooter 1-2', 'a4ec'));
+  const unknownRecipient = copyFor(hydraSource, scoot1, jet([bl755], 'Scooter 1-2', 'a4ec'));
   ok('copy: a jet with no loadout is not asked whether it carries the weapon: kept, no note',
      emptyRecipient.attack?.weaponId === 'hydra70' && emptyRecipient.notes.length === 0, `${emptyRecipient.notes.join('; ')} ${emptyRecipient.problems.join('; ')}`);
   ok('copy: a jet carrying only unrecognised stores is treated the same as one with none',
@@ -2249,7 +2249,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
      rejects([{ weaponType: 'x', quantity: 1, weaponId: 7 }], 'weaponId') && rejects([{ weaponType: 'x', quantity: 1, weaponId: null }], 'weaponId') &&
      rejects([{ weaponType: 'x', quantity: 1, weaponId: { html: payload } }], 'weaponId'));
   ok('validateMission: a loadout with and without weaponId passes, and so does an empty one',
-     validateMission(withLoadout([{ weaponType: 'Mk-82 LDGP', quantity: 4, weaponId: 'mk82' }, { weaponType: 'Mk-20 Rockeye', quantity: 4 }, { weaponType: 'x', quantity: 0 }])).ok &&
+     validateMission(withLoadout([{ weaponType: 'Mk-82 LDGP', quantity: 4, weaponId: 'mk82' }, { weaponType: 'BL-755 CBU', quantity: 4 }, { weaponType: 'x', quantity: 0 }])).ok &&
      validateMission(withLoadout([])).ok);
   const manyBad = validateMission(withLoadout(Array.from({ length: 20 }, () => ({ weaponType: 5, quantity: -1, weaponId: 1 }))));
   ok('validateMission: a loadout broken on every line still reports a handful of problems', !manyBad.ok && manyBad.problems.length === 7, manyBad.ok ? '' : String(manyBad.problems.length));
@@ -2257,7 +2257,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // ── The loadout editor keeps the id, and keeps it true ──
   const original = [
     { weaponType: 'Mk-82 LDGP', quantity: 4, weaponId: 'mk82' },
-    { weaponType: 'Mk-20 Rockeye', quantity: 4 },
+    { weaponType: 'BL-755 CBU', quantity: 4 },
     { weaponType: 'Mk-84 LDGP', quantity: 2 },
   ];
   ok('loadout editor: opening and saving changes nothing: ids kept, the unrecognised store kept and without an id',

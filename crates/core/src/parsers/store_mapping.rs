@@ -23,10 +23,17 @@
 //!    row does not describe.
 //! 3. **The most specific rule wins**: more tokens first, then more characters,
 //!    then table order (the same measure as `threat_mapping`). That is how
-//!    "Mk-82 AIR" and "Mk-82 Snakeye" beat plain "Mk-82".
+//!    "Mk-82 AIR" and "Mk-82 Snakeye" beat plain "Mk-82". The SAMP bombs need
+//!    one more step: the low-drag and high-drag names share the tokens "SAMP
+//!    250" and tell themselves apart by an "HD" at the far end, so no amount of
+//!    specificity can separate them. Each has a rule with the same pattern,
+//!    and when two rules tie on tokens and characters the one whose drag agrees
+//!    with the name wins. A true tie (neither agrees, or a repeated pattern)
+//!    still goes to the earlier entry.
 //! 4. **The drag guard.** A high-drag name that landed on a low-drag row (a
-//!    retarded Mk-84 on the Mk-84 LDGP row) becomes unrecognised, because the
-//!    planner would plan a low-level release the bomb can't fly.
+//!    retarded Mk-84 on the Mk-84 LDGP row, or a made-up high-drag SAMP-125,
+//!    which has no row of its own) becomes unrecognised, because the planner
+//!    would plan a low-level release the bomb can't fly.
 //! 5. **Air-to-air missiles, fuel tanks and sensor or ECM pods** are skipped:
 //!    they are not what a pilot plans an attack with, and they show nowhere.
 //! 6. **Anything else is unrecognised.** That is the safe direction: an
@@ -36,15 +43,22 @@
 //!    to what is certainly not an attack weapon.
 //!
 //! The GBU-16, AGM-65F, AGM-122 and the GAU-12 gun pod have rows that hold only
-//! a name, a class and a guidance type (reference DB v5), so they load, and the
-//! planner says so on an attack that uses one. The internal guns have no rule: a
-//! gun built into the jet is never a pylon store.
+//! a name, a class and a guidance type (reference DB v5), and so do the Mk-20
+//! Rockeye, CBU-99, CBU-52B, BLG-66 Belouga and the five SAMP bombs (added
+//! 2026-10-03). They load, and the planner says so on an attack that uses one.
+//! The internal guns have no rule: a gun built into the jet is never a pylon
+//! store.
 //!
-//! Counts. "X with N x ..." is N of what X holds (a TER of 3 Mk-82 is 3). A
-//! rocket pod counts rockets, not pods ("pod - 7 x" is 7, and two such pods are
-//! 14). A cluster bomb's own "202 x" is submunitions and never a count, so a
-//! bare "CBU-87 - 202 x CEM Cluster Bomb" is one bomb. Pylons that carry the same
-//! weapon merge into one line with the summed quantity.
+//! Counts. "X with N x ..." is N of what X holds (a TER of 3 Mk-82 is 3). So is
+//! a count written right before the weapon's own name, "BRU-42 - 3 x Mk-20 ..."
+//! or "2x CBU-52B ... (TER)", as two tokens ("3 x") or one ("3x"). A rocket pod
+//! counts rockets, not pods ("pod - 7 x" is 7, and two such pods are 14). A
+//! cluster bomb's own "202 x" comes after its name, is submunitions and is never
+//! a count, so a bare "CBU-87 - 202 x CEM Cluster Bomb" is one bomb. A bare
+//! number is never a count either: the Heatblur-style names ("MAK79 2 MK-20")
+//! and a rack's own number ("BRU-42 Mk-82") stay at one, because there is no
+//! telling a count from a designation. Pylons that carry the same weapon merge
+//! into one line with the summed quantity.
 
 use serde_json::Value;
 
@@ -87,7 +101,8 @@ enum Drag {
 /// How a rule turns its store name into a quantity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Count {
-    /// Bombs, missiles and cluster bombs: "with N x", otherwise one.
+    /// Bombs, missiles and cluster bombs: "with N x", or an "N x" / "Nx" right
+    /// before the weapon's own name, otherwise one.
     Stores,
     /// Rockets: pods times rockets per pod.
     Rockets,
@@ -142,8 +157,28 @@ static STORE_RULES: &[StoreRule] = &[
     rule("GBU-31", "gbu31"),
     rule("GBU-38", "gbu38"),
     // Cluster bombs. Their own "202 x" is submunitions: see the module docs.
+    // DCS: "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets", "CBU-99 - 490lbs,
+    // 247 x HEAT Bomblets", "CBU-52B - 220 x HE/Frag bomblets", "BLG-66 Belouga
+    // AC - CBU, 151 x HEAT Bomblets". The F-14 writes a bare "Mk-20", and some
+    // legacy names ("AUF2 ROCKEYE x 2") have no "Mk-20" at all, so the Rockeye
+    // has two rules.
     rule("CBU-87", "cbu87"),
     rule("CBU-97", "cbu97"),
+    rule("Mk-20", "mk20"),
+    rule("Rockeye", "mk20"),
+    rule("CBU-99", "cbu99"),
+    rule("CBU-52B", "cbu52b"),
+    rule("BLG-66", "blg66"),
+    // The French SAMP bombs. DCS: "SAMP-250 - 250 kg GP Bomb LD", "SAMP-250 - 250
+    // kg GP Chute Retarded Bomb HD". There is no high-drag SAMP-125. A low and a
+    // high rule share each 250 and 400 pattern: only the "HD" at the far end of
+    // the name tells them apart, so a tie goes to the rule whose drag agrees with
+    // the name (see `best_rule`).
+    low_drag("SAMP-125", "samp125"),
+    low_drag("SAMP-250", "samp250"),
+    high_drag("SAMP-250", "samp250hd"),
+    low_drag("SAMP-400", "samp400"),
+    high_drag("SAMP-400", "samp400hd"),
     // Air-to-ground missiles. DCS: "LAU-117 with AGM-65D - Maverick D (IIR
     // ASM)", "AGM-88C HARM - High Speed Anti-Radiation Missile".
     rule("AGM-65D", "agm65d"),
@@ -227,7 +262,7 @@ pub fn classify_store(name: &str) -> StoreClass {
             return StoreClass::Unrecognised;
         }
         let quantity = match rule.count {
-            Count::Stores => with_count(&toks).unwrap_or(1),
+            Count::Stores => with_count(&toks).or_else(|| count_before_weapon(&toks, rule)).unwrap_or(1),
             Count::Rockets => rocket_quantity(&toks),
         };
         return StoreClass::Weapon { id: rule.id, quantity };
@@ -276,8 +311,15 @@ pub fn loadout_from_payload(payload: Option<&Value>, db: &RefData) -> Vec<Import
 }
 
 /// The rule that best describes a store name, if any: the most tokens, then the
-/// most characters, then the earlier table entry.
+/// most characters, then (on an exact tie) the rule whose drag agrees with the
+/// name, then the earlier table entry.
+///
+/// The drag step is for names whose only difference is an "HD" far from the
+/// weapon (the SAMP bombs), which no amount of specificity can tell apart. A
+/// rule with no drag never agrees, so every other tie is still the earlier entry.
 fn best_rule(toks: &[String]) -> Option<&'static StoreRule> {
+    let high = looks_high_drag(toks);
+    let agrees = |rule: &StoreRule| (rule.drag == Drag::High && high) || (rule.drag == Drag::Low && !high);
     let mut best: Option<((usize, usize), &'static StoreRule)> = None;
     for rule in STORE_RULES {
         let needle = tokens(rule.pattern);
@@ -286,7 +328,11 @@ fn best_rule(toks: &[String]) -> Option<&'static StoreRule> {
         }
         // Strict `>` keeps the earlier entry on a tie, so the answer is fixed.
         let key = (needle.len(), rule.pattern.len());
-        if best.map_or(true, |(best_key, _)| key > best_key) {
+        let wins = match best {
+            None => true,
+            Some((best_key, held)) => key > best_key || (key == best_key && agrees(rule) && !agrees(held)),
+        };
+        if wins {
             best = Some((key, rule));
         }
     }
@@ -303,10 +349,38 @@ fn count_at(toks: &[String], at: usize) -> Option<u32> {
     (toks.get(at + 1).map(String::as_str) == Some("x")).then_some(count)
 }
 
-/// N in "X with N x ...": what a rack or launcher holds. Only this form is a
-/// count for a bomb or missile, never the first "N x" anywhere in the name.
+/// N in "X with N x ...": what a rack or launcher holds. For a bomb or missile
+/// this and `count_before_weapon` are the only counts, never the first "N x"
+/// anywhere in the name. The unrecognised path uses only this one.
 fn with_count(toks: &[String]) -> Option<u32> {
     (0..toks.len()).filter(|&i| toks[i] == "with").find_map(|i| count_at(toks, i + 1))
+}
+
+/// Where a token run first starts in `hay`.
+fn run_start(hay: &[String], needle: &[String]) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    hay.windows(needle.len()).position(|window| window == needle)
+}
+
+/// N in an "N x" or "Nx" that sits right before `toks[at]`: "BRU-42 - 3 x Mk-20",
+/// "2x CBU-52B". A bare number ("MAK79 2 MK-20", "BRU-42 Mk-82") is never a
+/// count, since there is no telling it from a designation.
+fn count_before(toks: &[String], at: usize) -> Option<u32> {
+    let positive = |text: &str| text.parse::<u32>().ok().filter(|n| *n > 0);
+    let before = toks.get(at.checked_sub(1)?)?;
+    if before == "x" {
+        return positive(toks.get(at.checked_sub(2)?)?);
+    }
+    positive(before.strip_suffix('x')?)
+}
+
+/// The count written right before the weapon's own name, as the rule found it.
+/// A cluster bomb's submunitions ("247 x HEAT Bomblets") come after the name, so
+/// they are never read.
+fn count_before_weapon(toks: &[String], rule: &StoreRule) -> Option<u32> {
+    count_before(toks, run_start(toks, &tokens(rule.pattern))?)
 }
 
 /// Rockets in a pod store: pods times rockets per pod. Every "N x" in the name
@@ -402,6 +476,114 @@ mod tests {
             ("BRU-42 with 3 x LAU-131 pods - 7 x 2.75 Hydra, UnGd Rkts M151, HE", weapon("hydra70", 21)),
             ("LAU-10 pod - 4 x 127 mm ZUNI, UnGd Rkts Mk71, HE/FRAG", weapon("zuni", 4)),
             ("LAU-3 pod - 19 x 2.75 FFAR, UnGd Rkts Mk1, HE", weapon("ffar275", 19)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// Real DCS display names (from the public pydcs weapons list) for the cluster
+    /// bombs and the SAMP bombs. A submunition count ("247 x") comes after the
+    /// weapon's name and is never a rack count.
+    #[test]
+    fn cluster_and_samp_names_become_weapon_ids_and_counts() {
+        let cases: &[(&str, StoreClass)] = &[
+            // The Rockeye, in each shape a rack gives its name.
+            ("Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets", weapon("mk20", 1)),
+            ("BRU-33 with 2 x Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets", weapon("mk20", 2)),
+            ("MER6 with 6 x Mk-20 Rockeye - 490lbs CBUs, 247 x HEAT Bomblets", weapon("mk20", 6)),
+            ("BRU-42 - 3 x Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets", weapon("mk20", 3)),
+            ("2x Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets (TER)", weapon("mk20", 2)),
+            // The F-14 writes it short, and some legacy names spell it differently.
+            ("Mk-20", weapon("mk20", 1)),
+            ("AUF2 ROCKEYE x 2", weapon("mk20", 1)),
+            ("Mk-20 Rockeye * 3", weapon("mk20", 1)),
+            ("MAK79 2 MK-20", weapon("mk20", 1)),
+            // The others.
+            ("CBU-99 - 490lbs, 247 x HEAT Bomblets", weapon("cbu99", 1)),
+            ("CBU-99", weapon("cbu99", 1)),
+            ("BRU-33 with 2 x CBU-99 - 490lbs, 247 x HEAT Bomblets", weapon("cbu99", 2)),
+            ("CBU-52B - 220 x HE/Frag bomblets", weapon("cbu52b", 1)),
+            ("3x CBU-52B - 220 x HE/Frag bomblets (MER)", weapon("cbu52b", 3)),
+            ("(Special Weapons Adapter) 2x CBU-52B - 220 x HE/Frag bomblets (TER)", weapon("cbu52b", 2)),
+            ("BLG-66 Belouga AC - CBU, 151 x HEAT Bomblets", weapon("blg66", 1)),
+            ("BLG-66 Belouga EG - CBU, 151 x HE/Frag Bomblets", weapon("blg66", 1)),
+            ("AUF 2 - 2 x BLG-66 Belouga AC - CBU, 151 x HEAT Bomblets", weapon("blg66", 2)),
+            // The SAMP bombs: the "HD" at the far end picks the high-drag row.
+            ("SAMP-125 - 125 kg GP Bomb LD", weapon("samp125", 1)),
+            ("SAMP-250 - 250 kg GP Bomb LD", weapon("samp250", 1)),
+            ("SAMP-400 - 400 kg GP Bomb LD", weapon("samp400", 1)),
+            ("SAMP-250 - 250 kg GP Chute Retarded Bomb HD", weapon("samp250hd", 1)),
+            ("SAMP-400 - 400 kg GP Chute Retarded Bomb HD", weapon("samp400hd", 1)),
+            ("AUF 2 - 2 x SAMP-125 - 125 kg GP Bomb LD", weapon("samp125", 2)),
+            ("CLB 4 - 4 x SAMP-250 - 250 kg GP Chute Retarded Bomb HD", weapon("samp250hd", 4)),
+            ("CLB 4 - 4 x SAMP-400 - 400 kg GP Bomb LD", weapon("samp400", 4)),
+            ("2x SAMP-250 - 250KG GP Bomb LD (TER)", weapon("samp250", 2)),
+            ("1x SAMP-250 - 250KG GP Chute Retarded Bomb HD (TER)", weapon("samp250hd", 1)),
+            ("AUF2 SAMP-250 HD x 2", weapon("samp250hd", 1)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// The SAMP-250 and SAMP-400 names share their tokens across the low and high
+    /// rows, so the choice is the drag of the whole name. There is no high-drag
+    /// SAMP-125 row: a name for one falls to the drag guard, never to the low row.
+    #[test]
+    fn a_samp_name_picks_the_row_of_its_own_drag() {
+        let cases: &[(&str, StoreClass)] = &[
+            ("SAMP-250", weapon("samp250", 1)),
+            ("SAMP-250 HD", weapon("samp250hd", 1)),
+            ("SAMP-250 Retarded", weapon("samp250hd", 1)),
+            ("SAMP-400", weapon("samp400", 1)),
+            ("SAMP-400 HD", weapon("samp400hd", 1)),
+            ("SAMP-125 - 125 kg GP Chute Retarded Bomb HD", StoreClass::Unrecognised),
+            ("SAMP-125 HD", StoreClass::Unrecognised),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// A count is "with N x" or an "N x" / "Nx" right before the weapon's own name.
+    /// Nothing else is: not a submunition count after the name, not the first "N x"
+    /// anywhere, and never a bare number.
+    #[test]
+    fn a_rack_count_is_read_only_where_it_sits_before_the_weapons_own_name() {
+        let cases: &[(&str, StoreClass)] = &[
+            // The form works for an older weapon too, in both spellings.
+            ("3x Mk-82 - 500lb GP Bomb LD (TER)", weapon("mk82", 3)),
+            ("BRU-42 - 3 x Mk-82 - 500lb GP Bomb LD", weapon("mk82", 3)),
+            // "with N x" still works.
+            ("TER-9A with 3 x Mk-82 - 500lb GP Bomb LD", weapon("mk82", 3)),
+            // Submunitions come after the name, with and without a rack count.
+            ("CBU-99 - 490lbs, 247 x HEAT Bomblets", weapon("cbu99", 1)),
+            ("CBU-87 - 202 x CEM Cluster Bomb", weapon("cbu87", 1)),
+            ("2x CBU-52B - 220 x HE/Frag bomblets (TER)", weapon("cbu52b", 2)),
+            ("BRU-42 - 3 x BLG-66 Belouga AC - CBU, 151 x HEAT Bomblets", weapon("blg66", 3)),
+            // A lone "x" or a zero is not a count.
+            ("x Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
+            ("0x Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
+            ("0 x Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// A bare number is a designation, never a count: the Heatblur-style names
+    /// carry the rack's number or a pylon's before the weapon, and a count of 42
+    /// from "BRU-42" would load a jet with weapons it cannot hold.
+    #[test]
+    fn a_bare_number_before_the_weapon_is_never_a_count() {
+        let cases: &[(&str, StoreClass)] = &[
+            ("MAK79 2 MK-20", weapon("mk20", 1)),
+            ("BRU-42 Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
+            ("TER-9A 3 Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
+            ("2 Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
+            ("BRU-42 CBU-99 - 490lbs, 247 x HEAT Bomblets", weapon("cbu99", 1)),
+            ("Mk-82 x 3", weapon("mk82", 1)),
         ];
         for (name, expected) in cases {
             assert_eq!(classify_store(name), *expected, "{name:?}");
@@ -507,7 +689,7 @@ mod tests {
     fn anything_unknown_is_unrecognised_rather_than_skipped() {
         for name in [
             // No row and no rule, now or planned.
-            "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
+            "BL-755 CBU - 450kg, 147 Frag/Pen bomblets",
             "Some Future Bomb",
             // A pod with an unknown payload must not be taken for a sensor pod.
             "B-8M1 pod - 20 x S-8KOM",
@@ -521,6 +703,13 @@ mod tests {
     /// agree, and a rule pointing at a row that is not there would load nothing.
     /// Feeding each pattern back in must also give its own row: that catches a
     /// pattern another rule swallows and a duplicate pattern aimed elsewhere.
+    ///
+    /// A high-drag rule that shares its pattern with a low-drag one (the SAMP
+    /// bombs) cannot answer to the bare pattern, since a bare pattern looks low
+    /// drag and the low rule is meant to win it. It is fed the pattern plus " HD"
+    /// instead, the word that makes the name high-drag. A repeated pattern aimed
+    /// at the wrong row still fails: two low rules, or two high ones, share the
+    /// same input, and the earlier one takes it.
     #[test]
     fn every_rule_names_a_real_reference_row_and_none_shadows_another() {
         for rule in STORE_RULES {
@@ -552,10 +741,13 @@ mod tests {
                 "{:?}: only the unguided bombs carry a drag",
                 rule.pattern
             );
+            let paired_with_low =
+                rule.drag == Drag::High && STORE_RULES.iter().any(|o| o.drag == Drag::Low && o.pattern == rule.pattern);
+            let fed = if paired_with_low { format!("{} HD", rule.pattern) } else { rule.pattern.to_string() };
             assert_eq!(
-                classify_store(rule.pattern),
+                classify_store(&fed),
                 StoreClass::Weapon { id: rule.id, quantity: 1 },
-                "pattern {:?} did not resolve to its own rule",
+                "pattern {:?} (fed as {fed:?}) did not resolve to its own rule",
                 rule.pattern
             );
         }
@@ -570,10 +762,10 @@ mod tests {
             null,
             "Fuel tank 370 gal",
             "TER-9A with 3 x Mk-82 - 500lb GP Bomb LD",
-            "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
+            "BL-755 CBU - 450kg, 147 Frag/Pen bomblets",
             "GBU-12 - 500lb Laser Guided Bomb",
             "LAU-131 pod - 7 x 2.75 Hydra, UnGd Rkts M257, Para Illum",
-            "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
+            "BL-755 CBU - 450kg, 147 Frag/Pen bomblets",
         ]);
         let loadout = loadout_from_payload(Some(&payload), reference());
         let lines: Vec<(Option<&str>, &str, u32)> =
@@ -583,7 +775,7 @@ mod tests {
             vec![
                 (Some("mk82"), "Mk-82 LDGP", 6),
                 (Some("gbu12"), "GBU-12 Paveway II", 2),
-                (None, "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets", 2),
+                (None, "BL-755 CBU - 450kg, 147 Frag/Pen bomblets", 2),
             ],
             "first appearance order, summed quantity, row names, the unrecognised store kept under its DCS name"
         );
