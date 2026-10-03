@@ -8,7 +8,7 @@ kneeboard cards.
 decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 (newest-first). Finished plans and reviews are in `docs/archive/`.
 
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-03
 
 ---
 
@@ -89,8 +89,8 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       an Android phone hasn't yet. In Chrome: Add to Home Screen, offline
       launch, the share sheet, screen wake lock, GPS for "Strike near me",
       crosshair precision.
-- [ ] **On-screen check of "Jets arrive loaded"** (built 2026-10-02, not yet
-      seen by the user in the app):
+- [ ] **On-screen check of "Jets arrive loaded"** (released in 0.3.3 on
+      2026-10-03 before the user reported on it; ask):
   - [ ] The import preview's **Loadouts** list and the Flight roster read
         clearly with long loadouts, on desktop and iPhone.
   - [ ] An attack for a loaded jet opens with the weapon already picked.
@@ -119,7 +119,10 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 
 ## Shipped
 
-### Unreleased (on `main`, next desktop release — planned as 0.3.3)
+### Unreleased (on `main`, next desktop release)
+- Nothing yet.
+
+### v0.3.3 — 2026-10-03
 - **Jets arrive loaded.** After a FragOrders link import each pilot's loadout
   holds the air-to-ground stores the mission author loaded. Auto-build starts
   on a weapon the jet carries: bombs and strike missiles first, then

@@ -221,10 +221,14 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-10-02 UTC (Opus 5.5 orchestrating on the main Mac,
-Sonnet 5.5 builders). **"Jets arrive loaded" is built and on `main`,
-unreleased** (planned as 0.3.3), and the white flash is fixed. Rollback tag
-`pre-loadout-import` marks the tree before it.
+**Last session:** 2026-10-02/03 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **v0.3.3 released and published as Latest** on
+2026-10-03: "Jets arrive loaded" and the white-flash fix. Release run
+37096299835 (all 3 platforms, all 7 installers), web app published by Pages
+run 37096813977. Privacy scan clean (known false positives only). Rollback tag
+`pre-loadout-import` marks the tree before the loadout work. Release CI warns
+that its actions run on deprecated Node.js 20 (forced to 24); not yet a
+failure.
 
 **What was built** (gates at the last commit: geo-check 585, core 126,
 desktop 24 + 1 ignored, `npm run build`; Pages run 36973465158 green):
@@ -245,10 +249,10 @@ desktop 24 + 1 ignored, `npm run build`; Pages run 36973465158 green):
   **Show all weapons** checkbox in the attack editor and the loadout editor.
 - The design doc has an "As built" section: `docs/LOADOUT_IMPORT_PLAN.md`.
 
-**Not seen by the user yet** (the Mac bundle in `src-tauri/target/` is built
-from `f343a06`): the Loadouts list in the import preview, the roster's store
-lines, the pre-picked weapon, and the Show all weapons checkbox. The look is
-plain on purpose and has not been polished. See "In progress" in `ROADMAP.md`.
+**Released before the user reported on screen:** the Loadouts list in the
+import preview, the roster's store lines, the pre-picked weapon, and the Show
+all weapons checkbox. The look is plain on purpose and has not been polished.
+See "In progress" in `ROADMAP.md`.
 
 **Not run:** `scripts/web-smoke.cjs` and `web-smoke-cards.cjs`. They need the
 wasm toolchain and Playwright, which the user declined to install on the main
@@ -264,8 +268,8 @@ header, the Copy menu, the waypoint list.
 2. **Ask what the user saw in the app:** the import preview's Loadouts list,
    the roster, the pre-picked weapon, and Show all weapons, on desktop and
    iPhone. Adjust the look from what they say before anything else.
-3. **Release 0.3.3 only when the user says "release 0.3.3"**, by the checklist
-   above. The privacy scan in `Other Items/privacy-scan/` runs first.
+3. **Ask about 0.3.3 in use:** a real FragOrders link import into a loaded
+   jet, in the app and on the phone.
 4. **Ask about the rest of 0.3.2 in use:** the phone carousel, the SIGHT
    header, the Copy menu, the waypoint list.
 5. **Follow-ups from this build** (all in `ROADMAP.md`): rows for Rockeye,
