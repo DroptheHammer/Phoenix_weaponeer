@@ -27,12 +27,15 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v4
+      # checkout@v7 and setup-node@v7 run on Node 24; the v4 ones ran on the
+      # retired Node 20 and warned on every run.
+      - uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # The Node the frontend builds with; 22 as in pages.yml (20 is past end of life).
+          node-version: 22
 
       - name: Install Rust stable
         # Pinned to a commit (was @stable); with a SHA the toolchain must be named.
