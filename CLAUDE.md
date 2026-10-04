@@ -221,68 +221,67 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-10-02/03 UTC (Opus 5.5 orchestrating on the main Mac,
-Sonnet 5.5 builders). **v0.3.3 released and published as Latest** on
-2026-10-03: "Jets arrive loaded" and the white-flash fix. Release run
-37096299835 (all 3 platforms, all 7 installers), web app published by Pages
-run 37096813977. Privacy scan clean (known false positives only). Rollback tag
-`pre-loadout-import` marks the tree before the loadout work. After the
-release, `9c37c10` moved both workflows to actions that run on Node 24
-(checkout/setup-node v7, upload-pages-artifact/deploy-pages v5) and the
-release build to Node 22. A throwaway tag `v0.3.3-test1` (run 37097265237)
-built all 7 installers with no Node 20 warning, and was deleted. The web
-app's upload and publish steps only run on a release, so they are first
-exercised at the next one (or a hand-started "Run workflow").
+**Last session:** 2026-10-03 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **Nothing released. `main` is v0.3.3 plus the cluster
+and SAMP bombs, unreleased.** Gates at the last code commit: geo-check 585,
+core 130, desktop 24 + 1 ignored, `npm run build`; Pages run 37099334769
+green.
 
-**What was built** (gates at the last commit: geo-check 585, core 126,
-desktop 24 + 1 ignored, `npm run build`; Pages run 36973465158 green):
-- `bb2cfa5` **White flash fixed.** The user confirmed a plain 0.3.2 build
-  flashed too, so it was never the icon. Dark window colour in
-  `tauri.conf.json` plus an inline dark `html` background in `index.html`.
-  The user checked it in the Mac app.
-- `97ac6a6` **Slice 1:** a link import keeps each jet's store names and maps
-  them to weapons (`crates/core/src/parsers/store_mapping.rs`). 38 jets in the
-  four private links arrive loaded, as the design predicted.
-- `b19c625` **Slice 2:** bomb and missile lists for all ten aircraft (130
-  `aircraft_weapons` rows), four name-only weapon rows (GBU-16, AGM-65F,
-  AGM-122, GAU-12 pod) and a "no data on file" caution for them.
-- `187f3b5` **Slice 3:** the import fills each pilot's loadout
-  (`LoadoutItem.weaponId`), auto-build picks a carried weapon, the import
-  preview and roster show the stores.
-- `f343a06` **Slice 4:** each aircraft is offered its own weapons, with a
-  **Show all weapons** checkbox in the attack editor and the loadout editor.
-- The design doc has an "As built" section: `docs/LOADOUT_IMPORT_PLAN.md`.
+**The user's on-screen checks:**
+- **0.3.3 loadout screens passed on the desktop**, with
+  `test-data/nevada_SYNTHETIC_loaded_jets.json`: the import preview's Loadouts
+  list, the roster, the pre-picked weapon and Show all weapons. Still open:
+  long loadouts from a real link, and the iPhone.
+- **The 0.3.2 in-use check is closed.** The iPhone carousel at 3×, the larger
+  card text, the amber SIGHT header, the Copy menu and the waypoint list were
+  all reported fine.
 
-**Released before the user reported on screen:** the Loadouts list in the
-import preview, the roster's store lines, the pre-picked weapon, and the Show
-all weapons checkbox. The look is plain on purpose and has not been polished.
-See "In progress" in `ROADMAP.md`.
+**What was built:**
+- `9bc1aad` **Nine name-only weapon rows:** Mk-20 Rockeye, CBU-99, CBU-52B,
+  BLG-66 Belouga, SAMP-125/250/400 LD and SAMP-250/400 HD, mapped to the
+  aircraft that carry them. `KNOWN_CLASS_GAPS` (`crates/core/src/profiles.rs`)
+  is now empty: every aircraft carries a weapon for each of its profiles. No
+  numbers were invented, so these carry the "no data on file" caution.
+  Carriage came from the DCS pylon tables in the public pydcs library and the
+  A-4E-C mod's aircraft file (memory `reference-pydcs-weapon-tables`).
+- `9523a09` **Link import knows those stores and counts racks.** A count
+  straight before the weapon's name (`- 3 x Mk-20`, `2x CBU-52B`) is read,
+  for every bomb and missile. A bare number never is, so the F-14's
+  `MAK79 2 MK-20` loads as one. The low-drag and high-drag SAMP rules share a
+  pattern and the name's drag words pick between them
+  (`crates/core/src/parsers/store_mapping.rs`).
+- The synthetic loaded-jets file changed: Venom 1-3's Rockeyes are a known
+  weapon, and it carries one BL-755, which has no row.
+- `docs/LOADOUT_IMPORT_PLAN.md` has a "Follow-up (2026-10-03)" section.
 
-**Not run:** `scripts/web-smoke.cjs` and `web-smoke-cards.cjs`. They need the
-wasm toolchain and Playwright, which the user declined to install on the main
-Mac. A read of both says the new weapon list does not change what they pick.
+**Not checked on screen yet:** the new rows in the app. It needs a build from
+source (`npm run tauri dev`); the installed 0.3.3 does not have them.
 
-**0.3.2 in use:** the user reported 3× cards in DCS and the Lighting dropdown
-as fine (2026-10-01). Still open: the iPhone carousel at 3×, the amber SIGHT
-header, the Copy menu, the waypoint list.
+**Not run:** `scripts/web-smoke.cjs` and `web-smoke-cards.cjs` (no wasm
+toolchain or Playwright on the main Mac, by the user's choice).
 
 ### START OF NEXT SESSION
 
 1. `git pull origin main`.
-2. **Ask what the user saw in the app:** the import preview's Loadouts list,
-   the roster, the pre-picked weapon, and Show all weapons, on desktop and
-   iPhone. Adjust the look from what they say before anything else.
-3. **Ask about 0.3.3 in use:** a real FragOrders link import into a loaded
-   jet, in the app and on the phone.
-4. **Ask about the rest of 0.3.2 in use:** the phone carousel, the SIGHT
-   header, the Copy menu, the waypoint list.
-5. **Follow-ups from this build** (all in `ROADMAP.md`): rows for Rockeye,
-   CBU-52, Belouga and the SAMP bombs; numbers for the four name-only rows;
-   loadouts from a CLI/.miz import; more air-to-air names to skip.
+2. **Ask whether the user looked at the new rows in the app:** the synthetic
+   file's Venom 1-3 (Rockeye known, BL-755 "not in the weapon table"), and a
+   cluster attack for an F/A-18C (Rockeye and CBU-99 offered, with the "no
+   data on file" caution).
+3. **Still open from 0.3.3:** long loadouts from a real link (the Syria
+   capture in `test-data/private/fragorders-links/` loads through Import →
+   From JSON), and the loadout screens on the iPhone.
+4. **Next build candidates** (all in `ROADMAP.md`): rows for the bombs still
+   missing (Mk-81, Mk-83, CBU-103, CBU-105, BL-755 and others); loadouts from
+   a CLI/.miz import; numbers for the thirteen name-only rows; bare-number
+   rack counts; loft geometry.
+5. **Releasing 0.3.4** is the user's call. It would be the first run of the
+   web app's upload and publish steps on the Node 24 actions.
 6. **Phone web app:** a real Android phone check is still open
    (`docs/MOBILE_WEB_PLAN.md`). Merge PRs from the Mac with `TZ=UTC`, never with
    GitHub's phone button.
 7. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
    folder that broke geo-check (memory `feedback-commands-that-dont-prompt`).
-8. **Look-and-feel work goes in front of the user in the real app first**,
+8. **`git push` and `gh` must run outside the Bash sandbox**; inside it the
+   push fails with "could not read Username".
+9. **Look-and-feel work goes in front of the user in the real app first**,
    before it is polished, documented or committed.

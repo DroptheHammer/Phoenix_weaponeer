@@ -2,6 +2,54 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Session:** 2026-10-02/03 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **v0.3.3 released and published as Latest** on
+2026-10-03: "Jets arrive loaded" and the white-flash fix. Release run
+37096299835 (all 3 platforms, all 7 installers), web app published by Pages
+run 37096813977. Privacy scan clean (known false positives only). Rollback tag
+`pre-loadout-import` marks the tree before the loadout work. After the
+release, `9c37c10` moved both workflows to actions that run on Node 24
+(checkout/setup-node v7, upload-pages-artifact/deploy-pages v5) and the
+release build to Node 22. A throwaway tag `v0.3.3-test1` (run 37097265237)
+built all 7 installers with no Node 20 warning, and was deleted. The web
+app's upload and publish steps only run on a release, so they are first
+exercised at the next one (or a hand-started "Run workflow").
+
+**What was built** (gates at the last commit: geo-check 585, core 126,
+desktop 24 + 1 ignored, `npm run build`; Pages run 36973465158 green):
+- `bb2cfa5` **White flash fixed.** The user confirmed a plain 0.3.2 build
+  flashed too, so it was never the icon. Dark window colour in
+  `tauri.conf.json` plus an inline dark `html` background in `index.html`.
+  The user checked it in the Mac app.
+- `97ac6a6` **Slice 1:** a link import keeps each jet's store names and maps
+  them to weapons (`crates/core/src/parsers/store_mapping.rs`). 38 jets in the
+  four private links arrive loaded, as the design predicted.
+- `b19c625` **Slice 2:** bomb and missile lists for all ten aircraft (130
+  `aircraft_weapons` rows), four name-only weapon rows (GBU-16, AGM-65F,
+  AGM-122, GAU-12 pod) and a "no data on file" caution for them.
+- `187f3b5` **Slice 3:** the import fills each pilot's loadout
+  (`LoadoutItem.weaponId`), auto-build picks a carried weapon, the import
+  preview and roster show the stores.
+- `f343a06` **Slice 4:** each aircraft is offered its own weapons, with a
+  **Show all weapons** checkbox in the attack editor and the loadout editor.
+- The design doc has an "As built" section: `docs/LOADOUT_IMPORT_PLAN.md`.
+
+**Released before the user reported on screen:** the Loadouts list in the
+import preview, the roster's store lines, the pre-picked weapon, and the Show
+all weapons checkbox. (The user checked them on the desktop in the next
+session, 2026-10-03, and all passed.)
+
+**Not run:** `scripts/web-smoke.cjs` and `web-smoke-cards.cjs`. They need the
+wasm toolchain and Playwright, which the user declined to install on the main
+Mac. A read of both says the new weapon list does not change what they pick.
+
+**0.3.2 in use at that point:** the user had reported 3× cards in DCS and the
+Lighting dropdown as fine (2026-10-01). The iPhone carousel at 3×, the amber
+SIGHT header, the Copy menu and the waypoint list were still open (all
+reported fine in the next session).
+
+---
+
 **Session:** 2026-09-30 UTC, late (Opus 5.5 orchestrating on the main Mac,
 Sonnet 5.5 builders). **Nothing shipped. `main` carries the v0.3.2 app
 unchanged**: an artwork attempt was built, then rolled back at the user's
