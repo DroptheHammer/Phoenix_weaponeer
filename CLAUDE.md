@@ -235,13 +235,28 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   (`src/lib/playbackScene/`, `src/components/playback/`). Gates there:
   geo-check 901/0, tsc, build with the bundle check, the web check, core 154,
   desktop 34 + 2 ignored. Headless checks: `scripts/playback-shots.cjs`.
+- `v040-playback-full`, cut from `v040-playback`: **the full playback, being
+  built stage by stage** (21 stages, 0 to 20). Done: stage 0 (guards,
+  `bdc75ef`), stage 1 (speeds 1× to 16×, `2028f0e`), a follow-up (`9d3de28`),
+  all reviewed, and stage 2 (`18a686e`: the pure functions for where an
+  attack starts, what Home frames and what the Show menu holds), **built and
+  pushed but not yet reviewed**. geo-check 906/0 at `9d3de28`. The main
+  Mac's checkout is on this branch.
 - `v040-landing-data`, one commit `3127c41` on an older `main`: the front
   page's data layer (`src/lib/landing/`, 143 checks). Nothing in the app
   uses it yet. Both branches append to the end of `scripts/geo-check.ts`, so
   expect a small conflict there.
 
 **The user's decisions this session** (details in `docs/V040_PLAN.md`):
-- **Design pick: the EFB draft.** He asked to see it on the iPhone next.
+- **Design: the EFB draft is the base, not the final pick.** He saw its
+  iPhone version ("looks good for now"), then said he wants parts of the
+  other drafts too, and gave a first round of notes (in `docs/V040_PLAN.md`,
+  A1): keep the Cockpit draft's per-jet loadout cards (stores listed
+  vertically, quantities in their own colour); the "mission summary" is
+  really about the flight and needs a better name; a full-width but slim
+  header; no waypoint or lat/long tables on that screen; a threat block that
+  still fits a mission with 10-15 systems and hundreds of units. **Do not
+  build or spec the new UI until he has agreed a mockup.**
 - **Terrain gate passed** in the real Mac app (72 frames a second, Retina).
   He wants: playback that opens following the jet and **starts 10 seconds
   before the first action** instead of flying the whole run-in; speeds 1× to
@@ -254,42 +269,61 @@ each gate's outcome are in `docs/V040_PLAN.md`.
 - Not answered, so the design's defaults stand: Reset after Apply goes back
   to the applied times; closing playback with unapplied times discards them.
 
-**Three jobs were stopped part-way.** Their papers are git-ignored and exist
-only on the main Mac (`Other Items/`):
-1. **iPhone mockup of the EFB draft:** `Other Items/v040-mockups/efb-phone.html`
-   is built and has two critiques beside it (`critique-efb-phone-*.md`). The
-   revision was half done. Left: finish the revision, run the static check,
-   screenshot at 375×667, 390×844 and 430×932, publish as a private artifact
-   and give the user the link (never put that link in the repo).
-2. **Full-playback spec, section 9** (the user's feedback folded in):
-   `Other Items/v040-work/b3/` holds the brief (`OWNER_FEEDBACK.md`), two
-   inventories, two designs (`fb-*.md`) and two skeptic passes (in the job's
-   journal). Left: write section 9, the director reviews it and appends it
-   to `BUILD_SPEC.md` there, then the build starts stage by stage on a
-   branch cut from `v040-playback`. Nothing of the full playback is built.
-3. **EFB design-foundation spec** (tokens, bundled fonts, shared buttons and
-   panels): `Other Items/v040-work/a2/` has two finished maps and an
-   unfinished first draft of `BUILD_SPEC.md`. Left: finish it, check it with
-   two skeptics, then build on a new branch cut from `v040-landing-data`.
+**Where the work stopped** (paused a second time at the user's request). The
+working papers are git-ignored and exist only on the main Mac
+(`Other Items/`):
+1. **Full playback build.** The binding spec is two files in
+   `Other Items/v040-work/b3/`: `BUILD_SPEC.md` (sections 0-8) and
+   `BUILD_SPEC_S9.md` (section 9: the user's feedback as build rules, the
+   stage table, the director's rulings in 9.15; it overrides the rest and
+   has been checked twice). Each stage is built by one agent, reviewed by a
+   second that makes every new check fail once, then read by the director
+   and pushed. **Next: review stage 2, then build stages 3 and 4** (playback
+   opens 10 s before the first action, toolbar with Home view and a Show
+   menu, the follow cameras), then 5 to 8 (the planner's colours on the path
+   and the timeline, the red target, action-point markers). **The user's
+   first look is after stage 8.**
+2. **Second-round mockup of the EFB draft** from his notes, desktop and
+   iPhone: `Other Items/v040-mockups/efb2.html` and `efb2-phone.html`, brief
+   `BRIEF-V2.md`, facts `v2-facts.md`. Stopped part-way through
+   build → three critiques → revision → static check. Left: finish those
+   steps, screenshot both (desktop at 1400×900, 1280×720, 1024×768; phone at
+   375×667, 390×844, 430×932), publish as private artifacts and give him the
+   links (never put those links in the repo).
+3. **The EFB design-foundation spec is on hold** until he agrees a mockup
+   (`Other Items/v040-work/a2/`: two finished maps of the app's styles and
+   the EFB draft's system are still good; the `BUILD_SPEC.md` draft there is
+   EFB-only and will need redoing).
 
-**Waiting on the user:** the icon and splash images (prompts are in
-`docs/V040_PLAN.md`, Track D; picks go in `Other Items/Artwork/v040/`), and
-whether "first action" means the first planner marker after the IP (the
-reading the design uses) or the IP itself.
+**Waiting on the user:**
+- **Hidden threats.** He said "the hidden threats we dont tell to users
+  unless they went into settings and allow it", but the planner today shows
+  a "Probable Threats — location unknown" count by system
+  (`ThreatList.tsx`) and the import preview lists them by type
+  (`FragOrdersPreview.tsx`). Asked: remove both, or leave them? Until he
+  answers, the new overview screen says nothing about hidden threats, the
+  existing lines stay, and the playback builds its count line behind one
+  constant so either answer is a one-line change.
+- Whether "first action" means the first planner marker after the IP (the
+  reading the build uses) or the IP itself.
+- His verdict on the second-round mockup, and what else he wants from the
+  other drafts.
+- The icon and splash images (prompts in `docs/V040_PLAN.md`, Track D; picks
+  go in `Other Items/Artwork/v040/`).
 
 ### START OF NEXT SESSION
 
-1. `git pull origin main`. The main Mac's checkout is on `v040-playback`;
-   leave it there for playback work.
-2. **Pick the three stopped jobs up where they stopped.** If the same Claude
+1. `git pull origin main`. The main Mac's checkout is on
+   `v040-playback-full`; leave it there for playback work.
+2. **Pick the two stopped jobs up where they stopped.** If the same Claude
    Code session is still open on the main Mac, resume them there: they keep
    their finished steps. In a new session, start from the papers listed
    above. Memory `project-v040-polish-and-playback` has the full state,
    including the private mockup links.
-3. **Order after that:** show the user the iPhone mockup; finish section 9
-   and build the full playback, his complaints first; finish the foundation
-   spec and build it. Merge to `main` only after he has seen each in the
-   real app.
+3. **Order after that:** show the user the second-round mockup; carry the
+   playback build to stage 8 and put it in front of him in the real app. The
+   new UI is built only after he agrees a mockup. Merge to `main` only after
+   he has seen each in the real app.
 4. **Still open from before 0.4.0:** the 0.3.3 loadout screens on the iPhone
    (ask only if the user has the phone); the CLI loadouts have never been
    looked at on screen; a real Android phone check

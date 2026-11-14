@@ -49,10 +49,30 @@ after 0.3.4 was published; every decision in the table below is theirs.
   is dark today).
 - **Stop.** The user picks a direction (or a mix). Record the pick in
   `docs/V040_PLAN.md` and memory.
-- **Picked 2026-11-14: the EFB draft** ("EFB looks the best"). Its fonts are
+- **2026-11-14: the EFB draft is the base** ("EFB looks the best"), with
+  parts of the other drafts to be added: a mix, not EFB alone. Its fonts are
   Figtree and JetBrains Mono (both SIL OFL, so they can be bundled). The user
-  asked to see the same look on the iPhone before the build; that phone
-  mockup is the next thing to show.
+  saw its iPhone version ("looks good for now"). Nothing of the new UI is
+  built or specified until he agrees a mockup.
+- **His first round of notes** (a second-round mockup is being drawn from
+  them, desktop and iPhone):
+  - **Keep, from the Cockpit/MFD draft:** the row of per-jet cards with each
+    jet's stores listed vertically as quantity then store, the quantities in
+    a different colour from the names, and the attack status at the foot.
+    "Makes it quite easy to see (for a flight leader) the weapons."
+  - **"Mission summary" is the wrong name.** The screen shows the flight,
+    and a mission can hold many flights of many aircraft types. Working
+    name: "Flight overview", titled with the flight.
+  - **Header:** full width, as in the "polished today" draft, but slim: that
+    draft's takes too much of the screen. EFB's is squeezed into the top
+    left.
+  - **No waypoint and position table** on that screen, and no lat/longs:
+    FragOrders already has them. Kneeboards are not to change.
+  - **Threats must fit any mission:** 10-15 systems and 100-500 units are
+    common, so a row per threat will never fit.
+  - **Hidden threats:** "we dont tell to users unless they went into
+    settings and allow it". The planner today shows a count of them; whether
+    that count goes is an open question to him.
 
 ### A2. Design foundation
 - Tokens: move colours, spacing, radii and type into CSS variables and the

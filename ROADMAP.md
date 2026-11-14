@@ -176,10 +176,13 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
 - [ ] **0.4.0 "Polish and Playback"** (started 2026-11-14). The brief, the
       user's decisions and each gate's outcome are in `docs/V040_PLAN.md`.
       Not on `main` yet: the 3D strike playback is on branch
-      `v040-playback` (one jet over real terrain, seen by the user; the full
-      playback is being built there), and the front page's data layer is on
-      `v040-landing-data`. Rollback tag `pre-0.4.0`.
-  - [x] Design pick: the EFB draft (2026-11-14).
+      `v040-playback` (one jet over real terrain, seen by the user), the full
+      playback is being built stage by stage on `v040-playback-full`, and
+      the front page's data layer is on `v040-landing-data`. Rollback tag
+      `pre-0.4.0`.
+  - [ ] Design: the EFB draft is the base (2026-11-14); the user is adding
+        parts of the other drafts, and a second-round mockup is being drawn.
+        No UI is built until he agrees one.
   - [x] Terrain look in the real app (2026-11-14).
   - [ ] Icon and splash images from the user.
   - [ ] Front page, summary and app shell in the EFB look.
