@@ -3,11 +3,14 @@
 //! This module contains all the command handlers that are exposed to the frontend
 //! via Tauri's IPC mechanism. The work behind most of them is in
 //! `weaponeer_core`, which the web build runs too; what is desktop-only lives
-//! here: files, folders, the link download, settings and quitting.
+//! here: files, folders, the link download, the playback's tiles, settings
+//! and quitting.
 
 use crate::link_fetch;
 use crate::settings;
+use crate::tiles;
 use std::path::{Path, PathBuf};
+use tauri::ipc::Response;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::ShellExt;
 use weaponeer_core::mission::{mission_to_json, parse_saved_mission, Mission};
@@ -199,6 +202,40 @@ pub async fn fetch_fragorders_url(url: String) -> Result<ProcessedFragOrdersData
         .await
         .map_err(|e| format!("The download stopped unexpectedly: {e}"))??;
     import::import_link(link, reference())
+}
+
+// ============================================================================
+// 3D Playback Tile Commands
+// ============================================================================
+
+/// One tile, from the cache or the network, off the main thread like the link
+/// download. The key is checked before any path or address is built from it.
+async fn tile_response(app: AppHandle, kind: tiles::TileKind, z: u32, x: u32, y: u32) -> Result<Response, String> {
+    let key = tiles::TileKey::new(z, x, y)?;
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("Cannot resolve app cache dir: {e}"))?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || tiles::get_tile(&root, kind, key, tiles::download))
+        .await
+        .map_err(|e| format!("The tile download stopped unexpectedly: {e}"))??;
+    Ok(Response::new(bytes))
+}
+
+/// An OpenStreetMap tile's PNG bytes, as raw binary (an `ArrayBuffer` in JS),
+/// not a JSON array of numbers. Fails with `"missing"`, `"offline"` (no
+/// network and nothing cached), or a plain sentence.
+#[tauri::command]
+pub async fn get_map_tile(app: AppHandle, z: u32, x: u32, y: u32) -> Result<Response, String> {
+    tile_response(app, tiles::TileKind::Map, z, x, y).await
+}
+
+/// A Terrarium tile decoded to 65536 little-endian f32 heights in metres
+/// (256 x 256, row by row from the top-left), as raw binary. Same errors as
+/// `get_map_tile`.
+#[tauri::command]
+pub async fn get_terrain_tile(app: AppHandle, z: u32, x: u32, y: u32) -> Result<Response, String> {
+    tile_response(app, tiles::TileKind::Terrain, z, x, y).await
 }
 
 // ============================================================================

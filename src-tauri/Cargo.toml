@@ -24,6 +24,9 @@ weaponeer-core = { path = "../crates/core" }
 base64 = "0.22"
 # Fetching FragOrders public links. rustls, so no OpenSSL on any CI runner.
 ureq = "3"
+# Decoding Terrarium elevation tiles for the 3D playback. Tauri's menu and
+# icon crates already build this version, so nothing new is downloaded.
+png = "0.17"
 
 [profile.dev]
 incremental = true

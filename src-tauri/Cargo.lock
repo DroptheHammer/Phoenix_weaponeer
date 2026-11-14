@@ -2282,6 +2282,7 @@ name = "phoenix-weaponeer"
 version = "0.3.4"
 dependencies = [
  "base64 0.22.1",
+ "png",
  "serde",
  "serde_json",
  "tauri",

@@ -4,12 +4,14 @@
 //! the threat/weapon/aircraft reference data, the delivery profile library and
 //! the saved-mission format — is `weaponeer_core` (`crates/core`), shared with
 //! the web build. This crate is the desktop shell around it: files and
-//! folders, the FragOrders link download, settings, and the app's lifecycle.
+//! folders, the FragOrders link download, the 3D playback's map and terrain
+//! tiles, settings, and the app's lifecycle.
 //! Kneeboard cards are rendered in the frontend; the backend only writes the PNG.
 
 pub mod commands;
 pub mod link_fetch;
 pub mod settings;
+pub mod tiles;
 
 use tauri::{Emitter, RunEvent};
 
@@ -48,6 +50,9 @@ pub fn run() {
             commands::forget_recent_mission,
             commands::folder_exists,
             commands::suggest_kneeboard_folder,
+            // 3D playback ground: map pictures and terrain heights
+            commands::get_map_tile,
+            commands::get_terrain_tile,
             commands::exit_app,
         ])
         .build(tauri::generate_context!())
