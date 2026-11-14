@@ -4,6 +4,7 @@ import type { Attack } from '../types/attack.types';
 import type { DbWeapon, FuzeOption } from '../types/weapon.types';
 import { resolveEgressHeading, type Turn } from './attackGeometry';
 import { popupPlanOf } from './popupPlanning';
+import { resolveLoftEgressHeading } from './loftPlanning';
 import { describeRunIn } from './runIn';
 import { buildAttackPicture, buildSideProfile } from './attackPicture';
 import { attackIpAnchor } from './ipAnchor';
@@ -156,12 +157,12 @@ function formatAttackParams(attack: Attack, geo: RunInGeo): Record<string, strin
       resolveEgressHeading({ egressDirection: p.egressDirection ?? 'straight', egressHeading_deg: p.egressHeading_deg }, p.ingressHeading_deg),
     )}°`;
   } else if (p.type === 'loft_ccrp') {
-    params['Ingress HDG'] = `${p.ingressHeading_deg}°`;
-    params['Ingress Alt'] = `${p.ingressAltitude_ft.toLocaleString()}' MSL`;
+    params['Ingress HDG'] = `${Math.round(p.ingressHeading_deg)}°`;
+    params['Ingress Alt'] = `${p.ingressAltitude_ft.toLocaleString()}' AGL`;
     params['Pull-up Dist'] = `${p.pullUpDistance_nm.toFixed(1)} nm`;
-    params['Pull-up Angle'] = `${p.pullUpAngle_deg}°`;
-    params['Release Alt'] = `${p.releaseAltitude_ft.toLocaleString()}' MSL`;
-    params['Egress HDG'] = `${p.egressHeading_deg}°`;
+    params['Loft Angle'] = `${p.pullUpAngle_deg}°`;
+    params['Release Alt'] = `~${p.releaseAltitude_ft.toLocaleString()}' AGL`;
+    params['Egress HDG'] = `${Math.round(resolveLoftEgressHeading(p, p.ingressHeading_deg))}°`;
   } else if (p.type === 'standoff') {
     params['Release HDG'] = `${p.releaseHeading_deg}°`;
     params['Release Alt'] = `${p.releaseAltitude_ft.toLocaleString()}' MSL`;
@@ -220,7 +221,7 @@ function getEgressInfo(attack: Attack, attackHeading?: number): { direction: str
     };
   }
   if (p.type === 'loft_ccrp') {
-    return { direction: 'STRAIGHT', heading: p.egressHeading_deg };
+    return { direction: p.egressDirection.toUpperCase(), heading: resolveLoftEgressHeading(p, attackHeading ?? p.ingressHeading_deg) };
   }
   return { direction: 'STRAIGHT', heading: 0 };
 }

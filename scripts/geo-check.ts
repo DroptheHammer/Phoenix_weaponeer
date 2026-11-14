@@ -23,6 +23,7 @@ import {
   doctrinalCheckTurn,
   applyPopupPlan,
 } from '../src/lib/popupPlanning';
+import { planLoft, bombFlight, pullUpTimer_s, jetRangeAtImpact_nm, applyLoftPlan, resolveLoftEgressHeading } from '../src/lib/loftPlanning';
 import { describeRunIn } from '../src/lib/runIn';
 import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor, loadoutWeapons, unrecognisedStores } from '../src/lib/autoBuildAttack';
 import { rowsFromLoadout, pickWeapon, loadoutFromRows, loadoutPickerWeapons } from '../src/lib/loadoutRows';
@@ -167,6 +168,59 @@ ok('BEM: vacuum bomb range within 2% of the table (5,138 ft)', Math.abs(bem.bomb
 ok('BEM: doctrinal check turn at 4.5 nm ≈ 15–20° (manual: 17°)', [15, 20].includes(doctrinalCheckTurn(bem, 4.5)), doctrinalCheckTurn(bem, 4.5).toString());
 const bemPull = solvePullDownTurn(bem, 4.5, 17)!;
 ok('BEM: a 17° check turn at 4.5 nm closes with a ~40° pull-down', Math.abs(bemPull - 40) < 6, r(bemPull).toString());
+
+// ─── The loft: T.O. 1F-4C-34-1-1 Fig 5-9, p.5-28 (docs/DELIVERY_PLANNING.md) ──
+// M117, 4.0 G in 2 s, military power, 300 ft AGL at 500 KTAS, target at sea
+// level. Columns: release angle, release alt (ft), pull-up to release (s),
+// pull-up to impact (ft), release to impact (s). Every printed row.
+const FIG_5_9: [number, number, number, number, number][] = [
+  [20, 748, 4.09, 17701, 19.41], [22, 841, 4.41, 18844, 21.09], [24, 932, 4.69, 19832, 22.66],
+  [26, 1029, 4.97, 20729, 24.19], [28, 1139, 5.27, 21552, 25.73], [30, 1250, 5.55, 22255, 27.2],
+  [32, 1367, 5.83, 22859, 28.64], [34, 1483, 6.09, 23335, 29.97], [36, 1612, 6.37, 23724, 31.31],
+  [38, 1740, 6.64, 24005, 32.58], [40, 1871, 6.91, 24180, 33.78], [42, 1990, 7.16, 24235, 34.84],
+  [44, 2147, 7.44, 24205, 36.03],
+];
+const loftRows = FIG_5_9.map(([angle, relAlt, pullT, range, tof]) => ({ angle, relAlt, pullT, range, tof, plan: planLoft({ ingressAltitude_ft: 300, speed_ktas: 500, loftAngle_deg: angle, pullG: 4 }) }));
+const worst = (f: (row: (typeof loftRows)[number]) => number) => Math.max(...loftRows.map(f));
+const rangeErr = worst((x) => Math.abs(x.plan.pullUpRange_ft / x.range - 1));
+const altErr = worst((x) => Math.abs(x.plan.releaseAltitude_ft / x.relAlt - 1));
+const pullErr = worst((x) => Math.abs(x.plan.pullTime_s - x.pullT));
+const tofErr = worst((x) => Math.abs(x.plan.timeOfFlight_s - x.tof));
+ok('Fig 5-9: pull-up-to-impact range within 1% on every row', rangeErr < 0.01, `worst ${(rangeErr * 100).toFixed(2)}%`);
+ok('Fig 5-9: release altitude within 2% on every row', altErr < 0.02, `worst ${(altErr * 100).toFixed(2)}%`);
+ok('Fig 5-9: pull-up to release within 0.15 s on every row', pullErr < 0.15, `worst ${pullErr.toFixed(2)} s`);
+ok('Fig 5-9: release to impact within 0.4 s on every row', tofErr < 0.4, `worst ${tofErr.toFixed(2)} s`);
+const peak = loftRows.reduce((best, x) => (x.plan.pullUpRange_ft > best.plan.pullUpRange_ft ? x : best));
+ok('Fig 5-9: range peaks at 40–44° as the table does (42°)', peak.angle >= 40 && peak.angle <= 44, `${peak.angle}°`);
+// Why the loft cannot use the pop-up's vacuum bomb: from the same release
+// point, a bomb with no drag lands over 5% long at 30° (and the range never peaks).
+const row30 = loftRows.find((x) => x.angle === 30)!;
+const vacuum30 = row30.plan.pullDistance_ft + bombFlight(row30.plan.releaseSpeed_ktas, 30, row30.plan.releaseAltitude_ft, 0).range_ft;
+ok('Fig 5-9: the same release with no drag lands >5% long at 30° (drag matters)', vacuum30 / 22255 - 1 > 0.05, `${((vacuum30 / 22255 - 1) * 100).toFixed(1)}%`);
+// Heatblur's DCS F-4E bombing computer, Mk-82: release at 30° from 3,454 ft
+// AGL at 350 KTAS (an instant 4 G pull from 2,970 ft) → release range 12,989 ft.
+const hb = bombFlight(350, 30, 3454);
+ok('Heatblur Mk-82 case: release range within 2% of 12,989 ft', Math.abs(hb.range_ft / 12989 - 1) < 0.02, `${Math.round(hb.range_ft)}`);
+ok('Heatblur pull-up timer: (4 nm − 14,796 ft) at 350 kt = 16.1 s', Math.abs(pullUpTimer_s(4 * NM, 14796, 350)! - 16.1) < 0.05, pullUpTimer_s(4 * NM, 14796, 350)!.toFixed(2));
+ok('pull-up timer: undefined when the IP is inside the pull-up range', pullUpTimer_s(2 * NM, 3 * NM, 500) === undefined);
+
+// The two bundled lofts, from their inputs alone.
+const f16loft = planLoft({ ingressAltitude_ft: 500, speed_ktas: 520, loftAngle_deg: 30, pullG: 4 });
+ok('F-16 Loft 30°: pulls about 4 nm out, releases ~1,500 ft AGL', Math.abs(f16loft.pullUpRange_ft / NM - 4) < 0.15 && Math.abs(f16loft.releaseAltitude_ft - 1500) < 100, `${r(f16loft.pullUpRange_ft / NM)} nm, ${Math.round(f16loft.releaseAltitude_ft)} ft`);
+const f4loft = planLoft({ ingressAltitude_ft: 500, speed_ktas: 500, loftAngle_deg: 45, pullG: 4 });
+ok('F-4E LABS 45°: releases higher and slower, falls longer', f4loft.releaseAltitude_ft > f16loft.releaseAltitude_ft + 500 && f4loft.releaseSpeed_ktas < 470 && f4loft.timeOfFlight_s > f16loft.timeOfFlight_s + 5);
+// Where the jet is when the bomb lands. Straight ahead it overflies the
+// target well before impact; the 120° escape keeps it miles away.
+const straightOn = jetRangeAtImpact_nm(f16loft, 0);
+const expectStraight = Math.abs(f16loft.releaseSpeed_ktas * 1.68781 * f16loft.timeOfFlight_s - f16loft.bombRange_ft) / NM;
+ok('jet range at impact, no turn: |distance flown − release range|', Math.abs(straightOn - expectStraight) < 0.001, `${straightOn.toFixed(2)} nm`);
+ok('jet range at impact, 120° escape: well outside the 0.5 nm standoff', jetRangeAtImpact_nm(f16loft, 120) > 2, jetRangeAtImpact_nm(f16loft, 120).toFixed(2));
+ok('loft egress: auto = a 120° turn off the attack heading', resolveLoftEgressHeading({ egressDirection: 'right' }, 248) === 8 && resolveLoftEgressHeading({ egressDirection: 'left' }, 100) === 340 && resolveLoftEgressHeading({ egressDirection: 'left', egressHeading_deg: 45 }, 100) === 45);
+const loftFilled = applyLoftPlan({
+  type: 'loft_ccrp', ingressHeading_deg: 0, ingressAltitude_ft: 500, ingressSpeed_ktas: 520, pullUpAngle_deg: 30,
+  pullUpDistance_nm: 0, releaseAltitude_ft: 0, egressDirection: 'right',
+}, directBearing, 12);
+ok('applyLoftPlan: heading from the route, derived fields and timer written', Math.abs(loftFilled.ingressHeading_deg - directBearing) < 1e-9 && loftFilled.pullUpDistance_nm === Math.round((f16loft.pullUpRange_ft / NM) * 100) / 100 && loftFilled.releaseAltitude_ft === Math.round(f16loft.releaseAltitude_ft / 10) * 10 && loftFilled.pullG === 4 && Math.abs(loftFilled.pullUpTimer_s! - (12 * NM - f16loft.pullUpRange_ft) / (520 * 1.68781)) < 0.06, JSON.stringify({ pu: loftFilled.pullUpDistance_nm, rel: loftFilled.releaseAltitude_ft, t: loftFilled.pullUpTimer_s }));
 
 // ─── F-16 20° pop ────────────────────────────────────────────────────────────
 const plan20 = planPopup({ diveAngle_deg: 20, releaseAltitude_ft: 3500, speed_ktas: 480 });

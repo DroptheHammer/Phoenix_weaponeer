@@ -1,4 +1,4 @@
-# Delivery planning reference — pop-up and dive deliveries
+# Delivery planning reference — pop-up, dive and loft deliveries
 
 What public F-16 documentation says a pop-up attack is, how it is planned,
 and what that implies for the profile library. Written 2026-09-07 after the
@@ -153,7 +153,7 @@ not 20°. The 7,500 ft apex belongs to a 30° pop releasing by ~4,500 ft. The
   small arms / light AAA; exposure to SAMs increases; free-fall accuracy and
   CBU patterns get worse.
 - **LAT** (low-altitude toss) — the standoff option under a SAM umbrella;
-  the library's hidden *Loft 30°* profile is this and is not drawn yet.
+  the library's *Loft 30°* profile is this. See "Loft and LABS" below.
 - **Dive recovery** (§5.6.4): plan to release at or above the MRA or abort;
   recovery must clear the frag envelope, the ground, and a premature burst.
 - **CCIP technique** (§5.6.5): roll out with the bomb-fall line through the
@@ -314,3 +314,138 @@ cards still carry the "no data on file" caution.
   Fig 6-1 gives maximum fragment altitudes of 2,050 ft (Mk-82) and 2,750 ft
   (Mk-84) at sea level. Nothing was changed; see "Audit the seed rows' numbers"
   in `ROADMAP.md`.
+
+## Loft and LABS (2026-11-13)
+
+The F-16 *Loft 30°* (CCRP) and the F-4E *LABS Loft 45°*: a low run-in, a
+wings-level pull to the loft angle, release in the climb, and an escape turn
+away from the bomb. The code is `src/lib/loftPlanning.ts`. Everything it
+prints is ESTIMATED.
+
+### Sources
+
+1. **USAF T.O. 1F-4C-34-1-1, *F-4C/D/E Aircrew Weapons Delivery Manual,
+   Non-Nuclear*** (15 Mar 1970, Change 9, Jan 1973). Public scan on
+   archive.org, `f4cdennwdmanual`; the same scan as the Mk-83 frag floor above.
+   - p.5-10: the loft tables assume "Pullup acceleration: 4 G obtained in 2
+     seconds", approach 300/1,000/3,000/5,000 ft AGL at 500/550/600 KTAS,
+     release angle 20° to 50°.
+   - **Fig 5-9, p.5-28, "Loft Bombing Table"**: M117 750-lb GP, 4.0 G,
+     military power at pull-up, 42,000 lb, target density altitude 0 ft,
+     approach 300 ft at 500 KTAS. For each release angle: release altitude,
+     pull-up-to-release time, gyro setting, **range pull-up to impact** and
+     release-to-impact time. This is the worked example (below).
+   - pp.5-22/5-23, sample problem: the pull-up timer is the IP-to-pull-up
+     distance over the run-in speed ("6107 ft ÷ 844 fps = 7.2 seconds", no
+     wind).
+   - p.1-105 (F-4E): the timer starts when the bomb button is pressed over the
+     IP; at run-out a tone sounds and the pilot pulls at 4 G; release is
+     automatic at the preset angle.
+   - p.2-89: after release "the AC initiates a wingover escape maneuver to
+     achieve a 120° turn while diving toward minimum escape altitude".
+   - The Mk-82 loft tables are in the companion book T.O. 1F-4C-34-1-2, which
+     is not in the scan. Nothing public was found for them.
+2. **RoKAF F-16C Basic Employment Manual Vol 5** (source 1 at the top).
+   - p.5-33, §5.6.7.1: "Execute a frag avoidance maneuver after bomb
+     release ... Know minimum stand-off range (typically 0.5 NM for Frag
+     Avoidance) and do not violate it!" This is the loft frag check's
+     standoff.
+   - p.5-51, §5.8.4, LAT: "accurate visual deliveries of low-drag munitions
+     at standoff ranges"; accuracy is worse than CCIP. p.5-57, §5.11.1: the
+     jet is "exposed belly-up to the target area", and "long weapon TOF
+     combined with wind effects result in decreased accuracy".
+   - p.5-58, §5.11.4: CCRP "allows the most flexibility ... from a level,
+     dive, or climbing delivery"; p.5-61, §5.11.6.1: LADD is "a programmed
+     4-G pull to a 45-degree climb angle". The maximum-toss solution assumes
+     5 G to 45° (p.5-33).
+   - p.5-109, §5.19.7.1: "An immediate roll or dive recovery after weapon
+     release is recommended. Avoid a perfect 180-degree reversal." p.5-111:
+     jets that turned back toward the target have collided with their own
+     lofted bombs. §8.13.4.2.2: roll to 135° of bank and pull down "with 4 G".
+3. **Heatblur F-4E manual** (f4.manuals.heatblur.se), "Lofting & Tossing":
+   in LOFT the ARBCS flies "a 4 G pull-up schedule" and releases at the preset
+   angle after timer run-out; the WSO sets the angle and the pull-up timer.
+   §9.4, the bombing computer's own example: Mk-82, 350 KTAS, run-in 3,000 ft
+   MSL, target 30 ft MSL, 30° loft → pull-up range 14,796 ft, release range
+   12,989 ft, timer 16.1 s from an IP 4 nm out. It is a sim tool, not a
+   manual, but it is the only Mk-82 loft case found, and it is what DCS
+   pilots use.
+4. Chuck's Guide and ED's F-16C manual have no bomb-loft procedure or
+   numbers. The old profile files' 4 nm / 3,500 ft (F-16) and 3.5 nm /
+   4,000 ft (F-4E) had no source; they are gone.
+
+### The model
+
+Inputs: run-in altitude AGL and speed (KTAS), the loft angle, the pull G.
+
+1. **The pull.** G builds from 1 to the pull G over 2 s, then holds. The
+   flight path bends at `g(n − cos γ)/V`. The engine is at military power,
+   taken as thrust equal to drag, so the climb trades speed for height:
+   `dV/dt = −g sin γ`. Release is the moment the climb angle reaches the
+   loft angle.
+2. **The bomb.** From the release state, gravity plus drag of `k·v²`
+   (deceleration, against the velocity), k = 7.2 × 10⁻⁶ per ft, sea-level
+   air, no wind. k is the one number fitted, to every row of Fig 5-9.
+3. **Derived:** pull-up range (pull distance + bomb range), release altitude
+   and speed, release range, bomb time of flight, and the F-4E pull-up timer
+   from the IP. The pull-up range is measured back from the target; the
+   picture runs straight from the IP (decided 2026-11-13: the IP is the
+   timing mark; a planner who wants another axis drops a custom IP).
+4. **Escape:** a 120° turn off the attack heading at 4 G, left or right
+   (away from the nearest threat by default), drawn from the release point.
+
+### Worked example (Fig 5-9) and our check
+
+300 ft AGL, 500 KTAS, 4 G. geo-check runs every printed row (20° to 44°).
+
+| Release angle | Table: release alt | Ours | Table: pull-up to impact | Ours | Table: time of fall | Ours |
+|---|---|---|---|---|---|---|
+| 20° | 748 ft | 748 | 17,701 ft | 17,809 (+0.6%) | 19.41 s | 19.69 |
+| 30° | 1,250 ft | 1,241 | 22,255 ft | 22,269 (+0.1%) | 27.20 s | 27.42 |
+| 42° | 1,990 ft | 1,992 | 24,235 ft | 24,169 (−0.3%) | 34.84 s | 35.11 |
+| 44° | 2,147 ft | 2,127 | 24,205 ft | 24,131 (−0.3%) | 36.03 s | 36.19 |
+
+Worst over all 13 rows: range 0.6%, release altitude 0.9%, pull-up to release
+0.12 s, time of fall 0.28 s. The range peaks at 42°, as the table does. A
+vacuum bomb at constant speed lands 10% (20°) to 24% (44°) long and never
+peaks, which is why the loft, unlike the pop-up, cannot use one. The same k
+puts the Heatblur Mk-82 case at 12,868 ft against 12,989 (−0.9%), and the
+timer formula reproduces its 16.1 s exactly. (Heatblur's 1,807 ft pull
+distance is an *instant* 4 G pull, r·sin 30°; the T.O.'s 2 s onset is used
+here.)
+
+What the two bundled profiles give:
+
+| Profile | Run-in | Pull-up | Release | Release range | Time of fall |
+|---|---|---|---|---|---|
+| F-16 Loft 30° | 500 ft, 520 kt, 4 G | 3.97 nm | ~1,520 ft AGL, 497 kt | 3.20 nm | 28.8 s |
+| F-4E LABS 45° | 500 ft, 500 kt, 4 G | 3.99 nm | ~2,400 ft AGL, 455 kt | 3.06 nm | 37.0 s |
+
+### What it does not do
+
+- **One drag constant for every bomb.** The tool has no per-weapon drag. k
+  is an M117's, and it lands the Heatblur Mk-82 within 1%; a high-drag or
+  cluster store would fly shorter. Lofting a JDAM or an LGB is drawn the same
+  way, though the weapon steers itself.
+- **No altitude, temperature or wind.** The table is for a sea-level target.
+- **The F-4E's LABS angle is a pitch (gyro) angle.** Fig 5-9 gives a gyro
+  setting about 6–8° above the release (flight-path) angle at 4 G: 36.9° for a
+  30° release. The tool plans on the flight-path angle, as Heatblur's
+  bombing computer does, and does not print a gyro setting.
+- **The jet's speed after release is held constant** for the frag check
+  below. The real escape dives and accelerates, so the check errs short.
+
+### Checks (decided 2026-11-13)
+
+- **The release-altitude floors do not apply to a loft.** The weapon's frag
+  min-safe and minimum release altitude are about where the jet is when the
+  bomb goes off, and a lofting jet is miles away by then. Without this every
+  Mk-82 loft (3,000 ft floor, ~1,500 ft release) would be an error, and an
+  error blocks saving.
+- **Instead: where the jet is at impact.** The jet flies the drawn escape for
+  the bomb's time of fall. Inside the F-16 handbook's 0.5 nm frag standoff
+  of the target is a **warning, never an error**, so it never blocks saving.
+  The standoff is a rule of thumb, and the handbook's frag chart (Fig 5.51) is
+  marked "not for planning".
+- The "predictable straight-in" warning does not apply: a loft runs straight
+  from the IP by design.

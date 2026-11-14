@@ -67,12 +67,15 @@ export interface PopupParams extends ActionPointParams {
   minAltitude_ft: number; // hard deck, AGL
 }
 
+/**
+ * Loft inputs (docs/DELIVERY_PLANNING.md, "Loft and LABS"): the pull-up
+ * range, release altitude and speed are derived at auto-build time.
+ */
 export interface LoftParams {
   ingressAltitude_ft: number; // AGL
   ingressSpeed_ktas: number;
-  pullUpDistance_nm: number;
-  pullUpAngle_deg: number;
-  releaseAltitude_ft: number; // AGL
+  pullUpAngle_deg: number; // the loft angle: climb angle at release
+  pullG?: number; // default 4
 }
 
 export type ProfileParams = LevelParams | DiveParams | PopupParams | LoftParams;

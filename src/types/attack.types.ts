@@ -179,15 +179,37 @@ export interface PopupCCIPProfile extends IpAnchorFields {
   egressHeading_deg?: number; // undefined = auto: 90° break off the attack heading (resolveEgressHeading)
 }
 
+/**
+ * A loft (toss), on the F-4 weapons delivery manual's model
+ * (docs/DELIVERY_PLANNING.md, "Loft and LABS"). It runs straight from the IP
+ * at the target, pulls at the pull-up point, releases in the climb and turns
+ * away. Inputs are the run-in altitude and speed, the loft angle and the G;
+ * the rest is derived by `applyLoftPlan` (`lib/loftPlanning.ts`).
+ */
 export interface LoftCCRPProfile extends IpAnchorFields {
   type: 'loft_ccrp';
+  /** The attack axis: the IP→target bearing. Derived. */
   ingressHeading_deg: number;
-  ingressAltitude_ft: number;
-  ingressSpeed_ktas: number;
-  pullUpDistance_nm: number;
+
+  // Inputs
+  ingressAltitude_ft: number; // AGL
+  ingressSpeed_ktas: number; // TAS at the pull-up
+  /** The loft angle: the climb (flight-path) angle at release. */
   pullUpAngle_deg: number;
-  releaseAltitude_ft: number;
-  egressHeading_deg: number;
+  pullG?: number; // default 4
+
+  // Derived — recomputed by applyLoftPlan whenever an input changes
+  pullUpDistance_nm: number; // range from the target at the pull-up point
+  releaseAltitude_ft: number; // AGL
+  releaseSpeed_ktas?: number;
+  releaseRange_nm?: number; // range from the target at release
+  bombTimeOfFlight_s?: number;
+  /** F-4E LABS: IP to pull-up at the run-in speed, no wind. Absent when the IP is inside the pull-up range. */
+  pullUpTimer_s?: number;
+
+  // Egress
+  egressDirection: 'left' | 'right';
+  egressHeading_deg?: number; // undefined = auto: a 120° turn off the attack heading (resolveLoftEgressHeading)
 }
 
 export interface StandoffProfile extends IpAnchorFields {

@@ -234,14 +234,21 @@ impl DeliveryProfile {
                     }
                 }
                 "loft" => {
+                    // Pull-up range and release altitude are derived from these
+                    // (docs/DELIVERY_PLANNING.md, "Loft and LABS"). A squadron
+                    // file written before that may still carry them: accepted
+                    // and ignored.
                     num(p, "ingressAltitude_ft")?;
                     positive("ingressSpeed_ktas")?;
-                    positive("pullUpDistance_nm")?;
                     let angle = num(p, "pullUpAngle_deg")?;
                     if !(10.0..=60.0).contains(&angle) {
                         return Err(format!("params.pullUpAngle_deg {angle}° is outside 10–60°"));
                     }
-                    positive("releaseAltitude_ft")?;
+                    if let Some(g) = opt_num(p, "pullG")? {
+                        if !(1.5..=9.0).contains(&g) {
+                            return Err(format!("params.pullG {g} is outside 1.5–9"));
+                        }
+                    }
                 }
                 _ => unreachable!("geometry checked above"),
             }
@@ -619,6 +626,37 @@ mod tests {
 
         let ok: DeliveryProfile = serde_json::from_value(base).unwrap();
         ok.validate().unwrap();
+    }
+
+    /// A loft states the run-in, the loft angle and the G; the pull-up range
+    /// and release altitude are derived. An older squadron file that still
+    /// carries them loads, and a G no pull can fly does not.
+    #[test]
+    fn a_loft_needs_only_its_inputs_and_a_flyable_g() {
+        let base = serde_json::json!({
+            "id": "f16c.test.loft", "aircraftId": "f16c", "name": "T", "geometry": "loft",
+            "deliveryMode": "CCRP", "weaponClasses": ["bomb_ld"],
+            "params": { "ingressAltitude_ft": 500, "ingressSpeed_ktas": 520, "pullUpAngle_deg": 30 },
+            "source": "test", "verified": false
+        });
+        let p: DeliveryProfile = serde_json::from_value(base.clone()).unwrap();
+        p.validate().unwrap();
+
+        let mut legacy = base.clone();
+        legacy["params"]["pullUpDistance_nm"] = serde_json::json!(4);
+        legacy["params"]["releaseAltitude_ft"] = serde_json::json!(3500);
+        let p: DeliveryProfile = serde_json::from_value(legacy).unwrap();
+        p.validate().unwrap();
+
+        let mut weak = base.clone();
+        weak["params"]["pullG"] = serde_json::json!(1.0);
+        let p: DeliveryProfile = serde_json::from_value(weak).unwrap();
+        assert!(p.validate().unwrap_err().contains("pullG"));
+
+        let mut steep = base;
+        steep["params"]["pullUpAngle_deg"] = serde_json::json!(70);
+        let p: DeliveryProfile = serde_json::from_value(steep).unwrap();
+        assert!(p.validate().unwrap_err().contains("pullUpAngle_deg"));
     }
 
     /// The sight setting is what puts "SIGHT 100 mils" on a manual-dive card,

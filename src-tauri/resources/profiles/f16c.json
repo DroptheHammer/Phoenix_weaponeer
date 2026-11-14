@@ -264,9 +264,8 @@
     "params": {
       "ingressAltitude_ft": 500,
       "ingressSpeed_ktas": 520,
-      "pullUpDistance_nm": 4,
       "pullUpAngle_deg": 30,
-      "releaseAltitude_ft": 3500
+      "pullG": 4
     },
     "procedure": [
       "A-G master mode, CCRP, target designated",
