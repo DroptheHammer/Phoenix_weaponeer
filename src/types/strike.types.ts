@@ -3,8 +3,10 @@ import type { IpAnchorFields } from './attack.types';
 /**
  * Two to four jets of the flight on one coordinated attack.
  *
- * The members are the attacks carrying this `strikeId`, ordered by the
- * attacker's flight position; the lowest is the lead. The strike owns what
+ * The members are the attacks carrying this `strikeId`, ordered by time over
+ * the target (`strikeMembers`); the lead is the jet first on target, at
+ * offset 0, not the lowest flight position (ties fall back to flight
+ * position, then sequence). The strike owns what
  * the jets share — the IP and the default spacing over the target — and
  * writes the IP onto every member's profile (`applyStrikeIp`), so the map,
  * the card and auto-build read each attack exactly as they read a single one.

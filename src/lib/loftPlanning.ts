@@ -64,6 +64,18 @@ export interface LoftPlanInput {
 export interface LoftPoint {
   x_ft: number;
   alt_ft: number;
+  /**
+   * When the jet or bomb is here: on `pullPath` seconds since the pull-up
+   * (the last point is at exactly `pullTime_s`); on `bombPath` seconds since
+   * release (the last point is at exactly `timeOfFlight_s`). Written by the
+   * simulation loop itself, for the 3D playback; the side view and the card
+   * never read it. Optional so a hand-made point still type-checks.
+   *
+   * `pullPath` repeats its last point (same place, same time) when the pull
+   * takes a whole multiple of 100 steps: a reader must allow a zero-length
+   * final interval.
+   */
+  t_s?: number;
 }
 
 export interface LoftPlan {
@@ -102,7 +114,7 @@ export function bombFlight(speed_ktas: number, angle_deg: number, releaseAltitud
   let y = Math.max(releaseAltitude_ft, 0);
   let t = 0;
   let apex = y;
-  const path: LoftPoint[] = [{ x_ft: 0, alt_ft: y }];
+  const path: LoftPoint[] = [{ x_ft: 0, alt_ft: y, t_s: 0 }];
   // 400 s is far past any loft; it only stops a nonsense input from spinning.
   for (let i = 0; y > 0 && t < 400; i++) {
     const v = Math.hypot(vx, vy);
@@ -121,7 +133,7 @@ export function bombFlight(speed_ktas: number, angle_deg: number, releaseAltitud
       y = 0;
     }
     apex = Math.max(apex, y);
-    if (i % 100 === 0 || y === 0) path.push({ x_ft: x, alt_ft: y });
+    if (i % 100 === 0 || y === 0) path.push({ x_ft: x, alt_ft: y, t_s: t });
   }
   return { range_ft: x, timeOfFlight_s: t, apex_ft: apex, path };
 }
@@ -141,7 +153,7 @@ export function planLoft(input: LoftPlanInput): LoftPlan {
   let x = 0;
   let h = ingress;
   let t = 0;
-  const pullPath: LoftPoint[] = [{ x_ft: 0, alt_ft: h }];
+  const pullPath: LoftPoint[] = [{ x_ft: 0, alt_ft: h, t_s: 0 }];
   for (let i = 1; gamma < target && t < 60; i++) {
     const n = t < LOFT_G_ONSET_S ? 1 + ((pullG - 1) * t) / LOFT_G_ONSET_S : pullG;
     gamma += ((G_FT_S2 * (n - Math.cos(gamma))) / v) * dt;
@@ -149,9 +161,9 @@ export function planLoft(input: LoftPlanInput): LoftPlan {
     x += v * Math.cos(gamma) * dt;
     h += v * Math.sin(gamma) * dt;
     t += dt;
-    if (i % 100 === 0) pullPath.push({ x_ft: x, alt_ft: h });
+    if (i % 100 === 0) pullPath.push({ x_ft: x, alt_ft: h, t_s: t });
   }
-  pullPath.push({ x_ft: x, alt_ft: h });
+  pullPath.push({ x_ft: x, alt_ft: h, t_s: t });
 
   const releaseSpeed_ktas = v / KT_TO_FT_S;
   const bomb = bombFlight(releaseSpeed_ktas, angle, h);
@@ -170,7 +182,7 @@ export function planLoft(input: LoftPlanInput): LoftPlan {
     timeOfFlight_s: bomb.timeOfFlight_s,
     bombApex_ft: bomb.apex_ft,
     pullPath,
-    bombPath: bomb.path.map((p) => ({ x_ft: p.x_ft + x, alt_ft: p.alt_ft })),
+    bombPath: bomb.path.map((p) => ({ ...p, x_ft: p.x_ft + x })),
   };
 }
 

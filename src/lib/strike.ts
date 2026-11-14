@@ -142,6 +142,27 @@ export function rebaseTot(mission: Mission, strikeId: string): Mission {
 }
 
 /**
+ * Write new TOT offsets onto a strike's members (attack id → seconds), then
+ * re-base so whoever is first on target leads at 0 — a jet moved ahead of the
+ * lead becomes the lead. Pure: each written attack is a new object around the
+ * same profile; members not listed, attacks outside the strike, and members
+ * whose given offset is not a finite number are left as they are. An unknown
+ * strike returns the mission unchanged (the same object). Never `respace`,
+ * which would wipe each jet's own delay. For the playback's Apply; the store
+ * wraps it in one undo step.
+ */
+export function setStrikeOffsets(mission: Mission, strikeId: string, offsets: Record<string, number>): Mission {
+  if (!strikeOf(mission, strikeId)) return mission;
+  const written: Mission = {
+    ...mission,
+    attacks: mission.attacks.map((a) =>
+      a.strikeId === strikeId && Number.isFinite(offsets[a.id]) ? { ...a, totOffset_s: offsets[a.id] } : a,
+    ),
+  };
+  return rebaseTot(written, strikeId);
+}
+
+/**
  * After an attack leaves (deleted, or its pilot removed): a strike left with
  * one jet is no longer a strike, and one that lost its lead re-bases on the
  * next jet.
@@ -275,6 +296,58 @@ export function coneGrade(deg: number): ConeGrade {
   return deg >= 55 ? 'good' : deg >= FIRE_CONTROL_CONE_DEG ? 'marginal' : 'inside';
 }
 
+/** Two jets over the target inside the first one's frag: what `strikeReadout`'s frag warning says, as numbers. */
+export interface FragConflict {
+  /** Label of the jet over the target first (on a tie, the one listed first). */
+  first: string;
+  /** Label of the jet that follows it into the frag. */
+  second: string;
+  /** Places of `first` and `second` in the list given to `fragConflicts`. */
+  firstIndex: number;
+  secondIndex: number;
+  /** Seconds between their TOTs, unrounded (the warning prints it rounded). Never negative. */
+  gap_s: number;
+  /** The first jet's frag clear time (`fragClearTime_s` of its weapon); always more than `gap_s`. */
+  frag_s: number;
+  /** Both pictures exist and their attack axes are within `SAME_AXIS_DEG`. */
+  sameAxis: boolean;
+}
+
+/**
+ * Every pair of jets whose second is over the target inside the first's frag:
+ * the rule behind `strikeReadout`'s frag warnings, one row per warning, in the
+ * same order. Every pair, not only neighbours (#1 and #3 share a side in a
+ * 4-ship), taken (0,1), (0,2) … (1,2) …. "First" is by TOT; on a tie the jet
+ * listed first is first, so its weapon's frag decides. The boundary is strict:
+ * a gap equal to the frag time is clear.
+ */
+export function fragConflicts(jets: StrikeJet[]): FragConflict[] {
+  const conflicts: FragConflict[] = [];
+  for (let i = 0; i < jets.length; i++) {
+    for (let j = i + 1; j < jets.length; j++) {
+      const iFirst = jets[i].totOffset_s <= jets[j].totOffset_s;
+      const first = iFirst ? jets[i] : jets[j];
+      const second = iFirst ? jets[j] : jets[i];
+      const gap = second.totOffset_s - first.totOffset_s;
+      const frag = fragClearTime_s(first.weapon);
+      if (frag > 0 && gap < frag) {
+        const sameAxis =
+          !!first.picture && !!second.picture && Math.abs(signedHeadingDelta(first.picture.attackHeading, second.picture.attackHeading)) < SAME_AXIS_DEG;
+        conflicts.push({
+          first: first.label,
+          second: second.label,
+          firstIndex: iFirst ? i : j,
+          secondIndex: iFirst ? j : i,
+          gap_s: gap,
+          frag_s: frag,
+          sameAxis,
+        });
+      }
+    }
+  }
+  return conflicts;
+}
+
 export function strikeReadout(jets: StrikeJet[]): StrikeReadout {
   const splits: StrikeReadout['splits'] = [];
   const warnings: string[] = [];
@@ -284,22 +357,11 @@ export function strikeReadout(jets: StrikeJet[]): StrikeReadout {
     const deg = Math.abs(signedHeadingDelta(a.picture.attackHeading, b.picture.attackHeading));
     splits.push({ a: a.label, b: b.label, deg, grade: coneGrade(deg) });
   }
-  // Every pair, not only neighbours: #1 and #3 share a side in a 4-ship.
-  for (let i = 0; i < jets.length; i++) {
-    for (let j = i + 1; j < jets.length; j++) {
-      const first = jets[i].totOffset_s <= jets[j].totOffset_s ? jets[i] : jets[j];
-      const second = first === jets[i] ? jets[j] : jets[i];
-      const gap = second.totOffset_s - first.totOffset_s;
-      const frag = fragClearTime_s(first.weapon);
-      if (frag > 0 && gap < frag) {
-        const sameAxis =
-          first.picture && second.picture && Math.abs(signedHeadingDelta(first.picture.attackHeading, second.picture.attackHeading)) < SAME_AXIS_DEG;
-        warnings.push(
-          `${second.label} is over the target ${Math.round(gap)} s after ${first.label}, inside ${first.label}'s ~${frag} s of frag (est.)` +
-            (sameAxis ? ' — and on the same axis' : ''),
-        );
-      }
-    }
+  for (const c of fragConflicts(jets)) {
+    warnings.push(
+      `${c.second} is over the target ${Math.round(c.gap_s)} s after ${c.first}, inside ${c.first}'s ~${c.frag_s} s of frag (est.)` +
+        (c.sameAxis ? ' — and on the same axis' : ''),
+    );
   }
   for (const s of splits) {
     if (s.grade === 'inside') warnings.push(`${s.a} and ${s.b} are only ${Math.round(s.deg)}° apart — inside one ${FIRE_CONTROL_CONE_DEG}° fire-control cone`);

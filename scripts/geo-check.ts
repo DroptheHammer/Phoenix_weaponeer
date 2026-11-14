@@ -10,6 +10,7 @@ import {
   offsetLegRatioFor,
   maxOffsetLegRatio,
   levelReleaseRange_nm,
+  levelFallVacuum,
   LEVEL_RUN_IN_NM,
   calculatePopupGeometry,
   calculateDiveGeometry,
@@ -24,6 +25,8 @@ import {
   approachAbeamFor,
   doctrinalCheckTurn,
   applyPopupPlan,
+  bombRangeVacuum_ft,
+  bombFallVacuum,
 } from '../src/lib/popupPlanning';
 import { planLoft, bombFlight, pullUpTimer_s, jetRangeAtImpact_nm, applyLoftPlan, resolveLoftEgressHeading, loftPlanOf, LOFT_FRAG_STANDOFF_NM, loftPullUpTimer_s } from '../src/lib/loftPlanning';
 import { describeRunIn } from '../src/lib/runIn';
@@ -50,6 +53,7 @@ import { newJet, assignFlanks, respace, groupEdit } from '../src/lib/strikeDraft
 import {
   applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
   fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot, attackSpeedOf, ipToImpact_s,
+  fragConflicts, setStrikeOffsets,
 } from '../src/lib/strike';
 import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
@@ -4004,4 +4008,253 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     pushes: [['#1', 0, undefined], ['#2', 30, undefined], ['#3', 60, 60 - L3], ['#4', 90, undefined]],
     warnings: ['#3 and #4 are only 0° apart — inside one 40° fire-control cone'],
   });
+
+  // fragConflicts (0.4.0 playback, strike.ts): the numbers behind each frag warning pinned above,
+  // for the same jets in the same order. strikeReadout now prints its frag warnings from these rows,
+  // so the literals above guard the text and these guard the values the playback lights its chips
+  // from: who is first and second (by TOT; the jet listed first on a tie), their places in the list,
+  // the gap UNROUNDED (12.4, 12.5, 29.9 stay as they are; the text rounds), the first jet's frag
+  // clear time, and the same-axis flag. Each row is [first, second, firstIndex, secondIndex, gap_s,
+  // frag_s, sameAxis]. A row count must also equal the readout's frag-warning count.
+  // Mutation proofs (2026-11-14, each applied alone to strike.ts, run, restored):
+  // - fragConflicts `gap_s: gap` → `gap_s: Math.round(gap)` fails the 12.5, 12.4 and 29.9 s rows, e.g.
+  //     FAIL fragConflicts: a 12.4 s gap stays 12.4 (unrounded)  [{"first":"#1","second":"#2","firstIndex":0,"secondIndex":1,"gap_s":12,"frag_s":30,"sameAxis":false}] vs 1 frag warning(s)
+  //   and every literal pin above stays green under it (the text rounds a rounded gap to the same number).
+  // - fragConflicts `firstIndex: iFirst ? i : j` → `firstIndex: i`:
+  //     FAIL fragConflicts: three jets, #3 (listed last) is first against #2  [… ,{"first":"#3","second":"#2","firstIndex":1,"secondIndex":1,"gap_s":10,"frag_s":30,"sameAxis":false}] vs 3 frag warning(s)
+  // - fragConflicts `< SAME_AXIS_DEG` → `< FIRE_CONTROL_CONE_DEG` fails here and, through strikeReadout, the literal pin:
+  //     FAIL strikeReadout literal: 20° apart: no same-axis suffix, but inside the cone; the frag warning comes before the cone warning  WARNINGS {…}
+  //     FAIL fragConflicts: 20° apart at 10 s: not the same axis  [{"first":"#1","second":"#2","firstIndex":0,"secondIndex":1,"gap_s":10,"frag_s":30,"sameAxis":true}] vs 1 frag warning(s)
+  type Row = [string, string, number, number, number, number, boolean];
+  const conflictsAre = (name: string, jets: never[], want: Row[]) => {
+    const got = fragConflicts(jets);
+    const rowsOk = got.length === want.length && got.every((c, k) =>
+      c.first === want[k][0] && c.second === want[k][1] && c.firstIndex === want[k][2] && c.secondIndex === want[k][3] &&
+      c.gap_s === want[k][4] && c.frag_s === want[k][5] && c.sameAxis === want[k][6]);
+    const fragWarnings = strikeReadout(jets).warnings.filter((w) => w.includes('s of frag (est.)')).length;
+    ok(`fragConflicts: ${name}`, rowsOk && fragWarnings === got.length, `${JSON.stringify(got)} vs ${fragWarnings} frag warning(s)`);
+  };
+  conflictsAre('a 12.5 s gap stays 12.5 (unrounded), Mk-82 30 s, axes apart', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 12.5, mk82r),
+  ], [['#1', '#2', 0, 1, 12.5, 30, false]]);
+  conflictsAre('a 12.4 s gap stays 12.4 (unrounded)', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 12.4, mk82r),
+  ], [['#1', '#2', 0, 1, 12.4, 30, false]]);
+  conflictsAre('40 s apart, outside a Mk-82\'s 30 s: none (the cone warning is not a frag conflict)', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', loft11, 520, 40, mk82r),
+  ], []);
+  conflictsAre('10° apart at 15 s: same axis', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', loft10, 520, 15, mk82r),
+  ], [['#1', '#2', 0, 1, 15, 30, true]]);
+  conflictsAre('20° apart at 10 s: not the same axis', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', loft20, 520, 10, mk82r),
+  ], [['#1', '#2', 0, 1, 10, 30, false]]);
+  conflictsAre('tied, Mk-82 listed first: the Mk-82\'s 30 s, gap 0', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 0, mk81r),
+  ], [['#1', '#2', 0, 1, 0, 30, false]]);
+  conflictsAre('tied, Mk-81 (no frag data) listed first: none', [
+    jet('#1', trioPics[0], 420, 0, mk81r), jet('#2', loftPic, 520, 0, mk82r),
+  ], []);
+  conflictsAre('tied, Mk-82 then Mk-83: 30 s', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 0, mk83r),
+  ], [['#1', '#2', 0, 1, 0, 30, false]]);
+  conflictsAre('tied, Mk-83 then Mk-82: 20 s', [
+    jet('#1', trioPics[0], 420, 0, mk83r), jet('#2', loftPic, 520, 0, mk82r),
+  ], [['#1', '#2', 0, 1, 0, 20, false]]);
+  conflictsAre('exactly 30 s after a Mk-82: none (strict boundary)', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 30, mk82r),
+  ], []);
+  conflictsAre('29.9 s after a Mk-82: gap 29.9 (the text says 30)', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 29.9, mk82r),
+  ], [['#1', '#2', 0, 1, 29.9, 30, false]]);
+  conflictsAre('three jets, #3 (listed last) is first against #2', [
+    jet('#1', trioPics[0], 420, 0, mk84r), jet('#2', trioPics[1], 420, 30, mk82r), jet('#3', trioPics[2], 420, 20, mk82r),
+  ], [['#1', '#2', 0, 1, 30, 35, false], ['#1', '#3', 0, 2, 20, 35, true], ['#3', '#2', 2, 1, 10, 30, false]]);
+  conflictsAre('three jets, only the non-adjacent pair (#1, #3), same axis', [
+    jet('#1', trioPics[0], 420, 0, mk82r), jet('#2', trioPics[1], 420, 40, mk82r), jet('#3', trioPics[2], 420, 25, mk81r),
+  ], [['#1', '#3', 0, 2, 25, 30, true]]);
+  conflictsAre('no weapons: none', [
+    jet('#1', undefined, 520, 0, undefined), jet('#2', trioPics[1], undefined, 30, undefined),
+    jet('#3', trioPics[2], 420, 60, undefined), jet('#4', trioPics[0], 0, 90, undefined),
+  ], []);
+}
+
+// ─── 0.4.0 playback prerequisites in the shipped modules ──────────────────────
+// The playback library (src/lib/playback/, next step) needs four things the planner
+// computes but did not hand out: bomb fall times, loft sample times, the frag rule as
+// numbers (above, in the strikeReadout block) and a pure "apply these delays". Nothing
+// drawn may change: the card pixel pins and the loft and readout literals above guard that.
+{
+  // 1. Fall siblings. bombFallVacuum (popupPlanning.ts) and levelFallVacuum (attackGeometry.ts)
+  // return the shipped range plus the time of fall. Parity is exact (===) over a grid with a
+  // negative release height (both clamp it to 0), a zero speed, level and steep dives. The time is
+  // checked against the fall equation with each module's own constants written out here (popup:
+  // 1.69 ft/s per kt and g = 32.2, the manual's; level: 1.68781 and 32.174): the bomb has dropped
+  // vy0·t + g·t²/2 = max(h, 0) at t, and covered the range at the horizontal speed.
+  // Mutation proofs (2026-11-14, each applied alone, run, restored):
+  // - popupPlanning.ts bombFallVacuum `const h0 = Math.max(releaseAltitude_ft, 0)` → `const h0 = releaseAltitude_ft`
+  //   (only the negative-height cells can catch it):
+  //     FAIL fall sibling: bombFallVacuum range === bombRangeVacuum_ft over the grid (incl. h = -500)  first mismatch h=-500 v=0 dive=0: NaN vs 0
+  //     FAIL fall sibling: bombFallVacuum time solves vy0·t + 16.1·t² = max(h, 0), range = vx·t  worst residual NaN ft
+  // - popupPlanning.ts bombFallVacuum `time_s: t` → `time_s: Math.sqrt((2 * h0) / G_FT_S2)` (a level fall for a dive):
+  //     FAIL fall sibling: bombFallVacuum time solves vy0·t + 16.1·t² = max(h, 0), range = vx·t  worst residual 2.2e+4 ft
+  //     FAIL fall sibling: 1,500 ft level falls 9.656 s; 30° at 450 kt from 3,000 ft falls 6.241 s  9.656 s, 13.650 s
+  // - attackGeometry.ts levelFallVacuum `const h0 = Math.max(releaseAltitude_agl, 0)` → `const h0 = releaseAltitude_agl`:
+  //     FAIL fall sibling: levelFallVacuum range / 6076.12 === levelReleaseRange_nm over the grid (incl. h = -500)  first mismatch h=-500 v=0: NaN vs 0
+  //     FAIL fall sibling: levelFallVacuum time solves 16.087·t² = max(h, 0), range = vx·t  worst residual NaN ft
+  // - attackGeometry.ts levelFallVacuum `Math.sqrt((2 * h0) / G_FT_S2)` → `Math.sqrt((2 * h0) / 32.2)` (the pop-up's g):
+  //     FAIL fall sibling: levelFallVacuum range / 6076.12 === levelReleaseRange_nm over the grid (incl. h = -500)  first mismatch h=1 v=250: 0.01730709924116751 vs 0.017314090813682313
+  //     FAIL fall sibling: levelFallVacuum time solves 16.087·t² = max(h, 0), range = vx·t  worst residual 9.7e+0 ft
+  //     FAIL fall sibling: 1,500 ft level falls 9.656 s; 30° at 450 kt from 3,000 ft falls 6.241 s  9.652 s, 6.241 s
+  const heights = [-500, 0, 1, 300, 1500, 4000, 12000];
+  const speeds = [0, 250, 450, 540];
+  const dives = [0, 5, 20, 30, 45, 60];
+  let popupMismatch = '', popupRes = 0, levelMismatch = '', levelRes = 0, cells = 0;
+  for (const h of heights) {
+    for (const v of speeds) {
+      const lf = levelFallVacuum(h, v);
+      const shippedNm = levelReleaseRange_nm(h, v);
+      if (!levelMismatch && !(lf.range_ft / 6076.12 === shippedNm)) levelMismatch = `h=${h} v=${v}: ${lf.range_ft / 6076.12} vs ${shippedNm}`;
+      const hl = Math.max(h, 0);
+      levelRes = Math.max(levelRes, Math.abs(0.5 * 32.174 * lf.time_s ** 2 - hl), Math.abs(v * 1.68781 * lf.time_s - lf.range_ft),
+        lf.time_s >= 0 ? 0 : Infinity, Number.isFinite(lf.time_s) ? 0 : Infinity);
+      for (const d of dives) {
+        cells++;
+        const f = bombFallVacuum(h, v, d);
+        const shipped = bombRangeVacuum_ft(h, v, d);
+        if (!popupMismatch && !(f.range_ft === shipped)) popupMismatch = `h=${h} v=${v} dive=${d}: ${f.range_ft} vs ${shipped}`;
+        const vy0 = v * 1.69 * Math.sin((d * Math.PI) / 180), vx = v * 1.69 * Math.cos((d * Math.PI) / 180);
+        popupRes = Math.max(popupRes, Math.abs(vy0 * f.time_s + 0.5 * 32.2 * f.time_s ** 2 - hl), Math.abs(vx * f.time_s - f.range_ft),
+          f.time_s >= 0 ? 0 : Infinity, Number.isFinite(f.time_s) ? 0 : Infinity);
+      }
+    }
+  }
+  ok('fall sibling: bombFallVacuum range === bombRangeVacuum_ft over the grid (incl. h = -500)', cells === 168 && popupMismatch === '',
+     popupMismatch ? `first mismatch ${popupMismatch}` : `${cells} cells`);
+  ok('fall sibling: bombFallVacuum time solves vy0·t + 16.1·t² = max(h, 0), range = vx·t', popupRes < 1e-6, `worst residual ${popupRes.toExponential(1)} ft`);
+  ok('fall sibling: levelFallVacuum range / 6076.12 === levelReleaseRange_nm over the grid (incl. h = -500)', levelMismatch === '',
+     levelMismatch ? `first mismatch ${levelMismatch}` : '');
+  ok('fall sibling: levelFallVacuum time solves 16.087·t² = max(h, 0), range = vx·t', levelRes < 1e-6, `worst residual ${levelRes.toExponential(1)} ft`);
+  // Worked values, so a reader sees the numbers: 1,500 ft level is √(3000/32.174) = 9.656 s; a 30°
+  // dive at 450 kt from 3,000 ft throws the bomb down at 380.25 ft/s:
+  // (−380.25 + √(380.25² + 2·32.2·3000)) / 32.2 = 6.241 s.
+  const lv1500 = levelFallVacuum(1500, 450), dv30 = bombFallVacuum(3000, 450, 30);
+  ok('fall sibling: 1,500 ft level falls 9.656 s; 30° at 450 kt from 3,000 ft falls 6.241 s',
+     Math.abs(lv1500.time_s - 9.656) < 0.001 && Math.abs(dv30.time_s - 6.241) < 0.001 && lv1500.h0_ft === 1500 && dv30.g_fps2 === 32.2 && lv1500.g_fps2 === 32.174,
+     `${lv1500.time_s.toFixed(3)} s, ${dv30.time_s.toFixed(3)} s`);
+}
+{
+  // 2. Loft sample times. planLoft's loop writes t_s on every pullPath point (seconds since the
+  // pull-up) and bombFlight's on every bomb point (seconds since release), so the playback never
+  // infers time from the loop's cadence. The exact relation in the code: the final pull point is
+  // pushed after the loop with the loop's own t, which planLoft returns as pullTime_s; the last bomb
+  // point is pushed on the landing step with the interpolated t, which bombFlight returns as
+  // timeOfFlight_s. Both are the same variable, so the check is ===.
+  // When the pull takes a whole multiple of 100 steps of 0.002 s, the last in-loop sample and the
+  // post-loop push are the same point (judge-risk §6.1, ~1% of inputs): the search below finds such
+  // inputs and pins that the duplicate carries an equal t_s (so a zero-length interval, which the
+  // playback must drop). Fixtures: the two bundled lofts, the 13 Fig 5-9 rows and a 1,482-plan grid.
+  // Nothing drawn moves: the side view builds its own points from x_ft / alt_ft (attackPicture.ts),
+  // and the loft card pixel pins above stay green.
+  // Mutation proofs (2026-11-14, each applied alone to loftPlanning.ts, run, restored):
+  // - planLoft first pull point `t_s: 0` → `t_s: 1`:
+  //     FAIL loft t_s: every pull and bomb point has a finite time from 0 that never goes back (only a duplicated final pull point ties)  1497 plans, 1497 bad; first: [{"x_ft":0,"alt_ft":500,"t_s":1},{…,"t_s":0.20000000000000015},…]
+  // - bombFlight push `t_s: t` → `t_s: (i + 1) * dt` (times from the cadence, blind to the landing interpolation):
+  //     FAIL loft t_s: the last pull point is at exactly pullTime_s and the last bomb point at exactly timeOfFlight_s  F-16: 5.621999999999603 vs 5.621999999999603, 28.835 vs 28.833859505761666; 1497 bad
+  // - planLoft in-loop push `t_s: t` → `t_s: i * dt` (the loop's sum of 0.002s drifts from i·dt, so the duplicate's times split):
+  //     FAIL loft t_s: every pull and bomb point has … (only a duplicated final pull point ties)  1497 plans, 25 bad; …
+  //     FAIL loft t_s: a searched input whose pull duplicates its final point (a multiple of 100 steps) gives the duplicate an equal t_s  24 of 1482 grid plans duplicate (first: 300 ft, 450 kt, 30°, 2500 steps, t 5 / 4.999999999999671); 0 where the duplicate and the step count disagree
+  // - planLoft `bombPath: bomb.path.map((p) => ({ ...p, x_ft: p.x_ft + x }))` → the old `({ x_ft: p.x_ft + x, alt_ft: p.alt_ft })` (drops t_s):
+  //     FAIL loft t_s: ...and the bombPath starts at release (t 0) where the pull ends
+  //   (and the two checks above, "undefined vs 28.833859505761666").
+  type Plan = ReturnType<typeof planLoft>;
+  const grid: Plan[] = [];
+  for (const ingress of [300, 500, 800]) {
+    for (let speed = 420; speed <= 600; speed += 10) {
+      for (let angle = 20; angle <= 45; angle++) grid.push(planLoft({ ingressAltitude_ft: ingress, speed_ktas: speed, loftAngle_deg: angle, pullG: 4 }));
+    }
+  }
+  const plans: Plan[] = [f16loft, f4loft, ...loftRows.map((x) => x.plan), ...grid];
+  const isDup = (p: Plan) => {
+    const n = p.pullPath.length, a = p.pullPath[n - 2], b = p.pullPath[n - 1];
+    return n >= 2 && a.x_ft === b.x_ft && a.alt_ft === b.alt_ft;
+  };
+  /** Finite, starting at 0, strictly rising; `allowFinalTie` allows one equal pair, only at the very end. */
+  const timesOk = (path: { t_s?: number }[], allowFinalTie: boolean) =>
+    path.length >= 2 && path[0].t_s === 0 && path.every((p, k) => {
+      if (!Number.isFinite(p.t_s)) return false;
+      if (k === 0) return true;
+      const prev = path[k - 1].t_s!;
+      return p.t_s! > prev || (p.t_s === prev && allowFinalTie && k === path.length - 1);
+    });
+  const badOrder = plans.filter((p) => !timesOk(p.pullPath, isDup(p)) || !timesOk(p.bombPath, false));
+  ok('loft t_s: every pull and bomb point has a finite time from 0 that never goes back (only a duplicated final pull point ties)',
+     plans.length === 1497 && badOrder.length === 0,
+     `${plans.length} plans, ${badOrder.length} bad; first: ${badOrder[0] ? JSON.stringify(badOrder[0].pullPath.slice(0, 3)) : '-'}`);
+  const badEnds = plans.filter((p) => p.pullPath[p.pullPath.length - 1].t_s !== p.pullTime_s || p.bombPath[p.bombPath.length - 1].t_s !== p.timeOfFlight_s);
+  ok('loft t_s: the last pull point is at exactly pullTime_s and the last bomb point at exactly timeOfFlight_s',
+     badEnds.length === 0,
+     `F-16: ${f16loft.pullPath[f16loft.pullPath.length - 1].t_s} vs ${f16loft.pullTime_s}, ${f16loft.bombPath[f16loft.bombPath.length - 1].t_s} vs ${f16loft.timeOfFlight_s}; ${badEnds.length} bad`);
+  // The duplicate: found by search, never assumed. Which inputs give it follows from the step count.
+  const steps = (p: Plan) => Math.round(p.pullTime_s / 0.002);
+  const dups = grid.filter(isDup);
+  const iffBroken = grid.filter((p) => isDup(p) !== (steps(p) % 100 === 0));
+  const dupTimesOk = dups.every((p) => {
+    const n = p.pullPath.length;
+    return p.pullPath[n - 2].t_s === p.pullPath[n - 1].t_s && p.pullPath[n - 1].t_s === p.pullTime_s;
+  });
+  const firstDup = dups[0];
+  ok('loft t_s: a searched input whose pull duplicates its final point (a multiple of 100 steps) gives the duplicate an equal t_s',
+     dups.length > 0 && iffBroken.length === 0 && dupTimesOk,
+     `${dups.length} of ${grid.length} grid plans duplicate${firstDup ? ` (first: ${firstDup.ingressAltitude_ft} ft, ${firstDup.speed_ktas} kt, ${firstDup.loftAngle_deg}°, ${steps(firstDup)} steps, t ${firstDup.pullPath[firstDup.pullPath.length - 2].t_s} / ${firstDup.pullPath[firstDup.pullPath.length - 1].t_s})` : ''}; ${iffBroken.length} where the duplicate and the step count disagree`);
+  // (The bundled lofts are not such inputs, 2,811 and 3,723 steps: only a searched input exercises the playback's de-duplication.)
+  ok('loft t_s: ...and the bombPath starts at release (t 0) where the pull ends',
+     plans.every((p) => p.bombPath[0].t_s === 0 && p.bombPath[0].x_ft === p.pullDistance_ft && p.bombPath[0].alt_ft === p.releaseAltitude_ft));
+}
+{
+  // 3. setStrikeOffsets (strike.ts): the playback's Apply writes the delays the planner dragged,
+  // then re-bases with rebaseTot (never respace, which would wipe each jet's own delay). Fixture: the
+  // saved level trio off the shared IP (withIp: p1@0, p2@30, p3@60), plus a plain attack and an attack
+  // of another (dangling) strike, both listed in the offsets to prove they are not written.
+  // Mutation proofs (2026-11-14, each applied alone to strike.ts setStrikeOffsets, run, restored):
+  // - `return rebaseTot(written, strikeId)` → `return written`:
+  //     FAIL setStrikeOffsets: offsets 5/40/75 are re-based to 0/35/70 on the lead  a1@5,a2@40,a3@75
+  //     FAIL setStrikeOffsets: #2 moved 10 s ahead of the lead becomes the lead, and the rest shift by 10 s  a2@-10,a1@0,a3@60
+  // - `{ ...a, totOffset_s: offsets[a.id] }` → `{ ...a, profile: { ...a.profile }, totOffset_s: offsets[a.id] }`:
+  //     FAIL setStrikeOffsets: every attack keeps its very profile object
+  // - `Number.isFinite(offsets[a.id])` → `Number.isFinite(offsets[a.id]) && offsets[a.id] >= 0` (no early TOTs):
+  //     FAIL setStrikeOffsets: #2 moved 10 s ahead of the lead becomes the lead, and the rest shift by 10 s  a1@0,a2@30,a3@60
+  // - delete `if (!strikeOf(mission, strikeId)) return mission;`:
+  //     FAIL setStrikeOffsets: an unknown strike id returns the very same mission
+  // - `a.strikeId === strikeId && Number.isFinite(offsets[a.id])` → `Number.isFinite(offsets[a.id])`:
+  //     FAIL setStrikeOffsets: attacks outside the strike are the same objects, untouched, even when listed  99 / 99
+  // - `Number.isFinite(offsets[a.id])` → `offsets[a.id] !== undefined`:
+  //     FAIL setStrikeOffsets: a member not listed, or given a non-number, keeps its offset  a1@NaN,a2@NaN,a3@NaN
+  // - `{ ...a, totOffset_s: offsets[a.id] }` → `Object.assign(a, { totOffset_s: offsets[a.id] })` (writes into the input):
+  //     FAIL setStrikeOffsets: the mission given is not changed
+  //   (and the two later checks, which then start from the dirtied fixture).
+  const [m1, m2, m3] = strikeMembers(withIp, sId);
+  const plain = { ...m1, id: 'plain-1', strikeId: undefined, totOffset_s: undefined, sequenceNumber: 4 };
+  const other = { ...m2, id: 'other-1', strikeId: 'strike-2', totOffset_s: 15, sequenceNumber: 5 };
+  const base = { ...withIp, attacks: [...withIp.attacks, plain, other] };
+  const offsetsOf = (m: typeof base) => strikeMembers(m, sId).map((a) => `${a.id}@${a.totOffset_s}`).join();
+  ok('setStrikeOffsets fixture: three members, lead first, at 0/30/60, and two attacks outside the strike',
+     offsetsOf(base) === `${m1.id}@0,${m2.id}@30,${m3.id}@60` && base.attacks.length === 5, offsetsOf(base));
+  const moved = setStrikeOffsets(base, sId, { [m1.id]: 5, [m2.id]: 40, [m3.id]: 75, [plain.id]: 99, [other.id]: 99 });
+  ok('setStrikeOffsets: offsets 5/40/75 are re-based to 0/35/70 on the lead',
+     offsetsOf(moved) === `${m1.id}@0,${m2.id}@35,${m3.id}@70`, offsetsOf(moved));
+  ok('setStrikeOffsets: every attack keeps its very profile object',
+     moved.attacks.length === base.attacks.length && moved.attacks.every((a) => a.profile === base.attacks.find((b) => b.id === a.id)?.profile));
+  ok('setStrikeOffsets: attacks outside the strike are the same objects, untouched, even when listed',
+     moved.attacks.find((a) => a.id === plain.id) === plain && moved.attacks.find((a) => a.id === other.id) === other,
+     `${moved.attacks.find((a) => a.id === plain.id)?.totOffset_s} / ${moved.attacks.find((a) => a.id === other.id)?.totOffset_s}`);
+  ok('setStrikeOffsets: the mission given is not changed', offsetsOf(base) === `${m1.id}@0,${m2.id}@30,${m3.id}@60` && moved !== base);
+  const ahead = setStrikeOffsets(base, sId, { [m2.id]: -10 });
+  ok('setStrikeOffsets: #2 moved 10 s ahead of the lead becomes the lead, and the rest shift by 10 s',
+     offsetsOf(ahead) === `${m2.id}@0,${m1.id}@10,${m3.id}@70`, offsetsOf(ahead));
+  ok('setStrikeOffsets: an unknown strike id returns the very same mission',
+     setStrikeOffsets(base, 'no-such-strike', { [m1.id]: 5 }) === base);
+  const partial = setStrikeOffsets(base, sId, { [m1.id]: NaN, [m3.id]: 50 });
+  ok('setStrikeOffsets: a member not listed, or given a non-number, keeps its offset',
+     offsetsOf(partial) === `${m1.id}@0,${m2.id}@30,${m3.id}@50`, offsetsOf(partial));
 }

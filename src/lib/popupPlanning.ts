@@ -90,6 +90,37 @@ export function bombRangeVacuum_ft(releaseAltitude_ft: number, speed_ktas: numbe
   return v * Math.cos(dive) * t;
 }
 
+/** The vacuum fall of `bombFallVacuum`: where the bomb lands, when, and the numbers its parabola is drawn from. */
+export interface VacuumFall {
+  /** Release to impact along the ground: equal to `bombRangeVacuum_ft` with the same inputs, bit for bit. */
+  range_ft: number;
+  /** Release to impact. */
+  time_s: number;
+  /** Horizontal speed, constant (no drag). */
+  vx_fps: number;
+  /** Vertical speed at release, positive DOWN (a dive throws the bomb at the ground). */
+  vy0_fps: number;
+  /** The gravity this module uses (the manual's 32.2). */
+  g_fps2: number;
+  /** The height the bomb falls: the release altitude, never below 0. */
+  h0_ft: number;
+}
+
+/**
+ * `bombRangeVacuum_ft` with its time of fall, for the 3D playback. The same
+ * arithmetic in the same order, so `range_ft` is the shipped number exactly
+ * (geo-check holds them equal over a grid). Height below release at time t:
+ * vy0·t + g·t²/2; it reaches `h0_ft` at `time_s`.
+ */
+export function bombFallVacuum(releaseAltitude_ft: number, speed_ktas: number, diveAngle_deg: number): VacuumFall {
+  const v = speed_ktas * KT_TO_FT_S;
+  const dive = rad(diveAngle_deg);
+  const v0y = v * Math.sin(dive);
+  const h0 = Math.max(releaseAltitude_ft, 0);
+  const t = (-v0y + Math.sqrt(v0y * v0y + 2 * G_FT_S2 * h0)) / G_FT_S2;
+  return { range_ft: v * Math.cos(dive) * t, time_s: t, vx_fps: v * Math.cos(dive), vy0_fps: v0y, g_fps2: G_FT_S2, h0_ft: h0 };
+}
+
 export function planPopup(input: PopupPlanInput): PopupPlan {
   const dive = input.diveAngle_deg;
   const release = Math.max(input.releaseAltitude_ft, 0);

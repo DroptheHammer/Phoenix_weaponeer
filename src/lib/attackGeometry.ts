@@ -657,6 +657,32 @@ export function levelReleaseRange_nm(releaseAltitude_agl: number, speed_ktas: nu
   return (v * t) / FT_PER_NM;
 }
 
+/** A level release's vacuum fall: `levelFallVacuum`'s answer. */
+export interface LevelFall {
+  /** Release to impact along the ground, in ft: `range_ft / 6076.12` is `levelReleaseRange_nm` exactly. */
+  range_ft: number;
+  /** Release to impact. */
+  time_s: number;
+  /** Horizontal speed, constant (no drag). */
+  vx_fps: number;
+  /** The gravity this module uses (32.174). The bomb has fallen g·t²/2 at time t. */
+  g_fps2: number;
+  /** The height the bomb falls: the release altitude AGL, never below 0. */
+  h0_ft: number;
+}
+
+/**
+ * `levelReleaseRange_nm` with its time of fall, for the 3D playback. The same
+ * arithmetic in the same order, so the range is the shipped number exactly
+ * (geo-check holds them equal over a grid).
+ */
+export function levelFallVacuum(releaseAltitude_agl: number, speed_ktas: number): LevelFall {
+  const v = speed_ktas * KT_TO_FT_S;
+  const h0 = Math.max(releaseAltitude_agl, 0);
+  const t = Math.sqrt((2 * h0) / G_FT_S2);
+  return { range_ft: v * t, time_s: t, vx_fps: v, g_fps2: G_FT_S2, h0_ft: h0 };
+}
+
 /** Ground range from the target at which a given altitude sits on a dive of `diveAngle_deg`. */
 export function diveGroundRange_nm(altitude_agl: number, diveAngle_deg: number): number {
   const angle = Math.max(diveAngle_deg, 1) * (Math.PI / 180);
