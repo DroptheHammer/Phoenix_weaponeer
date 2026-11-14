@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  DEV ONLY: the 3D playback on its own page, for scripts/playback-shots.cjs.
+  Served by `npm run dev` at /playback-harness.html; production builds use
+  index.html only, so this page and its script never ship.
+-->
+<html lang="en" style="background-color: #1a1a2e">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- No icon request: a 404 would show as a console error in the checks. -->
+    <link rel="icon" href="data:," />
+    <title>Playback harness</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/components/playback/dev/harness.tsx"></script>
+  </body>
+</html>
