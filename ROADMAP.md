@@ -36,6 +36,12 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
   - [ ] *F-4E gyro angle*: LABS sets a pitch angle, about 6–8° above the
         flight-path angle the tool plans on (Fig 5-9: 36.9° for a 30°
         release). No gyro setting is printed.
+  - [ ] *Loft "push IP (est)" time*: found 2026-11-14 while building the
+        0.4.0 playback, which flies the whole profile. The card's push time
+        is about 7 s late for an F-16 Loft 30 and about 16 s late for an
+        F-4E LABS 45 (run-in + pull + bomb flight against the card's
+        estimate). Parked by the user for a later accuracy pass; fixing it
+        changes card text.
 - [x] **Numbers for the twenty-six name-only rows** (2026-11-13, Session 4,
       released in v0.3.4). Each number was approved one by one and its
       source is in the row's `notes` (and `docs/DELIVERY_PLANNING.md`, "Weapon
@@ -167,6 +173,18 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
 
 ## In progress
 
+- [ ] **0.4.0 "Polish and Playback"** (started 2026-11-14). The brief, the
+      user's decisions and each gate's outcome are in `docs/V040_PLAN.md`.
+      Not on `main` yet: the 3D strike playback is on branch
+      `v040-playback` (one jet over real terrain, seen by the user; the full
+      playback is being built there), and the front page's data layer is on
+      `v040-landing-data`. Rollback tag `pre-0.4.0`.
+  - [x] Design pick: the EFB draft (2026-11-14).
+  - [x] Terrain look in the real app (2026-11-14).
+  - [ ] Icon and splash images from the user.
+  - [ ] Front page, summary and app shell in the EFB look.
+  - [ ] Full playback: every jet of a strike, follow cameras, the planner's
+        colours, delay handles with Apply, threat envelopes, frag.
 - [ ] **Phone web app on a real Android phone.** The iPhone has been checked;
       an Android phone hasn't yet. In Chrome: Add to Home Screen, offline
       launch, the share sheet, screen wake lock, GPS for "Strike near me",
