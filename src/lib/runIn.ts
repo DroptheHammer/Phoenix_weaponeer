@@ -51,7 +51,8 @@ export interface RunInSummary {
 /**
  * Describe a saved profile's run-in. Undefined for saves that predate the
  * action-point model (they carry no action range) — those draw the old
- * straight transit.
+ * straight transit — and for a loft, which has no action point, check turn or
+ * join turn: it runs straight from the IP at the target.
  */
 export function describeRunIn(profile: AttackProfile, directBearing_deg: number, targetElevation_ft = 0): RunInSummary | undefined {
   const direct = normalizeHeading(directBearing_deg);

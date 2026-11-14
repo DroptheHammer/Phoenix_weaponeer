@@ -34,6 +34,12 @@ export interface KneeboardHeader {
    * header after the profile label: it is set at or before the IP, not at the roll-in.
    */
   sightDepression_mils?: number;
+  /**
+   * F-4E LABS loft: the pull-up timer, seconds. Like the sight it is set before
+   * the IP (the bomb button over the IP starts it), so it rides in the header
+   * after the profile label, never on a picture label.
+   */
+  pullUpTimer_s?: number;
 }
 
 export interface KneeboardTargetSection {

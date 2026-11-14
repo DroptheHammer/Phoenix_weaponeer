@@ -24,7 +24,7 @@ export type DeliveryModeCode = 'CCIP' | 'CCRP' | 'AUTO' | 'DTOS' | 'MAN' | 'LABS
 /** Coarse weapon grouping a profile is written for. See `weaponClassOf`. */
 export type WeaponClass = 'bomb_ld' | 'bomb_hd' | 'lgb' | 'jdam' | 'rocket' | 'gun' | 'cluster' | 'agm';
 
-export const SUPPORTED_GEOMETRIES: ProfileGeometry[] = ['level', 'dive', 'popup'];
+export const SUPPORTED_GEOMETRIES: ProfileGeometry[] = ['level', 'dive', 'popup', 'loft'];
 
 /** Optional run-in anchors any visual profile may carry; defaults apply when absent. */
 export interface ActionPointParams {

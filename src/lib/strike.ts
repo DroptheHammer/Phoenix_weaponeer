@@ -14,6 +14,7 @@
 import type { Attack, AttackProfile, DbWeapon, IpAnchorFields, Mission, Strike } from '../types';
 import type { AttackPicture, LineStyleKey } from '../types/attackPicture.types';import { moveIp, applyFlank } from './attackFlank';
 import { applyPopupPlan } from './popupPlanning';
+import { applyLoftPlan } from './loftPlanning';
 import { calculateDistance } from './coordinates';
 import { buildAttackPicture } from './attackPicture';
 import { attackIpAnchor } from './ipAnchor';
@@ -172,12 +173,18 @@ const PER_JET_FIELDS = new Set([
   'customIp',
   'egressDirection',
   'egressHeading_deg',
+  // A loft's timer counts from each jet's own IP distance.
+  'pullUpTimer_s',
 ]);
 
 /**
  * A number changed on the Group tab: copy what changed on the lead to this
  * member, if it flies the same kind of delivery, then re-derive the member's
  * own headings on its own flank. A member flying something else is left alone.
+ *
+ * A loft has no flank: it takes the lead's inputs (run-in altitude and speed,
+ * loft angle, G), never its egress or IP, and re-derives everything else from
+ * its own IP bearing and distance (`memberIpToTarget_nm`, for the timer).
  */
 export function applyGroupEdit(
   prevLead: AttackProfile,
@@ -185,6 +192,7 @@ export function applyGroupEdit(
   member: AttackProfile,
   memberBearing: number | undefined,
   memberTargetElevation_ft = 0,
+  memberIpToTarget_nm?: number,
 ): AttackProfile {
   if (member.type !== nextLead.type) return member;
   const patch: Record<string, unknown> = {};
@@ -197,6 +205,7 @@ export function applyGroupEdit(
   if (Object.keys(patch).length === 0) return member;
   const merged = { ...member, ...patch } as AttackProfile;
   if (merged.type === 'popup_ccip') return applyPopupPlan(merged, memberBearing);
+  if (merged.type === 'loft_ccrp') return applyLoftPlan(merged, memberBearing, memberIpToTarget_nm);
   if (merged.type === 'dive_ccip' || merged.type === 'level_ccrp') {
     return applyFlank(merged, merged.offsetDirection ?? 'right', memberBearing, memberTargetElevation_ft);
   }
@@ -239,6 +248,8 @@ export function ipToImpact_s(picture: AttackPicture, speed_ktas: number): number
 
 export function attackSpeedOf(profile: AttackProfile): number | undefined {
   if (profile.type === 'popup_ccip') return profile.runInSpeed_ktas;
+  // A loft spends its run from the IP at the run-in speed; the (lower) release speed is only the end of the climb.
+  if (profile.type === 'loft_ccrp') return profile.ingressSpeed_ktas;
   return (profile as { releaseSpeed_ktas?: number }).releaseSpeed_ktas;
 }
 
@@ -322,7 +333,8 @@ export function strikeCardInfo(
   const seat = members.findIndex((a) => a.id === attack.id);
   if (seat < 0 || members.length < 2) return undefined;
   const callsign = (a: Attack) => mission.flightMembers.find((m) => m.id === a.attackerId)?.callsign ?? `#${members.indexOf(a) + 1}`;
-  const sideOf = (a: Attack) => ((a.profile as { offsetDirection?: Side }).offsetDirection === 'left' ? 'L' : 'R');
+  // A loft runs straight from the IP: it has no flank to name.
+  const sideOf = (a: Attack) => (a.profile.type === 'loft_ccrp' ? '' : (a.profile as { offsetDirection?: Side }).offsetDirection === 'left' ? 'L' : 'R');
 
   const mine = pictureOf(mission, attack);
   const tot = attack.totOffset_s ?? 0;
@@ -330,12 +342,12 @@ export function strikeCardInfo(
   const flight = mine && speed ? ipToImpact_s(mine, speed) : undefined;
   const others = members
     .filter((a) => a.id !== attack.id)
-    .map((a) => `#${members.indexOf(a) + 1} ${callsign(a)} ${sideOf(a)} ${fmtStrikeTime(a.totOffset_s ?? 0)}`);
+    .map((a) => [`#${members.indexOf(a) + 1}`, callsign(a), sideOf(a), fmtStrikeTime(a.totOffset_s ?? 0)].filter(Boolean).join(' '));
 
   const strikeLine = [
     strike.name,
     `#${seat + 1} of ${members.length}`,
-    `${sideOf(attack)} flank`,
+    ...(sideOf(attack) ? [`${sideOf(attack)} flank`] : []),
     `TOT ${fmtStrikeTime(tot)}`,
     ...(flight != null ? [`push IP ${fmtStrikeTime(tot - flight)} (est)`] : []),
     `with ${others.join(', ')}`,

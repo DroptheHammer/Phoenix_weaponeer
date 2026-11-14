@@ -1,8 +1,10 @@
-import type { AttackProfile } from '../types/attack.types';
+import type { AttackProfile, LoftCCRPProfile } from '../types/attack.types';
 import type { DbWeapon } from '../types/weapon.types';
 import type { WeaponClass } from '../types/profile.types';
 import { WEAPON_CLASS_LABEL, weaponClassOf } from './weaponClass';
-import { isStraightIn, STRAIGHT_IN_TOLERANCE_DEG } from './attackGeometry';
+import { isStraightIn, signedHeadingDelta, STRAIGHT_IN_TOLERANCE_DEG } from './attackGeometry';
+import { jetRangeAtImpact_nm, loftPlanOf, resolveLoftEgressHeading, LOFT_FRAG_STANDOFF_NM } from './loftPlanning';
+import { FT_PER_NM } from './popupPlanning';
 
 /**
  * Sanity checks on an attack: does the profile the pilot is about to fly
@@ -17,6 +19,15 @@ import { isStraightIn, STRAIGHT_IN_TOLERANCE_DEG } from './attackGeometry';
  * Geometry is checked too: an attack heading within a few degrees of the
  * IP→target line is the predictable straight-in run the defence is waiting
  * for. That is a warning, not a stop — the planner may have a reason.
+ *
+ * A loft is checked differently (decided 2026-11-13, docs/DELIVERY_PLANNING.md,
+ * "Loft and LABS"). The release-altitude floors (minimum release and frag
+ * min-safe) are about where the jet is when the bomb goes off, and a lofting jet
+ * is miles away by then, so they do not apply. Instead the jet's range from the
+ * target at impact is checked against the 0.5 nm frag standoff: a warning, never
+ * an error. The maximum release altitude and the speed limits still apply. A
+ * loft runs straight from the IP by design, so it is never "predictable
+ * straight-in", and it has no frag floor to be missing data for.
  *
  * `error` means the attack as written should not be flown; `warn` means a
  * pilot should look twice. The kneeboard prints both as ⚠ lines.
@@ -48,6 +59,8 @@ export interface AttackCheckInput {
   sourceProfileName?: string;
   /** Bearing IP → target, when the route has an IP. Enables the straight-in check. */
   directBearing_deg?: number;
+  /** Distance IP → target, when the route has an IP. Enables the loft's IP-inside-the-pull-up check. */
+  ipToTarget_nm?: number;
 }
 
 interface ReleasePoint {
@@ -87,9 +100,12 @@ function hdg(v: number): string {
  * impact). A missile needs a minimum release altitude: the seven missile and
  * standoff rows have no frag floor and are not expected to. Guns and rockets
  * are fired, not released, so they never have one.
+ *
+ * With the attack's `profileType`, a loft gets no note: the floors this is
+ * about do not apply to it (see the top of this file).
  */
-export function noDataNote(weapon: DbWeapon | null | undefined): string | undefined {
-  if (!weapon) return undefined;
+export function noDataNote(weapon: DbWeapon | null | undefined, profileType?: string): string | undefined {
+  if (!weapon || profileType === 'loft_ccrp') return undefined;
   switch (weaponClassOf(weapon)) {
     case 'bomb_ld':
     case 'bomb_hd':
@@ -143,8 +159,13 @@ function releasePoint(profile: Partial<AttackProfile>, targetElevation_ft?: numb
         speed_ktas: isNum(p.releaseSpeed_ktas) ? p.releaseSpeed_ktas : undefined,
         rollIn_agl: isNum(p.rollInAltitude_ft) ? p.rollInAltitude_ft : undefined,
       };
-    case 'level_ccrp':
     case 'loft_ccrp':
+      // A loft stores AGL (the plan is worked over the target), so no ground is needed.
+      return {
+        alt_agl: isNum(p.releaseAltitude_ft) ? p.releaseAltitude_ft : undefined,
+        speed_ktas: isNum(p.releaseSpeed_ktas) ? p.releaseSpeed_ktas : undefined,
+      };
+    case 'level_ccrp':
     case 'standoff':
       // These store MSL; only comparable to AGL limits when we know the ground.
       return {
@@ -157,6 +178,40 @@ function releasePoint(profile: Partial<AttackProfile>, targetElevation_ft?: numb
     default:
       return {};
   }
+}
+
+/**
+ * The loft's own checks, both warnings:
+ * - the jet is inside the 0.5 nm frag standoff when the bomb lands, flying the
+ *   drawn escape (`jetRangeAtImpact_nm`: an estimate, on the short side);
+ * - the IP is closer to the target than the pull-up point.
+ */
+function loftChecks(profile: Partial<AttackProfile>, ipToTarget_nm: number | undefined): AttackCheck[] {
+  const p = profile as Record<string, unknown>;
+  // An incomplete profile (a field being typed over) has no plan to check.
+  if (!isNum(p.ingressAltitude_ft) || !isNum(p.ingressSpeed_ktas) || !isNum(p.pullUpAngle_deg) || !isNum(p.ingressHeading_deg)) return [];
+  if (p.pullG != null && !isNum(p.pullG)) return [];
+  const loft = profile as Pick<LoftCCRPProfile, 'ingressAltitude_ft' | 'ingressSpeed_ktas' | 'pullUpAngle_deg' | 'pullG' | 'ingressHeading_deg' | 'egressDirection' | 'egressHeading_deg'>;
+  const plan = loftPlanOf(loft);
+  const checks: AttackCheck[] = [];
+
+  const turn = Math.abs(signedHeadingDelta(loft.ingressHeading_deg, resolveLoftEgressHeading(loft, loft.ingressHeading_deg)));
+  const range = jetRangeAtImpact_nm(plan, turn);
+  if (range < LOFT_FRAG_STANDOFF_NM) {
+    checks.push({
+      level: 'warn',
+      text: `Inside the ${LOFT_FRAG_STANDOFF_NM} nm frag standoff when the bomb lands: the jet is about ${range.toFixed(1)} nm from the target at impact on a ${Math.round(turn)}° escape turn (estimate). Turn further away from the attack heading`,
+    });
+  }
+
+  const pullUp_nm = plan.pullUpRange_ft / FT_PER_NM;
+  if (isNum(ipToTarget_nm) && ipToTarget_nm < pullUp_nm) {
+    checks.push({
+      level: 'warn',
+      text: `The IP is ${ipToTarget_nm.toFixed(1)} nm from the target, inside the ${pullUp_nm.toFixed(1)} nm pull-up range: the jet would have to pull up before it reaches the IP — pick an IP further out`,
+    });
+  }
+  return checks;
 }
 
 export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
@@ -196,15 +251,20 @@ export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
     });
   }
 
+  const isLoft = profile.type === 'loft_ccrp';
+
   // Running in along the IP→target line tells the defence where the jet will
-  // be. Auto-build never does this; a planner typing a heading can.
+  // be. Auto-build never does this; a planner typing a heading can. A loft is
+  // the exception: it runs straight from the IP by design.
   const heading = attackHeadingOf(profile);
-  if (isNum(heading) && isNum(input.directBearing_deg) && isStraightIn(heading, input.directBearing_deg)) {
+  if (!isLoft && isNum(heading) && isNum(input.directBearing_deg) && isStraightIn(heading, input.directBearing_deg)) {
     checks.push({
       level: 'warn',
       text: `Predictable straight-in attack: ${profile.type === 'popup_ccip' ? 'approach' : 'heading'} ${hdg(heading)} is within ${STRAIGHT_IN_TOLERANCE_DEG}° of the IP→target line (${hdg(input.directBearing_deg)}). Advise against — make the angle off greater`,
     });
   }
+
+  if (profile.type === 'loft_ccrp') checks.push(...loftChecks(profile, input.ipToTarget_nm));
 
   if (!weapon) return checks;
 
@@ -222,21 +282,24 @@ export function runAttackChecks(input: AttackCheckInput): AttackCheck[] {
   // A weapon row with no floor to compare against: say so, since the limit
   // checks below skip a missing number. A warning, never an error — the pilot
   // may know the weapon better than the table does, and Save is never blocked.
-  const noData = noDataNote(weapon);
+  const noData = noDataNote(weapon, profile.type);
   if (noData) checks.push({ level: 'warn', text: noData, kind: 'no-data' });
 
-  // Does the release respect the weapon's own limits?
+  // Does the release respect the weapon's own limits? A loft skips the two
+  // floors: they are about where the jet is at impact, and a lofting jet is
+  // far away by then (`loftChecks` looks at that instead).
   if (isNum(rp.alt_agl)) {
-    if (isNum(weapon.min_release_alt_ft) && rp.alt_agl < weapon.min_release_alt_ft) {
+    if (!isLoft && isNum(weapon.min_release_alt_ft) && rp.alt_agl < weapon.min_release_alt_ft) {
       checks.push({
         level: 'error',
         text: `Release ${ft(rp.alt_agl)} AGL is below ${weapon.name} minimum ${ft(weapon.min_release_alt_ft)}`,
       });
     }
-    // Frag min-safe applies to every weapon: it is about where the aircraft
-    // is at impact, not how the bomb got there. The calculator clamps the
-    // default release to this, so seeing it means someone lowered it by hand.
-    if (isNum(weapon.frag_min_safe_alt_ft) && rp.alt_agl < weapon.frag_min_safe_alt_ft) {
+    // Frag min-safe applies to every weapon released in a dive, level or
+    // pop-up: it is about where the aircraft is at impact, not how the bomb
+    // got there. The calculator clamps the default release to this, so seeing
+    // it means someone lowered it by hand. (Not a loft: see above.)
+    if (!isLoft && isNum(weapon.frag_min_safe_alt_ft) && rp.alt_agl < weapon.frag_min_safe_alt_ft) {
       checks.push({
         level: 'error',
         text: `Release ${ft(rp.alt_agl)} AGL is inside the frag envelope — min-safe ${ft(weapon.frag_min_safe_alt_ft)}`,

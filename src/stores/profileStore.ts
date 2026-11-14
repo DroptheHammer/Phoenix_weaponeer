@@ -31,7 +31,8 @@ export const useProfileStore = create<ProfileState>((set) => ({
 
 function matches(profile: DeliveryProfile, aircraftId: string, weaponClass?: WeaponClass): boolean {
   if (profile.aircraftId !== aircraftId) return false;
-  // Loft ships in the files but has no geometry yet — hide it until it does.
+  // A geometry the tool cannot draw is hidden. Every geometry in the files is
+  // drawn now (loft since 2026-11-14), so this only holds back a future one.
   if (!SUPPORTED_GEOMETRIES.includes(profile.geometry)) return false;
   return weaponClass ? profile.weaponClasses.includes(weaponClass) : true;
 }

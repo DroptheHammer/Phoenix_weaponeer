@@ -63,6 +63,17 @@ export const KNOB_RANGES = {
     pullG: PULL_G,
     egressHeading_deg: HEADING,
   },
+  // A loft runs straight from the IP, so it has no action point, check turn or
+  // flank: five numbers and a side. Pull-up range, release altitude and speed
+  // and time of fall are derived (lib/loftPlanning.ts), never typed. The angle
+  // and G ends are the profile loader's own limits (crates/core/src/profiles.rs).
+  loft_ccrp: {
+    ingressAltitude_ft: { min: 100, max: 5000, step: 50, unit: 'ft' },
+    ingressSpeed_ktas: SPEED,
+    pullUpAngle_deg: { min: 10, max: 60, step: 1, unit: '°' },
+    pullG: { min: 1.5, max: 9, step: 0.5, unit: 'G' },
+    egressHeading_deg: HEADING,
+  },
 } as const satisfies Record<string, Record<string, KnobRange>>;
 
 /** The left/right pickers in each form: not sliders, but knobs all the same. */
@@ -70,6 +81,7 @@ export const KNOB_CHOICES = {
   dive_ccip: ['offsetDirection', 'egressDirection'],
   level_ccrp: ['offsetDirection', 'egressDirection'],
   popup_ccip: ['offsetDirection', 'egressDirection'],
+  loft_ccrp: ['egressDirection'],
 } as const;
 
 /** The custom IP as a radial and distance off the target. */

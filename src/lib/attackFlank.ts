@@ -3,10 +3,15 @@ import type { Waypoint } from '../types/waypoint.types';
 import type { Side } from './attackGeometry';
 import { describeRunIn } from './runIn';
 import { applyPopupPlan } from './popupPlanning';
+import { applyLoftPlan } from './loftPlanning';
 import { resolveIpAnchor } from './ipAnchor';
-import { calculateBearing } from './coordinates';
+import { calculateBearing, calculateDistance } from './coordinates';
 
-/** The delivery profiles that fly a run-in from a flank. Loft and standoff do not. */
+/**
+ * The delivery profiles that fly a run-in from a flank. A loft runs straight
+ * from the IP at the target (no action point, no check turn, no flank), and
+ * standoff has none either, so `applyFlank` leaves both alone.
+ */
 type FlankedProfile = Extract<AttackProfile, { type: 'dive_ccip' | 'level_ccrp' | 'popup_ccip' }>;
 
 function isFlanked(profile: AttackProfile): profile is FlankedProfile {
@@ -54,11 +59,20 @@ export function applyFlank(
  * its egress heading and the straight-in check all read the stored one, which
  * still pointed from the old IP until some other field was touched. Pop-up
  * recomputes its whole plan, dive and level re-solve the heading the way a
- * flank change does. Same fallback as `applyFlank`: no usable bearing, no
- * change.
+ * flank change does. A loft's heading IS the new bearing, and its F-4E pull-up
+ * timer counts from the IP, so it also needs `ipToTarget_nm` (without one the
+ * timer is cleared rather than left counting from the old IP). Same fallback
+ * as `applyFlank`: no usable bearing, no change.
  */
-export function reanchorProfile(profile: AttackProfile, directBearing_deg: number | undefined, targetElevation_ft = 0): AttackProfile {
-  if (!isFlanked(profile) || directBearing_deg == null || !Number.isFinite(directBearing_deg)) return profile;
+export function reanchorProfile(
+  profile: AttackProfile,
+  directBearing_deg: number | undefined,
+  targetElevation_ft = 0,
+  ipToTarget_nm?: number,
+): AttackProfile {
+  if (directBearing_deg == null || !Number.isFinite(directBearing_deg)) return profile;
+  if (profile.type === 'loft_ccrp') return applyLoftPlan(profile, directBearing_deg, ipToTarget_nm);
+  if (!isFlanked(profile)) return profile;
   if (profile.type === 'popup_ccip') return applyPopupPlan(profile, directBearing_deg);
   return applyFlank(profile, profile.offsetDirection ?? 'right', directBearing_deg, targetElevation_ft);
 }
@@ -72,7 +86,8 @@ export function moveIp(profile: AttackProfile, ip: IpAnchorFields, waypoints: Wa
   const next = { ...profile, ipWaypointId: ip.ipWaypointId, customIp: ip.customIp } as AttackProfile;
   const anchor = resolveIpAnchor(waypoints, target, ip);
   const bearing = anchor ? calculateBearing(anchor.point, target.coordinates) : undefined;
-  return reanchorProfile(next, bearing, target.elevation_ft ?? 0);
+  const distance = anchor ? calculateDistance(anchor.point, target.coordinates) : undefined;
+  return reanchorProfile(next, bearing, target.elevation_ft ?? 0, distance);
 }
 
 /**
@@ -82,9 +97,11 @@ export function moveIp(profile: AttackProfile, ip: IpAnchorFields, waypoints: Wa
  * direction, so a profile carrying a typed egress heading would ignore this
  * toggle entirely — the button would light up and the map would not move. The
  * typed heading is therefore cleared: picking a side is a request to go back to
- * the 90° break off the attack heading, on that side.
+ * the 90° break off the attack heading, on that side (a loft's is the 120°
+ * escape turn).
  */
 export function applyEgress(profile: AttackProfile, direction: 'left' | 'right'): AttackProfile {
+  if (profile.type === 'loft_ccrp') return { ...profile, egressDirection: direction, egressHeading_deg: undefined };
   if (!isFlanked(profile)) return profile;
   return { ...profile, egressDirection: direction, egressHeading_deg: undefined };
 }

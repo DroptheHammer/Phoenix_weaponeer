@@ -267,3 +267,12 @@ export function applyLoftPlan(profile: LoftCCRPProfile, directBearing_deg?: numb
     pullUpTimer_s: timer != null ? round1(timer) : undefined,
   };
 }
+
+/**
+ * The F-4E pull-up timer for a loft flown from an IP this far from the
+ * target, rounded as the card prints it. Undefined without a distance, or
+ * when the IP is inside the pull-up range (no run-in to time).
+ */
+export function loftPullUpTimer_s(profile: LoftCCRPProfile, ipToTarget_nm: number | undefined): number | undefined {
+  return applyLoftPlan(profile, undefined, ipToTarget_nm).pullUpTimer_s;
+}

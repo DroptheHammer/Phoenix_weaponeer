@@ -16,6 +16,7 @@ import { runAttackChecks, hasErrors, type AttackCheck } from './attackChecks';
 import { describeRunIn, type RunInSummary } from './runIn';
 import { applyEgress, applyFlank, moveIp } from './attackFlank';
 import { weaponClassOf } from './weaponClass';
+import { calculateDistance } from './coordinates';
 import type { Side } from './attackGeometry';
 
 export interface AttackDraft {
@@ -163,6 +164,7 @@ export function resolveDraft(draft: AttackDraft, ctx: DraftContext): ResolvedDra
         allowedClasses: build.profile?.weaponClasses,
         sourceProfileName: build.profile?.name,
         directBearing_deg: build.directBearing,
+        ipToTarget_nm: build.ipAnchor && target ? calculateDistance(build.ipAnchor.point, target.coordinates) : undefined,
       })
     : [];
   const problems = build.problems ?? [];

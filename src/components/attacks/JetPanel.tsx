@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Attack, AttackProfile, DbWeapon, DiveCCIPProfile, FuzeOption, LevelCCRPProfile, PopupCCIPProfile } from '../../types';
+import type { Attack, AttackProfile, DbWeapon, DeliveryModeCode, DiveCCIPProfile, FuzeOption, LevelCCRPProfile, LoftCCRPProfile, PopupCCIPProfile } from '../../types';
 import {
   chooseEgress,
   chooseIngress,
@@ -18,6 +18,8 @@ import {
   type ResolvedDraft,
 } from '../../lib/attackDraft';
 import { loadoutWeapons, weaponChoicesFor } from '../../lib/autoBuildAttack';
+import { calculateDistance } from '../../lib/coordinates';
+import { loftPullUpTimer_s } from '../../lib/loftPlanning';
 import { formatCallsign } from '../../lib/callsign';
 import { targetCandidates, ipCandidates, waypointLabel } from '../../lib/waypointOptions';
 import { SliderField } from '../common/SliderField';
@@ -25,6 +27,7 @@ import { IpPicker } from './IpPicker';
 import { PopupCCIPForm } from './forms/PopupCCIPForm';
 import { DiveForm } from './forms/DiveForm';
 import { LevelForm } from './forms/LevelForm';
+import { LoftForm } from './forms/LoftForm';
 
 export interface AircraftLite {
   id: string;
@@ -94,6 +97,11 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
   // longer carries it (it is set before the IP, not at the roll-in), so it is
   // shown here with the other numbers the pilot flies.
   const sight = build.attack?.deliveryMode === 'MAN' ? build.attack.sightDepression_mils : undefined;
+  // A LABS loft's pull-up timer is a before-the-IP number like the sight: read off
+  // the live IP, so it is right whatever the saved profile says.
+  const ipToTarget_nm = build.ipAnchor && target ? calculateDistance(build.ipAnchor.point, target.coordinates) : undefined;
+  const loft = profile?.type === 'loft_ccrp' ? profile : undefined;
+  const timer = loft && build.profile?.deliveryMode === 'LABS' ? loftPullUpTimer_s(loft, ipToTarget_nm) : undefined;
   const egress = (profile as { egressDirection?: string } | undefined)?.egressDirection ?? 'right';
   const ingressSideShown = runIn?.offsetTurn.direction;
   const angleOffIsAuto = draft.angleOffSide == null && !draft.customized;
@@ -101,6 +109,8 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
   const angleOffHint =
     !build.ipAnchor || build.directBearing == null
       ? 'No waypoint before the target in the route — pick one, or place a custom point, under Customize → Run in from'
+      : loft
+        ? `Straight in from ${build.ipAnchor.shortLabel} on ${fmtHdg(build.directBearing)}, ${ipToTarget_nm?.toFixed(1)} nm out; pull up ${Number(loft.pullUpDistance_nm).toFixed(1)} nm from the target`
       : !runIn
         ? ''
         : !runIn.closes
@@ -207,23 +217,31 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
           {/* The two big calls, side by side: which way to come in, which way to leave.
               The degrees and the raw heading are in Customize. */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={label}>Ingress from</label>
-              <div className="flex gap-2">
-                {(['left', 'right'] as const).map((side) => (
-                  <button
-                    key={side}
-                    type="button"
-                    onClick={() => onChange(chooseIngress(draft, side, resolved))}
-                    className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      ingressSideShown === side ? 'bg-dcs-blue border-blue-400 text-white' : 'bg-dcs-dark border-gray-600 text-gray-300 hover:border-gray-400'
-                    }`}
-                  >
-                    {side === 'left' ? '◀ Left' : 'Right ▶'}
-                  </button>
-                ))}
+            {loft ? (
+              // A loft runs straight from the IP: no flank to choose.
+              <div>
+                <label className={label}>Ingress</label>
+                <div className="py-2 rounded-lg border border-gray-700 bg-dcs-dark text-sm text-center text-gray-300">Straight in from the IP</div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <label className={label}>Ingress from</label>
+                <div className="flex gap-2">
+                  {(['left', 'right'] as const).map((side) => (
+                    <button
+                      key={side}
+                      type="button"
+                      onClick={() => onChange(chooseIngress(draft, side, resolved))}
+                      className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                        ingressSideShown === side ? 'bg-dcs-blue border-blue-400 text-white' : 'bg-dcs-dark border-gray-600 text-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {side === 'left' ? '◀ Left' : 'Right ▶'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div>
               <label className={label}>Egress</label>
               <div className="flex gap-2">
@@ -245,7 +263,7 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
           </div>
           <div className="text-xs text-gray-400 mt-2">{angleOffHint}</div>
 
-          {profile && <KeyNumbers profile={profile} sightDepression_mils={sight} />}
+          {profile && <KeyNumbers profile={profile} sightDepression_mils={sight} pullUpTimer_s={timer} />}
 
           {/* These describe what auto-build did. Once the numbers are
               hand-edited they no longer describe what is on screen, so they
@@ -315,7 +333,15 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
               />
             )}
 
-            <ProfileForm profile={profile} targetElevation_ft={target?.elevation_ft ?? 0} weapon={resolved.weapon} directBearing_deg={build.directBearing} onChange={edit} />
+            <ProfileForm
+              profile={profile}
+              targetElevation_ft={target?.elevation_ft ?? 0}
+              weapon={resolved.weapon}
+              directBearing_deg={build.directBearing}
+              ipToTarget_nm={ipToTarget_nm}
+              deliveryMode={build.profile?.deliveryMode}
+              onChange={edit}
+            />
           </div>
         )}
       </div>
@@ -332,12 +358,18 @@ export function ProfileForm({
   targetElevation_ft,
   weapon,
   directBearing_deg,
+  ipToTarget_nm,
+  deliveryMode,
   onChange,
 }: {
   profile: AttackProfile | undefined;
   targetElevation_ft: number;
   weapon: DbWeapon | undefined;
   directBearing_deg: number | undefined;
+  /** IP → target distance: a loft's pull-up timer counts from it. */
+  ipToTarget_nm?: number;
+  /** The library profile's delivery mode: a LABS loft shows its pull-up timer. */
+  deliveryMode?: DeliveryModeCode;
   onChange: (profile: AttackProfile) => void;
 }) {
   if (profile?.type === 'dive_ccip') return <DiveForm profile={profile as DiveCCIPProfile} onChange={onChange} directBearing_deg={directBearing_deg} />;
@@ -351,6 +383,16 @@ export function ProfileForm({
         selectedWeapon={weapon ?? null}
         onChange={onChange}
         directBearing_deg={directBearing_deg}
+      />
+    );
+  if (profile?.type === 'loft_ccrp')
+    return (
+      <LoftForm
+        profile={profile as LoftCCRPProfile}
+        deliveryMode={deliveryMode}
+        onChange={onChange}
+        directBearing_deg={directBearing_deg}
+        ipToTarget_nm={ipToTarget_nm}
       />
     );
   return null;
@@ -378,9 +420,18 @@ export function Problems({ resolved, prefix }: { resolved: ResolvedDraft; prefix
 
 /**
  * The numbers a pilot actually flies, in one line. A manual delivery's sight
- * setting leads it: it is the first thing to set, before the IP.
+ * setting and a LABS loft's pull-up timer lead it: they are the first things
+ * to set, before the IP.
  */
-export function KeyNumbers({ profile, sightDepression_mils }: { profile: AttackProfile; sightDepression_mils?: number }) {
+export function KeyNumbers({
+  profile,
+  sightDepression_mils,
+  pullUpTimer_s,
+}: {
+  profile: AttackProfile;
+  sightDepression_mils?: number;
+  pullUpTimer_s?: number;
+}) {
   const ft = (v: number) => `${Math.round(v).toLocaleString()} ft`;
   let text: string;
   switch (profile.type) {
@@ -393,9 +444,18 @@ export function KeyNumbers({ profile, sightDepression_mils }: { profile: AttackP
     case 'popup_ccip':
       text = `Run-in ${ft(profile.runInAltitude_ft)} AGL @ ${profile.runInSpeed_ktas} kt · Pop ${profile.popDistance_nm.toFixed(1)} nm · Climb ${Math.round(profile.climbAngle_deg)}° to ${ft(profile.apexAltitude_ft)} · Pull down ${ft(profile.rollInAltitude_ft)} · ${profile.diveAngle_deg}° dive · Release by ${ft(profile.releaseAltitude_ft)} AGL`;
       break;
+    case 'loft_ccrp':
+      text = `Run-in ${ft(profile.ingressAltitude_ft)} AGL @ ${Math.round(profile.ingressSpeed_ktas)} kt · Pull up ${Number(profile.pullUpDistance_nm).toFixed(1)} nm out · ${profile.pullG ?? '?'} G to ${profile.pullUpAngle_deg}° · Release ~${ft(profile.releaseAltitude_ft)} AGL${profile.releaseSpeed_ktas != null ? ` @ ${Math.round(profile.releaseSpeed_ktas)} kt` : ''}${profile.bombTimeOfFlight_s != null ? ` · Falls ${profile.bombTimeOfFlight_s.toFixed(1)} s` : ''}`;
+      break;
     default:
       text = '';
   }
-  const line = [sightDepression_mils != null ? `Sight ${Math.round(sightDepression_mils)} mils (set before IP)` : '', text].filter(Boolean).join(' · ');
+  const line = [
+    sightDepression_mils != null ? `Sight ${Math.round(sightDepression_mils)} mils (set before IP)` : '',
+    pullUpTimer_s != null ? `Timer ${pullUpTimer_s.toFixed(1)} s (set before IP)` : '',
+    text,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return <div className="mt-3 text-sm font-mono text-gray-200 bg-dcs-dark rounded px-3 py-2">{line}</div>;
 }

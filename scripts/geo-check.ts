@@ -14,6 +14,8 @@ import {
   calculatePopupGeometry,
   calculateDiveGeometry,
   calculateLevelGeometry,
+  calculateLoftGeometry,
+  turnBetween,
   egressPath,
 } from '../src/lib/attackGeometry';
 import {
@@ -23,14 +25,17 @@ import {
   doctrinalCheckTurn,
   applyPopupPlan,
 } from '../src/lib/popupPlanning';
-import { planLoft, bombFlight, pullUpTimer_s, jetRangeAtImpact_nm, applyLoftPlan, resolveLoftEgressHeading } from '../src/lib/loftPlanning';
+import { planLoft, bombFlight, pullUpTimer_s, jetRangeAtImpact_nm, applyLoftPlan, resolveLoftEgressHeading, loftPlanOf, LOFT_FRAG_STANDOFF_NM, loftPullUpTimer_s } from '../src/lib/loftPlanning';
 import { describeRunIn } from '../src/lib/runIn';
 import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor, loadoutWeapons, unrecognisedStores } from '../src/lib/autoBuildAttack';
 import { rowsFromLoadout, pickWeapon, loadoutFromRows, loadoutPickerWeapons } from '../src/lib/loadoutRows';
-import { storesMappedFor, weaponClassOf } from '../src/lib/weaponClass';
+import { storesMappedFor, weaponClassOf, geometrySuitsWeapon } from '../src/lib/weaponClass';
+import { SUPPORTED_GEOMETRIES } from '../src/types/profile.types';
+import type { LoftCCRPProfile } from '../src/types/attack.types';
+import type { DbWeapon } from '../src/types/weapon.types';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, REAL_WORLD_DEFAULT_WEAPON, REAL_WORLD_DEFAULT_WEAPON_ID, isRealWorld } from '../src/lib/strikeNearMe';
-import { buildAttackPicture, pictureFitPoints, LINE_STYLE, MARKER_COLOR } from '../src/lib/attackPicture';
+import { buildAttackPicture, buildSideProfile, pictureFitPoints, LINE_STYLE, MARKER_COLOR } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
 import { targetCandidates, ipCandidates, waypointLabel } from '../src/lib/waypointOptions';
@@ -40,11 +45,11 @@ import { visibleArcSpans } from '../src/lib/arcClip';
 import { compareThreatsForCard } from '../src/lib/cardThreats';
 import { applyFlank, applyEgress, reanchorProfile, moveIp } from '../src/lib/attackFlank';
 import { KNOB_RANGES, KNOB_CHOICES, IP_KNOB_RANGES, type KnobRange } from '../src/lib/customizeKnobs';
-import { draftFromAttack, resolveDraft, draftAttackData } from '../src/lib/attackDraft';
+import { draftFromAttack, resolveDraft, draftAttackData, chooseEgress, setIp } from '../src/lib/attackDraft';
 import { newJet, assignFlanks, respace, groupEdit } from '../src/lib/strikeDraft';
 import {
   applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
-  fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot,
+  fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot, attackSpeedOf,
 } from '../src/lib/strike';
 import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
@@ -222,8 +227,223 @@ const loftFilled = applyLoftPlan({
 }, directBearing, 12);
 ok('applyLoftPlan: heading from the route, derived fields and timer written', Math.abs(loftFilled.ingressHeading_deg - directBearing) < 1e-9 && loftFilled.pullUpDistance_nm === Math.round((f16loft.pullUpRange_ft / NM) * 100) / 100 && loftFilled.releaseAltitude_ft === Math.round(f16loft.releaseAltitude_ft / 10) * 10 && loftFilled.pullG === 4 && Math.abs(loftFilled.pullUpTimer_s! - (12 * NM - f16loft.pullUpRange_ft) / (520 * 1.68781)) < 0.06, JSON.stringify({ pu: loftFilled.pullUpDistance_nm, rel: loftFilled.releaseAltitude_ft, t: loftFilled.pullUpTimer_s }));
 
+// ─── The loft on the map, in the side view, in auto-build and in the checks ──
+// A loft runs straight from the IP at the target: the pull-up and release points
+// sit on that line, the jet turns 120° away after release. NTTR fixtures: the
+// IP 12 nm out on the direct line, a 4,000 ft target.
+const loftTgtWp = { id: 'l-tgt', steerpoint: 8, name: 'TGT', type: 'target', coordinates: tgt, elevation_ft: 4000 };
+const loftIpWp = { id: 'l-ip', steerpoint: 7, name: 'IP', type: 'ip', coordinates: ip, elevation_ft: 4500 };
+const loftAnchor = resolveIpAnchor([loftIpWp, loftTgtWp] as never, loftTgtWp as never, { ipWaypointId: 'l-ip' })!;
+const loftLib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8')) as { id: string; geometry: string; weaponClasses: string[] }[];
+const f16Loft = loftLib('f16c').find((p) => p.id === 'f16c.loft.std')!;
+const f4Loft = loftLib('f4e').find((p) => p.id === 'f4e.loft.labs45')!;
+const refWeapons = (JSON.parse(readFileSync('crates/core/data/reference.json', 'utf8')) as { weapons: { id: string }[] }).weapons;
+const refWeapon = (id: string) => refWeapons.find((w) => w.id === id) as never as DbWeapon;
+const loftViper = { id: 'lv', callsign: 'Viper 1-1', aircraftId: 'f16c', position: 1, loadout: [] };
+const loftPhantom = { id: 'lp', callsign: 'Pharaoh 1-1', aircraftId: 'f4e', position: 1, loadout: [] };
+const loftMission = (waypoints: unknown[] = [loftIpWp, loftTgtWp], threats: unknown[] = []) => ({ waypoints, flightMembers: [loftViper, loftPhantom], threats, attacks: [] });
+const loftBuild = (attacker: { id: string }, profile: unknown, weaponId: string, overrides: object = {}, mission: unknown = loftMission(), weapons: unknown[] = refWeapons) =>
+  autoBuildAttack({ mission, targetWaypointId: loftTgtWp.id, attackerId: attacker.id, weapons, profiles: [profile], threatSystems: [{ id: 'sa6', max_range_nm: 12 }], overrides: { weaponId, ...overrides } } as never);
+
+// Geometry.
+const loftPlanF16 = planLoft({ ingressAltitude_ft: 500, speed_ktas: 520, loftAngle_deg: 30, pullG: 4 });
+const loftGeo = calculateLoftGeometry(ip, tgt, {
+  pullUpRange_nm: loftPlanF16.pullUpRange_ft / NM, releaseRange_nm: loftPlanF16.bombRange_ft / NM,
+  egressHeading_deg: resolveLoftEgressHeading({ egressDirection: 'right' }, directBearing), egressSpeed_ktas: loftPlanF16.releaseSpeed_ktas, egressG: 4,
+});
+ok('loft geometry: the axis and the route leg are the IP→target bearing', Math.abs(signedHeadingDelta(loftGeo.attackHeading, directBearing)) < 1e-6 && loftGeo.routeHeading === loftGeo.attackHeading, r(loftGeo.attackHeading).toString());
+// On the line = IP → pull-up → release → target adds up to the IP→target distance (a point off the line makes it longer).
+const loftLegs = calculateDistance(ip, loftGeo.pullUpPoint) + calculateDistance(loftGeo.pullUpPoint, loftGeo.releasePoint) + calculateDistance(loftGeo.releasePoint, tgt);
+ok('loft geometry: the pull-up point is on the IP→target line, at the pull-up range from the target',
+  Math.abs(calculateDistance(loftGeo.pullUpPoint, tgt) - loftPlanF16.pullUpRange_ft / NM) < 0.005 && Math.abs(calculateDistance(ip, loftGeo.pullUpPoint) + calculateDistance(loftGeo.pullUpPoint, tgt) - calculateDistance(ip, tgt)) < 0.002,
+  `${r(calculateDistance(loftGeo.pullUpPoint, tgt))} nm`);
+ok('loft geometry: the release point is on the same line, at the release range, between the pull-up point and the target',
+  Math.abs(calculateDistance(loftGeo.releasePoint, tgt) - loftPlanF16.bombRange_ft / NM) < 0.005 && Math.abs(loftLegs - calculateDistance(ip, tgt)) < 0.003 && calculateDistance(loftGeo.pullUpPoint, loftGeo.releasePoint) > 0.5,
+  `${r(calculateDistance(loftGeo.releasePoint, tgt))} nm, legs sum ${loftLegs.toFixed(4)} vs ${calculateDistance(ip, tgt).toFixed(4)}`);
+ok('loft geometry: the escape is a 120° turn off the attack heading, from the release point', loftGeo.egress.turn.deg === 120 && loftGeo.egress.turn.direction === 'right' && calculateDistance(loftGeo.egress.arc[0], loftGeo.releasePoint) < 0.001 && Math.abs(signedHeadingDelta(loftGeo.attackHeading, loftGeo.egress.egressHeading) - 120) < 0.01);
+ok('loft geometry: the escape never comes within 0.3 nm of the target, either way',
+  loftGeo.egress.arc.every((p) => calculateDistance(p, tgt) > 0.3) && calculateDistance(loftGeo.egress.end, tgt) > 0.3 &&
+  calculateLoftGeometry(ip, tgt, { pullUpRange_nm: 3.97, releaseRange_nm: 3.2, egressHeading_deg: resolveLoftEgressHeading({ egressDirection: 'left' }, directBearing), egressSpeed_ktas: 497, egressG: 4 }).egress.arc.every((p) => calculateDistance(p, tgt) > 0.3));
+ok('loft geometry: an IP 12 nm out is outside the pull-up range; one at 3 nm is inside it (still drawn)',
+  !loftGeo.ipInsidePullUp && calculateLoftGeometry(calculateDestination(tgt, (direct + 180) % 360, 3), tgt, { pullUpRange_nm: 3.97, releaseRange_nm: 3.2, egressHeading_deg: 0, egressSpeed_ktas: 497, egressG: 4 }).ipInsidePullUp);
+
+// The two bundled lofts, built on the real library profiles with a real Mk-82 row.
+const loftF16Build = loftBuild(loftViper, f16Loft, 'mk82');
+const loftF16Profile = loftF16Build.attack?.profile as LoftCCRPProfile | undefined;
+const loftF4Build = loftBuild(loftPhantom, f4Loft, 'mk82');
+const loftF4Profile = loftF4Build.attack?.profile as LoftCCRPProfile | undefined;
+ok('auto-build: the real F-16 loft profile builds a loft for a Mk-82, no problems', loftF16Build.attack?.profileType === 'loft_ccrp' && loftF16Build.problems.length === 0, loftF16Build.problems.join('; '));
+ok('auto-build: the Mk-82 loft pulls ~3.97 nm out and releases ~1,520 ft AGL at the planned speed',
+  loftF16Profile != null && Math.abs(loftF16Profile.pullUpDistance_nm - 3.97) < 0.02 && Math.abs(loftF16Profile.releaseAltitude_ft - 1520) < 30 && loftF16Profile.releaseSpeed_ktas === Math.round(loftPlanF16.releaseSpeed_ktas),
+  JSON.stringify({ pu: loftF16Profile?.pullUpDistance_nm, rel: loftF16Profile?.releaseAltitude_ft, v: loftF16Profile?.releaseSpeed_ktas }));
+ok('auto-build: a loft attack heading is the IP→target bearing (no flank, no check turn)',
+  loftF16Profile != null && Math.abs(signedHeadingDelta(loftF16Profile.ingressHeading_deg, directBearing)) < 0.01 && Math.abs(signedHeadingDelta(loftF16Build.attackHeading ?? 999, directBearing)) < 0.01 && !('offsetDirection' in loftF16Profile) && !('actionRange_nm' in loftF16Profile),
+  r(loftF16Profile?.ingressHeading_deg ?? NaN).toString());
+ok('auto-build: no release raised to the weapon floor, no adjustment at all for the Mk-82 loft', loftF16Build.adjustments.length === 0, loftF16Build.adjustments.join('; '));
+ok('auto-build: the Mk-82 loft carries no error, and the ~1,520 ft release is no frag-floor or minimum-release error (floors are 3,000 ft)',
+  loftF16Build.checks.every((c) => c.level !== 'error') && !loftF16Build.checks.some((c) => /frag envelope|minimum/.test(c.text)) && (loftF16Profile?.releaseAltitude_ft ?? 9999) < refWeapon('mk82').frag_min_safe_alt_ft!,
+  JSON.stringify(loftF16Build.checks));
+// ...and the same release from a pop-up IS an error, so the check above can fail.
+const popupLow = runAttackChecks({ profileType: 'popup_ccip', profile: { type: 'popup_ccip', releaseAltitude_ft: 1520, releaseSpeed_ktas: 497 } as never, weapon: refWeapon('mk82') });
+ok('control: the same 1,520 ft release as a pop-up IS a frag-floor error and a minimum-release error', hasErrors(popupLow) && popupLow.filter((c) => c.level === 'error').length === 2, JSON.stringify(popupLow.map((c) => c.text)));
+ok('auto-build: the F-4E LABS loft builds for a Mk-82, delivery mode LABS, pulls ~3.99 nm out, no errors',
+  loftF4Build.attack?.profileType === 'loft_ccrp' && loftF4Build.attack.deliveryMode === 'LABS' && Math.abs((loftF4Profile?.pullUpDistance_nm ?? 0) - 3.99) < 0.02 && loftF4Build.checks.every((c) => c.level !== 'error'),
+  `${loftF4Build.problems.join('; ')} ${JSON.stringify(loftF4Build.checks)}`);
+const f4PlanLoft = planLoft({ ingressAltitude_ft: 500, speed_ktas: 500, loftAngle_deg: 45, pullG: 4 });
+ok('auto-build: the F-4E pull-up timer is the IP→pull-up run at the run-in speed (12 nm IP)',
+  loftF4Profile?.pullUpTimer_s != null && Math.abs(loftF4Profile.pullUpTimer_s - (calculateDistance(ip, tgt) * NM - f4PlanLoft.pullUpRange_ft) / (500 * 1.68781)) < 0.06,
+  String(loftF4Profile?.pullUpTimer_s));
+// The heading is also what the egress side is judged against, so the result's attackHeading must not follow a typed one either.
+const loftTyped = loftBuild(loftViper, f16Loft, 'mk82', { runInHeading_deg: 10 });
+ok('auto-build: a typed run-in heading does not apply to a loft (the IP sets the axis)',
+  Math.abs(signedHeadingDelta(loftTyped.attackHeading ?? 999, directBearing)) < 0.01 && Math.abs(signedHeadingDelta(loftTyped.attack?.profile.ingressHeading_deg ?? 999, directBearing)) < 0.01);
+ok('auto-build: no flank, action point or check-turn fields are written, and no "action point pulled in" adjustment on a short leg',
+  (() => {
+    const near = loftBuild(loftViper, f16Loft, 'mk82', {}, loftMission([{ ...loftIpWp, coordinates: calculateDestination(tgt, (direct + 180) % 360, 2.5) }, loftTgtWp]));
+    return near.attack != null && !near.adjustments.some((m) => /Action point|check turn/i.test(m));
+  })());
+ok('auto-build: the loft needs an IP — none in the route is a problem, not a guess',
+  (() => { const none = loftBuild(loftViper, f16Loft, 'mk82', {}, loftMission([loftTgtWp])); return none.attack === null && none.problems.some((m) => /loft needs an IP/.test(m)); })());
+const loftCustom = loftBuild(loftViper, f16Loft, 'mk82', { customIp: calculateDestination(tgt, 300, 9) });
+ok('auto-build: a custom IP sets the axis from its own bearing to the target',
+  Math.abs(signedHeadingDelta(loftCustom.attack?.profile.ingressHeading_deg ?? 999, calculateBearing(calculateDestination(tgt, 300, 9), tgt))) < 0.01 && Math.abs(signedHeadingDelta(loftCustom.attack?.profile.ingressHeading_deg ?? 999, 120)) < 0.5);
+// Egress side: away from the nearest threat, with the existing logic.
+const loftThreatRight = { id: 'th1', systemId: 'sa6', status: 'active', position: calculateDestination(tgt, (direct + 90) % 360, 6) };
+ok('auto-build: the loft breaks away from the nearest threat (threat on the right → egress left)',
+  (loftBuild(loftViper, f16Loft, 'mk82', {}, loftMission([loftIpWp, loftTgtWp], [loftThreatRight])).attack?.profile as { egressDirection?: string } | undefined)?.egressDirection === 'left' &&
+  (loftBuild(loftViper, f16Loft, 'mk82').attack?.profile as { egressDirection?: string } | undefined)?.egressDirection === 'right');
+// The run-in speed is held to the weapon's speed limits.
+const slowMk82 = { ...(refWeapon('mk82') as object), max_release_speed_ktas: 450 } as never;
+const clamped = loftBuild(loftViper, f16Loft, 'mk82', {}, loftMission(), [slowMk82]);
+ok('auto-build: the run-in speed is clamped to the weapon limit (520 → 450 kt), and the adjustment says so',
+  (clamped.attack?.profile as { ingressSpeed_ktas?: number } | undefined)?.ingressSpeed_ktas === 450 && clamped.adjustments.some((m) => /Run-in speed 520 → 450/.test(m)), clamped.adjustments.join('; '));
+ok('describeRunIn: a loft has no action point, so no run-in story (callers already cope with undefined)', loftF16Profile != null && describeRunIn(loftF16Profile, directBearing, 4000) === undefined && loftF16Build.runIn === undefined);
+
+// The loft is on offer: un-hidden, and the Durandal is never offered one.
+ok('loft: the loft geometry is supported (the profile store no longer hides it)', SUPPORTED_GEOMETRIES.includes('loft'));
+ok('loft: offered for a Mk-82 on the F-16 (candidate), not for the Durandal even when a library profile lists its class',
+  loftBuild(loftViper, f16Loft, 'mk82').candidates.some((p) => p.id === 'f16c.loft.std') &&
+  loftBuild(loftViper, { ...f16Loft, weaponClasses: ['bomb_ld', 'bomb_hd', 'cluster'] }, 'blu107').candidates.length === 0 &&
+  loftBuild(loftViper, { ...f16Loft, weaponClasses: ['bomb_ld', 'bomb_hd', 'cluster'] }, 'mk82se').candidates.some((p) => p.id === 'f16c.loft.std'));
+ok('loft: geometrySuitsWeapon keeps the Durandal off lofts, dives and pop-ups; level only', !geometrySuitsWeapon('loft', { id: 'blu107' }) && !geometrySuitsWeapon('dive', { id: 'blu107' }) && geometrySuitsWeapon('level', { id: 'blu107' }) && geometrySuitsWeapon('loft', { id: 'mk82' }));
+
+// The picture the map and the card draw.
+const loftAttackOf = (build: ReturnType<typeof loftBuild>) => ({ ...build.attack!, id: 'loft1' }) as never as Parameters<typeof buildAttackPicture>[0];
+const loftPic = buildAttackPicture(loftAttackOf(loftF16Build), loftAnchor, loftTgtWp as never)!;
+const loftPicLabs = buildAttackPicture(loftAttackOf(loftF4Build), loftAnchor, loftTgtWp as never)!;
+ok('loft picture: POP, REL and TGT markers, and the route, climb, bomb and egress lines', ['POP', 'REL', 'TGT'].every((k) => loftPic.markers.some((m) => m.kind === k)) && ['route', 'climb', 'bomb', 'egress', 'egressLeg'].every((s) => loftPic.lines.some((l) => l.style === s)), loftPic.markers.map((m) => m.kind).join());
+ok('loft picture: no AP, ROLL, RUN, PDP or TRK marker (no action point, no join)', !loftPic.markers.some((m) => ['AP', 'ROLL', 'RUN', 'PDP', 'TRK'].includes(m.kind)));
+const picLine = (pic: NonNullable<typeof loftPic>, style: string) => pic.lines.find((l) => l.style === style)?.points ?? [];
+const sameSpot = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) => calculateDistance(a, b) < 1e-6;
+ok('loft picture: the route runs IP → pull-up, the climb pull-up → release, the bomb release → target, one unbroken track',
+  (() => {
+    const [route, climb, bomb] = ['route', 'climb', 'bomb'].map((s) => picLine(loftPic, s));
+    const pop = loftPic.markers.find((m) => m.kind === 'POP')!.position, rel = loftPic.markers.find((m) => m.kind === 'REL')!.position;
+    return route.length === 2 && climb.length === 2 && bomb.length === 2 && sameSpot(route[0], loftAnchor.point) && sameSpot(route[1], pop) && sameSpot(climb[0], pop) && sameSpot(climb[1], rel) && sameSpot(bomb[0], rel) && sameSpot(bomb[1], tgt);
+  })());
+const loftPop = loftPic.markers.find((m) => m.kind === 'POP')!;
+const loftRel = loftPic.markers.find((m) => m.kind === 'REL')!;
+ok('loft picture: the POP marker sits on the axis at the pull-up range and says PULL UP with the G and the loft angle',
+  Math.abs(calculateDistance(loftPop.position, tgt) - loftF16Profile!.pullUpDistance_nm) < 0.01 && /^4\.0nm: PULL UP — 4 G to 30° loft$/.test(loftPop.lines[0]) && loftPop.lines[1] === '500ft AGL @ 520 KTAS · pickle and hold', JSON.stringify(loftPop.lines));
+ok('loft picture: LABS says "at timer run-out" instead of "pickle and hold"', loftPicLabs.markers.find((m) => m.kind === 'POP')!.lines[1].endsWith('· at timer run-out') && !loftPicLabs.markers.find((m) => m.kind === 'POP')!.lines[1].includes('pickle'), JSON.stringify(loftPicLabs.markers.find((m) => m.kind === 'POP')!.lines));
+ok('loft picture: REL reads Auto-release ~alt AGL and the range, and is not always shown (like the pop-up)', /^Auto-release ~1,5\d0ft AGL · 3\.2nm out$/.test(loftRel.lines[0]) && !loftRel.permanent && Math.abs(calculateDistance(loftRel.position, tgt) - loftF16Profile!.releaseRange_nm!) < 0.01, JSON.stringify(loftRel.lines));
+ok('loft picture: the attack heading is the IP→target bearing and the egress label names the 120° turn',
+  Math.abs(signedHeadingDelta(loftPic.attackHeading, directBearing)) < 0.01 && Math.abs(Math.abs(signedHeadingDelta(loftPic.attackHeading, loftPic.egressHeading)) - 120) < 1e-6 &&loftPic.labels.some((l) => l.kind === 'egress' && l.text === `Egress ${loftPic.egressDirection}, ${String(Math.round(loftPic.egressHeading)).padStart(3, '0')}°`) && loftPic.labels.some((l) => l.kind === 'ip'),
+  JSON.stringify(loftPic.labels.map((l) => l.text)));
+const loftPicText = (pic: NonNullable<typeof loftPic>) => [...pic.markers.flatMap((m) => m.lines), ...pic.labels.map((l) => l.text)].join(' | ');
+ok('loft picture: no number set before the IP appears on a picture label (no pull-up timer, no seconds at all)',
+  loftF4Profile?.pullUpTimer_s != null && !loftPicText(loftPicLabs).includes(String(loftF4Profile.pullUpTimer_s)) && !/\d\s?s\b/.test(loftPicText(loftPicLabs)) && !/\d\s?s\b/.test(loftPicText(loftPic)), loftPicText(loftPicLabs));
+ok('loft picture: undefined without an IP (the IP is the axis)', buildAttackPicture(loftAttackOf(loftF16Build), undefined, loftTgtWp as never) === undefined);
+ok('loft picture: pictureFitPoints frames the attack (pull-up to egress), not the 12 nm transit', Math.max(...pictureFitPoints(loftPic).map((p) => calculateDistance(p, tgt))) < 4.6 && Math.max(...loftPic.lines.flatMap((l) => l.points).map((p) => calculateDistance(p, tgt))) > 11.5,
+  r(Math.max(...pictureFitPoints(loftPic).map((p) => calculateDistance(p, tgt)))).toString());
+ok('loft picture: a typed egress heading draws the turn as flown, left or right',
+  (() => {
+    const typed = buildAttackPicture({ ...loftAttackOf(loftF16Build), profile: { ...loftF16Profile!, egressDirection: 'right', egressHeading_deg: normalizeH(directBearing - 40) } } as never, loftAnchor, loftTgtWp as never)!;
+    return typed.egressDirection === 'left' && Math.abs(signedHeadingDelta(typed.attackHeading, typed.egressHeading) + 40) < 0.01;
+  })());
+function normalizeH(h: number) { return ((h % 360) + 360) % 360; }
+
+// The side view.
+const loftSide = buildSideProfile(loftAttackOf(loftF16Build), 4000)!;
+const sidePt = (kind: string) => loftSide.points.find((p) => p.kind === kind);
+ok('loft side view: POP at the pull-up range at the run-in height, REL at the release range and height, TGT on the ground at 0',
+  sidePt('POP') != null && Math.abs(sidePt('POP')!.dist_nm - loftF16Profile!.pullUpDistance_nm) < 0.01 && sidePt('POP')!.alt_ft === 500 && Math.abs(sidePt('REL')!.dist_nm - loftF16Profile!.releaseRange_nm!) < 0.01 && Math.abs(sidePt('REL')!.alt_ft - loftPlanF16.releaseAltitude_ft) < 1 && sidePt('TGT')!.dist_nm === 0 && sidePt('TGT')!.alt_ft === 0,
+  JSON.stringify(loftSide.points.filter((p) => p.kind !== 'EGRESS')));
+ok('loft side view: the APEX is the bomb\'s apex, between the release and the target, labelled', sidePt('APEX') != null && Math.abs(sidePt('APEX')!.alt_ft - loftPlanF16.bombApex_ft) < 1 && sidePt('APEX')!.dist_nm > 0 && sidePt('APEX')!.dist_nm < sidePt('REL')!.dist_nm && /^apex 4,1\d\dft$/.test(sidePt('APEX')!.label ?? ''), JSON.stringify(sidePt('APEX')));
+const sideIndex = (kind: string) => loftSide.points.findIndex((p) => p.kind === kind);
+const bombSegs = loftSide.segments.filter((s) => s.style === 'bomb');
+ok('loft side view: the bomb arc is one chain of segments from REL through the APEX to TGT, no break',
+  bombSegs.length >= 6 && bombSegs[0].from === sideIndex('REL') && bombSegs.at(-1)!.to === sideIndex('TGT') && bombSegs.every((s, i) => i === 0 || s.from === bombSegs[i - 1].to) && bombSegs.some((s) => s.to === sideIndex('APEX')),
+  `${bombSegs.length} segments`);
+ok('loft side view: the arc never rises above the apex and never leaves the ground, and no bend has a marker or label',
+  bombSegs.every((s) => { const a = loftSide.points[s.from], b = loftSide.points[s.to]; return a.alt_ft <= loftPlanF16.bombApex_ft + 1 && b.alt_ft >= 0 && b.dist_nm <= a.dist_nm + 1e-9; }) && loftSide.points.filter((p) => p.kind === 'EGRESS').every((p) => p.label === undefined),
+  `${loftSide.points.length} points`);
+const loftClimb = loftSide.segments.find((s) => s.style === 'climb');
+ok('loft side view: the pull is a rising curve from POP to REL, after a low run-in', loftClimb?.from === sideIndex('POP') && loftClimb?.to === sideIndex('REL') && loftClimb?.curve === 'up' && loftSide.segments.some((s) => s.style === 'route' && s.to === sideIndex('POP') && loftSide.points[s.from].dist_nm > sidePt('POP')!.dist_nm + 1 && loftSide.points[s.from].alt_ft === 500));
+ok('loft side view: the escape leaves the release point, and the view is tall enough for the apex', loftSide.segments.some((s) => s.style === 'egress' && s.from === sideIndex('REL')) && loftSide.maxAlt_ft >= loftPlanF16.bombApex_ft && loftSide.maxAlt_ft < loftPlanF16.bombApex_ft + 1 && loftSide.hardDeck_ft === undefined, String(loftSide.maxAlt_ft));
+ok('loft side view: AGL, so the target elevation changes nothing', JSON.stringify(buildSideProfile(loftAttackOf(loftF16Build), 0)) === JSON.stringify(loftSide));
+
+// The checks.
+const loftMk82 = refWeapon('mk82');
+const mk81 = refWeapon('mk81');
+const loftProfileOf = (patch: object = {}) => ({ ...applyLoftPlan({ ...loftF16Profile!, pullUpAngle_deg: 30 }, directBearing, 12), ...patch });
+const loftChecksOf = (profile: object, weapon: unknown = loftMk82, extra: object = {}) =>
+  runAttackChecks({ profileType: 'loft_ccrp', profile: profile as never, weapon: weapon as never, targetElevation_ft: 4000, directBearing_deg: directBearing, ipToTarget_nm: 12, ...extra });
+ok('loft checks: running in along the IP→target line is not "predictable straight-in" for a loft', !loftChecksOf(loftProfileOf()).some((c) => /Predictable straight-in/.test(c.text)));
+ok('...but it still is for a dive (the control)', runAttackChecks({ profileType: 'dive_ccip', profile: { type: 'dive_ccip', ingressHeading_deg: directBearing, rollInAltitude_ft: 8000, releaseAltitude_ft: 4500, releaseSpeed_ktas: 450 } as never, weapon: loftMk82 as never, directBearing_deg: directBearing }).some((c) => /Predictable straight-in/.test(c.text)));
+ok('loft checks: no "no data on file" caution for a loft (a weapon with no frag floor), though a dive still carries it',
+  noDataNote(mk81, 'loft_ccrp') === undefined && noDataNote(mk81) !== undefined && !loftChecksOf(loftProfileOf(), mk81).some((c) => c.kind === 'no-data') && runAttackChecks({ profileType: 'dive_ccip', profile: { type: 'dive_ccip' } as never, weapon: mk81 as never }).some((c) => c.kind === 'no-data'));
+ok('loft checks: the maximum release altitude still applies, in AGL (a 1,000 ft maximum against a ~1,520 ft AGL release on a 4,000 ft target)',
+  loftChecksOf(loftProfileOf(), { ...(loftMk82 as object), max_release_alt_ft: 1000 }).some((c) => c.level === 'warn' && /1,520 ft AGL is above .* maximum 1,000 ft/.test(c.text)) &&
+  !loftChecksOf(loftProfileOf(), { ...(loftMk82 as object), max_release_alt_ft: 2000 }).some((c) => /maximum/.test(c.text)) &&
+  runAttackChecks({ profileType: 'loft_ccrp', profile: loftProfileOf() as never, weapon: { ...(loftMk82 as object), max_release_alt_ft: 1000 } as never }).some((c) => /AGL is above/.test(c.text)),
+  JSON.stringify(loftChecksOf(loftProfileOf(), { ...(loftMk82 as object), max_release_alt_ft: 1000 }).map((c) => c.text)));
+ok('loft checks: the release speed limits still apply, as warnings',
+  loftChecksOf(loftProfileOf(), { ...(loftMk82 as object), max_release_speed_ktas: 450 }).some((c) => c.level === 'warn' && /Release speed 497 KTAS is above/.test(c.text)) &&
+  loftChecksOf(loftProfileOf(), { ...(loftMk82 as object), min_release_speed_ktas: 520 }).some((c) => c.level === 'warn' && /Release speed 497 KTAS is below/.test(c.text)));
+// Where the jet is at impact: a warning inside 0.5 nm, found from the model, not guessed.
+// A shallow 20° loft at 500 kt: flown straight on the jet is ~0.3 nm from the target when the bomb lands.
+const shallow = applyLoftPlan({ ...loftF16Profile!, ingressSpeed_ktas: 500, pullUpAngle_deg: 20 }, directBearing, 12);
+const shallowPlan = loftPlanOf(shallow as never);
+const turnForRange = (limit: number) => { let lo = 0, hi = 120; for (let i = 0; i < 50; i++) { const mid = (lo + hi) / 2; if (jetRangeAtImpact_nm(shallowPlan, mid) < limit) lo = mid; else hi = mid; } return lo; };
+const crossover = turnForRange(LOFT_FRAG_STANDOFF_NM);
+const standoffWarns = (turn: number) => loftChecksOf({ ...shallow, egressHeading_deg: normalizeH(directBearing + turn) }).filter((c) => /frag standoff/.test(c.text));
+ok('loft checks: the shallow loft crosses the 0.5 nm standoff at an escape turn of a few degrees (model, not a guess)', crossover > 2 && crossover < 20 && Math.abs(jetRangeAtImpact_nm(shallowPlan, crossover) - 0.5) < 0.001, `${crossover.toFixed(1)}° → ${jetRangeAtImpact_nm(shallowPlan, crossover).toFixed(3)} nm; straight on ${jetRangeAtImpact_nm(shallowPlan, 0).toFixed(2)} nm`);
+ok('loft checks: an egress flown straight on (the jet over the target area at impact) warns, never errors, and names the 0.5 nm standoff and the range',
+  standoffWarns(0).length === 1 && standoffWarns(0)[0].level === 'warn' && standoffWarns(0)[0].text.includes('0.5 nm frag standoff') && standoffWarns(0)[0].text.includes(`${jetRangeAtImpact_nm(shallowPlan, 0).toFixed(1)} nm from the target`) && !hasErrors(loftChecksOf({ ...shallow, egressHeading_deg: directBearing })),
+  standoffWarns(0)[0]?.text ?? '(no warning)');
+ok('loft checks: a turn just under the crossover still warns, just over it does not, either direction',
+  standoffWarns(crossover - 1).length === 1 && standoffWarns(-(crossover - 1)).length === 1 && standoffWarns(crossover + 1).length === 0 && standoffWarns(-(crossover + 1)).length === 0, `crossover ${crossover.toFixed(1)}°`);
+ok('loft checks: the standard 120° escape, and the real F-16 and F-4E profiles even straight on, are clear of the standoff',
+  loftChecksOf(loftProfileOf()).every((c) => !/frag standoff/.test(c.text)) && loftChecksOf(loftProfileOf({ egressHeading_deg: directBearing })).every((c) => !/frag standoff/.test(c.text)) && loftF4Build.checks.every((c) => !/frag standoff/.test(c.text)));
+ok('loft checks: an IP inside the pull-up range is a warning (not an error); a 12 nm IP is not',
+  loftChecksOf(loftProfileOf(), loftMk82, { ipToTarget_nm: 2.5 }).some((c) => c.level === 'warn' && /IP is 2\.5 nm from the target, inside the 4\.0 nm pull-up range/.test(c.text)) && !hasErrors(loftChecksOf(loftProfileOf(), loftMk82, { ipToTarget_nm: 2.5 })) && !loftChecksOf(loftProfileOf()).some((c) => /pull-up range/.test(c.text)),
+  JSON.stringify(loftChecksOf(loftProfileOf(), loftMk82, { ipToTarget_nm: 2.5 }).map((c) => c.text)));
+ok('loft checks: auto-build on a 2.5 nm IP builds the loft, warns, and the pull-up timer is undefined (nothing to time)',
+  (() => { const near = loftBuild(loftPhantom, f4Loft, 'mk82', {}, loftMission([{ ...loftIpWp, coordinates: calculateDestination(tgt, (direct + 180) % 360, 2.5) }, loftTgtWp])); return near.attack != null && (near.attack.profile as { pullUpTimer_s?: number }).pullUpTimer_s === undefined && near.checks.some((c) => c.level === 'warn' && /pull-up range/.test(c.text)) && near.checks.every((c) => c.level !== 'error'); })());
+ok('loft checks: an unfinished profile (a cleared Customize box) skips the loft plan and is only the blank-field error',
+  (() => { const checks = loftChecksOf({ ...loftProfileOf(), pullUpAngle_deg: NaN }); return checks.length === 1 && checks[0].level === 'error' && /blank or not a number/.test(checks[0].text); })());
+
+// Moving the IP, flipping the egress, and the flank toggle on a loft.
+const loftFixed = loftF16Profile!;
+const stale = { ...loftFixed, ingressHeading_deg: 5, pullUpTimer_s: 999, customIp: undefined } as never as typeof loftFixed;
+const newIp = calculateDestination(tgt, 300, 9);
+const movedLoft = moveIp(stale, { customIp: newIp }, [loftIpWp, loftTgtWp] as never, loftTgtWp as never) as typeof loftFixed;
+ok('moveIp (loft): the heading is the new IP→target bearing and the F-4E timer counts from the new IP distance',
+  Math.abs(signedHeadingDelta(movedLoft.ingressHeading_deg, calculateBearing(newIp, tgt))) < 1e-6 && Math.abs(movedLoft.pullUpTimer_s! - (9 * NM - loftPlanF16.pullUpRange_ft) / (520 * 1.68781)) < 0.06 && movedLoft.customIp === newIp,
+  `${r(movedLoft.ingressHeading_deg)}° ${movedLoft.pullUpTimer_s} s`);
+ok('moveIp (loft): numbers stay (the loft angle, run-in) and the derived plan is unchanged by the move', movedLoft.pullUpAngle_deg === 30 && movedLoft.pullUpDistance_nm === loftFixed.pullUpDistance_nm && movedLoft.releaseAltitude_ft === loftFixed.releaseAltitude_ft);
+ok('moveIp (loft): an IP inside the pull-up range clears the timer rather than keeping the old one', (moveIp(stale, { customIp: calculateDestination(tgt, 300, 2) }, [loftIpWp, loftTgtWp] as never, loftTgtWp as never) as typeof loftFixed).pullUpTimer_s === undefined);
+const reanchored = reanchorProfile(stale, 77, 4000, 8) as typeof loftFixed;
+ok('reanchorProfile (loft): heading and timer re-derived from the bearing and distance it is given; no bearing → unchanged',
+  reanchored.ingressHeading_deg === 77 && Math.abs(reanchored.pullUpTimer_s! - (8 * NM - loftPlanF16.pullUpRange_ft) / (520 * 1.68781)) < 0.06 && reanchorProfile(stale, undefined, 4000, 8) === stale);
+ok('applyFlank leaves a loft alone (it has no flank)', applyFlank(stale, 'left', 77, 4000) === stale);
+const loftTypedEgress = { ...loftFixed, egressDirection: 'right' as const, egressHeading_deg: 33 };
+const flipped = applyEgress(loftTypedEgress, 'left') as typeof loftFixed;
+ok('applyEgress (loft): sets the egress side and clears a typed egress heading', flipped.egressDirection === 'left' && flipped.egressHeading_deg === undefined && resolveLoftEgressHeading(flipped, 100) === 340);
+
 // ─── F-16 20° pop ────────────────────────────────────────────────────────────
-const plan20 = planPopup({ diveAngle_deg: 20, releaseAltitude_ft: 3500, speed_ktas: 480 });
+const plan20 =planPopup({ diveAngle_deg: 20, releaseAltitude_ft: 3500, speed_ktas: 480 });
 ok('20° dive → 30° climb → guide 60°', plan20.climbAngle_deg === 30 && plan20.doctrinalAngleOff_deg === 60);
 const check20 = doctrinalCheckTurn(plan20, 4.5);
 ok('20° pop: doctrinal check turn at 4.5 nm is a round 25°', check20 === 25, check20.toString());
@@ -1623,18 +1843,19 @@ ok('reanchorProfile: no usable bearing leaves the profile alone',
 
 // ---------------------------------------------------------------------------
 // Customize slider ranges (lib/customizeKnobs.ts). Every knob stays in
-// Customize (12 dive, 9 level, 13 pop-up), each slider is wired to its form,
-// and nothing in the profile library opens with its slider pinned at an end.
+// Customize (12 dive, 9 level, 13 pop-up, 6 loft), each slider is wired to its
+// form, and nothing in the profile library opens with its slider pinned at an end.
 // ---------------------------------------------------------------------------
 const knobCount = (t: keyof typeof KNOB_RANGES) => Object.keys(KNOB_RANGES[t]).length + KNOB_CHOICES[t].length;
-ok('customizeKnobs: 12 dive, 9 level and 13 pop-up knobs',
-   knobCount('dive_ccip') === 12 && knobCount('level_ccrp') === 9 && knobCount('popup_ccip') === 13,
-   `${knobCount('dive_ccip')} / ${knobCount('level_ccrp')} / ${knobCount('popup_ccip')}`);
+ok('customizeKnobs: 12 dive, 9 level, 13 pop-up and 6 loft knobs',
+   knobCount('dive_ccip') === 12 && knobCount('level_ccrp') === 9 && knobCount('popup_ccip') === 13 && knobCount('loft_ccrp') === 6,
+   `${knobCount('dive_ccip')} / ${knobCount('level_ccrp')} / ${knobCount('popup_ccip')} / ${knobCount('loft_ccrp')}`);
 
 const formSource: Record<keyof typeof KNOB_RANGES, string> = {
   dive_ccip: readFileSync('src/components/attacks/forms/DiveForm.tsx', 'utf8'),
   level_ccrp: readFileSync('src/components/attacks/forms/LevelForm.tsx', 'utf8'),
   popup_ccip: readFileSync('src/components/attacks/forms/PopupCCIPForm.tsx', 'utf8'),
+  loft_ccrp: readFileSync('src/components/attacks/forms/LoftForm.tsx', 'utf8'),
 };
 const actionPointSource = readFileSync('src/components/attacks/forms/ActionPointFields.tsx', 'utf8');
 for (const type of Object.keys(KNOB_RANGES) as (keyof typeof KNOB_RANGES)[]) {
@@ -1656,7 +1877,7 @@ const badRanges = allRanges.filter(([, v]) => {
 ok('customizeKnobs: every range runs min < max in whole steps', badRanges.length === 0, badRanges.map(([k]) => k).join(', '));
 
 const inRange = (v: number, range: KnobRange) => v >= range.min && v <= range.max;
-const geometryType = { dive: 'dive_ccip', level: 'level_ccrp', popup: 'popup_ccip' } as const;
+const geometryType = { dive: 'dive_ccip', level: 'level_ccrp', popup: 'popup_ccip', loft: 'loft_ccrp' } as const;
 // Level ranges are MSL; the library stores AGL. Allow for the highest DCS terrain a target could sit on.
 const HIGHEST_TARGET_FT = 13000;
 const outOfRange: string[] = [];
@@ -1686,6 +1907,194 @@ const builtOutOfRange = Object.entries(levelBuild.attack!.profile)
   .filter(([k, v]) => typeof v === 'number' && (KNOB_RANGES.level_ccrp as Record<string, KnobRange>)[k] && !inRange(v, (KNOB_RANGES.level_ccrp as Record<string, KnobRange>)[k]))
   .map(([k, v]) => `${k}=${v}`);
 ok('customizeKnobs: the auto-built NTTR level attack opens inside its sliders', builtOutOfRange.length === 0, builtOutOfRange.join(', '));
+
+// ─── The loft in the editor, on the card and in a strike ─────────────────────
+{
+  // ── Knobs: the loft's slider ends are the profile loader's own limits ──
+  const rustLoft = readFileSync('crates/core/src/profiles.rs', 'utf8').split('"loft" => {')[1].split('_ => unreachable')[0];
+  const rustRange = (variable: string) => {
+    const m = new RegExp(`\\(([\\d.]+)\\.\\.=([\\d.]+)\\)\\.contains\\(&${variable}\\)`).exec(rustLoft);
+    return m ? [parseFloat(m[1]), parseFloat(m[2])] : undefined;
+  };
+  const loftKnobs = KNOB_RANGES.loft_ccrp;
+  const [angleMin, angleMax] = rustRange('angle') ?? [NaN, NaN];
+  const [gMin, gMax] = rustRange('g') ?? [NaN, NaN];
+  ok('loft knobs: the loft-angle slider runs exactly the loader\'s 10–60°',
+     loftKnobs.pullUpAngle_deg.min === angleMin && loftKnobs.pullUpAngle_deg.max === angleMax, `${angleMin}–${angleMax}`);
+  ok('loft knobs: the pull slider runs exactly the loader\'s 1.5–9 G',
+     loftKnobs.pullG.min === gMin && loftKnobs.pullG.max === gMax, `${gMin}–${gMax}`);
+  ok('loft knobs: run-in altitude (AGL) starts above zero and its speed slider is the shared one',
+     loftKnobs.ingressAltitude_ft.min > 0 && loftKnobs.ingressSpeed_ktas.min === KNOB_RANGES.level_ccrp.releaseSpeed_ktas.min &&
+     loftKnobs.ingressSpeed_ktas.max === KNOB_RANGES.level_ccrp.releaseSpeed_ktas.max);
+  ok('loft knobs: left/right egress is a knob, and there is no action point, check turn or flank',
+     (KNOB_CHOICES.loft_ccrp as readonly string[]).join() === 'egressDirection' &&
+     !('actionRange_nm' in loftKnobs) && !('offsetAngle_deg' in loftKnobs) && !('ingressHeading_deg' in loftKnobs));
+
+  const loftFormSrc = readFileSync('src/components/attacks/forms/LoftForm.tsx', 'utf8');
+  ok('LoftForm: every change goes through applyLoftPlan, and the form has no action-point or flank fields',
+     /onChange\(applyLoftPlan\(\{ \.\.\.profile, \.\.\.patch \}, directBearing_deg, ipToTarget_nm\)\)/.test(loftFormSrc) &&
+     !/ActionPointFields|offsetDirection|offsetAngle|actionRange/.test(loftFormSrc));
+
+  // ── Fixtures: an F-4E LABS loft and an F-16 CCRP loft, 12 nm out on the NTTR bearing ──
+  const mk82 = { id: 'mk82', name: 'Mk-82 LDGP', category: 'bomb_unguided', guidance: 'none', weight_lbs: 500, min_release_alt_ft: 3000, frag_min_safe_alt_ft: 1500 };
+  const f4 = { id: 'f1', callsign: 'Phantom 1-1', aircraftId: 'f4e', position: 1, loadout: [] };
+  const f4b = { id: 'f2', callsign: 'Phantom 1-2', aircraftId: 'f4e', position: 2, loadout: [] };
+  const wpIp12 = { ...wpIp, id: 'w-ip12', coordinates: ip };
+  const loftBase = {
+    type: 'loft_ccrp', ingressHeading_deg: 0, ingressAltitude_ft: 500, ingressSpeed_ktas: 500, pullUpAngle_deg: 45, pullG: 4,
+    pullUpDistance_nm: 0, releaseAltitude_ft: 0, egressDirection: 'right',
+  } as never as Parameters<typeof applyLoftPlan>[0];
+  const loftAt = (from: { lat: number; lon: number }, patch: object = {}) =>
+    applyLoftPlan({ ...loftBase, ...patch } as never, calculateBearing(from, tgt), calculateDistance(from, tgt));
+  const loftAttack = (id: string, profile: object, mode: string) => ({
+    id, targetWaypointId: wpTgt.id, attackerId: 'f1', profileType: 'loft_ccrp', profile, weaponId: 'mk82', releaseQuantity: 1,
+    releaseMode: 'single', sequenceNumber: 1, sourceProfileName: 'LABS Loft 45°', deliveryMode: mode,
+  });
+  const loftMission = (attacks: object[], waypoints: object[] = [wpIp12, wpTgt], extra: object = {}) => ({
+    id: 'ml', name: 'Loft', date: '2026-11-14', theater: 'nevada', bullseye: { lat: 0, lon: 0 }, waypoints, threats: [],
+    flightMembers: [f4, f4b], attacks, notes: '', createdAt: '', updatedAt: '', ...extra,
+  }) as never;
+  const loftCard = (attack: { id: string }, waypoints?: object[]) =>
+    buildKneeboardCard(loftMission([attack], waypoints), attack.id, [mk82] as never, new Map(), [])!;
+
+  // The same stand-in canvas as the sight tests: it records each line of text.
+  const loftDrawn = (card: ReturnType<typeof loftCard>) => {
+    const lines: { text: string; x: number; y: number; font: string; fill: string; maxW?: number }[] = [];
+    const state: Record<string, unknown> = {};
+    const em = () => parseFloat(/([\d.]+)px/.exec(String(state.font))?.[1] ?? '10');
+    const ctx = new Proxy(state, {
+      get: (s, name: string) =>
+        name === 'measureText' ? (text: string) => ({ width: text.length * 0.6 * em() })
+        : name === 'fillText' ? (text: string, x: number, y: number, maxW?: number) => lines.push({ text, x, y, font: String(s.font), fill: String(s.fillStyle), maxW })
+        : name in s ? s[name] : () => undefined,
+      set: (s, name: string, value) => { s[name] = value; return true; },
+    });
+    renderKneeboardCard({ getContext: () => ctx } as never, card);
+    return lines;
+  };
+  const loftWidthOf = (t: { text: string; font: string }) => t.text.length * 0.6 * parseFloat(/([\d.]+)px/.exec(t.font)![1]);
+  const loftAmber = (fill: string) => {
+    const [red, green, blue] = [1, 3, 5].map((i) => parseInt(fill.slice(i, i + 2), 16));
+    return red >= 0xe0 && green >= 0xa0 && green <= 0xd0 && blue <= 0x60;
+  };
+
+  // ── The card header: the F-4E's pull-up timer, a before-the-IP number ──
+  const loftPlan = planLoft({ ingressAltitude_ft: 500, speed_ktas: 500, loftAngle_deg: 45, pullG: 4 });
+  const wantTimer = Math.round(pullUpTimer_s(calculateDistance(ip, tgt) * NM, loftPlan.pullUpRange_ft, 500)! * 10) / 10;
+  // A saved timer that is stale (the IP has since moved) must not be the one printed.
+  const labsAttack = loftAttack('atk', { ...loftAt(ip), pullUpTimer_s: 99 }, 'LABS');
+  const labsCard = loftCard(labsAttack);
+  ok('LABS loft card: the header carries the pull-up timer, worked out from the live IP (not the saved number)',
+     wantTimer > 0 && labsCard.header.pullUpTimer_s === wantTimer && loftAt(ip).pullUpTimer_s === wantTimer,
+     `${labsCard.header.pullUpTimer_s} / want ${wantTimer}`);
+
+  const labsLines = loftDrawn(labsCard);
+  const timerLines = labsLines.filter((t) => /TIMER \d/.test(t.text));
+  ok('LABS loft card: the header prints the timer in bold amber on the profile-label line, with "set before IP"',
+     timerLines.length === 1 && timerLines[0].text.includes(`TIMER ${wantTimer.toFixed(1)} s · set before IP`) && timerLines[0].y === 55 &&
+     timerLines[0].font.startsWith('bold') && loftAmber(timerLines[0].fill),
+     JSON.stringify(timerLines));
+  const labsLabel = labsLines.find((t) => t.text === labsCard.attackSection.profileType)!;
+  const labsDate = labsLines.find((t) => t.text === labsCard.header.missionDate)!;
+  ok('LABS loft card: the timer sits after the profile label and short of the date',
+     timerLines[0] != null && labsLabel != null && labsDate != null && timerLines[0].x >= labsLabel.x + loftWidthOf(labsLabel) &&
+     timerLines[0].x + Math.min(loftWidthOf(timerLines[0]), timerLines[0].maxW ?? Infinity) <= labsDate.x - loftWidthOf(labsDate));
+  ok('LABS loft card: the timer is on no picture label (it is a number for before the IP)',
+     !/timer[^"]*\d/i.test(JSON.stringify(labsCard.attackSection.diagram?.picture?.markers ?? [])) &&
+     !/timer[^"]*\d/i.test(JSON.stringify(labsCard.attackSection.diagram?.side ?? {})));
+
+  const ccrpCard = loftCard(loftAttack('atk', { ...loftAt(ip), pullUpTimer_s: 99 }, 'CCRP'));
+  ok('CCRP loft card: no timer in the header, even when the profile carries a stray value',
+     ccrpCard.header.pullUpTimer_s === undefined && !loftDrawn(ccrpCard).some((t) => /TIMER \d/.test(t.text)));
+
+  const nearIp = { ...wpIp, id: 'w-near', coordinates: calculateDestination(tgt, 68, 2) };
+  const insideCard = loftCard(loftAttack('atk', loftAt(nearIp.coordinates), 'LABS'), [nearIp, wpTgt]);
+  ok('LABS loft card with the IP inside the pull-up range: no timer is printed (there is no run-in to time)',
+     insideCard.header.pullUpTimer_s === undefined && !loftDrawn(insideCard).some((t) => /TIMER \d/.test(t.text)));
+
+  const both = loftDrawn({ ...labsCard, header: { ...labsCard.header, sightDepression_mils: 100 } }).filter((t) => /SIGHT/.test(t.text));
+  ok('a header with a sight and a timer prints both on the one line, once',
+     both.length === 1 && both[0].text.includes(`SIGHT 100 mils · TIMER ${wantTimer.toFixed(1)} s · set before IP`), JSON.stringify(both.map((t) => t.text)));
+
+  // The params block reads from the plan: no duplicate heading, AGL, release speed and time of fall.
+  const params = labsCard.attackSection.parameters;
+  ok('loft card params: one attack heading, AGL altitudes, release speed and time of fall',
+     Object.keys(params).filter((k) => /HDG/.test(k) && !/Egress/.test(k)).length === 1 && /AGL/.test(params['Run-in'] ?? '') &&
+     /AGL @ \d+ KTAS/.test(params['Release'] ?? '') && /^\d+\.\d s$/.test(params['Time of Fall'] ?? ''),
+     JSON.stringify(params));
+
+  // ── The editor: a saved loft opens, and every transition keeps its numbers ──
+  const savedLoft = { ...loftAttack('atk', loftAt(ip), 'LABS'), sourceProfileId: undefined };
+  const lm = loftMission([savedLoft]);
+  const lctx = { mission: lm, weapons: [mk82] as never, profiles: [], threatSystems: [] };
+  const lDraft = draftFromAttack(savedLoft as never, lm);
+  const lResolved = resolveDraft(lDraft, lctx);
+  ok('attackDraft: a saved loft re-opens customized, with the profile it was saved with',
+     lDraft.customized && JSON.stringify(lResolved.profile) === JSON.stringify(savedLoft.profile) && lResolved.profileType === 'loft_ccrp');
+  ok('attackDraft: Save writes the loft exactly as the editor shows it',
+     draftAttackData(lDraft, lResolved, savedLoft as never, 1)?.profile === lResolved.profile);
+
+  const farWp = { ...wpIp, id: 'w-far', steerpoint: 6, coordinates: calculateDestination(tgt, 120, 20) };
+  const lm2 = loftMission([savedLoft], [farWp, wpIp12, wpTgt]);
+  const moved = setIp(lDraft, 'waypoint', lm2, 'w-far').customProfile as typeof loftBase;
+  const farTimer = loftPullUpTimer_s(loftAt(ip), calculateDistance(farWp.coordinates, tgt));
+  ok('editor: moving a customized loft to another IP re-aims its heading and re-times its pull-up',
+     Math.abs(signedHeadingDelta(calculateBearing(farWp.coordinates, tgt), moved.ingressHeading_deg)) < 0.01 &&
+     moved.pullUpTimer_s === farTimer && farTimer !== wantTimer && moved.pullUpAngle_deg === 45,
+     `${r(moved.ingressHeading_deg)}° / ${moved.pullUpTimer_s} vs ${farTimer}`);
+  const typedEgress = { ...lDraft, customProfile: { ...(lDraft.customProfile as object), egressHeading_deg: 20 } as never };
+  const flipped = chooseEgress(typedEgress, 'left').customProfile as typeof loftBase;
+  ok('editor: picking an egress side on a loft sets it and drops a typed egress heading (back to the 120° turn)',
+     flipped.egressDirection === 'left' && flipped.egressHeading_deg === undefined &&
+     Math.abs(signedHeadingDelta(flipped.ingressHeading_deg, resolveLoftEgressHeading(flipped, flipped.ingressHeading_deg)) + 120) < 0.01);
+
+  // ── Strikes: a loft has no flank ──
+  const leadLoft = loftAt(ip);
+  const memberIp = calculateDestination(tgt, 300, 9);
+  const memberLoft = { ...loftAt(memberIp), egressDirection: 'left', egressHeading_deg: 20 } as typeof loftBase;
+  const shallower = loftAt(ip, { pullUpAngle_deg: 30, pullG: 5, ingressSpeed_ktas: 450, ingressAltitude_ft: 300 });
+  const got = applyGroupEdit(leadLoft, shallower, memberLoft, calculateBearing(memberIp, tgt), 0, calculateDistance(memberIp, tgt)) as typeof loftBase;
+  const wantMember = applyLoftPlan({ ...memberLoft, pullUpAngle_deg: 30, pullG: 5, ingressSpeed_ktas: 450, ingressAltitude_ft: 300 }, calculateBearing(memberIp, tgt), calculateDistance(memberIp, tgt));
+  ok('group edit (loft): the lead\'s altitude, speed, loft angle and G reach the member',
+     got.pullUpAngle_deg === 30 && got.pullG === 5 && got.ingressSpeed_ktas === 450 && got.ingressAltitude_ft === 300);
+  ok('group edit (loft): the member keeps its own egress and re-derives its heading from its own IP',
+     got.egressDirection === 'left' && got.egressHeading_deg === 20 &&
+     Math.abs(signedHeadingDelta(calculateBearing(memberIp, tgt), got.ingressHeading_deg)) < 0.01);
+  ok('group edit (loft): the member\'s derived numbers and pull-up timer come from its own IP, never the lead\'s',
+     JSON.stringify(got) === JSON.stringify(wantMember) && got.pullUpTimer_s !== shallower.pullUpTimer_s,
+     `${got.pullUpTimer_s} vs lead ${shallower.pullUpTimer_s}`);
+  ok('group edit (loft): a lead change to egress alone leaves the member untouched',
+     applyGroupEdit(leadLoft, { ...leadLoft, egressDirection: 'left', egressHeading_deg: 50 }, memberLoft as never, calculateBearing(memberIp, tgt)) === (memberLoft as never));
+
+  // The same edit through the Group tab's own function (strikeDraft.groupEdit), which must hand
+  // each member's IP distance down: the member's timer counts from its own IP.
+  const f4eLabs = JSON.parse(readFileSync('src-tauri/resources/profiles/f4e.json', 'utf8')).find((p: { id: string }) => p.id === 'f4e.loft.labs45');
+  const loftJet = (attackerId: string, profile: object, extra: object = {}) =>
+    ({
+      draft: { ...draftFromAttack(undefined, lm), attackerId, targetWaypointId: wpTgt.id, weaponId: 'mk82', profileId: f4eLabs.id, customized: true, customProfile: profile, ...extra },
+      totOffset_s: 0,
+    }) as never;
+  const loftJets = [loftJet('f1', leadLoft), loftJet('f2', memberLoft, { ipMode: 'custom', customIp: memberIp })];
+  const jetCtx = { ...lctx, profiles: [f4eLabs] };
+  const grouped = groupEdit(loftJets, shallower as never, jetCtx);
+  const groupedMember = resolveDraft(grouped[1].draft, jetCtx).profile as typeof loftBase;
+  ok('groupEdit (loft): the member\'s pull-up timer counts from the member\'s own IP distance, not the lead\'s',
+     groupedMember.pullUpAngle_deg === 30 && groupedMember.egressDirection === 'left' &&
+     groupedMember.pullUpTimer_s === wantMember.pullUpTimer_s && wantMember.pullUpTimer_s != null,
+     `${groupedMember.pullUpTimer_s} vs ${wantMember.pullUpTimer_s}`);
+
+  const pairAttacks = [
+    { ...loftAttack('a1', loftAt(ip), 'LABS'), strikeId: 's1', totOffset_s: 0 },
+    { ...loftAttack('a2', loftAt(ip), 'LABS'), attackerId: 'f2', strikeId: 's1', totOffset_s: 30 },
+  ];
+  const pairMission = loftMission(pairAttacks, [wpIp12, wpTgt], { strikes: [{ id: 's1', name: 'Phantom strike', ip: {}, spacing_s: 30 }] });
+  const pairInfo = strikeCardInfo(pairMission, pairAttacks[0] as never);
+  ok('strike card (loft): the strike line names no flank — a loft has none — and still gives seat, TOT and the others',
+     pairInfo != null && !/flank/.test(pairInfo.strikeLine) && /#1 of 2/.test(pairInfo.strikeLine) && /TOT T\+0:00/.test(pairInfo.strikeLine) &&
+     /#2 Phantom 1-2 T\+0:30/.test(pairInfo.strikeLine), pairInfo?.strikeLine);
+  ok('strike (loft): the push time counts from the run-in speed, not the lower release speed',
+     attackSpeedOf(leadLoft) === 500 && (leadLoft.releaseSpeed_ktas ?? 500) < 500, `${attackSpeedOf(leadLoft)} / release ${leadLoft.releaseSpeed_ktas}`);
+}
 
 // ---------------------------------------------------------------------------
 // The editor's state as data (lib/attackDraft.ts): a fresh draft on the NTTR

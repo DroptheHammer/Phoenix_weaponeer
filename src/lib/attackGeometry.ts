@@ -517,6 +517,73 @@ export function calculatePopupGeometry(ipPoint: Coordinates, targetPoint: Coordi
   };
 }
 
+// ─── Loft geometry ────────────────────────────────────────────────────────────
+//
+// A loft runs straight from the IP at the target (decided 2026-11-13: no
+// action point, no check turn, no flank). The attack axis is the IP→target
+// bearing; the pull-up point and the release point sit on it, at the plan's
+// pull-up range and release range from the target, and the jet turns away
+// after release:
+//
+//   IP ── route ──► POP ═ climb ═► REL ·· bomb ·· TGT
+//                                   ╰ egress arc
+
+export interface LoftGeometryParams {
+  /** Where to pull, measured back from the target along the axis. */
+  pullUpRange_nm: number;
+  /** Where the bomb comes off, measured the same way. */
+  releaseRange_nm: number;
+  /** Resolved by the caller: `resolveLoftEgressHeading`. */
+  egressHeading_deg: number;
+  egressSpeed_ktas: number;
+  egressG: number;
+}
+
+export interface LoftGeometry {
+  ipPoint: Coordinates;
+  /** POP: pull up here. */
+  pullUpPoint: Coordinates;
+  /** Where the bomb comes off. */
+  releasePoint: Coordinates;
+  targetPoint: Coordinates;
+  egress: EgressPath;
+
+  /** The axis, and the route leg that flies it: both are the IP→target bearing. */
+  routeHeading: number;
+  attackHeading: number;
+
+  ipToTarget_nm: number;
+  pullUpRange_nm: number;
+  releaseRange_nm: number;
+  /**
+   * The IP is closer to the target than the pull-up point, so the jet would have
+   * to pull before it reached the IP. The picture is still drawn, with the
+   * pull-up point behind the IP.
+   */
+  ipInsidePullUp: boolean;
+}
+
+export function calculateLoftGeometry(ipPoint: Coordinates, targetPoint: Coordinates, params: LoftGeometryParams): LoftGeometry {
+  const attackHeading = calculateBearing(ipPoint, targetPoint);
+  const reciprocal = normalizeHeading(attackHeading + 180);
+  const pullUpPoint = calculatePointAtDistance(targetPoint, reciprocal, params.pullUpRange_nm);
+  const releasePoint = calculatePointAtDistance(targetPoint, reciprocal, params.releaseRange_nm);
+  const ipToTarget_nm = calculateDistance(ipPoint, targetPoint);
+  return {
+    ipPoint,
+    pullUpPoint,
+    releasePoint,
+    targetPoint,
+    egress: egressPath(releasePoint, attackHeading, params.egressHeading_deg, params.egressSpeed_ktas, params.egressG),
+    routeHeading: attackHeading,
+    attackHeading,
+    ipToTarget_nm,
+    pullUpRange_nm: params.pullUpRange_nm,
+    releaseRange_nm: params.releaseRange_nm,
+    ipInsidePullUp: ipToTarget_nm < params.pullUpRange_nm,
+  };
+}
+
 // ─── Level and dive geometry ──────────────────────────────────────────────────
 //
 // Both deliver along one attack axis. With an action point the aircraft flies

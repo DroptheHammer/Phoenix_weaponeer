@@ -123,17 +123,23 @@ function drawHeader(ctx: CanvasRenderingContext2D, theme: CardTheme, card: Kneeb
   const date = card.header.missionDate;
   txt(ctx, label, 10, 55, { color: theme.headerLabel, size: 14, bold: true, family: MONO });
   txt(ctx, date, KNEEBOARD_WIDTH - 10, 55, { color: theme.headerDate, size: 13, family: MONO, align: 'right' });
-  // A manual delivery's sight setting rides on this line, after the profile label
-  // (where a CCIP note would sit): the pilot sets it at or before the IP, not at
-  // the roll-in, where their head is outside. It is placed by measuring each text
-  // in its own font, and held short of the date on the right.
+  // A manual delivery's sight setting, and a LABS loft's pull-up timer, ride on
+  // this line after the profile label (where a CCIP note would sit): the pilot sets
+  // them at or before the IP, not at the roll-in or pull-up, where their head is
+  // outside. It is placed by measuring each text in its own font, and held short
+  // of the date on the right.
   const sight = card.header.sightDepression_mils;
-  if (sight != null) {
+  const timer = card.header.pullUpTimer_s;
+  const setBefore = [
+    ...(sight != null ? [`SIGHT ${Math.round(sight)} mils`] : []),
+    ...(timer != null ? [`TIMER ${timer.toFixed(1)} s`] : []),
+  ];
+  if (setBefore.length) {
     ctx.font = `13px ${MONO}`;
     const dateLeft = KNEEBOARD_WIDTH - 10 - ctx.measureText(date).width;
     ctx.font = `bold 14px ${MONO}`;
     const x = 10 + ctx.measureText(label).width + 8;
-    txt(ctx, `·  SIGHT ${Math.round(sight)} mils · set before IP`, x, 55, { color: theme.headerAmber, size: 14, bold: true, family: MONO, maxW: dateLeft - 12 - x });
+    txt(ctx, `·  ${setBefore.join(' · ')} · set before IP`, x, 55, { color: theme.headerAmber, size: 14, bold: true, family: MONO, maxW: dateLeft - 12 - x });
   }
   hLine(ctx, HEADER_H, theme.headerRule, 2);
   return HEADER_H + 2;

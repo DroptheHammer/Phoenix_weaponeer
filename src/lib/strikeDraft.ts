@@ -18,6 +18,7 @@ import {
 } from './attackDraft';
 import { applyGroupEdit, defaultTotOffset, DEFAULT_SPACING_S, strikeFlank, strikeMembers } from './strike';
 import { flightGroupOf } from './callsign';
+import { calculateDistance } from './coordinates';
 import type { Side } from './attackGeometry';
 import type { AttackProfile } from '../types';
 
@@ -138,9 +139,11 @@ export function groupEdit(jets: Jet[], nextLead: AttackProfile, ctx: DraftContex
     if (i === 0) return { ...j, draft: editProfile(j.draft, nextLead) };
     const r = resolveDraft(j.draft, ctx);
     if (!r.profile || r.profile.type !== nextLead.type) return j;
+    // This jet's own IP distance: a loft's pull-up timer counts from it.
+    const ipToTarget_nm = r.build.ipAnchor && r.target ? calculateDistance(r.build.ipAnchor.point, r.target.coordinates) : undefined;
     return {
       ...j,
-      draft: editProfile(j.draft, applyGroupEdit(prevLead, nextLead, r.profile, r.build.directBearing, r.target?.elevation_ft ?? 0)),
+      draft: editProfile(j.draft, applyGroupEdit(prevLead, nextLead, r.profile, r.build.directBearing, r.target?.elevation_ft ?? 0, ipToTarget_nm)),
     };
   });
 }

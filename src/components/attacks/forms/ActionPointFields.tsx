@@ -10,8 +10,8 @@ export interface ActionPointValue {
 }
 
 interface ActionPointFieldsProps {
-  /** Which profile's slider ranges to use. */
-  profileType: KnobProfileType;
+  /** Which profile's slider ranges to use. A loft runs straight from the IP and has no action point. */
+  profileType: Exclude<KnobProfileType, 'loft_ccrp'>;
   value: ActionPointValue;
   /** What the pilot does at the join point — "roll in", "pull down", "run in". */
   joinLabel: string;

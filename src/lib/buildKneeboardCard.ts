@@ -4,7 +4,7 @@ import type { Attack } from '../types/attack.types';
 import type { DbWeapon, FuzeOption } from '../types/weapon.types';
 import { resolveEgressHeading, type Turn } from './attackGeometry';
 import { popupPlanOf } from './popupPlanning';
-import { resolveLoftEgressHeading } from './loftPlanning';
+import { loftPullUpTimer_s, resolveLoftEgressHeading } from './loftPlanning';
 import { describeRunIn } from './runIn';
 import { buildAttackPicture, buildSideProfile } from './attackPicture';
 import { attackIpAnchor } from './ipAnchor';
@@ -157,11 +157,12 @@ function formatAttackParams(attack: Attack, geo: RunInGeo): Record<string, strin
       resolveEgressHeading({ egressDirection: p.egressDirection ?? 'straight', egressHeading_deg: p.egressHeading_deg }, p.ingressHeading_deg),
     )}°`;
   } else if (p.type === 'loft_ccrp') {
-    params['Ingress HDG'] = `${Math.round(p.ingressHeading_deg)}°`;
-    params['Ingress Alt'] = `${p.ingressAltitude_ft.toLocaleString()}' AGL`;
-    params['Pull-up Dist'] = `${p.pullUpDistance_nm.toFixed(1)} nm`;
-    params['Loft Angle'] = `${p.pullUpAngle_deg}°`;
-    params['Release Alt'] = `~${p.releaseAltitude_ft.toLocaleString()}' AGL`;
+    // The attack heading is the run-in's (printed above); a save with no IP resolved has only its own.
+    if (geo.attackHeading == null) params['Attack HDG'] = fmtHeading(p.ingressHeading_deg);
+    params['Run-in'] = `${p.ingressAltitude_ft.toLocaleString()}' AGL @ ${p.ingressSpeed_ktas} KTAS`;
+    params['Pull-up'] = `${p.pullUpDistance_nm.toFixed(1)} nm · ${p.pullG ?? 4} G to ${p.pullUpAngle_deg}°`;
+    params['Release'] = `~${p.releaseAltitude_ft.toLocaleString()}' AGL${p.releaseSpeed_ktas != null ? ` @ ${p.releaseSpeed_ktas} KTAS` : ''}`;
+    if (p.bombTimeOfFlight_s != null) params['Time of Fall'] = `${p.bombTimeOfFlight_s.toFixed(1)} s`;
     params['Egress HDG'] = `${Math.round(resolveLoftEgressHeading(p, p.ingressHeading_deg))}°`;
   } else if (p.type === 'standoff') {
     params['Release HDG'] = `${p.releaseHeading_deg}°`;
@@ -230,6 +231,19 @@ function getEgressInfo(attack: Attack, attackHeading?: number): { direction: str
 
 const fmtHeading = (h?: number) =>
   h != null && Number.isFinite(h) ? `${Math.round(h).toString().padStart(3, '0')}°` : '---';
+
+/**
+ * A LABS loft's pull-up timer. Read off the IP as it is now, not the number
+ * saved with the profile, so the card always agrees with its own picture
+ * (the picture is drawn from the live IP too). Undefined when the IP is inside
+ * the pull-up range: there is no run-in to time.
+ */
+function labsTimerOf(mission: Mission, attack: Attack, target: Mission['waypoints'][number]): number | undefined {
+  const p = attack.profile;
+  if (attack.deliveryMode !== 'LABS' || p.type !== 'loft_ccrp') return undefined;
+  const anchor = attackIpAnchor(mission.waypoints, attack);
+  return anchor ? loftPullUpTimer_s(p, distanceNm(anchor.point, target.coordinates)) : p.pullUpTimer_s;
+}
 
 // ─── Diagram data: the two pictures ──────────────────────────────────────────
 
@@ -361,7 +375,8 @@ export function buildKneeboardCard(
   }
   // A weapon the table holds no floor for. Like the two cautions above this is a
   // caveat about the data behind the plan, so it rides in the amber strip.
-  const noData = noDataNote(weapon);
+  // A loft is not held to a release floor, so the missing one is no caveat there.
+  const noData = noDataNote(weapon, attack.profileType);
   if (noData) cautions.push(noData);
 
   // Sanity checks against the weapon's own limits. On a card these are
@@ -374,6 +389,10 @@ export function buildKneeboardCard(
     weapon: weapon ?? null,
     targetElevation_ft: targetWp.elevation_ft,
     directBearing_deg: runIn.directBearing,
+    ipToTarget_nm: (() => {
+      const anchor = attackIpAnchor(mission.waypoints, attack);
+      return anchor ? distanceNm(anchor.point, targetWp.coordinates) : undefined;
+    })(),
   })
     .filter((c) => c.kind !== 'no-data')
     .map((c) => c.text);
@@ -399,6 +418,9 @@ export function buildKneeboardCard(
       // A manual delivery's sight, and only a manual delivery's: a stray value on
       // any other attack must not print a setting the jet has no use for.
       sightDepression_mils: attack.deliveryMode === 'MAN' ? attack.sightDepression_mils : undefined,
+      // The F-4E's pull-up timer, and only a LABS loft's (a CCRP loft's jet cues it
+      // itself). Set before the IP, so it is a header number like the sight.
+      pullUpTimer_s: labsTimerOf(mission, attack, targetWp),
     },
     targetSection: {
       name: targetWp.name,

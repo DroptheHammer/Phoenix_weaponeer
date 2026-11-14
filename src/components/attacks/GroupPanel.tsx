@@ -1,6 +1,7 @@
 import type { IpAnchorFields, Strike } from '../../types';
 import type { DraftContext, ResolvedDraft } from '../../lib/attackDraft';
 import { ipFieldsFor, ipPointFromFields, seedCustomIp } from '../../lib/ipAnchor';
+import { calculateDistance } from '../../lib/coordinates';
 import { formatCallsign } from '../../lib/callsign';
 import { targetCandidates, ipCandidates, waypointLabel } from '../../lib/waypointOptions';
 import { fragClearTime_s } from '../../lib/strike';
@@ -52,6 +53,8 @@ export function GroupPanel({ strike, jets, resolved, ctx, aircraft, onStrike, on
   const strikeTargetId = lead?.draft.targetWaypointId ?? '';
   const leadSide = leadSideOf(jets, ctx);
   const frag = Math.max(0, ...resolved.map((r) => fragClearTime_s(r.weapon)));
+  const leadIsLoft = leadResolved?.profile?.type === 'loft_ccrp';
+  const leadIpDistance_nm = leadResolved?.build.ipAnchor && leadTarget ? calculateDistance(leadResolved.build.ipAnchor.point, leadTarget.coordinates) : undefined;
 
   const toggleMember = (memberId: string) => {
     const inStrike = jets.some((j) => j.draft.attackerId === memberId);
@@ -124,25 +127,34 @@ export function GroupPanel({ strike, jets, resolved, ctx, aircraft, onStrike, on
 
       {/* One column on a phone: a slider squeezed into half its width can't be dragged. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label className={label}>Lead in from</label>
-          <div className="flex gap-2">
-            {(['left', 'right'] as const).map((side) => (
-              <button
-                key={side}
-                type="button"
-                onClick={() => onJets(assignFlanks(jets, ctx, side))}
-                disabled={!strikeTargetId}
-                className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                  leadSide === side ? 'bg-dcs-blue border-blue-400 text-white' : 'bg-dcs-dark border-gray-600 text-gray-300 hover:border-gray-400'
-                }`}
-              >
-                {side === 'left' ? '◀ Left' : 'Right ▶'}
-              </button>
-            ))}
+        {leadIsLoft ? (
+          // A loft has no flank: every jet runs straight in from the IP on one axis.
+          <div>
+            <label className={label}>Lead in from</label>
+            <div className="py-2 rounded-lg border border-gray-700 bg-dcs-dark text-sm text-center text-gray-300">Straight in from the IP</div>
+            <div className="text-xs text-gray-400 mt-1">A loft has no flank to split. Every jet flies the same axis: space them in time over the target.</div>
           </div>
-          <div className="text-xs text-gray-400 mt-1">#2 mirrors the lead; #3 and #4 repeat the pair. Flip one jet on its own tab.</div>
-        </div>
+        ) : (
+          <div>
+            <label className={label}>Lead in from</label>
+            <div className="flex gap-2">
+              {(['left', 'right'] as const).map((side) => (
+                <button
+                  key={side}
+                  type="button"
+                  onClick={() => onJets(assignFlanks(jets, ctx, side))}
+                  disabled={!strikeTargetId}
+                  className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    leadSide === side ? 'bg-dcs-blue border-blue-400 text-white' : 'bg-dcs-dark border-gray-600 text-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  {side === 'left' ? '◀ Left' : 'Right ▶'}
+                </button>
+              ))}
+            </div>
+            <div className="text-xs text-gray-400 mt-1">#2 mirrors the lead; #3 and #4 repeat the pair. Flip one jet on its own tab.</div>
+          </div>
+        )}
         <SliderField
           label="Spacing over the target"
           range={{ min: 0, max: 120, step: 5, unit: 's' }}
@@ -214,6 +226,8 @@ export function GroupPanel({ strike, jets, resolved, ctx, aircraft, onStrike, on
             targetElevation_ft={leadTarget?.elevation_ft ?? 0}
             weapon={leadResolved.weapon}
             directBearing_deg={leadResolved.build.directBearing}
+            ipToTarget_nm={leadIpDistance_nm}
+            deliveryMode={leadResolved.build.profile?.deliveryMode}
             onChange={(next) => onJets(groupEdit(jets, next, ctx))}
           />
         </div>

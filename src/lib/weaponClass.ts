@@ -12,7 +12,10 @@ import type { ProfileGeometry, WeaponClass } from '../types/profile.types';
  */
 export const LEVEL_ONLY_WEAPON_IDS: readonly string[] = ['blu107'];
 
-/** Whether a profile of this geometry may deliver this weapon. */
+/**
+ * Whether a profile of this geometry may deliver this weapon. A level-only
+ * weapon (the Durandal) is offered level profiles only: no dive, pop-up or loft.
+ */
 export function geometrySuitsWeapon(geometry: ProfileGeometry, weapon: Pick<DbWeapon, 'id'>): boolean {
   return geometry === 'level' || !LEVEL_ONLY_WEAPON_IDS.includes(weapon.id);
 }

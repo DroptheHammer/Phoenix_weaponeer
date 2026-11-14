@@ -6,7 +6,7 @@
  * and words live here and nowhere else.
  */
 
-import type { Attack, DiveCCIPProfile, LevelCCRPProfile, PopupCCIPProfile } from '../types/attack.types';
+import type { Attack, DiveCCIPProfile, LevelCCRPProfile, LoftCCRPProfile, PopupCCIPProfile } from '../types/attack.types';
 import type { Waypoint, Coordinates } from '../types/waypoint.types';
 import type { IpAnchor } from './ipAnchor';
 import type {
@@ -24,6 +24,7 @@ import {
   calculateBearing,
   calculateDiveGeometry,
   calculateLevelGeometry,
+  calculateLoftGeometry,
   calculatePopupGeometry,
   resolveEgressHeading,
   flankSign,
@@ -37,6 +38,7 @@ import {
   type Turn,
 } from './attackGeometry';
 import { popupActionOf, FT_PER_NM } from './popupPlanning';
+import { loftPlanOf, resolveLoftEgressHeading, LOFT_ESCAPE_G } from './loftPlanning';
 import { isFired } from './weaponClass';
 
 // ─── The one palette ──────────────────────────────────────────────────────────
@@ -165,6 +167,9 @@ export function buildAttackPicture(attack: Attack, ipAnchor: IpAnchor | undefine
       return levelPicture(attack, attack.profile as LevelCCRPProfile, ipAnchor, targetWaypoint);
     case 'popup_ccip':
       return ipAnchor ? popupPicture(attack.profile as PopupCCIPProfile, ipAnchor, targetWaypoint) : undefined;
+    case 'loft_ccrp':
+      // The IP is the axis: without one there is nothing to draw.
+      return ipAnchor ? loftPicture(attack, attack.profile as LoftCCRPProfile, ipAnchor, targetWaypoint) : undefined;
     default:
       return undefined;
   }
@@ -368,7 +373,73 @@ function popupPicture(profile: PopupCCIPProfile, ipAnchor: IpAnchor, targetWaypo
   };
 }
 
+/**
+ * A loft: the route runs straight from the IP through the pull-up point, the
+ * climb carries on to the release, and the bomb flies on to the target. Every
+ * number is re-planned from the profile's inputs (`loftPlanOf`), so the
+ * picture cannot go stale against a saved derived field.
+ *
+ * Nothing set before the IP goes on a picture label: the F-4E's pull-up timer
+ * is a number the crew sets at the IP, so it is printed in the card's header.
+ */
+function loftPicture(attack: Attack, profile: LoftCCRPProfile, ipAnchor: IpAnchor, targetWaypoint: Waypoint): AttackPicture {
+  const plan = loftPlanOf(profile);
+  const directBearing = calculateBearing(ipAnchor.point, targetWaypoint.coordinates);
+  const egressHeading = resolveLoftEgressHeading(profile, directBearing);
+  const g = calculateLoftGeometry(ipAnchor.point, targetWaypoint.coordinates, {
+    pullUpRange_nm: plan.pullUpRange_ft / FT_PER_NM,
+    releaseRange_nm: plan.bombRange_ft / FT_PER_NM,
+    egressHeading_deg: egressHeading,
+    egressSpeed_ktas: plan.releaseSpeed_ktas,
+    egressG: LOFT_ESCAPE_G,
+  });
+  const labs = attack.deliveryMode === 'LABS';
+  const releaseAlt = Math.round(plan.releaseAltitude_ft / 10) * 10;
+  // The turn as flown: a typed egress heading can disagree with the stored direction.
+  const egressDirection = g.egress.turn.deg >= 3 ? g.egress.turn.direction : profile.egressDirection;
+
+  return {
+    lines: [
+      { style: 'route', points: [g.ipPoint, g.pullUpPoint] },
+      { style: 'climb', points: [g.pullUpPoint, g.releasePoint] },
+      { style: 'bomb', points: [g.releasePoint, g.targetPoint] },
+      ...egressLines(g.egress),
+    ],
+    markers: [
+      {
+        kind: 'POP',
+        position: g.pullUpPoint,
+        side: 'bottom',
+        permanent: true,
+        lines: [
+          `${nm1(g.pullUpRange_nm)}nm: PULL UP — ${plan.pullG} G to ${plan.loftAngle_deg}° loft`,
+          `${ft(plan.ingressAltitude_ft)}ft AGL @ ${Math.round(plan.speed_ktas)} KTAS · ${labs ? 'at timer run-out' : 'pickle and hold'}`,
+        ],
+      },
+      {
+        kind: 'REL',
+        position: g.releasePoint,
+        side: 'right',
+        permanent: false,
+        lines: [`Auto-release ~${ft(releaseAlt)}ft AGL · ${nm1(g.releaseRange_nm)}nm out`],
+      },
+      targetMarker(g.targetPoint, g.attackHeading, 'right'),
+    ],
+    labels: [
+      { kind: 'ip', position: g.ipPoint, text: `${ipAnchor.shortLabel}: ${ft(plan.ingressAltitude_ft)}ft AGL @ ${Math.round(plan.speed_ktas)}kts → route ${fmtHdg(g.routeHeading)}°` },
+      { kind: 'egress', position: g.egress.end, text: `Egress ${egressDirection}, ${fmtHdg(egressHeading)}°` },
+    ],
+    attackHeading: g.attackHeading,
+    egressHeading,
+    egressDirection,
+    ipShortLabel: ipAnchor.shortLabel,
+  };
+}
+
 // ─── Side view ────────────────────────────────────────────────────────────────
+
+/** How far before the pull-up the loft's low run-in is drawn in the side view. */
+const LOFT_SIDE_RUN_IN_NM = 1.5;
 
 /** The same attack as altitude against distance to the target, for the card. */
 export function buildSideProfile(attack: Attack, targetElevation_ft: number): SideProfile | undefined {
@@ -437,6 +508,54 @@ export function buildSideProfile(attack: Attack, targetElevation_ft: number): Si
     seg({ style: 'bomb', from: rel, to: tgt });
     seg({ style: 'egress', from: rel, to: out, curve: 'up' });
     return { points, segments, hardDeck_ft: p.minAltitude_ft, maxAlt_ft: plan.apexAltitude_ft };
+  }
+
+  if (attack.profileType === 'loft_ccrp') {
+    // Everything is AGL over the target, so the target's elevation does not enter.
+    const p = attack.profile as LoftCCRPProfile;
+    const plan = loftPlanOf(p);
+    const pop = plan.pullUpRange_ft / FT_PER_NM;
+    const rel = plan.bombRange_ft / FT_PER_NM;
+    const releaseAlt = Math.round(plan.releaseAltitude_ft / 10) * 10;
+    // A bomb's x is measured from the pull-up point toward the target; the side view counts back from the target.
+    const distOf = (x_ft: number) => (plan.pullUpRange_ft - x_ft) / FT_PER_NM;
+
+    // The low run-in and the pull. The start has no marker: it only gives the line a length.
+    const start = add({ kind: 'EGRESS', dist_nm: pop + LOFT_SIDE_RUN_IN_NM, alt_ft: plan.ingressAltitude_ft });
+    const popIdx = add({ kind: 'POP', dist_nm: pop, alt_ft: plan.ingressAltitude_ft, label: `${nm1(pop)}nm: PULL UP ${plan.pullG}G to ${plan.loftAngle_deg}°`, side: 'bottom' });
+    const relIdx = add({ kind: 'REL', dist_nm: rel, alt_ft: plan.releaseAltitude_ft, label: `Release ~${ft(releaseAlt)}ft AGL`, side: 'bottom' });
+    seg({ style: 'route', from: start, to: popIdx });
+    seg({ style: 'climb', from: popIdx, to: relIdx, curve: 'up' });
+
+    // The bomb's arc, release to impact. The renderer bends a segment through a
+    // single control point, which would draw the arc well under the apex, so the
+    // arc is straight segments through the bomb's own path. The bends have no
+    // marker; the apex does.
+    const path = plan.bombPath;
+    const last = path.length - 1;
+    let apexAt = 0;
+    path.forEach((pt, i) => { if (pt.alt_ft > path[apexAt].alt_ft) apexAt = i; });
+    const step = Math.max(1, Math.round((path.length - 2) / 10));
+    let previous = relIdx;
+    for (let i = 1; i < last; i++) {
+      const pt = path[i];
+      if (i === apexAt) {
+        const apex = add({ kind: 'APEX', dist_nm: distOf(pt.x_ft), alt_ft: plan.bombApex_ft, label: `apex ${ft(plan.bombApex_ft)}ft`, side: 'top' });
+        seg({ style: 'bomb', from: previous, to: apex });
+        previous = apex;
+      } else if (i % step === 0 && Math.abs(i - apexAt) > 1) {
+        const bend = add({ kind: 'EGRESS', dist_nm: distOf(pt.x_ft), alt_ft: pt.alt_ft });
+        seg({ style: 'bomb', from: previous, to: bend });
+        previous = bend;
+      }
+    }
+    const tgt = add({ kind: 'TGT', dist_nm: 0, alt_ft: 0 });
+    seg({ style: 'bomb', from: previous, to: tgt });
+
+    // The escape: the jet rolls over and dives back to its run-in height, away from the bomb.
+    const out = add({ kind: 'EGRESS', dist_nm: rel - 1.0, alt_ft: plan.ingressAltitude_ft });
+    seg({ style: 'egress', from: relIdx, to: out, curve: 'up' });
+    return { points, segments, maxAlt_ft: Math.max(plan.bombApex_ft, plan.releaseAltitude_ft, plan.ingressAltitude_ft) };
   }
 
   return undefined;

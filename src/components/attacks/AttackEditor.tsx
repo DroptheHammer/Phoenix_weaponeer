@@ -15,9 +15,11 @@ import { newJet, newStrike, jetsOfStrike, respace, sortJets, setStrikeIp, strike
 import { attackSpeedOf, coneGrade, fmtStrikeTime, strikeFlank, strikeOf, strikeReadout, type StrikeJet } from '../../lib/strike';
 import { buildAttackPicture } from '../../lib/attackPicture';
 import { resolveEgressHeading } from '../../lib/attackGeometry';
+import { loftPullUpTimer_s, resolveLoftEgressHeading } from '../../lib/loftPlanning';
+import { calculateDistance } from '../../lib/coordinates';
 import { formatCallsign } from '../../lib/callsign';
 import type { RunInSummary } from '../../lib/runIn';
-import type { Attack, AttackProfile, Coordinates, DbWeapon, FuzeOption, IpAnchorFields, Mission, Strike } from '../../types';
+import type { Attack, AttackProfile, Coordinates, DbWeapon, FuzeOption, IpAnchorFields, LoftCCRPProfile, Mission, Strike } from '../../types';
 
 interface ThreatSystemLite {
   id: string;
@@ -276,7 +278,7 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
       <Modal title={modalTitle} onClose={handleClose} fill>
         <PhoneEditorLayout
           map={previewMap}
-          readout={selected?.runIn && selected.profile ? <RunInReadout runIn={selected.runIn} profile={selected.profile} chips /> : null}
+          readout={readoutOf(selected, true)}
           sideView={sideView}
           jetStrip={jetStrip}
           strikeReadout={strikeReadout}
@@ -342,7 +344,7 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
         <div className="flex-1 min-w-0 flex flex-col gap-2">
           <div className="flex-1 min-h-0 rounded-lg overflow-hidden border border-gray-700">{previewMap}</div>
           {strikeReadout}
-          {selected?.runIn && selected.profile && <RunInReadout runIn={selected.runIn} profile={selected.profile} />}
+          {readoutOf(selected, false)}
           <div className="h-[220px] shrink-0 rounded-lg overflow-hidden border border-gray-700">{sideView}</div>
         </div>
       </div>
@@ -512,11 +514,16 @@ function RunInReadout({ runIn, profile, chips = false }: { runIn: RunInSummary; 
   if (runIn.axisOffset_deg != null) cells.push(['Axis off line', `${Math.round(runIn.axisOffset_deg)}°`]);
   if (runIn.angleOff_deg != null) cells.push(['Angle-off', `${Math.round(runIn.angleOff_deg)}°`]);
 
+  return <ReadoutStrip cells={cells} closes={runIn.closes} chips={chips} />;
+}
+
+/** Label and value cells under the map: a wrapped strip on a desktop, one scrolling row of chips on a phone. */
+function ReadoutStrip({ cells, closes, chips }: { cells: [string, string][]; closes: boolean; chips: boolean }) {
   if (chips) {
     return (
       <div className="flex gap-2 overflow-x-auto overscroll-x-contain no-scrollbar py-1">
         {cells.map(([k, v]) => (
-          <div key={k} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs ${runIn.closes ? 'bg-dcs-dark' : 'bg-red-950'}`}>
+          <div key={k} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs ${closes ? 'bg-dcs-dark' : 'bg-red-950'}`}>
             <span className="text-gray-400">{k} </span>
             <span className="font-mono text-gray-100">{v}</span>
           </div>
@@ -526,7 +533,7 @@ function RunInReadout({ runIn, profile, chips = false }: { runIn: RunInSummary; 
   }
 
   return (
-    <div className={`shrink-0 rounded-lg px-3 py-2 flex flex-wrap gap-x-5 gap-y-1 ${runIn.closes ? 'bg-dcs-dark' : 'bg-red-950'}`}>
+    <div className={`shrink-0 rounded-lg px-3 py-2 flex flex-wrap gap-x-5 gap-y-1 ${closes ? 'bg-dcs-dark' : 'bg-red-950'}`}>
       {cells.map(([k, v]) => (
         <div key={k} className="text-xs">
           <span className="text-gray-400">{k} </span>
@@ -535,4 +542,34 @@ function RunInReadout({ runIn, profile, chips = false }: { runIn: RunInSummary; 
       ))}
     </div>
   );
+}
+
+/**
+ * A loft's numbers under the map: where it pulls up, where the bomb comes off,
+ * how long it falls, which way the jet leaves, and for a LABS loft the pull-up
+ * timer. A loft has no action point or check turn, so it has no run-in story to
+ * tell; it reads these straight off the profile, re-derived on every change.
+ */
+function LoftReadout({ resolved, profile, chips }: { resolved: ResolvedDraft; profile: LoftCCRPProfile; chips: boolean }) {
+  const hdg = (h: number) => `${Math.round(((h % 360) + 360) % 360).toString().padStart(3, '0')}°`;
+  const num = (v: number | undefined, digits: number) => (v != null && Number.isFinite(v) ? v.toFixed(digits) : '?');
+  const ipToTarget_nm = resolved.build.ipAnchor && resolved.target ? calculateDistance(resolved.build.ipAnchor.point, resolved.target.coordinates) : undefined;
+  const timer = resolved.build.profile?.deliveryMode === 'LABS' ? loftPullUpTimer_s(profile, ipToTarget_nm) : undefined;
+  const cells: [string, string][] = [
+    ['Attack hdg', hdg(profile.ingressHeading_deg)],
+    ['Pull up', `${num(profile.pullUpDistance_nm, 1)} nm`],
+    ['Release', `~${Math.round(profile.releaseAltitude_ft).toLocaleString()} ft AGL${profile.releaseSpeed_ktas != null ? ` · ${Math.round(profile.releaseSpeed_ktas)} kt` : ''}`],
+    ['Falls', `${num(profile.bombTimeOfFlight_s, 1)} s`],
+    ['Egress', hdg(resolveLoftEgressHeading(profile, profile.ingressHeading_deg))],
+  ];
+  if (timer != null) cells.push(['Timer', `${timer.toFixed(1)} s`]);
+  return <ReadoutStrip cells={cells} closes chips={chips} />;
+}
+
+/** The strip of numbers under the map for whatever the jet is flying. Null when there is nothing to say yet. */
+function readoutOf(resolved: ResolvedDraft | undefined, chips: boolean): ReactNode {
+  const profile = resolved?.profile;
+  if (!resolved || !profile) return null;
+  if (profile.type === 'loft_ccrp') return <LoftReadout resolved={resolved} profile={profile} chips={chips} />;
+  return resolved.runIn ? <RunInReadout runIn={resolved.runIn} profile={profile} chips={chips} /> : null;
 }

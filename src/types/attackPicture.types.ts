@@ -48,6 +48,10 @@ export interface AttackPicture {
 
 // ─── Side view ────────────────────────────────────────────────────────────────
 
+/**
+ * `EGRESS` draws nothing: it is the tip of the egress arrow, or a bend in a
+ * curve that is drawn as straight segments (the loft's bomb arc, run-in start).
+ */
 export type SidePointKind = MarkerKind | 'APEX' | 'EGRESS';
 
 export interface SidePoint {

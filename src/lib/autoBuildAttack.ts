@@ -1,10 +1,10 @@
 import type { Mission } from '../types/mission.types';
 import type { LoadoutItem } from '../types/flight.types';
-import type { Attack, DiveCCIPProfile, LevelCCRPProfile, PopupCCIPProfile } from '../types/attack.types';
+import type { Attack, DiveCCIPProfile, LevelCCRPProfile, LoftCCRPProfile, PopupCCIPProfile } from '../types/attack.types';
 import type { DbWeapon } from '../types/weapon.types';
 import type { Coordinates, Waypoint } from '../types/waypoint.types';
 import type { DeliveryProfile, WeaponClass } from '../types/profile.types';
-import { SUPPORTED_GEOMETRIES, diveParams, levelParams, popupParams } from '../types/profile.types';
+import { SUPPORTED_GEOMETRIES, diveParams, levelParams, loftParams, popupParams } from '../types/profile.types';
 import { weaponClassOf, offeredTo, storesMappedFor, geometrySuitsWeapon, WEAPON_CLASS_LABEL } from './weaponClass';
 import { calculateBearing, calculateDistance } from './coordinates';
 import { runAttackChecks, type AttackCheck } from './attackChecks';
@@ -27,6 +27,7 @@ import {
   type Side,
 } from './attackGeometry';
 import { planPopup, doctrinalCheckTurn, solvePullDownTurn, applyPopupPlan, type PopupPlan } from './popupPlanning';
+import { applyLoftPlan } from './loftPlanning';
 import { describeRunIn, type RunInSummary } from './runIn';
 
 /**
@@ -46,7 +47,10 @@ import { describeRunIn, type RunInSummary } from './runIn';
  * (level). The flank defaults to the side *away* from the nearest threat, and
  * so does the egress, so the two toggles usually read the same way. The
  * attack heading is whatever that geometry produces; nothing about it is a
- * straight line at the target.
+ * straight line at the target. The one exception is a loft, which runs
+ * straight from the IP at the target (no action point, no check turn, no
+ * flank): the IP sets the axis, so a typed run-in heading does not apply, and
+ * the weapon's release floors do not apply either (`attackChecks.ts`).
  *
  * Pure: takes the profile library and weapons as arguments so it can be run
  * anywhere (and tested) without touching the stores.
@@ -350,7 +354,8 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   const dive = diveParams(profile);
   const level = levelParams(profile);
   const popup = popupParams(profile);
-  if (!dive && !level && !popup) {
+  const loft = loftParams(profile);
+  if (!dive && !level && !popup && !loft) {
     problems.push(`${profile.name} uses a ${profile.geometry} geometry the tool cannot draw yet`);
     return { attack: null, profile, weapon, weaponClass, candidates, adjustments, problems, checks: [] };
   }
@@ -358,12 +363,12 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   // Floors from the weapon. Profiles are written for a class; the specific
   // store may demand more altitude than the profile assumes.
   const floor = weaponFloor_ft(weapon);
-  const speedClamp = (speed: number): number => {
+  const speedClamp = (speed: number, what = 'Release speed'): number => {
     const min = weapon.min_release_speed_ktas ?? -Infinity;
     const max = weapon.max_release_speed_ktas ?? Infinity;
     const clamped = Math.min(Math.max(speed, min), max);
     if (clamped !== speed) {
-      adjustments.push(`Release speed ${speed} → ${clamped} kt: ${weapon.name} limit`);
+      adjustments.push(`${what} ${speed} → ${clamped} kt: ${weapon.name} limit`);
     }
     return clamped;
   };
@@ -377,6 +382,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   let diveNumbers: { rollIn: number; release: number; speed: number; ingress: number; g: number } | undefined;
   let levelNumbers: { releaseAgl: number; releaseMsl: number; speed: number } | undefined;
   let popupNumbers: { release: number; speed: number; plan: PopupPlan } | undefined;
+  let loftNumbers: { speed: number } | undefined;
   let joinRange_nm = 0;
 
   if (dive) {
@@ -412,6 +418,12 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
       pullG: popup.pullG,
     });
     popupNumbers = { release, speed, plan };
+  } else if (loft) {
+    // The pull-up range and release altitude are derived from the run-in
+    // (`applyLoftPlan`), so there is no release to raise to a floor: the
+    // weapon's release floors do not apply to a loft. Only the run-in speed is
+    // held to the weapon's speed limits.
+    loftNumbers = { speed: speedClamp(loft.ingressSpeed_ktas, 'Run-in speed') };
   }
 
   // The run-in: route to the action point, check turn, offset leg, join.
@@ -425,13 +437,15 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     overrides.runInHeading_deg != null && Number.isFinite(overrides.runInHeading_deg) ? overrides.runInHeading_deg : undefined;
 
   let actionRange = overrides.actionRange_nm ?? dive?.actionRange_nm ?? level?.actionRange_nm ?? popup?.actionRange_nm ?? DEFAULT_ACTION_RANGE_NM;
-  let checkTurn: number;
+  // A loft has no check turn; it never reads this.
+  let checkTurn = 0;
   let pullDown: number | undefined;
 
   // Chained attacks: the previous steerpoint may be closer than the action
   // range. The check turn cannot come before the leg starts, so pull it in.
+  // (A loft has no action point to pull in.)
   const legLength_nm = ipAnchor ? calculateDistance(ipAnchor.point, target.coordinates) : undefined;
-  if (legLength_nm != null && actionRange > legLength_nm - 0.5) {
+  if (!loft && legLength_nm != null && actionRange > legLength_nm - 0.5) {
     const pulledIn = Math.max(1, Math.floor((legLength_nm - 0.5) * 2) / 2);
     adjustments.push(`Action point pulled in ${actionRange} → ${pulledIn} nm: ${ipAnchor!.shortLabel} is only ${legLength_nm.toFixed(1)} nm from the target`);
     actionRange = pulledIn;
@@ -488,9 +502,9 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
       offsetLegRatio = ratio;
       actionRange = round1(solution.actionRange_nm);
     }
-  } else {
+  } else if (dive) {
     // Dive CCIP: original logic, 20° check turn.
-    checkTurn = overrides.offsetTurn_deg ?? dive?.offsetAngle_deg ?? DEFAULT_OFFSET_TURN_DEG;
+    checkTurn = overrides.offsetTurn_deg ?? dive.offsetAngle_deg ?? DEFAULT_OFFSET_TURN_DEG;
     // The join point must be inside the action range, with room to settle.
     if (actionRange < joinRange_nm + 1) {
       const moved = round1(Math.ceil((joinRange_nm + 1.5) * 2) / 2);
@@ -515,7 +529,10 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     return 360;
   };
   let attackHeading: number;
-  if (typedHeading != null) {
+  if (loft) {
+    // A loft runs straight from the IP at the target: the IP sets the axis, so a typed heading does not apply.
+    attackHeading = directBearing ?? noIp();
+  } else if (typedHeading != null) {
     attackHeading = typedHeading;
   } else if (directBearing == null) {
     attackHeading = noIp();
@@ -601,6 +618,27 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
         : built;
     attackProfile = p;
     profileType = 'popup_ccip';
+  } else if (loft && loftNumbers) {
+    if (!ipAnchor) problems.push('A loft needs an IP — pick a waypoint or place a custom point');
+    const p: LoftCCRPProfile = applyLoftPlan(
+      {
+        type: 'loft_ccrp',
+        ...(ipAnchor?.source === 'custom' ? { customIp: ipAnchor.point, ipWaypointId: undefined } : { ipWaypointId: ipAnchor?.waypoint?.id }),
+        ingressHeading_deg: attackHeading,
+        ingressAltitude_ft: loft.ingressAltitude_ft,
+        ingressSpeed_ktas: loftNumbers.speed,
+        pullUpAngle_deg: loft.pullUpAngle_deg,
+        pullG: loft.pullG,
+        // Derived below, from the inputs above.
+        pullUpDistance_nm: 0,
+        releaseAltitude_ft: 0,
+        egressDirection,
+      },
+      directBearing,
+      legLength_nm,
+    );
+    attackProfile = p;
+    profileType = 'loft_ccrp';
   } else {
     return { attack: null, profile, weapon, weaponClass, candidates, ipWaypoint, ipAnchor, attackHeading, directBearing, adjustments, problems, checks: [] };
   }
@@ -633,6 +671,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     weaponClass,
     allowedClasses: profile.weaponClasses,
     directBearing_deg: directBearing,
+    ipToTarget_nm: legLength_nm,
   });
 
   return {
