@@ -242,8 +242,9 @@ The seven gaps listed above are closed, and `KNOWN_CLASS_GAPS` is empty.
   rule on one pattern, and the name's own drag words pick between them.
 - **Rack counts:** a count straight before the weapon's name is read
   (`- 3 x Mk-20`, `2x CBU-52B`), alongside `with N x`. A cluster bomb's
-  bomblet count comes after the name and is never read. A bare number is
-  never a count, so the F-14's `MAK79 2 MK-20` loads as one.
+  bomblet count comes after the name and is never read. A bare number was
+  never a count, so the F-14's `MAK79 2 MK-20` loaded as one (read since
+  2026-11-13: see Session 2 below).
 - **The synthetic loaded-jets file** now has `Venom 1-3` carrying recognised
   Rockeyes and one BL-755, which has no row, so the "not in the weapon table"
   mark can still be seen. (Since 2026-11-13 the BL-755 has a row; see Session 1
@@ -286,3 +287,33 @@ The seven gaps listed above are closed, and `KNOWN_CLASS_GAPS` is empty.
   loaded-jets file (`Venom 1-3`) and in the store-mapping tests. When the
   Shrike gets a row, pick another.
 - **Left unrecognised on purpose:** `Mk-83CT` (no source says what it is).
+
+### Session 2 (built 2026-11-13): rack counts written as a bare number
+
+- **Evidence first.** Every DCS store name in the public pydcs list
+  (`dcs/weapons_data.py` at the same commit) plus the A-4E-C mod's own weapon
+  file (its rack names are built in Lua, so they were regenerated) was run
+  through the old and the new rules; every name whose answer changed was
+  checked by eye. The diff is 86 names, all counts, plus one weapon.
+- **Four forms are read, for bombs, missiles and cluster bombs only**, after
+  `with N x` and an `N x` before the weapon: a trailing `* N` (`GBU-12 * 2`,
+  `Mk 84*28`); a bare number that opens the name with the weapon starting at
+  the second token (`2 Mk-81`, `2 GBU-38 */*`); a bare number after the F-14's
+  `MAK79` (`MAK79 3 Mk-82`); and a trailing `x N` after the weapon
+  (`AUF2 GBU-12 x 2`). The first and last read the raw name, since the
+  tokenizer drops `*`. `MAK79` is the only rack on the allow-list
+  (`COUNTING_RACKS`): `BRU-42 Mk-82` is tokens `bru 42 mk 82` and 42 is a
+  designation, so no other rack is read this way without evidence.
+- **Never counts:** an `x N` in the middle of a name (`BLU-3B x 27, HE`, a
+  dispenser's bomblets), a name that merely ends in a designation (`Mk-83`,
+  `GBU-31(V)3/B`), a zero, and any number before a rack (`TER-9A 3 Mk-82`).
+- **Fix, same family as "SnakeEye":** the Mirage F1 writes `AUF2 MK-82
+  Snakeyes x 2`, a token that matched nothing and loaded as the low-drag Mk-82.
+  It now has a rule and is a high-drag word.
+- **Not changed, found on the way:** stores with no row are counted only by
+  `with N x`, so `12 AN-M64 …` or `AGM-114K * 2` still load as one; the rocket
+  counter misreads the colon-style `BRU-42: 2 x LAU-131 - 7 x …` (2, not 14),
+  `2x LAU-10 pod - 4 x …` (4, not 8) and `ORO-57K - S-5M1 HE-FRAG FFAR x 8`
+  (one 2.75" FFAR, not eight S-5s); `Mk-84 AIR * 2` is a retarded bomb with no
+  `air` in the drag words, so it loads as the low-drag Mk-84.
+- The four captured links carry none of these forms: no count there changed.

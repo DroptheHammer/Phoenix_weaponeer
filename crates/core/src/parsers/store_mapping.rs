@@ -56,11 +56,27 @@
 //! or "2x CBU-52B ... (TER)", as two tokens ("3 x") or one ("3x"). A rocket pod
 //! counts rockets, not pods ("pod - 7 x" is 7, and two such pods are 14). A
 //! cluster bomb's own "202 x" comes after its name, is submunitions and is never
-//! a count, so a bare "CBU-87 - 202 x CEM Cluster Bomb" is one bomb. A bare
-//! number is never a count either: the Heatblur-style names ("MAK79 2 MK-20")
-//! and a rack's own number ("BRU-42 Mk-82") stay at one, because there is no
-//! telling a count from a designation. Pylons that carry the same weapon merge
-//! into one line with the summed quantity.
+//! a count, so a bare "CBU-87 - 202 x CEM Cluster Bomb" is one bomb.
+//!
+//! Four more spellings of a count are read, each one a fixed shape taken from the
+//! public pydcs store list and the A-4E-C mod's own file (about 1,800 DCS names;
+//! no captured link uses any of them), and for a bomb, missile or cluster only
+//! (`store_count` lists the order):
+//!
+//! - a trailing "* N": "GBU-12 * 2", "Mk-82 AIR * 6", "Mk 84*28";
+//! - a bare number that opens the name, straight before the weapon: "2 Mk-81",
+//!   "3 GBU-12", "2 GBU-38 */*";
+//! - a bare number after the F-14's "MAK79" rack: "MAK79 3 Mk-82", "MAK79 2
+//!   MK-20" (`COUNTING_RACKS`, the only rack read this way);
+//! - a trailing "x N" after the weapon: "AUF2 GBU-12 x 2", "BAP-100 x 12".
+//!
+//! Every other bare number is a designation and is never a count: a rack's own
+//! number ("BRU-42 Mk-82" is tokens `bru 42 mk 82`, and 42 is not a count), a
+//! number before a rack ("TER-9A 3 Mk-82"), and an "x N" in the middle of a name
+//! ("BLU-3B x 27, HE" is bomblets), so a name can never load a jet with weapons
+//! it cannot hold. A store with no rule (unrecognised) is still counted only by
+//! "with N x". Pylons that carry the same weapon merge into one line with the
+//! summed quantity.
 
 use serde_json::Value;
 
@@ -103,8 +119,10 @@ enum Drag {
 /// How a rule turns its store name into a quantity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Count {
-    /// Bombs, missiles and cluster bombs: "with N x", or an "N x" / "Nx" right
-    /// before the weapon's own name, otherwise one.
+    /// Bombs, missiles and cluster bombs: "with N x", an "N x" / "Nx" right
+    /// before the weapon's own name, or one of the four bare forms in the module
+    /// docs (a trailing "* N" or "x N", a leading number, "MAK79 N"); otherwise
+    /// one.
     Stores,
     /// Rockets: pods times rockets per pod.
     Rockets,
@@ -150,8 +168,10 @@ static STORE_RULES: &[StoreRule] = &[
     high_drag("Mk-82 Snakeye", "mk82se"),
     // Some DCS names spell it "SnakeEye" ("Mk-82 SnakeEye", "MAK79 3 Mk-82
     // SnakeEye"), one token that is not "snakeye". Without this rule, and the
-    // spelling in HIGH_DRAG_TOKENS, those loaded as the low-drag Mk-82.
+    // spelling in HIGH_DRAG_TOKENS, those loaded as the low-drag Mk-82. The
+    // Mirage F1 writes it "Snakeyes" ("AUF2 MK-82 Snakeyes x 2"), a third token.
     high_drag("Mk-82 SnakeEye", "mk82se"),
+    high_drag("Mk-82 Snakeyes", "mk82se"),
     low_drag("Mk-84", "mk84"),
     // The Mk-81 and Mk-83 (added 2026-11-13). DCS: "Mk-81 - 250lb GP Bomb LD",
     // "Mk-81 Snakeye - 250lb GP Bomb HD" (the A-4E-C), "Mk-83 - 1000lb GP Bomb
@@ -268,8 +288,20 @@ const FUEL_TANK_TOKENS: &[&str] = &["fuel", "droptank", "ptb"];
 const SENSOR_POD_TOKENS: &[&str] =
     &["litening", "lantirn", "sniper", "atflir", "tgp", "hts", "alq", "ecm", "acmi", "tcts", "tald"];
 
-/// Whole tokens that mark a bomb as retarded or high-drag.
-const HIGH_DRAG_TOKENS: &[&str] = &["hd", "retarded", "ballute", "snakeye", "snakeeye", "chute", "parachute"];
+/// Whole tokens that mark a bomb as retarded or high-drag. "air" is the AIR
+/// retarding tail: on its own it is how DCS writes "Mk-84 AIR * 2", which has no
+/// row and must not fall through to the slick Mk-84. Over every pydcs and A-4E-C
+/// store name, adding it changed only those two names (2026-11-13).
+const HIGH_DRAG_TOKENS: &[&str] =
+    &["hd", "retarded", "ballute", "snakeye", "snakeeye", "snakeyes", "chute", "parachute", "air"];
+
+/// Racks that write the number of stores they hold as a bare number straight
+/// after their own designation, before the weapon: the F-14's "MAK79 3 Mk-82".
+/// Only a rack listed here is read this way. Every other rack's number is its
+/// designation ("BRU-42 Mk-82" is tokens `bru 42 mk 82`, and 42 is not a count),
+/// and no real name is written "TER-9A 3 Mk-82", so a number there is not read.
+/// Add a rack only on evidence from a real name list.
+const COUNTING_RACKS: &[&str] = &["mak79"];
 
 /// The pylon names a payload carries: its non-null strings, in order.
 ///
@@ -309,7 +341,7 @@ pub fn classify_store(name: &str) -> StoreClass {
             return StoreClass::Unrecognised;
         }
         let quantity = match rule.count {
-            Count::Stores => with_count(&toks).or_else(|| count_before_weapon(&toks, rule)).unwrap_or(1),
+            Count::Stores => store_count(name, &toks, rule),
             Count::Rockets => rocket_quantity(&toks),
         };
         return StoreClass::Weapon { id: rule.id, quantity };
@@ -397,10 +429,15 @@ fn count_at(toks: &[String], at: usize) -> Option<u32> {
 }
 
 /// N in "X with N x ...": what a rack or launcher holds. For a bomb or missile
-/// this and `count_before_weapon` are the only counts, never the first "N x"
-/// anywhere in the name. The unrecognised path uses only this one.
+/// this is the first place `store_count` looks, never the first "N x" anywhere
+/// in the name. The unrecognised path uses only this one.
 fn with_count(toks: &[String]) -> Option<u32> {
     (0..toks.len()).filter(|&i| toks[i] == "with").find_map(|i| count_at(toks, i + 1))
+}
+
+/// A token as a count: a whole number, and not zero (a zero reads as no count).
+fn positive(text: &str) -> Option<u32> {
+    text.parse::<u32>().ok().filter(|n| *n > 0)
 }
 
 /// Where a token run first starts in `hay`.
@@ -412,10 +449,11 @@ fn run_start(hay: &[String], needle: &[String]) -> Option<usize> {
 }
 
 /// N in an "N x" or "Nx" that sits right before `toks[at]`: "BRU-42 - 3 x Mk-20",
-/// "2x CBU-52B". A bare number ("MAK79 2 MK-20", "BRU-42 Mk-82") is never a
-/// count, since there is no telling it from a designation.
+/// "2x CBU-52B". This is the only place a bare number counts as a store count
+/// next to its "x"; a number with no "x" is read only by `leading_bare_count` and
+/// `rack_bare_count`, which each accept one fixed shape, never a rack's own
+/// designation ("BRU-42 Mk-82").
 fn count_before(toks: &[String], at: usize) -> Option<u32> {
-    let positive = |text: &str| text.parse::<u32>().ok().filter(|n| *n > 0);
     let before = toks.get(at.checked_sub(1)?)?;
     if before == "x" {
         return positive(toks.get(at.checked_sub(2)?)?);
@@ -423,11 +461,77 @@ fn count_before(toks: &[String], at: usize) -> Option<u32> {
     positive(before.strip_suffix('x')?)
 }
 
-/// The count written right before the weapon's own name, as the rule found it.
-/// A cluster bomb's submunitions ("247 x HEAT Bomblets") come after the name, so
-/// they are never read.
-fn count_before_weapon(toks: &[String], rule: &StoreRule) -> Option<u32> {
-    count_before(toks, run_start(toks, &tokens(rule.pattern))?)
+/// A bare number that is the whole of the name before the weapon: "2 Mk-81",
+/// "3 GBU-12", "2 GBU-38 */*". The weapon's own name has to start at the second
+/// token, so "100 gal. Drop Tank" (no rule) and "250 lb GP Mk.I" are never
+/// read, and nothing that comes before a rack ("TER-9A 3 Mk-82") is.
+fn leading_bare_count(toks: &[String], at: usize) -> Option<u32> {
+    if at != 1 {
+        return None;
+    }
+    positive(&toks[0])
+}
+
+/// A bare number after one of the `COUNTING_RACKS`: "MAK79 3 Mk-82". The rack is
+/// the first token, the number is the second and the weapon's own name starts
+/// the third.
+fn rack_bare_count(toks: &[String], at: usize) -> Option<u32> {
+    if at != 2 || !COUNTING_RACKS.contains(&toks[0].as_str()) {
+        return None;
+    }
+    positive(&toks[1])
+}
+
+/// The number a name ends in, and the text before it with the blanks between
+/// them dropped: "GBU-12 * 2" is (2, "GBU-12 *"). A number that is not a whole
+/// positive count is not one, and neither is a name that ends in anything else.
+/// This runs on the raw name, because the tokenizer drops a "*".
+fn trailing_number(name: &str) -> Option<(u32, &str)> {
+    let name = name.trim_end();
+    let head = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    let count = positive(&name[head.len()..])?;
+    Some((count, head.trim_end()))
+}
+
+/// N in a name that ends "* N": "GBU-12 * 2", "Mk-82 AIR * 6", "Mk 84*28".
+fn trailing_star_count(name: &str) -> Option<u32> {
+    let (count, head) = trailing_number(name)?;
+    head.ends_with('*').then_some(count)
+}
+
+/// N in a name that ends "x N": "AUF2 GBU-12 x 2", "BAP-100 x 12". Only at the
+/// very end, and only for an "x" that stands alone (not the end of "Mk-82x3").
+/// An "x N" in the middle of a name ("BLU-3B x 27, HE", "SUU-25 x 8 LUU-2") is
+/// a count of bomblets or flares, never of the store, and is not read.
+fn trailing_x_count(name: &str) -> Option<u32> {
+    let (count, head) = trailing_number(name)?;
+    let before_x = head.strip_suffix(|c: char| c == 'x' || c == 'X')?;
+    before_x.chars().next_back().map_or(true, |c| !c.is_alphanumeric()).then_some(count)
+}
+
+/// How many a bomb, missile or cluster store holds, or one when the name says
+/// nothing. The forms, in the order they are tried (the first to give a count
+/// wins, and no real name matches two):
+///
+/// 1. "X with N x ..." (`with_count`);
+/// 2. an "N x" or "Nx" straight before the weapon's own name (`count_before`);
+/// 3. a trailing "* N" ("GBU-12 * 2");
+/// 4. a bare number that opens the name, straight before the weapon ("2 Mk-81");
+/// 5. a bare number after a rack in `COUNTING_RACKS` ("MAK79 3 Mk-82");
+/// 6. a trailing "x N" ("AUF2 GBU-12 x 2").
+///
+/// A cluster bomb's submunitions ("247 x HEAT Bomblets") come after the weapon's
+/// name and are never read, and neither is any other number: a rack's own
+/// designation ("BRU-42 Mk-82") stays at one.
+fn store_count(name: &str, toks: &[String], rule: &StoreRule) -> u32 {
+    let at = run_start(toks, &tokens(rule.pattern));
+    with_count(toks)
+        .or_else(|| at.and_then(|at| count_before(toks, at)))
+        .or_else(|| trailing_star_count(name))
+        .or_else(|| at.and_then(|at| leading_bare_count(toks, at)))
+        .or_else(|| at.and_then(|at| rack_bare_count(toks, at)))
+        .or_else(|| trailing_x_count(name))
+        .unwrap_or(1)
 }
 
 /// Rockets in a pod store: pods times rockets per pod. Every "N x" in the name
@@ -494,8 +598,11 @@ mod tests {
             // DCS also spells it "SnakeEye"; that is the retarded bomb, never mk82.
             ("Mk-82 SnakeEye", weapon("mk82se", 1)),
             ("GDJ-II19 - 2 x Mk-82 SnakeEye", weapon("mk82se", 2)),
-            ("MAK79 3 Mk-82 SnakeEye", weapon("mk82se", 1)),
-            ("Mk-82 SnakeEye * 3", weapon("mk82se", 1)),
+            ("MAK79 3 Mk-82 SnakeEye", weapon("mk82se", 3)),
+            ("Mk-82 SnakeEye * 3", weapon("mk82se", 3)),
+            // The Mirage F1 spells it "Snakeyes": still the retarded bomb, never mk82.
+            ("AUF2 MK-82 Snakeyes x 2", weapon("mk82se", 2)),
+            ("Mk-82 Snakeyes", weapon("mk82se", 1)),
             ("GBU-12 - 500lb Laser Guided Bomb", weapon("gbu12", 1)),
             ("GBU-16", weapon("gbu16", 1)),
             ("GBU-10 - 2000lb Laser Guided Bomb", weapon("gbu10", 1)),
@@ -548,9 +655,10 @@ mod tests {
             ("2x Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets (TER)", weapon("mk20", 2)),
             // The F-14 writes it short, and some legacy names spell it differently.
             ("Mk-20", weapon("mk20", 1)),
-            ("AUF2 ROCKEYE x 2", weapon("mk20", 1)),
-            ("Mk-20 Rockeye * 3", weapon("mk20", 1)),
-            ("MAK79 2 MK-20", weapon("mk20", 1)),
+            ("AUF2 ROCKEYE x 2", weapon("mk20", 2)),
+            ("Mk-20 Rockeye * 3", weapon("mk20", 3)),
+            ("MAK79 2 MK-20", weapon("mk20", 2)),
+            ("MAK79 MK-20", weapon("mk20", 1)),
             // The others.
             ("CBU-99 - 490lbs, 247 x HEAT Bomblets", weapon("cbu99", 1)),
             ("CBU-99", weapon("cbu99", 1)),
@@ -572,7 +680,8 @@ mod tests {
             ("CLB 4 - 4 x SAMP-400 - 400 kg GP Bomb LD", weapon("samp400", 4)),
             ("2x SAMP-250 - 250KG GP Bomb LD (TER)", weapon("samp250", 2)),
             ("1x SAMP-250 - 250KG GP Chute Retarded Bomb HD (TER)", weapon("samp250hd", 1)),
-            ("AUF2 SAMP-250 HD x 2", weapon("samp250hd", 1)),
+            ("AUF2 SAMP-250 HD x 2", weapon("samp250hd", 2)),
+            ("AUF2 SAMP-250 x 2", weapon("samp250", 2)),
         ];
         for (name, expected) in cases {
             assert_eq!(classify_store(name), *expected, "{name:?}");
@@ -580,23 +689,24 @@ mod tests {
     }
 
     /// Real DCS display names (the public pydcs weapons list, and the A-4E-C mod's
-    /// own weapon file) for the bombs added 2026-11-13. A rack's count is read only
-    /// as "with N x" or an "N x" / "Nx" straight before the weapon's name; a bare
-    /// number ("MAK79 3 Mk-81", "CBU-103 * 3") stays at one.
+    /// own weapon file) for the bombs added 2026-11-13. A rack's count is "with
+    /// N x", an "N x" / "Nx" straight before the weapon's name, or one of the bare
+    /// forms ("MAK79 3 Mk-81", "2 Mk-81", "BLU-107 * 3"); a rack's own number
+    /// ("CLB 30 - Mk-83") is not one.
     #[test]
     fn mk81_mk83_br_and_durandal_names_become_weapon_ids_and_counts() {
         let cases: &[(&str, StoreClass)] = &[
-            // Mk-81, in each shape a rack gives its name. The bare numbers are a
-            // rack's or a pylon's, never a count.
+            // Mk-81, in each shape a rack gives its name. The F-14's "MAK79 N" and
+            // a leading "N" are counts.
             ("Mk-81 - 250lb GP Bomb LD", weapon("mk81", 1)),
             ("3x Mk-81 - 250lb GP Bomb LD (TER)", weapon("mk81", 3)),
             ("6x Mk-81 - 250lb GP Bomb LD (MER)", weapon("mk81", 6)),
             ("BRU-42 with 3 x Mk-81 - 250lb GP Bombs LD", weapon("mk81", 3)),
             ("(Special Weapons Adapter) Mk-81 - 250lb GP Bomb LD", weapon("mk81", 1)),
             ("(Special Weapons Adapter) 2x Mk-81 - 250lb GP Bomb LD (TER)", weapon("mk81", 2)),
-            ("MAK79 3 Mk-81", weapon("mk81", 1)),
-            ("MAK79 4 Mk-81", weapon("mk81", 1)),
-            ("2 Mk-81", weapon("mk81", 1)),
+            ("MAK79 3 Mk-81", weapon("mk81", 3)),
+            ("MAK79 4 Mk-81", weapon("mk81", 4)),
+            ("2 Mk-81", weapon("mk81", 2)),
             // The A-4E-C writes the count as "N x" with spaces, and has a Snakeye.
             ("6 x Mk-81 - 250lb GP Bomb LD (MER)", weapon("mk81", 6)),
             ("Mk-81 Snakeye - 250lb GP Bomb HD", weapon("mk81se", 1)),
@@ -613,7 +723,8 @@ mod tests {
             ("BRU-33 with 2 x Mk-83 AIR (BSU-85) - 1000 lb GP Chute Retarded Bomb HD", weapon("mk83air", 2)),
             ("Mk-83 AIR", weapon("mk83air", 1)),
             ("Mk-83AIR", weapon("mk83air", 1)),
-            ("MAK79 3 Mk-83AIR", weapon("mk83air", 1)),
+            ("MAK79 3 Mk-83AIR", weapon("mk83air", 3)),
+            ("MAK79 Mk-83AIR", weapon("mk83air", 1)),
             // "Mk-83CT" is another bomb, with no row: the token is "83ct", not "83".
             ("Mk-83CT", StoreClass::Unrecognised),
             // The French bombs.
@@ -641,7 +752,8 @@ mod tests {
             ),
             ("BLU-107 - 440lb Anti-Runway Penetrator Bomb", weapon("blu107", 1)),
             ("MER6 with 6 x BLU-107 - 440lb Anti-Runway Penetrator Bombs", weapon("blu107", 6)),
-            ("BLU-107 * 3", weapon("blu107", 1)),
+            ("BLU-107 * 3", weapon("blu107", 3)),
+            ("BLU-107 * 6", weapon("blu107", 6)),
         ];
         for (name, expected) in cases {
             assert_eq!(classify_store(name), *expected, "{name:?}");
@@ -663,8 +775,8 @@ mod tests {
             ("BRU-57 with 2 x CBU-105 - 10 x SFW, CBU with WCMD", weapon("cbu105", 2)),
             ("HSAB - 8 x CBU-103 - 202 x CEM, CBU with WCMD", weapon("cbu103", 8)),
             ("SECBM - 10 x CBU-105 - 10 x SFW, CBU with WCMD", weapon("cbu105", 10)),
-            ("CBU-103 * 3", weapon("cbu103", 1)),
-            ("CBU-105 * 3", weapon("cbu105", 1)),
+            ("CBU-103 * 3", weapon("cbu103", 3)),
+            ("CBU-105 * 3", weapon("cbu105", 3)),
             // The BL-755.
             ("BL-755 CBU - 450kg, 147 Frag/Pen bomblets", weapon("bl755", 1)),
             ("2 x BL-755 CBUs - 450kg, 147 Frag/Pen bomblets", weapon("bl755", 2)),
@@ -736,9 +848,9 @@ mod tests {
         }
     }
 
-    /// A count is "with N x" or an "N x" / "Nx" right before the weapon's own name.
-    /// Nothing else is: not a submunition count after the name, not the first "N x"
-    /// anywhere, and never a bare number.
+    /// "with N x" and an "N x" / "Nx" right before the weapon's own name are
+    /// counts. A submunition count after the name is not, and neither is the
+    /// first "N x" anywhere (the bare forms are in the tests below).
     #[test]
     fn a_rack_count_is_read_only_where_it_sits_before_the_weapons_own_name() {
         let cases: &[(&str, StoreClass)] = &[
@@ -762,18 +874,170 @@ mod tests {
         }
     }
 
-    /// A bare number is a designation, never a count: the Heatblur-style names
-    /// carry the rack's number or a pylon's before the weapon, and a count of 42
-    /// from "BRU-42" would load a jet with weapons it cannot hold.
+    /// Only the known bare forms are counts. A rack's own number is a
+    /// designation, and a count of 42 from "BRU-42" would load a jet with weapons
+    /// it cannot hold. The names before the line are still ones; the ones after
+    /// it were pinned at one until 2026-11-13 and are counts now.
     #[test]
-    fn a_bare_number_before_the_weapon_is_never_a_count() {
+    fn only_the_known_bare_forms_are_counts_a_designation_is_never_one() {
         let cases: &[(&str, StoreClass)] = &[
-            ("MAK79 2 MK-20", weapon("mk20", 1)),
+            // Designations: a rack's own number, and a number that is not first.
             ("BRU-42 Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
             ("TER-9A 3 Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
-            ("2 Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
             ("BRU-42 CBU-99 - 490lbs, 247 x HEAT Bomblets", weapon("cbu99", 1)),
-            ("Mk-82 x 3", weapon("mk82", 1)),
+            // Counts, by form: "MAK79 N", a leading number, a trailing "x N".
+            ("MAK79 2 MK-20", weapon("mk20", 2)),
+            ("2 Mk-82 - 500lb GP Bomb LD", weapon("mk82", 2)),
+            ("Mk-82 x 3", weapon("mk82", 3)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// Form 1: a name that ends "* N" (41 DCS names are written so; the star is
+    /// dropped by the tokenizer, so this reads the raw name).
+    #[test]
+    fn a_trailing_star_number_is_a_count() {
+        let cases: &[(&str, StoreClass)] = &[
+            ("GBU-12 * 2", weapon("gbu12", 2)),
+            ("GBU-12 * 4", weapon("gbu12", 4)),
+            ("GBU-10 * 2", weapon("gbu10", 2)),
+            ("GBU-38 * 3", weapon("gbu38", 3)),
+            ("GBU-31(V)1/B * 2", weapon("gbu31", 2)),
+            ("Mk-82 * 6", weapon("mk82", 6)),
+            ("Mk-82 AIR * 6", weapon("mk82air", 6)),
+            ("Mk-82 SnakeEye * 2", weapon("mk82se", 2)),
+            ("Mk-84 * 2", weapon("mk84", 2)),
+            ("CBU-87 * 3", weapon("cbu87", 3)),
+            ("CBU-97 * 6", weapon("cbu97", 6)),
+            ("Mk-20 Rockeye * 3", weapon("mk20", 3)),
+            ("BLU-107 * 3", weapon("blu107", 3)),
+            // No space before the number, and a big one.
+            ("Mk 84*28", weapon("mk84", 28)),
+            // Not counts: a name that ends in a number that is not "* N", a star
+            // with no number, a zero, a number too big for a count, and a "* N"
+            // that is not at the very end.
+            ("Mk-83", weapon("mk83", 1)),
+            ("GBU-31(V)3/B", weapon("gbu31", 1)),
+            ("Mk-82 *", weapon("mk82", 1)),
+            ("Mk-82 * 0", weapon("mk82", 1)),
+            ("Mk-82 * 99999999999", weapon("mk82", 1)),
+            ("Mk-82 * 3 - 500lb GP Bomb LD", weapon("mk82", 1)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// Form 2: a bare number that opens the name and sits right before the
+    /// weapon ("2 Mk-81", and the "2 GBU-12 */*" the BRU-42 writes). The weapon
+    /// has to start at the second token.
+    #[test]
+    fn a_bare_number_that_opens_the_name_is_a_count() {
+        let cases: &[(&str, StoreClass)] = &[
+            ("2 Mk-81", weapon("mk81", 2)),
+            ("3 Mk-81", weapon("mk81", 3)),
+            ("2 Mk-82", weapon("mk82", 2)),
+            ("3 Mk-83", weapon("mk83", 3)),
+            ("3 GBU-12", weapon("gbu12", 3)),
+            ("2 GBU-12 *-*", weapon("gbu12", 2)),
+            ("2 GBU-38 */*", weapon("gbu38", 2)),
+            ("2 CBU-99 *\\*", weapon("cbu99", 2)),
+            ("2 MK-20", weapon("mk20", 2)),
+            ("2 Mk-82 Snakeye *\\*", weapon("mk82se", 2)),
+            ("2 Mk-82 SnakeEye", weapon("mk82se", 2)),
+            ("2 Mk-82AIR", weapon("mk82air", 2)),
+            ("3 Mk-82 AIR", weapon("mk82air", 3)),
+            // Not counts: a zero; the weapon's name starting later than the
+            // second token (a rack before it); and names with no rule, which this
+            // form never reads ("12 AN-M64" is a known gap, not a decision).
+            ("0 Mk-82", weapon("mk82", 1)),
+            ("2 TER-9A Mk-82", weapon("mk82", 1)),
+            ("100 gal. Drop Tank", StoreClass::Skipped(SkipReason::FuelTank)),
+            ("12 AN-M64 - 500lb GP Bomb LD", StoreClass::Unrecognised),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+        let payload = json!(["12 AN-M64 - 500lb GP Bomb LD"]);
+        assert_eq!(loadout_from_payload(Some(&payload), reference())[0].quantity, 1);
+    }
+
+    /// Form 3: the F-14's "MAK79 N <weapon>". The rack is on an explicit
+    /// allow-list; any other rack's number is its designation.
+    #[test]
+    fn a_bare_number_after_the_mak79_rack_is_a_count() {
+        let cases: &[(&str, StoreClass)] = &[
+            ("MAK79 3 Mk-82", weapon("mk82", 3)),
+            ("MAK79 4 Mk-82", weapon("mk82", 4)),
+            ("MAK79 3 Mk-83", weapon("mk83", 3)),
+            ("MAK79 2 MK-20", weapon("mk20", 2)),
+            ("MAK79 2 CBU-99", weapon("cbu99", 2)),
+            ("MAK79 4 Mk-82 SnakeEye", weapon("mk82se", 4)),
+            ("MAK79 3 Mk-82AIR", weapon("mk82air", 3)),
+            ("mak79 3 mk-82", weapon("mk82", 3)),
+            // Not counts: no number, a zero, and the racks whose number is a
+            // designation (BRU-42, CLB 30) or that nothing says is a count (TER-9A).
+            ("MAK79 Mk-83", weapon("mk83", 1)),
+            ("MAK79 0 Mk-82", weapon("mk82", 1)),
+            ("BRU-42 Mk-82", weapon("mk82", 1)),
+            ("BRU-42 3 Mk-82", weapon("mk82", 1)),
+            ("CLB 30 - Mk-83 - 1000lb GP Bomb LD", weapon("mk83", 1)),
+            ("TER-9A 3 Mk-82 - 500lb GP Bomb LD", weapon("mk82", 1)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// Form 4: a name that ends "x N" after the weapon (the Mirage F1's AUF2).
+    /// An "x N" in the middle of a name is bomblets or flares, never the store.
+    #[test]
+    fn a_trailing_x_number_is_a_count() {
+        let cases: &[(&str, StoreClass)] = &[
+            ("AUF2 GBU-12 x 2", weapon("gbu12", 2)),
+            ("AUF2 MK-82 x 2", weapon("mk82", 2)),
+            ("AUF2 MK-82 Air x 2", weapon("mk82air", 2)),
+            ("AUF2 MK-82 Snakeyes x 2", weapon("mk82se", 2)),
+            ("AUF2 ROCKEYE x 2", weapon("mk20", 2)),
+            ("AUF2 BLG-66-AC x 2", weapon("blg66", 2)),
+            ("AUF2 SAMP-250 x 2", weapon("samp250", 2)),
+            ("AUF2 SAMP-250 HD x 2", weapon("samp250hd", 2)),
+            ("Mk-82 x 3", weapon("mk82", 3)),
+            ("Mk-82 X 3", weapon("mk82", 3)),
+            ("Mk-82 x3", weapon("mk82", 3)),
+            // Not counts: the bomblets in a dispenser's name, a zero, a bare "x",
+            // and an "x N" that is not at the very end.
+            ("CBU-1/A pod - 19 x tubes of Bomblets BLU-3B x 27, HE", weapon("cbu1a", 1)),
+            ("CBU-87 - 202 x CEM Cluster Bomb", weapon("cbu87", 1)),
+            ("Mk-82 x 0", weapon("mk82", 1)),
+            ("Mk-82 x", weapon("mk82", 1)),
+            ("Mk-82 x 3 - 500lb GP Bomb LD", weapon("mk82", 1)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+        // The helpers on their own, for shapes no rule would match: an "x" that is
+        // the end of another word is not a count marker, and a flare dispenser's
+        // "x 8" is mid-name.
+        assert_eq!(trailing_x_count("BAP-100 x 12"), Some(12));
+        assert_eq!(trailing_x_count("FAB-100 x 4"), Some(4));
+        assert_eq!(trailing_x_count("BAP-100x12"), None);
+        assert_eq!(trailing_x_count("SUU-25 x 8 LUU-2"), None);
+        assert_eq!(trailing_x_count("BLU-3B x 27, HE"), None);
+    }
+
+    /// The forms are tried in the order `store_count` lists them, and the two
+    /// explicit rack counts come first: a bare number never overrides "with N x"
+    /// or an "N x" before the weapon. Of the bare forms a leading number beats a
+    /// trailing "x N" (no real name has both; this pins the order).
+    #[test]
+    fn an_explicit_rack_count_wins_over_a_bare_one() {
+        let cases: &[(&str, StoreClass)] = &[
+            ("TER-9A with 3 x Mk-82 - 500lb GP Bomb LD * 2", weapon("mk82", 3)),
+            ("MAK79 4 x Mk-82 x 2", weapon("mk82", 4)),
+            ("2 Mk-82 x 6", weapon("mk82", 2)),
         ];
         for (name, expected) in cases {
             assert_eq!(classify_store(name), *expected, "{name:?}");
@@ -813,6 +1077,13 @@ mod tests {
             "Mk-84 Retarded - 2000lb GP Bomb HD",
             "Mk-82 - 500lb GP Bomb HD",
             "TER-9A with 3 x Mk-82 - 500lb GP Chute Retarded HD",
+            // The Mirage F1's "Snakeyes" is a drag word like "Snakeye": on a bomb
+            // with no retarded row it must not fall through to the low-drag one.
+            "AUF2 MK-84 Snakeyes x 2",
+            // A bare "AIR" (the retarding tail) with no other drag word: there is
+            // no Mk-84 AIR row, so these must not load as the slick Mk-84.
+            "Mk-84 AIR * 2",
+            "Mk-84 AIR TP * 2",
             // Its own designation: the token is "82y", not "82".
             "Mk-82Y - 500lb GP Chute Retarded HD",
         ] {

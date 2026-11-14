@@ -39,10 +39,15 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       not the A-4E-C's, and the F-4E carries the CBU-1/A too. A link import
       now loads each of them. The store with no row in the tests and in the
       synthetic file is now the AGM-45 Shrike.
-- [ ] **Rack counts written as a bare number.** The F-14's `MAK79 2 MK-20`
-      and legacy names such as `Mk-20 Rockeye * 3` load as one bomb, because
-      a number with no "x" is never read as a count (a rack's own number,
-      like the 42 in BRU-42, would be read too). Session 2.
+- [x] **Rack counts written as a bare number** (2026-11-13, Session 2, on
+      `main`, unreleased). Four shapes taken from the DCS name lists are read:
+      a trailing `* N`, a leading `N` before the weapon, `MAK79 N`, and a
+      trailing `x N`. A rack's own number (the 42 in BRU-42) is still never a
+      count. Stores with no row are still counted only by `with N x`. Over
+      all 1,847 pydcs and A-4E-C store names, 86 counts changed and every one
+      was checked. Two drag spellings were fixed on the way: the F1's
+      `MK-82 Snakeyes` loads as the Snakeye, and `Mk-84 AIR * 2` (no row) is
+      no longer taken for the slick Mk-84.
 - [ ] Sight settings for rockets on the manual-dive profiles. Rocket cards show
       no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
       carry Mk-82 values that auto-build applies to bombs only. Needs
@@ -55,6 +60,16 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       air-to-air missiles, and pods outside the skip list, show as "not in
       the weapon table" where they should be dropped. Rockets are mapped for
       five aircraft only; the others have not been checked.
+- [ ] **Rocket-pod import gaps** (found 2026-11-13 scanning every DCS store
+      name; none is in a captured link yet):
+  - Illumination and smoke rockets load as HE. Hydra names ending `M257 IL`,
+    `M156 SM` or `M274 TP-SM`, and the SNEB IL/SM ones, slip past the marker
+    skip.
+  - Rocket counts on rack names: `BRU-42: 2 x LAU-131 - 7 x …` reads 2, not
+    14 (41 names). `2x LAU-10 pod - 4 x …` reads 4, not 8.
+    `2 LAU-10 - 4 ZUNI MK 71` reads 1.
+  - `ORO-57K - S-5M1 HE-FRAG FFAR x 8` loads as one 2.75" FFAR. It is eight
+    57 mm S-5s, which have no row.
 - [ ] **Pilot verification of the 62 seed profiles.** All are ESTIMATED; none
       is `verified: true` yet.
 - [ ] Weather. It is parsed at import but not used.
@@ -155,7 +170,12 @@ waypoint list on 2026-10-03).
   `src/lib/weaponClass.ts`).
 - **Fix: "Mk-82 SnakeEye" loads as the retarded Mk-82 Snakeye** (2026-11-13).
   DCS spells it that way in some store names, and they used to load as the
-  low-drag Mk-82, so the attack was planned for a slick bomb.
+  low-drag Mk-82, so the attack was planned for a slick bomb. The Mirage F1's
+  "Snakeyes" is the same fix.
+- **Rack counts written as a bare number are read** (2026-11-13). The F-14's
+  `MAK79 3 Mk-82`, a leading `2 Mk-81`, a trailing `GBU-12 * 2` and the Mirage
+  F1's `AUF2 GBU-12 x 2` load as the right number of bombs, not one. A rack's
+  own number (`BRU-42 Mk-82`) is never a count.
 
 ### v0.3.3 — 2026-10-03
 - **Jets arrive loaded.** After a FragOrders link import each pilot's loadout
