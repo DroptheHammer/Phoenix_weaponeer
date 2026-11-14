@@ -108,6 +108,24 @@ import { isThreatVisible, visibleMission, probableThreats, hiddenCounts, type Hi
 import { escapeHtml } from '../src/lib/html';
 import { runAttackChecks, hasErrors, noDataNote } from '../src/lib/attackChecks';
 import { readFileSync, readdirSync } from 'node:fs';
+import {
+  PlayClock, MAX_FRAME_DT_S, enuToThree, homePose, HOME_MARGIN, HOME_MIN_DIST_M, worldPerPixel, screenScale, nearPlaneFor, HOME_FOV,
+  sceneSourceFrom, newSceneJetPose, newSceneBombPose, BG, MAX_DPR, ARROW_PX, JET_COLORS as SCENE_JET_COLORS, jetColor,
+  terrainBoxOf, terrainGridOf, tileSpan, planDrape, planElevation, planTerrain, tilesOf, tilesNearestFirst, tileErrorOf,
+  seaClamp, terrainTileValid, heightMosaic, sampleBilinear, gridLatLon, gridIndices, drapeUvs, buildTerrainMesh, onTriangles,
+  heightAt, shadeFromSlope, hillshade, TERRAIN_CREDITS, creditsFor, BOX_MARGIN_M, BOX_MIN_HALF_M, BOX_MAX_HALF_M, BOX_STEP_M,
+  MAX_SEGMENTS, MIN_SPACING_M, TERRAIN_TILE_PX,
+  type TerrainBox, type TerrainGrid, type TerrainMesh, type TileRange, type Vec3,
+} from '../src/lib/playbackScene';
+import {
+  bytesOf, float32Of, runPool, loadHeights, UploadPace, skirtHeight, fogRange, SKIRT_BELOW_M,
+  MAP_IN_FLIGHT, TERRAIN_IN_FLIGHT, HEIGHTS_DEADLINE_MS, DRAPE_DEADLINE_MS, DRAPE_UPLOAD_GAP_MS,
+} from '../src/lib/playbackScene';
+import { ELEVATION_SOURCES, maxOrbitFor, MAX_ORBIT_BOXES, MIN_ORBIT_M, HOME_ORBIT_SLACK, NEAR_SHARE } from '../src/lib/playbackScene';
+import { playbackLaunchFromEditor, theaterNotes } from '../src/components/playback/launch';
+import { groundNote, REAL_GROUND_NOTE } from '../src/components/playback/StatusNotes';
+import { draftIpAnchor } from '../src/lib/attackDraft';
+import { useTheaterStore, type TheaterInfo } from '../src/stores/theaterStore';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -5956,5 +5974,1060 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
        `ring ${cPeak.ringRadius_ft} ft (effective ${eff}, lethal ${leth}); without effective: ${noEff}`);
   } catch (e) {
     ok('playback: the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
+
+// ─── 0.4.0 playback scene: the clock, the cameras, the adapter, the terrain ───
+// src/lib/playbackScene is the 3D scene's pure half (0.4.0 Track B2): no three.js, no React, no DOM,
+// so every rule in it runs here under node. [P…] and [R…] are the test numbers of the two scene
+// designs, [T…] the terrain design's, all working papers kept outside the repo; each check restates
+// what it pins. Heights are the playback library's datum throughout: up = metres above the LEAD
+// target's planned elevation (not sea level), and the terrain is shifted so the ground at that
+// target is 0. Each check carries its mutation proof (2026-11-14): one temporary edit to the real
+// module under src/lib/playbackScene, geo-check run, the FAIL line copied (shortened with …), the
+// edit restored.
+{
+  try {
+    const D2R = Math.PI / 180;
+    // Fixture: a three-jet pop-up strike off the 15.3 nm IP on 068°: the lead on the 4,000 ft target
+    // (the frame's origin), #2 on a 5,200 ft target 2 nm away, 40 s later, and #3 on the lead's target
+    // at the lead's time. #2 is the jet whose up differs from both its AGL and its MSL, so it shows
+    // which height the adapter hands the scene; #3 flies in formation with the lead (a display slot
+    // to the side, its bomb leaving from the slot), so it shows which layer the adapter samples.
+    const sTgt2 = { id: 'ps-tgt2', steerpoint: 9, name: 'TGT2', type: 'target', coordinates: calculateDestination(tgt, 160, 2), elevation_ft: 5200 };
+    const sCrew = (id: string, position: number) => ({ id, callsign: `Viper 1-${position}`, aircraftId: 'f16c', position, loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 6 }] });
+    const sMission = {
+      id: 'psm', name: 'Scene test', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '',
+      waypoints: [{ id: 'ps-ip', steerpoint: 7, name: 'STPT 7', type: 'turnpoint', coordinates: calculateDestination(tgt, 68, 15.3), elevation_ft: 5000 }, wpTgt, sTgt2],
+      threats: [], attacks: [], strikes: [], flightMembers: [sCrew('p1', 1), sCrew('p2', 2), sCrew('p3', 3)],
+    } as never as Mission;
+    const sPopups = (JSON.parse(readFileSync('src-tauri/resources/profiles/f16c.json', 'utf8')) as { id: string }[]).filter((p) => p.id === 'f16c.popup.std');
+    const sAttack = (who: string, targetId: string, id: string) => {
+      const b = autoBuildAttack({ mission: sMission, targetWaypointId: targetId, attackerId: who, weapons: refWeapons, profiles: sPopups, threatSystems: [], overrides: { weaponId: 'mk82', profileId: 'f16c.popup.std', ipWaypointId: 'ps-ip' } } as never);
+      if (!b.attack) throw new Error(`scene fixture: no attack for ${id}`);
+      return { ...b.attack, id } as Attack;
+    };
+    const sJet = (a: Attack, label: string, tot: number): PlaybackJetInput => ({
+      id: a.id, attack: a, ipAnchor: attackIpAnchor(sMission.waypoints, a), target: sMission.waypoints.find((w) => w.id === a.targetWaypointId)!,
+      weapon: refWeapon('mk82'), totOffset_s: tot, label,
+    });
+    const sPb = buildStrikePlayback({ name: 'scene', jets: [sJet(sAttack('p1', wpTgt.id, 'ps-a1'), '#1', 0), sJet(sAttack('p2', sTgt2.id, 'ps-a2'), '#2', 40), sJet(sAttack('p3', wpTgt.id, 'ps-a3'), '#3', 0)] });
+    const sTiming = retime(sPb);
+    const src = sceneSourceFrom(sPb, sTiming);
+    // A precondition, not a test of src/lib/playbackScene: it goes red if the playback library stops
+    // building this fixture the way the checks below rely on (#3 in a slot, #2 on the higher target).
+    const slotAtRelease = (() => { const s = newJetState(); sampleJet(sPb, sTiming, 2, sTiming.jets[2].release_s, 'display', s); return s.slot_m; })();
+    ok('playback scene fixture: the three-jet pop-up strike builds, every jet flies, #2 on the higher target, #3 in a formation slot at its release',
+       sPb.jets.length === 3 && sPb.skipped.length === 0 && sPb.jets.every((j) => j.family === 'popup') && sPb.jets[1].targetElevation_ft === 5200 && Math.abs(slotAtRelease) > 100,
+       `${sPb.jets.length} jets, skipped ${JSON.stringify(sPb.skipped.map((s) => s.reason))}, #3's slot at release ${slotAtRelease.toFixed(0)} m`);
+
+    // [P1] The clock sums frame times × speed, a long frame (a hidden window) counting only 0.1 s.
+    // Mutation proofs: playClock.ts advance `* this.speed` dropped:
+    //   FAIL playback scene [P1]: the clock moves by frame time × speed, …  t 0.05 → 0.15000000000000002 → paused 0.15000000000000002 (moved false) → negative frame 0.15000000000000002
+    // `Math.min(Math.max(wallDt_s, 0), MAX_FRAME_DT_S)` → `Math.max(wallDt_s, 0)` (no cap):
+    //   FAIL playback scene [P1]: … t 0.1 → 2.1 → paused 2.1 (moved false) → negative frame 2.1
+    // `if (!this.playing) return false;` dropped:
+    //   FAIL playback scene [P1]: … t 0.1 → 0.30000000000000004 → paused 0.5 (moved true) → negative frame 0.5
+    const ck = new PlayClock(0, 100);
+    ck.setSpeed(2);
+    ck.play();
+    const mv1 = ck.advance(0.05), ct1 = ck.time;
+    const mv2 = ck.advance(1.0), ct2 = ck.time;
+    ck.pause();
+    const mv3 = ck.advance(0.5), ct3 = ck.time;
+    ck.play();
+    const mv4 = ck.advance(-1), ct4 = ck.time;
+    ok('playback scene [P1]: the clock moves by frame time × speed, a long frame by only 0.1 s × speed, and not at all while paused or on a negative frame',
+       mv1 && Math.abs(ct1 - 0.1) < 1e-12 && mv2 && Math.abs(ct2 - (0.1 + MAX_FRAME_DT_S * 2)) < 1e-12 && !mv3 && ct3 === ct2 && !mv4 && ct4 === ct2,
+       `t ${ct1} → ${ct2} → paused ${ct3} (moved ${mv3}) → negative frame ${ct4}`);
+
+    // [P2] The end stops play (and tells the UI); Play at the end replays; seek and setRange clamp; an
+    // ordinary frame neither bumps the version nor notifies, and the snapshot object stays the same
+    // until an emit (useSyncExternalStore re-renders on a new object, so a new one per frame would
+    // re-render the timeline 60 times a second).
+    // Mutation proofs: playClock.ts advance `this.t = Math.min(this.t + dt, this.end)` → `this.t = this.t + dt`:
+    //   FAIL playback scene [P2]: … quiet true, emit true, ended false (t 1.0000000000000002 playing false), replay true, clamps true/true/true/true, unsubscribe true
+    // the end's `this.playing = false; this.changed();` → `this.t = this.start;` (loop instead of stop):
+    //   FAIL playback scene [P2]: … quiet true, emit true, ended false (t 0.05 playing true), replay false, clamps true/true/true/true, unsubscribe true
+    // `getSnapshot = (): ClockSnapshot => this.snap` → `=> this.snapshot()` (a new object every read):
+    //   FAIL playback scene [P2]: … quiet false, emit false, ended true (t 1 playing false), replay true, clamps true/true/true/true, unsubscribe true
+    // advance gains `this.changed();` after the time step (a bump every frame):
+    //   FAIL playback scene [P2]: … quiet false, emit false, ended true (t 1 playing false), replay true, clamps true/true/true/true, unsubscribe true
+    const ce = new PlayClock(0, 1);
+    let heard = 0;
+    const unsubscribe = ce.subscribe(() => heard++);
+    const snap0 = ce.getSnapshot();
+    ce.play();
+    const vPlay = ce.version, heardPlay = heard, snapPlay = ce.getSnapshot();
+    ce.advance(0.05);
+    const quiet = heardPlay === 1 && ce.version === vPlay && heard === heardPlay && ce.getSnapshot() === snapPlay && snapPlay !== snap0;
+    ce.emit();
+    const emitted = heard === heardPlay + 1 && ce.getSnapshot() !== snapPlay && ce.getSnapshot().t === ce.time && ce.getSnapshot() === ce.getSnapshot();
+    for (let i = 0; i < 100; i++) ce.advance(0.05);
+    const ended = !ce.isPlaying && ce.time === 1 && ce.version > vPlay && ce.getSnapshot().playing === false && ce.getSnapshot().t === 1;
+    const endState = `t ${ce.time} playing ${ce.isPlaying}`;
+    ce.play();
+    const replay = ce.time === 0 && ce.isPlaying;
+    ce.seek(-99);
+    const cLo = ce.time === 0;
+    ce.seek(99);
+    const cHi = ce.time === 1;
+    ce.setRange(0.25, 0.5);
+    const cRange = ce.time === 0.5 && ce.getSnapshot().start === 0.25;
+    ce.setRange(0.6, 0.4);
+    const cInverted = ce.time === 0.6 && ce.getSnapshot().end === 0.6;
+    unsubscribe();
+    const heardBefore = heard;
+    ce.seek(0.6);
+    const unsubOk = heard === heardBefore;
+    ok('playback scene [P2]: the end stops play and tells the UI, Play at the end replays, seek and setRange clamp, and an ordinary frame changes no version and notifies no one',
+       quiet && emitted && ended && replay && cLo && cHi && cRange && cInverted && unsubOk,
+       `quiet ${quiet}, emit ${emitted}, ended ${ended} (${endState}), replay ${replay}, clamps ${cLo}/${cHi}/${cRange}/${cInverted}, unsubscribe ${unsubOk}`);
+
+    // [P5] and [R8] A pixel's size in the world, and the arrow's constant screen size with its floor at
+    // true size: 28 px from orbit distance, its real 18 m close up. [P5]'s numbers: 10 km, 50° field of
+    // view, 900 px → 10.362 m/px, 28 px of an 18 m arrow → ×16.12; at 100 m exactly ×1. [R8]'s,
+    // restated for the scale factor: 50 km at the scene's 45°, 26 px of a 15 m model → 26 px wide; at
+    // 200 m its real 15 m. And the near plane: 5 % of the height, 1 m to 200 m.
+    // Mutation proofs: cameraMath.ts worldPerPixel `Math.tan((vFov_deg * Math.PI) / 360)` → `/ 180` (the full angle):
+    //   FAIL playback scene [P5][R8]: … 10 km 50° 900 px: 26.483 m/px (×41.20), at 100 m ×1; 50 km: 2888.9 m vs 2888.9 m, at 200 m 15 m; near 1/50/200
+    // screenScale `Math.max(1, (px * worldPerPx) / len_m)` → `(px * worldPerPx) / len_m`:
+    //   FAIL playback scene [P5][R8]: … 10 km 50° 900 px: 10.362 m/px (×16.12), at 100 m ×0.1611927707202464; 50 km: 1196.6 m vs 1196.6 m, at 200 m 4.786467831866876 m; near 1/50/200
+    // nearPlaneFor `Math.min(200, …)` → `Math.min(2000, …)`:
+    //   FAIL playback scene [P5][R8]: … at 200 m 15 m; near 1/50/2000
+    const wpp10 = worldPerPixel(10_000, 50, 900), sc10 = screenScale(wpp10, 28, 18), sc100 = screenScale(worldPerPixel(100, 50, 900), 28, 18);
+    const wpp50 = worldPerPixel(50_000, HOME_FOV, 900), r8far = screenScale(wpp50, 26, 15) * 15, r8near = screenScale(worldPerPixel(200, HOME_FOV, 900), 26, 15) * 15;
+    const nears = [nearPlaneFor(0), nearPlaneFor(1000), nearPlaneFor(1e6)];
+    ok('playback scene [P5][R8]: a pixel\'s size in the world, the arrow\'s constant screen size and its true-size floor, the near plane',
+       Math.abs(wpp10 - 10.362) < 0.001 && Math.abs(sc10 - 16.12) < 0.01 && sc100 === 1 && Math.abs(r8far - 26 * wpp50) < 1e-9 && r8near === 15 &&
+       nears[0] === 1 && nears[1] === 50 && nears[2] === 200,
+       `10 km 50° 900 px: ${wpp10.toFixed(3)} m/px (×${sc10.toFixed(2)}), at 100 m ×${sc100}; 50 km: ${r8far.toFixed(1)} m vs ${(26 * wpp50).toFixed(1)} m, at 200 m ${r8near} m; near ${nears.join('/')}`);
+
+    // [R1] ENU → three.js axes: x = east, y = up, z = −north.
+    // Mutation proof: cameraMath.ts enuToThree `-v[1]` → `v[1]` (mirrors the world):
+    //   FAIL playback scene [R1]: east, north and up go to three.js x, −z and y  [[1000,0,0],[0,0,1000],[0,50,0]]
+    const r1 = [enuToThree([1000, 0, 0]), enuToThree([0, 1000, 0]), enuToThree([0, 0, 50])];
+    const r1want = [[1000, 0, 0], [0, 0, -1000], [0, 50, 0]];
+    ok('playback scene [R1]: east, north and up go to three.js x, −z and y',
+       r1.every((v, i) => v.every((c, j) => c === r1want[i][j])), JSON.stringify(r1));
+
+    // Home pose: behind the run-in, swung 30° anticlockwise (behind the jet's right shoulder), 35° up,
+    // and exactly as close as it can stand with every corner of the played strike's box in view: the
+    // outermost corner sits at 1 / HOME_MARGIN (80%) of the half-view, no nearer the edge and no
+    // farther from it, at the window's aspect (1400×900), the smallest one it fits (1024×768) and a
+    // tall one (0.6, where the width is what limits). The fixture's played box and a lopsided
+    // synthetic one (a long run-in to the west), on the lead's real axis and on 300°. A box of one
+    // point is seen from the 3 km floor.
+    // Mutation proofs (2026-11-14): cameraMath.ts homePose `Math.max(side / tanH, up / tanV)` → `up / tanV` (the height only):
+    //   FAIL playback scene: the home pose … fixture box @1.556: behind true, swing 30.0°, right of the run-in true, 35.0° up, worst 1.535 of the half-view (want 0.800), 35.6 km out
+    //   (also trips [C2]: no window shape needs the raise any more)
+    // `rotate2([-c.axis[0], -c.axis[1]], HOME_SWING_DEG * D2R)` → `rotate2(c.axis, …)` (in front):
+    //   FAIL playback scene: the home pose … fixture box @1.556: behind false, swing 150.0°, right of the run-in false, 35.0° up, worst 0.800 of the half-view (want 0.800), 58.0 km out
+    // `toward + HOME_MARGIN * …` → `HOME_MARGIN * …` (the corner's own depth forgotten):
+    //   FAIL playback scene: the home pose … fixture box @1.556: behind true, swing 30.0°, right of the run-in true, 35.0° up, worst 0.964 of the half-view (want 0.800), 49.9 km out
+    // `let dist = HOME_MIN_DIST_M` → `let dist = 0`:
+    //   FAIL playback scene: the home pose … a single point is seen from 0 m, not 3000 m
+    const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const cross3 = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const unit3 = (a: Vec3): Vec3 => { const l = Math.hypot(...a); return [a[0] / l, a[1] / l, a[2] / l]; };
+    /** The largest |screen coordinate| over the points, as a fraction of the half-view (≤ 1: all inside); Infinity if any is behind the eye. */
+    const worstInView = (eye: Vec3, look: Vec3, fov: number, aspect: number, pts: Vec3[]) => {
+      const f = unit3(sub3(look, eye)), rr = unit3(cross3(f, [0, 0, 1])), uu = cross3(rr, f);
+      const tv = Math.tan((fov / 2) * D2R), th = tv * aspect;
+      let worst = 0;
+      for (const q of pts) {
+        const d = sub3(q, eye), z = dot3(d, f);
+        if (z <= 0) return Infinity;
+        worst = Math.max(worst, Math.abs(dot3(d, rr) / z) / th, Math.abs(dot3(d, uu) / z) / tv);
+      }
+      return worst;
+    };
+    const homeCases = [
+      { name: 'fixture box', box: src.played, axis: src.attackAxis },
+      { name: 'lopsided box on 300°', box: { min_e_m: -80_000, max_e_m: 5_000, min_n_m: -10_000, max_n_m: 12_000, min_up_m: -50, max_up_m: 2_500 }, axis: [Math.sin(300 * D2R), Math.cos(300 * D2R)] as [number, number] },
+    ];
+    let homeBad = '', homeN = 0;
+    const homeKm: string[] = [];
+    for (const hc of homeCases) {
+      const corners: Vec3[] = [];
+      for (const e of [hc.box.min_e_m, hc.box.max_e_m]) for (const n of [hc.box.min_n_m, hc.box.max_n_m]) for (const u of [hc.box.min_up_m, hc.box.max_up_m]) corners.push([e, n, u]);
+      const mid: Vec3 = [(hc.box.min_e_m + hc.box.max_e_m) / 2, (hc.box.min_n_m + hc.box.max_n_m) / 2, (hc.box.min_up_m + hc.box.max_up_m) / 2];
+      for (const aspect of [1400 / 900, 1024 / 768, 0.6]) {
+        const p = homePose({ box: hc.box, axis: hc.axis, aspect });
+        const o = sub3(p.eye, p.look), oh = Math.hypot(o[0], o[1]);
+        const behind = o[0] * hc.axis[0] + o[1] * hc.axis[1] < 0;
+        const swing = Math.acos(Math.min(1, -(o[0] * hc.axis[0] + o[1] * hc.axis[1]) / oh)) / D2R;
+        const right = o[0] * hc.axis[1] - o[1] * hc.axis[0] > 0;
+        const elev = Math.atan2(o[2], oh) / D2R;
+        const worst = worstInView(p.eye, p.look, p.fov_deg, aspect, corners);
+        const atMid = Math.hypot(...sub3(p.look, mid)) < 1e-6;
+        homeN++;
+        homeKm.push((Math.hypot(...o) / 1000).toFixed(1));
+        // Exactly 1 / HOME_MARGIN: every corner inside, and the camera no farther out than that needs.
+        if (!behind || Math.abs(swing - 30) > 1e-6 || !right || Math.abs(elev - 35) > 1e-6 || Math.abs(worst - 1 / HOME_MARGIN) > 1e-9 || !atMid || p.fov_deg !== HOME_FOV)
+          homeBad ||= `${hc.name} @${aspect.toFixed(3)}: behind ${behind}, swing ${swing.toFixed(1)}°, right of the run-in ${right}, ${elev.toFixed(1)}° up, worst ${worst.toFixed(3)} of the half-view (want ${(1 / HOME_MARGIN).toFixed(3)}), ${(Math.hypot(...o) / 1000).toFixed(1)} km out${atMid ? '' : ', not looking at the middle'}`;
+      }
+    }
+    const dot1 = homePose({ box: { min_e_m: 500, max_e_m: 500, min_n_m: -200, max_n_m: -200, min_up_m: 0, max_up_m: 0 }, axis: src.attackAxis, aspect: 1.5 });
+    const dotDist = Math.hypot(...sub3(dot1.eye, dot1.look));
+    if (Math.abs(dotDist - HOME_MIN_DIST_M) > 1e-6) homeBad ||= `a single point is seen from ${dotDist.toFixed(0)} m, not ${HOME_MIN_DIST_M} m`;
+    ok('playback scene: the home pose sits behind the run-in, 30° round and 35° up, as close as keeps every corner of the played box in view (the outermost at 80% of the half-view) at 1400×900, 1024×768 and a tall window',
+       homeBad === '' && homeN === 6 && HOME_MARGIN === 1.25 && HOME_MIN_DIST_M === 3000, homeBad || `${homeN} poses, ${homeKm.join('/')} km out; a single point from ${dotDist.toFixed(0)} m`);
+
+    // The played box: what the home camera frames. It holds every jet's planned path and every
+    // target, touching them (nothing spare), and is the smaller box inside the terrain's `bounds`,
+    // which allows for the whole 20 nm lead-in: on the fixture the played run starts well short of it.
+    // Mutation proofs (2026-11-14): source.ts `for (const t of targets) hold(t.x, t.y, t.z);` deleted
+    // (the fixture's paths never come down to the lead target's ground, so its floor is lost):
+    //   FAIL playback scene: the played box … floor 152.4 m (the lowest target is at 0.0 m)
+    // hold `played.min_n_m = Math.min(played.min_n_m, -z)` → `…, z)` (north not turned back from three.js z):
+    //   FAIL playback scene: the played box … not the tight box: {…"min_n_m":-18958.716796875,"max_n_m":18958.716796875,…} vs {…"min_n_m":-3480.621467390695,"max_n_m":18958.716796875,…}
+    // `played: Number.isFinite(played.min_e_m) ? played : bounds` → `played: bounds`:
+    //   FAIL playback scene: the played box … floor -1.0 m (the lowest target is at 0.0 m)
+    {
+      const pl = src.played, bb = src.bounds;
+      let plBad = '';
+      const seen = { min_e_m: Infinity, max_e_m: -Infinity, min_n_m: Infinity, max_n_m: -Infinity, min_up_m: Infinity, max_up_m: -Infinity };
+      const see = (e: number, n: number, u: number) => {
+        seen.min_e_m = Math.min(seen.min_e_m, e); seen.max_e_m = Math.max(seen.max_e_m, e);
+        seen.min_n_m = Math.min(seen.min_n_m, n); seen.max_n_m = Math.max(seen.max_n_m, n);
+        seen.min_up_m = Math.min(seen.min_up_m, u); seen.max_up_m = Math.max(seen.max_up_m, u);
+      };
+      let lowestTarget = Infinity;
+      for (let k = 0; k < src.jetCount; k++) {
+        const path = src.plannedPath(k);
+        for (let i = 0; i < path.length; i += 3) {
+          const e = path[i], u = path[i + 1], n = -path[i + 2];
+          if (e < pl.min_e_m || e > pl.max_e_m || n < pl.min_n_m || n > pl.max_n_m || u < pl.min_up_m || u > pl.max_up_m) { plBad ||= `#${k + 1} path point ${i / 3} outside it`; break; }
+          see(e, n, u);
+        }
+        const tg = src.targetOf(k);
+        see(tg.x, -tg.z, tg.y);
+        lowestTarget = Math.min(lowestTarget, tg.y);
+      }
+      if (!plBad && pl.min_up_m !== lowestTarget) plBad = `floor ${pl.min_up_m.toFixed(1)} m (the lowest target is at ${lowestTarget.toFixed(1)} m)`;
+      if (!plBad && JSON.stringify(pl) !== JSON.stringify(seen)) plBad = `not the tight box: ${JSON.stringify(pl)} vs ${JSON.stringify(seen)}`;
+      const inside = pl.min_e_m >= bb.min_e_m && pl.max_e_m <= bb.max_e_m && pl.min_n_m >= bb.min_n_m && pl.max_n_m <= bb.max_n_m && pl.min_up_m >= bb.min_up_m && pl.max_up_m <= bb.max_up_m;
+      if (!plBad && !inside) plBad = 'not inside the terrain\'s bounds';
+      if (!plBad && !(pl.max_e_m < bb.max_e_m - 5000)) plBad = `east edge ${(pl.max_e_m / 1000).toFixed(1)} km, the same as the terrain's bounds`;
+      const farBounds = Math.hypot(...sub3(homePose({ box: bb, axis: src.attackAxis, aspect: 1400 / 900 }).eye, [(bb.min_e_m + bb.max_e_m) / 2, (bb.min_n_m + bb.max_n_m) / 2, (bb.min_up_m + bb.max_up_m) / 2]));
+      const farPlayed = Math.hypot(...sub3(homePose({ box: pl, axis: src.attackAxis, aspect: 1400 / 900 }).eye, [(pl.min_e_m + pl.max_e_m) / 2, (pl.min_n_m + pl.max_n_m) / 2, (pl.min_up_m + pl.max_up_m) / 2]));
+      ok('playback scene: the played box holds every planned path and target exactly, inside the terrain\'s wider bounds, so the home view stands closer',
+         plBad === '' && farPlayed < farBounds,
+         plBad || `east ${(pl.min_e_m / 1000).toFixed(1)}..${(pl.max_e_m / 1000).toFixed(1)} km (bounds to ${(bb.max_e_m / 1000).toFixed(1)}), north ${(pl.min_n_m / 1000).toFixed(1)}..${(pl.max_n_m / 1000).toFixed(1)} km, up ${pl.min_up_m.toFixed(0)}..${pl.max_up_m.toFixed(0)} m; home ${(farPlayed / 1000).toFixed(1)} km out against ${(farBounds / 1000).toFixed(1)} km on the bounds`);
+    }
+
+    // [P11] restated for the library's datum: the adapter hands the scene the DISPLAY layer in three.js
+    // axes, y = up_m (above the lead target's planned elevation: not MSL × 0.3048, not AGL), z = −north,
+    // writing into the caller's object; each jet's target is where its bomb lands; the planned path is
+    // the display track inside the box; the window and the axis are the library's.
+    // Mutation proofs: source.ts jetAt `out.y = js.up_m` → `out.y = js.agl_ft * 0.3048`:
+    //   FAIL playback scene [P11]: the adapter gives the display layer in three.js axes … #1 jet at t=-121.7: (26386.692, 152.400, -10661.258) vs the library's (26386.692, 152.400, -10661.258); worst jet position error 365.760 m
+    //   (the lead's AGL equals its up but for rounding, which the exact comparison sees first; #2's is 1,200 ft = 365.76 m off)
+    // jetAt `out.z = -js.n_m` → `out.z = js.n_m` (also trips [T16]: the paths leave the box):
+    //   FAIL playback scene [P11]: … #1 jet at t=-151.2: (33133.753, 152.400, 13407.385) vs the library's (33133.753, 152.400, -13407.385)
+    // bombAt `sampleBomb(pb, timing, jet, t_s, 'display', bs)` → `…, 'plan', bs)` (only #3, the jet in a slot, can tell):
+    //   FAIL playback scene [P11]: … #3 bomb at t=-151.2: (1115.702, 1066.800, -1618.544) vs the library's (399.263, 1066.800, -2205.223)
+    // targetOf `upOf(pb.frame, j.targetElevation_ft)` → `j.targetElevation_ft * 0.3048` (MSL):
+    //   FAIL playback scene [P11]: … #1 target (0.000, 1219.200, 0.000) vs its bomb's impact (0.000, 0.000, 0.000)
+    const sPose = newSceneJetPose(), sBomb = newSceneBombPose(), refJ = newJetState(), refB = newBombState();
+    let srcBad = '', srcPts = 0, sameOut = true, upIsOwn = false, worstPos = 0;
+    const fmt3 = (a: number, b: number, c: number) => `(${a.toFixed(3)}, ${b.toFixed(3)}, ${c.toFixed(3)})`;
+    for (let k = 0; k < src.jetCount; k++) {
+      for (let t = src.window.t0_s; t <= src.window.t1_s; t += 0.5) {
+        sameOut &&= src.jetAt(k, t, sPose) === sPose;
+        sampleJet(sPb, sTiming, k, t, 'display', refJ);
+        worstPos = Math.max(worstPos, Math.hypot(sPose.x - refJ.e_m, sPose.y - refJ.up_m, sPose.z + refJ.n_m));
+        if (sPose.visible !== refJ.visible || sPose.x !== refJ.e_m || sPose.y !== refJ.up_m || sPose.z !== -refJ.n_m || sPose.vx !== refJ.ve_mps ||
+            sPose.vy !== refJ.vu_mps || sPose.vz !== -refJ.vn_mps || sPose.heading_deg !== refJ.heading_deg || sPose.pitch_deg !== refJ.pitch_deg || sPose.bank_deg !== refJ.bank_deg || sPose.phase !== refJ.phase)
+          srcBad ||= `#${k + 1} jet at t=${t.toFixed(1)}: ${fmt3(sPose.x, sPose.y, sPose.z)} vs the library's ${fmt3(refJ.e_m, refJ.up_m, -refJ.n_m)}`;
+        if (k === 1 && refJ.visible && Math.abs(refJ.up_m - refJ.agl_ft * 0.3048) > 100 && Math.abs(refJ.up_m - refJ.msl_ft * 0.3048) > 100) upIsOwn = true;
+        sameOut &&= src.bombAt(k, t, sBomb) === sBomb;
+        sampleBomb(sPb, sTiming, k, t, 'display', refB);
+        if (sBomb.visible !== refB.visible || sBomb.stage !== refB.stage || sBomb.x !== refB.e_m || sBomb.y !== refB.up_m || sBomb.z !== -refB.n_m ||
+            sBomb.vx !== refB.ve_mps || sBomb.vy !== refB.vu_mps || sBomb.vz !== -refB.vn_mps)
+          srcBad ||= `#${k + 1} bomb at t=${t.toFixed(1)}: ${fmt3(sBomb.x, sBomb.y, sBomb.z)} vs the library's ${fmt3(refB.e_m, refB.up_m, -refB.n_m)}`;
+        srcPts++;
+      }
+      const tg = src.targetOf(k);
+      src.bombAt(k, src.window.t1_s, sBomb);
+      if (sBomb.stage !== 'impacted' || Math.hypot(tg.x - sBomb.x, tg.y - sBomb.y, tg.z - sBomb.z) > 1e-6)
+        srcBad ||= `#${k + 1} target ${fmt3(tg.x, tg.y, tg.z)} vs its bomb's impact ${fmt3(sBomb.x, sBomb.y, sBomb.z)}`;
+      const path = src.plannedPath(k), b = src.bounds;
+      src.jetAt(k, src.window.t0_s, sPose);
+      if (path.length % 3 !== 0 || path.length < 300 * 3 || path[0] !== Math.fround(sPose.x) || path[1] !== Math.fround(sPose.y) || path[2] !== Math.fround(sPose.z))
+        srcBad ||= `#${k + 1} path: ${path.length / 3} points, first ${fmt3(path[0], path[1], path[2])} vs the jet at the window's start ${fmt3(sPose.x, sPose.y, sPose.z)}`;
+      for (let i = 0; i < path.length; i += 3) {
+        const e = path[i], up = path[i + 1], n = -path[i + 2];
+        if (e < b.min_e_m - 1 || e > b.max_e_m + 1 || n < b.min_n_m - 1 || n > b.max_n_m + 1 || up < b.min_up_m - 1 || up > b.max_up_m + 1) { srcBad ||= `#${k + 1} path point ${i / 3} outside the box`; break; }
+      }
+    }
+    const lt = src.targetOf(0), t2 = src.targetOf(1), h0 = sPb.jets[0].attackHeading_deg * D2R;
+    const srcMeta = src.jetCount === 3 && src.window.t0_s === sTiming.window.t0_s && src.window.t1_s === sTiming.window.t1_s &&
+      Math.abs(src.attackAxis[0] - Math.sin(h0)) < 1e-12 && Math.abs(src.attackAxis[1] - Math.cos(h0)) < 1e-12 &&
+      lt.x === 0 && lt.y === 0 && lt.z === 0 && Math.abs(t2.y - 1200 * 0.3048) < 1e-9 && src.labelOf(1) === '#2' && JSON.stringify(src.bounds) === JSON.stringify(playbackBounds(sPb));
+    ok('playback scene [P11]: the adapter gives the display layer in three.js axes with y = the library\'s up (not MSL, not AGL), into the caller\'s object; targets are where the bombs land; paths stay in the box',
+       srcBad === '' && sameOut && upIsOwn && srcMeta && srcPts > 500,
+       srcBad ? `${srcBad}; worst jet position error ${worstPos.toFixed(3)} m` : `${srcPts} times × jet and bomb; same object ${sameOut}; #2's up differs from its AGL and MSL ${upIsOwn}; window, axis, targets, labels, bounds ${srcMeta}`);
+
+    // The look: the window's own background colour, the DPR cap, the arrow size, and the strike
+    // editor's jet colours from the one list both share.
+    // Mutation proof: sceneStyle.ts `BG = '#1a1a2e'` → `'#1a1a2f'`:
+    //   FAIL playback scene: the look is the window's background, … BG #1a1a2f vs the window's #1a1a2e, DPR 1.5, arrow 28 px, colours true
+    const tauriBg = (JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { app: { windows: { backgroundColor?: string }[] } }).app.windows[0].backgroundColor;
+    const stripSrc = readFileSync('src/components/attacks/JetStrip.tsx', 'utf8');
+    const colOk = JSON.stringify(SCENE_JET_COLORS) === JSON.stringify(['#22d3ee', '#e879f9', '#a3e635', '#fbbf24']) && /from '\.\.\/\.\.\/lib\/jetColors'/.test(stripSrc) && !/#22d3ee/i.test(stripSrc) &&
+      jetColor(5) === SCENE_JET_COLORS[1] && jetColor(-1) === SCENE_JET_COLORS[3];
+    ok('playback scene: the look is the window\'s background, a 1.5 DPR cap, a 28 px arrow, and the jet strip\'s own colours',
+       BG === tauriBg && MAX_DPR === 1.5 && ARROW_PX === 28 && colOk,
+       `BG ${BG} vs the window's ${tauriBg}, DPR ${MAX_DPR}, arrow ${ARROW_PX} px, colours ${colOk}`);
+
+    // Import purity: nothing under src/lib/playbackScene pulls in three.js, React or a DOM global, and
+    // nothing imports from outside the folder except the playback library, the kneeboard's tile
+    // arithmetic and the shared jet colours (a component would drag React in behind it). Code only.
+    // Mutation proofs: sceneStyle.ts gains `import 'three';`:
+    //   FAIL playback scene: no file under src/lib/playbackScene imports three, React or a component, or touches a DOM global  sceneStyle.ts
+    // terrain.ts gains `export const probe = () => typeof document;` (never run): the same FAIL with terrain.ts.
+    const SCENE_PKG = String.raw`(?:three|@react-three|react|react-dom)(?:\/[^'"]*)?`;
+    const SCENE_IMPURE = [
+      new RegExp(String.raw`(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]${SCENE_PKG}['"]`),
+      // A DOM global used, not a property or a key of that name (`timing.window`, `{ window: … }` are the playback's own).
+      /(?<![.\w])(?:window|document|navigator|requestAnimationFrame|cancelAnimationFrame|createImageBitmap|OffscreenCanvas|HTMLCanvasElement|ImageBitmap|localStorage|indexedDB)\b(?!\s*:)/,
+    ];
+    const SCENE_ALLOWED = /^(?:\.\/\w+|\.\.\/(?:playback|kneeboardBasemap|jetColors))$/;
+    const sceneCode = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const sceneSpecs = (s: string) => [...s.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g)].map((m) => m[1]);
+    const sceneImpure = (s: string) => SCENE_IMPURE.some((re) => re.test(sceneCode(s))) || sceneSpecs(sceneCode(s)).some((x) => !SCENE_ALLOWED.test(x));
+    const sceneFiles = readdirSync('src/lib/playbackScene').filter((f: string) => f.endsWith('.ts'));
+    const sceneBadFiles = sceneFiles.filter((f: string) => sceneImpure(readFileSync(`src/lib/playbackScene/${f}`, 'utf8')));
+    ok('playback scene: no file under src/lib/playbackScene imports three, React or a component, or touches a DOM global',
+       sceneFiles.length >= 6 && sceneBadFiles.length === 0, sceneBadFiles.length ? sceneBadFiles.join(', ') : `${sceneFiles.length} files`);
+    // Its control, pinned on literals: each impure line is caught, each pure one is not.
+    const sceneDirty = [`import * as THREE from 'three';`, `import 'three/addons/controls/OrbitControls.js';`, `import { useState } from 'react';`, `const c = document.createElement('canvas');`,
+      `requestAnimationFrame(tick);`, `const b = await createImageBitmap(blob);`, `import { JetStrip } from '../../components/attacks/JetStrip';`, `import { x } from '../strike';`];
+    const sceneClean = [`// window, document and three are only words here`, `import { sampleJet } from '../playback';`, `import { TILE_SIZE } from '../kneeboardBasemap';`,
+      `import { BG } from './sceneStyle';`, `const t = timing.window.t0_s;`, `return { window: { t0_s, t1_s } };`, `export type { TileKey } from '../kneeboardBasemap';`];
+    const sceneMissed = sceneDirty.filter((s) => !sceneImpure(s)), sceneFalse = sceneClean.filter(sceneImpure);
+    ok('playback scene: the purity patterns do catch three, React, DOM globals and imports from outside (so the check above can fail)',
+       sceneMissed.length === 0 && sceneFalse.length === 0, `missed ${JSON.stringify(sceneMissed)}, false hits ${JSON.stringify(sceneFalse)}`);
+
+    // ── The terrain ──
+    const NMm = 1852;
+    const frameAt = (lat: number, lon: number) => makeLocalFrame({ lat, lon }, 0);
+    const sqBox = (half_nm: number): TerrainBox => ({ west_m: -half_nm * NMm, east_m: half_nm * NMm, south_m: -half_nm * NMm, north_m: half_nm * NMm });
+    const latOfGy = (gy: number, z: number) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * gy) / (TERRAIN_TILE_PX * 2 ** z)))) * 180) / Math.PI;
+    /** A synthetic tile: each pixel's value from its global pixel-centre coordinates at that zoom. */
+    const synthTile = (z: number, X: number, Y: number, fill: (gx: number, gy: number, z: number) => number) => {
+      const P = TERRAIN_TILE_PX, t = new Float32Array(P * P);
+      for (let j = 0; j < P; j++) for (let i = 0; i < P; i++) t[j * P + i] = fill(P * X + i + 0.5, P * Y + j + 0.5, z);
+      return t;
+    };
+    const synthMosaic = (r: TileRange, fill: (gx: number, gy: number, z: number) => number) => heightMosaic(r, tilesOf(r).map((k) => synthTile(k.z, k.x, k.y, fill)));
+
+    // [T3] Sea clamp and broken tiles: −256 m (Terrarium 127,0,0) shows at 0; a decoded value outside
+    // −11,000…9,000 m, a NaN, a short tile or a missing one leaves the whole mosaic undefined (flat
+    // ground, never a hole with cliffs round it). A rejection reads 'missing' only when it says so.
+    // Mutation proofs: terrain.ts seaClamp `h < 0 ? 0 : h` → `h`:
+    //   FAIL playback scene [T3]: … clamp -256/12.5, mosaic pixel -256, too high true, too low true, NaN true, short true, missing true, 8,999 kept true; errors missing,missing,offline,offline
+    // terrainTileValid `!(h >= HEIGHT_VALID_MIN_M && h <= HEIGHT_VALID_MAX_M)` → `!(h === h)` (NaN only):
+    //   FAIL playback scene [T3]: … clamp 0/12.5, mosaic pixel 0, too high false, too low false, NaN true, …
+    // tileErrorOf `word === 'missing' ? 'missing' : 'offline'` → `word === word ? …` (always 'missing'):
+    //   FAIL playback scene [T3]: … errors missing,missing,missing,missing
+    const r1x1: TileRange = { z: 10, x0: 0, y0: 0, nx: 1, ny: 1 };
+    const sea = new Float32Array(TERRAIN_TILE_PX ** 2).fill(50);
+    sea[7] = -256;
+    const seaM = heightMosaic(r1x1, [sea]);
+    const withVal = (v: number) => { const t = new Float32Array(TERRAIN_TILE_PX ** 2); t[100] = v; return t; };
+    const tooHigh = heightMosaic(r1x1, [withVal(9500)]), tooLow = heightMosaic(r1x1, [withVal(-11500)]), nanT = heightMosaic(r1x1, [withVal(NaN)]);
+    const shortT = heightMosaic(r1x1, [new Float32Array(100)]), missingT = heightMosaic(r1x1, [undefined]), edgeOk = heightMosaic(r1x1, [withVal(8999)]);
+    const errs = [tileErrorOf('missing'), tileErrorOf(new Error('missing')), tileErrorOf('offline'), tileErrorOf(new TypeError('Failed to fetch'))];
+    ok('playback scene [T3]: decoded heights are clamped at sea level, a broken or missing tile leaves no mosaic, and errors read as missing or offline',
+       seaClamp(-256) === 0 && seaClamp(12.5) === 12.5 && seaM?.data[7] === 0 && seaM?.data[8] === 50 && tooHigh === undefined && tooLow === undefined && nanT === undefined &&
+       shortT === undefined && missingT === undefined && edgeOk !== undefined && terrainTileValid(sea) && errs.join(',') === 'missing,missing,offline,offline',
+       `clamp ${seaClamp(-256)}/${seaClamp(12.5)}, mosaic pixel ${seaM?.data[7]}, too high ${tooHigh === undefined}, too low ${tooLow === undefined}, NaN ${nanT === undefined}, short ${shortT === undefined}, missing ${missingT === undefined}, 8,999 kept ${edgeOk !== undefined}; errors ${errs.join(',')}`);
+
+    // [T4] [T5] Bilinear sampling with each pixel's value at its CENTRE: grid [[0,10],[20,30]] gives 0
+    // at (0.5,0.5), 10 at (1.5,0.5), 15 at (1,1) and 5 at (1.0,0.5); far outside it gives the edge value, never NaN.
+    // Mutation proofs: terrain.ts sampleBilinear `px - 0.5` → `px` (no centre shift):
+    //   FAIL playback scene [T4][T5]: … 15,20,30,20 | 10,20,5,25 (and [T6] seam 256, [T9][T10] heights ≈ 1 m, [T12])
+    // `(a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy` with fx and fy swapped:
+    //   FAIL playback scene [T4][T5]: … 0,20,15,10 | 0,20,0,10 (and [T6] seam 255, [T9][T10], [T12])
+    // the clamps `Math.min(w - 1, Math.max(0, px - 0.5))` → `px - 0.5` (and the same for py):
+    //   FAIL playback scene [T4][T5]: … 0,10,15,5 | NaN,45,NaN,90
+    const g22 = new Float32Array([0, 10, 20, 30]);
+    const t4 = [sampleBilinear(g22, 2, 2, 0.5, 0.5), sampleBilinear(g22, 2, 2, 1.5, 0.5), sampleBilinear(g22, 2, 2, 1, 1), sampleBilinear(g22, 2, 2, 1.0, 0.5)];
+    const t5 = [sampleBilinear(g22, 2, 2, -3, 0.5), sampleBilinear(g22, 2, 2, 5, 0.5), sampleBilinear(g22, 2, 2, 0.5, -3), sampleBilinear(g22, 2, 2, 0.5, 5)];
+    ok('playback scene [T4][T5]: bilinear sampling uses pixel centres and clamps at the edges',
+       t4.join(',') === '0,10,15,5' && t5.join(',') === '0,10,0,20', `${t4.join(',')} | ${t5.join(',')}`);
+
+    // [T6] The seam: two tiles stitched into one 512×256 mosaic, each pixel's value its global x.
+    // Sampling exactly on the seam (x = 256.0) reads across into the neighbour: 255.5, not 255.
+    // Mutation proof: terrain.ts heightMosaic `const row = (ty * P + j) * w + tx * P` → `… * w` (every tile written over the first):
+    //   FAIL playback scene [T6]: … mosaic 512×256, seam 255.5, left 256.5, right 0 (and [T9][T10] heights ≈ 2,500 m off, [T12])
+    const seamM = heightMosaic({ z: 10, x0: 0, y0: 0, nx: 2, ny: 1 }, [synthTile(10, 0, 0, (gx) => gx - 0.5), synthTile(10, 1, 0, (gx) => gx - 0.5)]);
+    const seamV = seamM && sampleBilinear(seamM.data, seamM.w, seamM.h, 256.0, 100.5);
+    const seamL = seamM && sampleBilinear(seamM.data, seamM.w, seamM.h, 1, 3), seamR = seamM && sampleBilinear(seamM.data, seamM.w, seamM.h, 511, 3);
+    ok('playback scene [T6]: tiles are stitched into one mosaic, so a sample on the seam reads across it',
+       seamM?.w === 512 && seamM.h === 256 && seamV === 255.5 && seamL === 0.5 && seamR === 510.5,
+       `mosaic ${seamM?.w}×${seamM?.h}, seam ${seamV}, left ${seamL}, right ${seamR}`);
+
+    // [T9] The drape lands where the jets fly: on a ±45 nm box at 68 N (and 37 N, 52 S), for 20 points
+    // across the box, the texture coordinate interpolated over the drawn triangle that holds the
+    // point's local position equals the point's own tile position to under half a texel. A map laid
+    // flat at the target's scale is tens of texels off toward the box edge at 68 N.
+    // [T10] Heights land there too: an elevation mosaic whose every pixel is 1,000 m per degree of its
+    // latitude (2,000 m at the target's), read back through heightAt at each point's local position
+    // (plus the shift), is that point's own value to 5 cm. A half-pixel slip is about a metre.
+    // Mutation proofs: terrain.ts gridLatLon `fromLocalInto(frame, …, n, ll)` → one flat scale at the target
+    // (`ll.lat = frame.origin.lat + n / 111195; ll.lon = frame.origin.lon + e / (111195 * Math.cos(frame.origin.lat * Math.PI / 180))`):
+    //   FAIL playback scene [T9][T10]: … 68 N: drape z10 36.498 texels, heights z8 9.332 m; 37 N: drape z11 10.606 texels, heights z9 2.899 m; 52 S: drape z10 11.880 texels, heights z9 5.047 m
+    // sampleBilinear `px - 0.5` → `px` (a half-pixel slip; the drape untouched):
+    //   FAIL playback scene [T9][T10]: … 68 N: drape z10 0.000 texels, heights z8 1.059 m; 37 N: drape z11 0.000 texels, heights z9 1.104 m; 52 S: drape z10 0.000 texels, heights z9 0.858 m
+    const landmarks = (frame: ReturnType<typeof frameAt>) => Array.from({ length: 20 }, (_, k) => fromLocal(frame, (-40 + (80 * ((k * 7) % 20)) / 19) * NMm, (-40 + (80 * ((k * 13) % 20)) / 19) * NMm));
+    let lmBad = '';
+    const lmDetail: string[] = [];
+    for (const [lat, lon, name] of [[68, 33, '68 N'], [37.15, -116.83, '37 N'], [-52, -59, '52 S']] as [number, number, string][]) {
+      const fr = frameAt(lat, lon), box = sqBox(45), grid = terrainGridOf(box);
+      const drape = planDrape(box, fr)!, elev = planElevation(grid, fr);
+      const latlon = gridLatLon(grid, fr), uvs = drapeUvs(latlon, drape);
+      if (!elev || !drape) throw new Error(`scene T9: no plan at ${name}`);
+      const ramp = synthMosaic(elev, (_gx, gy, z) => (latOfGy(gy, z) - lat + 2) * 1000)!;
+      const mesh = buildTerrainMesh({ frame: fr, grid, elevation: elev, drape }, ramp, latlon);
+      let worstTex = 0, worstH = 0;
+      for (const P of landmarks(fr)) {
+        const p = toLocal(fr, P), f = lonLatToTile(P.lat, P.lon, drape.z);
+        const du = (onTriangles(grid, uvs, p.e_m, p.n_m, 2, 0) - (f.x - drape.x0) / drape.nx) * drape.nx * TERRAIN_TILE_PX;
+        const dv = (onTriangles(grid, uvs, p.e_m, p.n_m, 2, 1) - (1 - (f.y - drape.y0) / drape.ny)) * drape.ny * TERRAIN_TILE_PX;
+        worstTex = Math.max(worstTex, Math.abs(du), Math.abs(dv));
+        worstH = Math.max(worstH, Math.abs(heightAt(mesh, p.e_m, p.n_m, 'real') - mesh.shift_m - (P.lat - lat + 2) * 1000));
+      }
+      lmDetail.push(`${name}: drape z${drape.z} ${worstTex.toFixed(3)} texels, heights z${elev.z} ${worstH.toFixed(3)} m`);
+      if (!(worstTex < 0.5) || !(worstH < 0.05)) lmBad ||= lmDetail[lmDetail.length - 1];
+    }
+    ok('playback scene [T9][T10]: the drape and the heights land where the jets fly, at 68 N, 37 N and 52 S, to under half a texel and 5 cm',
+       lmBad === '', lmDetail.join('; '));
+
+    // [T11] The tile block holds the whole box: at 68 N and 52 S with ±45 nm, at every zoom 8-13, the
+    // tile under each of 200 points round the box's edge (its poleward middle included) is inside the
+    // span. A span from the four corners misses the poleward bulge (≈ 1.35 km at 68 N). And the tile
+    // lists: mosaic order row by row, nearest the target first.
+    // Mutation proofs: terrain.ts PERIMETER_POINTS `33` → `2` (the corners only):
+    //   FAIL playback scene [T11]: … 68 N+1 z12: tile 2416/956 outside 2399…2446 × 957…1002
+    // tilesNearestFirst `.sort((a, b) => d(a) - d(b))` → `.sort((a, b) => d(b) - d(a))`:
+    //   FAIL playback scene [T11]: … 24000 points; order 10/20 11/20 12/20 10/21 11/21 12/21; nearest first false
+    // Ten targets a few hundred metres apart at each site, so the bulge straddles a tile row at some zoom
+    // for some of them (at one target alone it can fall inside one row at every zoom by luck).
+    let spanBad = '', spanPts = 0;
+    const spanSites = [68, -52].flatMap((lat0) => Array.from({ length: 10 }, (_, s) => [lat0 + s * 0.004, lat0 > 0 ? 33 : -59, `${lat0 > 0 ? '68 N' : '52 S'}+${s}`] as [number, number, string]));
+    for (const [lat, lon, name] of spanSites) {
+      const fr = frameAt(lat, lon), box = sqBox(45);
+      for (let z = 8; z <= 13; z++) {
+        const s = tileSpan(box, fr, z);
+        for (let k = 0; k < 200; k++) {
+          const u = (k % 50) / 50, side = Math.floor(k / 50);
+          const e = side < 2 ? box.west_m + (box.east_m - box.west_m) * (u + 0.01) : side === 2 ? box.west_m : box.east_m;
+          const n = side === 0 ? box.north_m : side === 1 ? box.south_m : box.south_m + (box.north_m - box.south_m) * (u + 0.01);
+          const P = fromLocal(fr, e, n), f = lonLatToTile(P.lat, P.lon, z), tx = Math.floor(f.x), ty = Math.floor(f.y);
+          spanPts++;
+          if (tx < s.x0 || tx >= s.x0 + s.nx || ty < s.y0 || ty >= s.y0 + s.ny) spanBad ||= `${name} z${z}: tile ${tx}/${ty} outside ${s.x0}…${s.x0 + s.nx - 1} × ${s.y0}…${s.y0 + s.ny - 1}`;
+        }
+      }
+    }
+    const lr: TileRange = { z: 12, x0: 10, y0: 20, nx: 3, ny: 2 };
+    const order = tilesOf(lr).map((t) => `${t.x}/${t.y}`).join(' ');
+    const nf = tilesNearestFirst(planElevation(terrainGridOf(sqBox(30)), frameAt(37.15, -116.83)), frameAt(37.15, -116.83));
+    const o0 = lonLatToTile(37.15, -116.83, nf[0].z);
+    const nearestFirst = Math.floor(o0.x) === nf[0].x && Math.floor(o0.y) === nf[0].y;
+    ok('playback scene [T11]: the tile block holds every point round the box\'s edge at zooms 8-13 (68 N, 52 S); tiles listed row by row, and nearest the target first',
+       spanBad === '' && spanPts === 24000 && order === '10/20 11/20 12/20 10/21 11/21 12/21' && nearestFirst,
+       spanBad || `${spanPts} points; order ${order}; nearest first ${nearestFirst}`);
+
+    // [T12] The datum shift, on a synthetic slope (value rising eastward with the pixel column) whose
+    // real height at the lead's target, between pixel centres, is 600.37 m: the drawn ground at the
+    // target is 0 (the library's up datum, where the bomb lands), and a vertex whose real ground is
+    // ≈ 300 m higher than the target's shows at that difference.
+    // Mutation proofs: terrain.ts vertexHeights `const shift_m = -mosaicHeightAt(…)` → `+mosaicHeightAt(…)`:
+    //   FAIL playback scene [T12]: … at the target 1200.7399730360416 m (real -600.3699865180208, shift 600.3699865180208), the vertex 20 cells east 1500.7400 m
+    // shift from the nearest pixel: `-mosaicHeightAt(mosaic, frame.origin.lat, frame.origin.lon)` →
+    // `-mosaic.data[Math.floor(<target's mosaic py>) * mosaic.w + Math.floor(<px>)]`:
+    //   FAIL playback scene [T12]: … at the target 4.8309240180208235 m (real 595.5390625, shift -595.5390625), the vertex 20 cells east 304.8309 m
+    const fr12 = frameAt(37.15, -116.83), grid12 = terrainGridOf(sqBox(12.5)), elev12 = planElevation(grid12, fr12);
+    const ft12 = lonLatToTile(fr12.origin.lat, fr12.origin.lon, elev12.z), gxT = ft12.x * TERRAIN_TILE_PX;
+    const fracT = gxT - 0.5 - Math.floor(gxT - 0.5);
+    const vI = Math.round(-grid12.box.west_m / grid12.dx_m) + 20, vJ = Math.round(grid12.box.north_m / grid12.dy_m);
+    const vLL = fromLocal(fr12, grid12.box.west_m + vI * grid12.dx_m, grid12.box.north_m - vJ * grid12.dy_m);
+    const gxV = lonLatToTile(vLL.lat, vLL.lon, elev12.z).x * TERRAIN_TILE_PX;
+    const slope12 = 300 / (gxV - gxT);
+    const slopeM = synthMosaic(elev12, (gx) => 600.37 + slope12 * (gx - gxT))!;
+    const mesh12 = buildTerrainMesh({ frame: fr12, grid: grid12, elevation: elev12, drape: undefined }, slopeM);
+    const hT = heightAt(mesh12, 0, 0, 'real'), hV = heightAt(mesh12, grid12.box.west_m + vI * grid12.dx_m, grid12.box.north_m - vJ * grid12.dy_m, 'real');
+    ok('playback scene [T12]: the terrain is shifted so the ground at the lead\'s target is 0 (its planned elevation), and heights elsewhere keep their difference from it',
+       fracT > 0.1 && fracT < 0.9 && Math.abs(hT) < 1e-6 && Math.abs(-mesh12.shift_m - 600.37) < 1e-3 && Math.abs(hV - 300) < 1e-3,
+       `target ${fracT.toFixed(2)} of a pixel from a centre; at the target ${hT} m (real ${-mesh12.shift_m}, shift ${mesh12.shift_m}), the vertex 20 cells east ${hV.toFixed(4)} m`);
+
+    // [T13] Flat fallback: without heights every vertex is at y = 0 (the target's planned elevation),
+    // the shade is 1, heightAt is 0; with heights, the Flat buffers are still flat and Flat mode reads 0.
+    // Mutation proof: terrain.ts buildTerrainMesh `positionsFlat: gridPositions(grid)` → `gridPositions(grid, heights?.up)` (stale heights):
+    //   FAIL playback scene [T13]: … flat y 0…0, shade 1…1, heightAt 0/0; with heights: flat y -255.3165740966797…544.6532592773438, real y -255…545, Flat mode 0
+    const plan13 = planTerrain(src.bounds, src.frame);
+    const flat13 = buildTerrainMesh(plan13, undefined);
+    const yRange = (p: Float32Array) => { let lo = Infinity, hi = -Infinity; for (let i = 1; i < p.length; i += 3) { lo = Math.min(lo, p[i]); hi = Math.max(hi, p[i]); } return [lo, hi]; };
+    const fy = yRange(flat13.positionsFlat), shadeLo = Math.min(...flat13.colorsFlat.subarray(0, 3000)), shadeHi = Math.max(...flat13.colorsFlat.subarray(0, 3000));
+    const hillM = synthMosaic(plan13.elevation, (gx, gy) => 500 + 400 * Math.sin(gx / 90) * Math.cos(gy / 70))!;
+    const real13 = buildTerrainMesh(plan13, hillM);
+    const ry = yRange(real13.positionsFlat), realY = yRange(real13.positionsReal!);
+    ok('playback scene [T13]: without heights the ground is flat at the target\'s elevation, unshaded, and heightAt is 0; Flat stays flat when heights exist',
+       fy[0] === 0 && fy[1] === 0 && shadeLo === 1 && shadeHi === 1 && flat13.positionsReal === undefined && flat13.colorsReal === undefined &&
+       heightAt(flat13, 5000, -3000, 'real') === 0 && heightAt(flat13, 5000, -3000, 'flat') === 0 &&
+       ry[0] === 0 && ry[1] === 0 && heightAt(real13, 5000, -3000, 'flat') === 0 && realY[1] - realY[0] > 100 && real13.positionsFlat.length === real13.positionsReal!.length,
+       `flat y ${fy[0]}…${fy[1]}, shade ${shadeLo}…${shadeHi}, heightAt ${heightAt(flat13, 5000, -3000, 'real')}/${heightAt(flat13, 5000, -3000, 'flat')}; with heights: flat y ${ry[0]}…${ry[1]}, real y ${realY[0].toFixed(0)}…${realY[1].toFixed(0)}, Flat mode ${heightAt(real13, 5000, -3000, 'flat')}`);
+
+    // [T14] The zoom plan per theater, on a 40 nm square round each: the drape at most 16 tiles a side
+    // and 200 in all, at zoom 12 (11 at Kola); the elevation zoom 10 (11 at the Marianas, where the
+    // 144.7 m spacing sits a hair under zoom 10's 148 m, and 9 at Kola), its pixels no larger than the
+    // mesh spacing. And one box where the 200-tile cap (not the 16 a side) decides the zoom.
+    // Mutation proof: terrain.ts planElevation `chooseZoom(NM_TO_M / grid.dx_m, frame.origin.lat)` → `…, 0)` (cos(lat) ignored):
+    //   FAIL playback scene [T14]: … Persian Gulf 26: drape z12 10×9, elev z11 6×5 (68.7 m/px vs 144.7 m)
+    // planDrape `&& s.nx * s.ny <= MAX_DRAPE_TILES` dropped (on 40 nm squares the 16-a-side cap alone happens to decide):
+    //   FAIL playback scene [T14]: … Germany, 45 nm square: drape z12 14×15
+    const theaters: [string, number, number][] = [['Marianas', 14.5, 145], ['Persian Gulf', 26, 55], ['Sinai', 30, 33], ['Afghanistan', 34, 65], ['Syria', 35, 36],
+      ['Nevada', 37, -116], ['Caucasus', 42, 42], ['Normandy', 49, 0], ['Germany', 51, 8], ['South Atlantic', -52, -60], ['Kola', 68, 33]];
+    let zBad = '';
+    const zDetail: string[] = [];
+    const grid14 = terrainGridOf(sqBox(20));
+    for (const [name, lat, lon] of theaters) {
+      const fr = frameAt(lat, lon), drape = planDrape(grid14.box, fr), elev = planElevation(grid14, fr);
+      const wantDrape = name === 'Kola' ? 11 : 12, wantElev = name === 'Kola' ? 9 : name === 'Marianas' ? 11 : 10;
+      const elevMpp = metresPerTilePixel(lat, elev.z);
+      const line = `${name} ${lat}: drape z${drape?.z} ${drape?.nx}×${drape?.ny}, elev z${elev.z} ${elev.nx}×${elev.ny} (${elevMpp.toFixed(1)} m/px vs ${grid14.dx_m.toFixed(1)} m)`;
+      zDetail.push(line);
+      if (!drape || drape.nx > 16 || drape.ny > 16 || drape.nx * drape.ny > 200 || drape.z !== wantDrape || elev.z !== wantElev || elevMpp > grid14.dx_m) zBad ||= line;
+    }
+    // Where the 200-tile cap binds: a 45 nm square at 51 N would be 14×15 = 210 tiles at zoom 12, so zoom 11.
+    const capBox = sqBox(22.5), capDrape = planDrape(capBox, frameAt(51, 8));
+    zDetail.push(`Germany, 45 nm square: drape z${capDrape?.z} ${capDrape?.nx}×${capDrape?.ny}`);
+    if (capDrape?.z !== 11 || capDrape.nx * capDrape.ny > 200) zBad ||= zDetail[zDetail.length - 1];
+    ok('playback scene [T14]: on a 40 nm square, the drape is zoom 12 (11 at Kola) within 16 a side and 200 tiles, the heights zoom 10 (11 Marianas, 9 Kola) no coarser than the mesh',
+       zBad === '', zBad || zDetail.join('; '));
+
+    // [T15] The mesh: at most 512² cells for every box up to the cap, never finer than 75 m, the grid
+    // landing exactly on the box edges and on the target (so the ground drawn at the target is the
+    // height sampled there).
+    // Mutation proof: terrain.ts terrainGridOf `Math.max(MIN_SPACING_M, Math.sqrt((W * H) / MAX_SEGMENTS))` → `MIN_SPACING_M` (no area cap):
+    //   FAIL playback scene [T15]: … 25.0×25.0 nm: 610×610 cells of 75.9 m, target on the grid true (and [T14]: finer spacing, finer heights)
+    let meshBad = '', meshN = 0;
+    // Every box the rules can make: each edge 5 to 24 steps of 2.5 nm out (12.5 to 60 nm).
+    const STEPS = [5, 8, 11, 17, 24];
+    for (const a of STEPS) for (const b of STEPS) for (const c of STEPS) for (const d of STEPS) {
+      {
+        const bx: TerrainBox = { west_m: -a * BOX_STEP_M, east_m: b * BOX_STEP_M, south_m: -c * BOX_STEP_M, north_m: d * BOX_STEP_M };
+        const g = terrainGridOf(bx);
+        const W = bx.east_m - bx.west_m, H = bx.north_m - bx.south_m;
+        meshN++;
+        const onTarget = Math.abs(-bx.west_m / g.dx_m - Math.round(-bx.west_m / g.dx_m)) < 1e-9 && Math.abs(bx.north_m / g.dy_m - Math.round(bx.north_m / g.dy_m)) < 1e-9;
+        if (g.segX * g.segY > MAX_SEGMENTS || g.dx_m < MIN_SPACING_M || Math.abs(g.segX * g.dx_m - W) > 1e-6 || Math.abs(g.segY * g.dy_m - H) > 1e-6 || !onTarget)
+          meshBad ||= `${(W / NMm).toFixed(1)}×${(H / NMm).toFixed(1)} nm: ${g.segX}×${g.segY} cells of ${g.dx_m.toFixed(1)} m, target on the grid ${onTarget}`;
+      }
+    }
+    const capGrid = terrainGridOf(sqBox(60)), minGrid = terrainGridOf(sqBox(12.5));
+    ok('playback scene [T15]: the mesh stays within 512² cells and 75 m for every box up to the cap, and its vertices land on the box edges and the target',
+       meshBad === '' && meshN === 625 && capGrid.segX * capGrid.segY <= MAX_SEGMENTS && minGrid.dx_m >= MIN_SPACING_M,
+       meshBad || `${meshN} boxes; the cap ${capGrid.segX}×${capGrid.segY} of ${capGrid.dx_m.toFixed(1)} m, the minimum ${minGrid.segX}×${minGrid.segY} of ${minGrid.dx_m.toFixed(1)} m`);
+
+    // [T16] The box from the playback's bounds: every point of them plus 5 nm (the target too), at
+    // least ±12 nm, at most ±60 nm, each edge a whole number of 2.5 nm steps. Bounds: the fixture's
+    // real ones, none at all, a long run-in east only, and one far past the cap. And the fixture's
+    // whole planned paths lie at least 5 nm inside its box.
+    // Mutation proofs: terrain.ts terrainBoxOf east `maxE + BOX_MARGIN_M` → `maxE` (no margin):
+    //   FAIL playback scene [T16]: … fixture: -12.50/35.00/-12.50/22.50 nm; paths 5 nm inside true
+    // east `ceilTo(Math.max(…), BOX_STEP_M)` → `Math.max(…)` (no rounding):
+    //   FAIL playback scene [T16]: … fixture: -12.50/38.71/-12.50/22.50 nm; paths 5 nm inside true
+    // west `Math.min(-BOX_MIN_HALF_M, minE - BOX_MARGIN_M)` → `minE - BOX_MARGIN_M` (no minimum):
+    //   FAIL playback scene [T16]: … none: -5.00/12.50/-12.50/12.50 nm; paths 5 nm inside true
+    const boundsCases: [string, Parameters<typeof terrainBoxOf>[0]][] = [
+      ['fixture', src.bounds],
+      ['none', { min_e_m: 0, max_e_m: 0, min_n_m: 0, max_n_m: 0, min_up_m: 0, max_up_m: 0 }],
+      ['run-in east', { min_e_m: 1000, max_e_m: 40 * NMm, min_n_m: -2000, max_n_m: 3000, min_up_m: 0, max_up_m: 1500 }],
+      ['past the cap', { min_e_m: -200 * NMm, max_e_m: 90 * NMm, min_n_m: -5 * NMm, max_n_m: 300 * NMm, min_up_m: 0, max_up_m: 9000 }],
+    ];
+    let boxBad = '';
+    const boxDetail: string[] = [];
+    for (const [name, b] of boundsCases) {
+      const bx = terrainBoxOf(b);
+      const isStep = (v: number) => Math.abs(v / BOX_STEP_M - Math.round(v / BOX_STEP_M)) < 1e-9;
+      const holds = (edge: number, need: number, west: boolean) => (west ? edge <= Math.max(-BOX_MAX_HALF_M, need) : edge >= Math.min(BOX_MAX_HALF_M, need));
+      const good = holds(bx.west_m, Math.min(0, b.min_e_m) - BOX_MARGIN_M, true) && holds(bx.east_m, Math.max(0, b.max_e_m) + BOX_MARGIN_M, false) &&
+        holds(bx.south_m, Math.min(0, b.min_n_m) - BOX_MARGIN_M, true) && holds(bx.north_m, Math.max(0, b.max_n_m) + BOX_MARGIN_M, false) &&
+        [bx.west_m, bx.south_m].every((v) => v <= -BOX_MIN_HALF_M && v >= -BOX_MAX_HALF_M) && [bx.east_m, bx.north_m].every((v) => v >= BOX_MIN_HALF_M && v <= BOX_MAX_HALF_M) &&
+        [bx.west_m, bx.east_m, bx.south_m, bx.north_m].every(isStep);
+      const line = `${name}: ${[bx.west_m, bx.east_m, bx.south_m, bx.north_m].map((v) => (v / NMm).toFixed(2)).join('/')} nm`;
+      boxDetail.push(line);
+      if (!good) boxBad ||= line;
+    }
+    const fixBox = terrainBoxOf(src.bounds);
+    let pathInside = true;
+    for (let k = 0; k < src.jetCount; k++) {
+      const p = src.plannedPath(k);
+      for (let i = 0; i < p.length; i += 3) {
+        const e = p[i], n = -p[i + 2];
+        if (e - fixBox.west_m < BOX_MARGIN_M - 1 || fixBox.east_m - e < BOX_MARGIN_M - 1 || n - fixBox.south_m < BOX_MARGIN_M - 1 || fixBox.north_m - n < BOX_MARGIN_M - 1) pathInside = false;
+      }
+    }
+    ok('playback scene [T16]: the terrain box holds the playback\'s bounds plus 5 nm, at least ±12 nm, at most ±60 nm, in whole 2.5 nm steps; the jets\' paths stay 5 nm inside it',
+       boxBad === '' && pathInside, `${boxBad || boxDetail.join('; ')}; paths 5 nm inside ${pathInside}`);
+
+    // [T17] The hillshade, recomputed with the 1.5 slope exaggeration (the design's first figures, 1.18
+    // and 0.74, left it out): flat is exactly 1 (the map's own colour). From the slope angle and the way it faces,
+    // with the sun north-west at 45°, the shade is 1 + 0.9 (sin(θ' + 45°) − sin 45°) facing the sun and
+    // 1 + 0.9 (sin(45° − θ') − sin 45°) facing away, θ' = atan(1.5 tan θ): a 5° slope 1.0774 and 0.9118,
+    // a 20° one 1.227 and 0.617, so clamped to 1.12 and 0.65. On a grid: ground rising to the north
+    // (facing south, away from the sun) is darker than 1 everywhere, a hill's north-west flank brighter
+    // than its south-east one, every value inside [0.65, 1.12].
+    // Mutation proofs: terrain.ts SUN_ENU `[-0.5, 0.5, …]` → `[0.5, -0.5, …]` (sun in the south-east):
+    //   FAIL playback scene [T17]: … flat 1; 5°: 0.9118/1.0774, 20°: 0.6500/1.1200 (raw 0.6172/1.2271); north-rising grid 1.0939–1.0939, hill NW 0.650 SE 1.120, all in range true
+    // shadeFromSlope `(dot - SUN_ENU[2])` → `dot` (flat is not 1):
+    //   FAIL playback scene [T17]: … flat 1.12; 5°: 1.1200/1.1200, 20°: 1.1200/1.1200 (raw 1.8635/1.2536); north-rising grid 1.1200–1.1200, hill NW 1.120 SE 0.875, all in range true
+    // hillshade `(up[jN * row + i] - up[jS * row + i])` → `(up[jS * row + i] - up[jN * row + i])` (row direction):
+    //   FAIL playback scene [T17]: … north-rising grid 1.0939–1.0939, hill NW 0.747 SE 0.747, all in range true
+    const facing = (deg: number, az: number) => { const t = Math.tan(deg * D2R); return shadeFromSlope(-t * Math.sin(az * D2R), -t * Math.cos(az * D2R)); };
+    const facingRaw = (deg: number, az: number) => { const t = Math.tan(deg * D2R); return shadeFromSlope(-t * Math.sin(az * D2R), -t * Math.cos(az * D2R), false); };
+    const thetaP = (deg: number) => Math.atan(1.5 * Math.tan(deg * D2R));
+    const wantToward = (deg: number) => 1 + 0.9 * (Math.sin(thetaP(deg) + 45 * D2R) - Math.SQRT1_2), wantAway = (deg: number) => 1 + 0.9 * (Math.sin(45 * D2R - thetaP(deg)) - Math.SQRT1_2);
+    const s5 = [facing(5, 315), facing(5, 135)], s20 = [facing(20, 315), facing(20, 135)], raw20 = [facingRaw(20, 315), facingRaw(20, 135)];
+    const flatShade = shadeFromSlope(0, 0);
+    const g17: TerrainGrid = { box: { west_m: 0, east_m: 2000, south_m: 0, north_m: 2000 }, segX: 20, segY: 20, dx_m: 100, dy_m: 100 };
+    const northRise = new Float64Array(21 * 21), hill = new Float64Array(21 * 21), flatG = new Float64Array(21 * 21);
+    for (let j = 0; j <= 20; j++) for (let i = 0; i <= 20; i++) {
+      const e = i * 100, n = 2000 - j * 100;
+      northRise[j * 21 + i] = n * Math.tan(10 * D2R);
+      hill[j * 21 + i] = 600 * Math.exp(-((e - 1000) ** 2 + (n - 1000) ** 2) / (2 * 400 ** 2));
+    }
+    const hsNorth = hillshade(northRise, g17), hsHill = hillshade(hill, g17), hsFlat = hillshade(flatG, g17);
+    const nwFlank = hsHill[7 * 21 + 7], seFlank = hsHill[13 * 21 + 13];
+    // The shades are stored as float32, so the bounds are too.
+    const allIn = [...hsNorth, ...hsHill].every((s) => s >= Math.fround(0.65) && s <= Math.fround(1.12)), northMax = Math.max(...hsNorth), northMin = Math.min(...hsNorth);
+    ok('playback scene [T17]: the hillshade is exactly 1 on flat ground, brighter facing the north-west sun, darker away, the recomputed values, clamped to 0.65-1.12',
+       flatShade === 1 && hsFlat.every((s) => s === 1) && Math.abs(s5[0] - wantToward(5)) < 1e-12 && Math.abs(s5[1] - wantAway(5)) < 1e-12 && Math.abs(s5[0] - 1.0774) < 1e-4 && Math.abs(s5[1] - 0.9118) < 1e-4 &&
+       Math.abs(raw20[0] - wantToward(20)) < 1e-12 && Math.abs(raw20[1] - wantAway(20)) < 1e-12 && Math.abs(raw20[0] - 1.227) < 1e-3 && Math.abs(raw20[1] - 0.617) < 1e-3 &&
+       s20[0] === 1.12 && s20[1] === 0.65 && northMax < 1 && nwFlank > 1 && seFlank < 1 && allIn,
+       `flat ${flatShade}; 5°: ${s5.map((s) => s.toFixed(4)).join('/')}, 20°: ${s20.map((s) => s.toFixed(4)).join('/')} (raw ${raw20.map((s) => s.toFixed(4)).join('/')}); north-rising grid ${northMin.toFixed(4)}–${northMax.toFixed(4)}, hill NW ${nwFlank.toFixed(3)} SE ${seFlank.toFixed(3)}, all in range ${allIn}`);
+
+    // [T18] Triangle order and axes: every triangle faces up (+y) in three.js axes, and vertex (i, j)
+    // sits at x = west + i·dx (east is +x), z = −(north − j·dy) (north is −z).
+    // Mutation proofs: terrain.ts gridIndices `out[k++] = a; out[k++] = c; out[k++] = b;` → `a, b, c`:
+    //   FAIL playback scene [T18]: … first triangle normal y -8241.944595336914, 2681 of 5363 sampled face up; vertex east-north at x 907.8 z -907.8 (10 cells: 907.8 m)
+    // gridPositions `out[p++] = -n;` → `out[p++] = n;`:
+    //   FAIL playback scene [T18]: … first triangle normal y -8241.944595336914, 0 of 5363 sampled face up; vertex east-north at x 907.8 z 907.8 (10 cells: 907.8 m)
+    const g18 = terrainGridOf(sqBox(12.5)), idx18 = gridIndices(g18.segX, g18.segY), pos18 = buildTerrainMesh({ frame: frameAt(37.15, -116.83), grid: g18, elevation: { z: 10, x0: 0, y0: 0, nx: 1, ny: 1 }, drape: undefined }, undefined).positionsFlat;
+    const normalY = (t: number) => {
+      const P = (v: number): Vec3 => [pos18[3 * v], pos18[3 * v + 1], pos18[3 * v + 2]];
+      const a = P(idx18[3 * t]), b = P(idx18[3 * t + 1]), c = P(idx18[3 * t + 2]);
+      return cross3(sub3(b, a), sub3(c, a))[1];
+    };
+    let upCount = 0;
+    for (let t = 0; t < idx18.length / 3; t += 97) if (normalY(t) > 0) upCount++;
+    const row18 = g18.segX + 1, iE = Math.round(-g18.box.west_m / g18.dx_m) + 10, jN = Math.round(g18.box.north_m / g18.dy_m) - 10;
+    const vx = pos18[3 * (jN * row18 + iE)], vz = pos18[3 * (jN * row18 + iE) + 2];
+    const axesOk = Math.abs(vx - 10 * g18.dx_m) < 1e-3 && Math.abs(vz + 10 * g18.dy_m) < 1e-3 && pos18[0] === g18.box.west_m && pos18[2] === -g18.box.north_m;
+    ok('playback scene [T18]: every triangle faces up in three.js axes, east is +x and north is −z',
+       normalY(0) > 0 && upCount === Math.ceil(idx18.length / 3 / 97) && axesOk && idx18.length === g18.segX * g18.segY * 6,
+       `first triangle normal y ${normalY(0)}, ${upCount} of ${Math.ceil(idx18.length / 3 / 97)} sampled face up; vertex east-north at x ${vx.toFixed(1)} z ${vz.toFixed(1)} (10 cells: ${(10 * g18.dx_m).toFixed(1)} m)`);
+
+    // [T19] heightAt reads the drawn triangles (diagonal b–c), not a bilinear blend: in a cell with
+    // corners a = b = c = 0 and d = 100, (0.25, 0.25) gives 0, the centre 0 (it is on the diagonal),
+    // (0.75, 0.75) gives 50 (bilinear would be 6.25, 25, 56.25). Flat mode gives 0 there.
+    // Mutation proof: terrain.ts onTriangles return → the bilinear blend `(a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy`:
+    //   FAIL playback scene [T19]: … 0.25: 6.25, centre 25, 0.75: 56.25, flat 0, outside (south-east) 100
+    const g19: TerrainGrid = { box: { west_m: 0, east_m: 100, south_m: 0, north_m: 100 }, segX: 1, segY: 1, dx_m: 100, dy_m: 100 };
+    const m19 = { grid: g19, up: new Float64Array([0, 0, 0, 100]) } as TerrainMesh;
+    const h19 = [heightAt(m19, 25, 75, 'real'), heightAt(m19, 50, 50, 'real'), heightAt(m19, 75, 25, 'real'), heightAt(m19, 75, 25, 'flat'), heightAt(m19, 500, -500, 'real')];
+    ok('playback scene [T19]: heightAt follows the drawn triangles, not a bilinear blend, and is 0 on flat ground',
+       h19[0] === 0 && h19[1] === 0 && h19[2] === 50 && h19[3] === 0 && h19[4] === 100,
+       `0.25: ${h19[0]}, centre ${h19[1]}, 0.75: ${h19[2]}, flat ${h19[3]}, outside (south-east) ${h19[4]}`);
+
+    // [T22] The credits: the map's and the elevation data's, and three.js's, as plain text; only what is drawn.
+    // Mutation proof: terrain.ts creditsFor `shown.map ? MAP_CREDIT : ''` → `MAP_CREDIT`:
+    //   FAIL playback scene [T22]: … nothing drawn: Map © OpenStreetMap contributors · 3D: three.js (MIT); map only: Map © OpenStreetMap contributors · 3D: three.js (MIT)
+    const cNone = creditsFor({ map: false, elevation: false }), cMap = creditsFor({ map: true, elevation: false });
+    ok('playback scene [T22]: the credits name OpenStreetMap, Terrain Tiles and three.js, and only for what is drawn',
+       /OpenStreetMap/.test(TERRAIN_CREDITS) && /Terrain Tiles/.test(TERRAIN_CREDITS) && /three\.js/.test(TERRAIN_CREDITS) && !/https?:/.test(TERRAIN_CREDITS) &&
+       !/OpenStreetMap|Terrain Tiles/.test(cNone) && /three\.js/.test(cNone) && /OpenStreetMap/.test(cMap) && !/Terrain Tiles/.test(cMap) &&
+       creditsFor({ map: true, elevation: true }) === TERRAIN_CREDITS,
+       `full: ${TERRAIN_CREDITS}; nothing drawn: ${cNone}; map only: ${cMap}`);
+
+    // ── Added after the spike's review (2026-11-14). Same proof rule: each check below was turned red
+    // by the one-line edit to the real module written beside it, and the edit restored.
+
+    // [T23] The elevation data's required attribution is all there, word for word as the Terrain
+    // Tiles project gives it: EU-DEM (Copernicus), Kartverket, ArcticDEM and Canada's licence among
+    // them, which plans over Normandy, the Channel, Germany or Kola draw on; and the credit line
+    // points to the list. Plain text, no links.
+    // Mutation proof: terrain.ts ELEVATION_SOURCES, the line `'Europe terrain data produced using Copernicus data …',` deleted:
+    //   FAIL playback scene [T23]: … 11 lines; Copernicus false, Kartverket true, ArcticDEM true, Canada true, Mapzen true, USGS true; links false; …
+    const src23 = ELEVATION_SOURCES.join('\n');
+    const has23 = {
+      Copernicus: src23.includes('Europe terrain data produced using Copernicus data and information funded by the European Union - EU-DEM layers;'),
+      Kartverket: src23.includes('Norway terrain data © Kartverket;'),
+      ArcticDEM: src23.includes('ArcticDEM terrain data DEM(s) were created from DigitalGlobe, Inc., imagery and funded under National Science Foundation awards 1043681, 1559691, and 1542736;'),
+      Canada: src23.includes('Canada terrain data contains information licensed under the Open Government Licence – Canada;'),
+      Mapzen: ELEVATION_SOURCES[0] === 'Mapzen',
+      USGS: src23.includes('United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey.'),
+    };
+    ok('playback scene [T23]: the full elevation attribution list is there word for word (EU-DEM, Kartverket, ArcticDEM, Canada, Mapzen, USGS…), and the credit line points to it',
+       ELEVATION_SOURCES.length === 12 && Object.values(has23).every(Boolean) && !/https?:/.test(src23) && /Elevation sources/.test(creditsFor({ map: false, elevation: true })),
+       `${ELEVATION_SOURCES.length} lines; ${Object.entries(has23).map(([k, v]) => `${k} ${v}`).join(', ')}; links ${/https?:/.test(src23)}; line: ${creditsFor({ map: false, elevation: true })}`);
+
+    // [C1] The near plane never cuts off what must be seen: over a high-altitude delivery (camera
+    // 3,170 m above the ground) at full zoom-in (150 m from the point it orbits) it sits at most 75 m
+    // out, not 159 m; with the arrow 20 m away, at 10 m; never below 1 m; and with nothing close,
+    // the height rule as before.
+    // Mutation proof: cameraMath.ts nearPlaneFor `Math.min(agl_m * 0.05, NEAR_SHARE * nearest_m)` → `agl_m * 0.05`:
+    //   FAIL playback scene [C1]: … orbit 150 m at 3170 m up: 158.5; jet 20 m: 158.5; jet 1 m: 158.5; nothing near: 158.5, 50
+    const c1 = { orbit: nearPlaneFor(3170, MIN_ORBIT_M), jet: nearPlaneFor(3170, 20), touching: nearPlaneFor(3170, 1), far: nearPlaneFor(3170, 1e6), low: nearPlaneFor(1000) };
+    ok('playback scene [C1]: the near plane stays within half the distance to the orbit point or the jet, 1 m at least, the height rule otherwise',
+       NEAR_SHARE === 0.5 && c1.orbit === 75 && c1.jet === 10 && c1.touching === 1 && c1.far === 158.5 && c1.low === 50,
+       `orbit 150 m at 3170 m up: ${c1.orbit}; jet 20 m: ${c1.jet}; jet 1 m: ${c1.touching}; nothing near: ${c1.far}, ${c1.low}`);
+
+    // [C2] The zoom-out limit never sits inside the home view. On the fixture, at every window
+    // shape, it is the usual 2.5 terrain half-diagonals and home is well inside it. When a home
+    // view has to stand farther back than that (a very narrow window: here the fixture's strike in
+    // one a tenth as wide as it is tall), the limit is raised to 5% past home, so the controls
+    // cannot pull the camera in on its first frame.
+    // Mutation proof (2026-11-14): cameraMath.ts maxOrbitFor `Math.max(MIN_ORBIT_M * 2, MAX_ORBIT_BOXES * halfDiag_m, homeDist * HOME_ORBIT_SLACK)` → `Math.max(MIN_ORBIT_M * 2, MAX_ORBIT_BOXES * halfDiag_m)`:
+    //   FAIL playback scene [C2]: … @1.556: home 58.0 km, limit 146.1 km; @1.333: home 66.4 km, limit 146.1 km; @0.600: home 137.5 km, limit 146.1 km; @0.100: home 784.5 km, limit 146.1 km (inside home)
+    const box2 = terrainBoxOf(src.bounds), half2 = Math.hypot(box2.east_m - box2.west_m, box2.north_m - box2.south_m) / 2;
+    let c2bad = '';
+    const c2parts: string[] = [];
+    let c2raised = false;
+    for (const aspect of [1400 / 900, 1024 / 768, 0.6, 0.1]) {
+      const home = homePose({ box: src.played, axis: src.attackAxis, aspect });
+      const homeDist = Math.hypot(...sub3(home.eye, home.look));
+      const lim = maxOrbitFor(home, half2);
+      const usual = MAX_ORBIT_BOXES * half2;
+      c2parts.push(`@${aspect.toFixed(3)}: home ${(homeDist / 1000).toFixed(1)} km, limit ${(lim / 1000).toFixed(1)} km${lim < homeDist * HOME_ORBIT_SLACK - 1e-6 ? ' (inside home)' : ''}`);
+      if (lim < homeDist * HOME_ORBIT_SLACK - 1e-6) c2bad ||= 'inside home';
+      if (homeDist * HOME_ORBIT_SLACK <= usual && lim !== usual) c2bad ||= 'usual limit changed';
+      if (homeDist * HOME_ORBIT_SLACK > usual) c2raised = true;
+    }
+    ok('playback scene [C2]: the zoom-out limit always leaves room past the home view (raised when home stands farther back than the usual limit), and is the usual one otherwise',
+       c2bad === '' && c2raised && MIN_ORBIT_M === 150 && MAX_ORBIT_BOXES === 2.5 && HOME_ORBIT_SLACK === 1.05,
+       `${c2parts.join('; ')}${c2raised ? '' : '; no window shape needed a raise (fixture changed?)'}`);
+  } catch (e) {
+    ok('playback scene: the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
+
+// ─── 0.4.0 playback scene: the terrain loader's rules ─────────────────────────
+// src/lib/playbackScene/tileLoading.ts holds the loader's rules so they run here, with a made-up tile
+// source and no network: the desktop's reply bytes become heights whatever container they come in;
+// a few requests at a time, nearest the target first; heights all or nothing within a time limit;
+// the drape re-sent at most once a second; the skirt under the box's lowest edge; the haze following
+// the camera. The pool and the heights are asynchronous, so this section runs last and prints after
+// the rest. Each check carries its mutation proof (2026-11-14): one temporary edit to tileLoading.ts,
+// geo-check run, the FAIL line copied (shortened with …), the edit restored.
+//
+// The section must reach its end. An answer that never comes would otherwise end it silently: node
+// exits once nothing is left to wait for, with every check after the stuck await unprinted and the
+// exit code still 0.
+// Mutation proof (2026-11-14): tileLoading.ts loadHeights `Promise.race([pool.then(() => 'done' as const), timeout, aborted])` → `…, aborted])`
+// (no time limit, so [L4]'s stuck tile is waited on for ever; L4 and everything after it never print):
+//   FAIL playback loader: the section ran to its end, with no answer left waiting  an awaited answer never came
+let loaderSectionEnded = false;
+process.on('exit', () => {
+  if (!loaderSectionEnded) ok('playback loader: the section ran to its end, with no answer left waiting', false, 'an awaited answer never came');
+});
+void (async () => {
+  try {
+    const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
+
+    // [L0] The limits are the terrain design's: 2 map and 4 elevation requests in flight, 10 s for
+    // the heights, 15 s for the map, one texture upload a second.
+    // Mutation proof: tileLoading.ts `MAP_IN_FLIGHT = 2` → `3`:
+    //   FAIL playback loader [L0]: … 3, 4, 10000, 15000, 1000
+    ok('playback loader [L0]: 2 map and 4 elevation requests in flight, 10 s for heights, 15 s for the map, uploads a second apart',
+       MAP_IN_FLIGHT === 2 && TERRAIN_IN_FLIGHT === 4 && HEIGHTS_DEADLINE_MS === 10_000 && DRAPE_DEADLINE_MS === 15_000 && DRAPE_UPLOAD_GAP_MS === 1000,
+       `${MAP_IN_FLIGHT}, ${TERRAIN_IN_FLIGHT}, ${HEIGHTS_DEADLINE_MS}, ${DRAPE_DEADLINE_MS}, ${DRAPE_UPLOAD_GAP_MS}`);
+
+    // [L1] A terrain tile reply (65536 little-endian float32 heights) reads back exactly from an
+    // ArrayBuffer, from a view onto a bigger buffer at an aligned offset (the offset honoured) and at a
+    // misaligned one (read value by value: a Float32Array there throws), and from a plain array of
+    // numbers (Tauri's fallback channel). Anything of the wrong size, or not bytes, is refused.
+    // Mutation proof: tileLoading.ts float32Of `if (LITTLE_ENDIAN && b.byteOffset % 4 === 0)` → `if (LITTLE_ENDIAN)`:
+    //   FAIL playback loader [L1]: … buffer exact, aligned exact, misaligned RangeError: start offset of Float32Array should be a multiple of 4, array exact; …
+    const N1 = 65536, want1 = new Float32Array(N1);
+    for (let i = 0; i < N1; i++) want1[i] = [0, 258.5, -32768, 1 / 256, 8848.5, -11.25][i % 6] + (i >> 10);
+    const le1 = new Uint8Array(N1 * 4), dv1 = new DataView(le1.buffer);
+    for (let i = 0; i < N1; i++) dv1.setFloat32(i * 4, want1[i], true);
+    const at = (off: number) => { const big = new Uint8Array(N1 * 4 + 8); big.set(le1, off); return new Uint8Array(big.buffer, off, N1 * 4); };
+    const same1 = (f: Float32Array | undefined) => !!f && f.length === N1 && f.every((v, i) => v === want1[i]);
+    const try1 = (raw: unknown) => { try { return float32Of(raw, N1); } catch (e) { return String(e) as never as undefined; } };
+    const r1 = { buffer: try1(le1.buffer.slice(0)), aligned: try1(at(4)), misaligned: try1(at(1)), array: try1(Array.from(le1)) };
+    const refused1 = [try1(le1.buffer.slice(4)), try1('missing'), try1([1, 2, 300, 4]), try1({ length: N1 * 4 })].every((v) => v === undefined);
+    const bytesOk1 = bytesOf(at(3))?.[0] === le1[0] && bytesOf(at(3))?.length === N1 * 4 && bytesOf([1, 2, 255])?.[2] === 255;
+    ok('playback loader [L1]: heights read back exactly from an ArrayBuffer, an aligned or misaligned view, or a number array; wrong replies are refused',
+       same1(r1.buffer) && same1(r1.aligned) && same1(r1.misaligned) && same1(r1.array) && refused1 && bytesOk1,
+       Object.entries(r1).map(([k, v]) => `${k} ${typeof v === 'string' ? v : same1(v) ? 'exact' : 'WRONG'}`).join(', ') + `; refused ${refused1}; bytes ${bytesOk1}`);
+
+    // [L2] The pool runs items in the order given, never more than the limit at once (and does reach
+    // it), finishes every item, and starts nothing new once aborted.
+    // Mutation proof: tileLoading.ts runPool `while (running < limit && …` → `running <= limit` (also turns L3 red, peak 5):
+    //   FAIL playback loader [L2]: … order 0,1,2,3,4,5,6,7,8,9, finished 10, peak 4 of 3; after an abort at the third item 3 started
+    const started2: number[] = [];
+    let running2 = 0, peak2 = 0, finished2 = 0;
+    const work2 = async (i: number) => {
+      started2.push(i); running2++; peak2 = Math.max(peak2, running2);
+      await sleep(2 + ((i * 7) % 5));
+      running2--; finished2++;
+    };
+    await runPool([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 3, work2, new AbortController().signal);
+    const order2 = started2.join(',') === '0,1,2,3,4,5,6,7,8,9', done2 = finished2 === 10, peakFull = peak2;
+    const stop2 = new AbortController(), startedAbort: number[] = [];
+    await runPool([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, async (i) => { startedAbort.push(i); if (i === 2) stop2.abort(); await sleep(3); }, stop2.signal);
+    ok('playback loader [L2]: the pool keeps the order, never exceeds its limit (and reaches it), finishes all, and stops starting when aborted',
+       order2 && done2 && peakFull === 3 && startedAbort.length === 3,
+       `order ${started2.join(',')}, finished ${finished2}, peak ${peakFull} of 3; after an abort at the third item ${startedAbort.length} started`);
+
+    // [L3] Heights: a 4 × 3 block of synthetic tiles (each filled with 1000 + 10·column + row, so a
+    // tile in the wrong place shows), fetched nearest the target first, at most 4 at a time, and each
+    // placed in the mosaic by its key whatever order it landed in.
+    // Mutation proof: tileLoading.ts mosaicSlot `(t.y - r.y0) * r.nx` → `* r.ny`:
+    //   FAIL playback loader [L3]: … ok false; placed false (col 3 row 2 reads NaN, col 1 row 2 NaN); order 1,1 1,0 2,1 … ; peak 4
+    const f3 = makeLocalFrame({ lat: 37.15, lon: -116.83 }, 0), o3 = lonLatToTile(37.15, -116.83, 10);
+    const range3: TileRange = { z: 10, x0: Math.floor(o3.x) - 1, y0: Math.floor(o3.y) - 1, nx: 4, ny: 3 };
+    const tileOf3 = (x: number, y: number) => new Float32Array(TERRAIN_TILE_PX * TERRAIN_TILE_PX).fill(1000 + 10 * (x - range3.x0) + (y - range3.y0));
+    const source3 = (fail?: (x: number, y: number) => unknown) => {
+      const calls: string[] = [];
+      let inFlight = 0, peak = 0;
+      return {
+        calls, peak: () => peak,
+        terrainTile: async (z: number, x: number, y: number): Promise<Float32Array> => {
+          calls.push(`${x - range3.x0},${y - range3.y0}`); inFlight++; peak = Math.max(peak, inFlight);
+          try {
+            await sleep(1 + ((x * 7 + y * 3) % 6));
+            const bad = fail?.(x - range3.x0, y - range3.y0);
+            if (bad === 'never') await new Promise(() => undefined);
+            if (bad instanceof Float32Array) return bad;
+            if (bad !== undefined) throw bad;
+            return tileOf3(x, y);
+          } finally { inFlight--; }
+        },
+      };
+    };
+    const good3 = source3();
+    const h3 = await loadHeights(good3, range3, f3, new AbortController().signal);
+    const near3 = tilesNearestFirst(range3, f3).map((t) => `${t.x - range3.x0},${t.y - range3.y0}`).join(' ');
+    const px3 = (col: number, row: number) => (h3.ok ? h3.mosaic.data[(row * TERRAIN_TILE_PX + 128) * h3.mosaic.w + col * TERRAIN_TILE_PX + 128] : NaN);
+    const placed3 = h3.ok && h3.mosaic.w === 4 * TERRAIN_TILE_PX && h3.mosaic.h === 3 * TERRAIN_TILE_PX &&
+      [[0, 0], [3, 0], [1, 2], [3, 2], [2, 1]].every(([c, r]) => px3(c, r) === 1000 + 10 * c + r);
+    ok('playback loader [L3]: heights come nearest first, at most 4 at a time, and each tile lands in the mosaic by its key',
+       h3.ok && placed3 && good3.calls.join(' ') === near3 && good3.peak() === 4,
+       `ok ${h3.ok}; placed ${placed3} (col 3 row 2 reads ${px3(3, 2)}, col 1 row 2 ${px3(1, 2)}); order ${good3.calls.join(' ')} vs nearest ${near3}; peak ${good3.peak()}`);
+
+    // [L4] All or nothing: one tile the server does not have → 'missing' and the rest are not all
+    // asked for; a plain-English failure → 'offline'; a tile of the wrong size → 'broken'; one that
+    // never lands → 'timeout' at the time limit; the view closing → 'aborted'.
+    // Mutation proofs: tileLoading.ts loadHeights `failure = tileErrorOf(e);` → `failure = 'offline';`:
+    //   FAIL playback loader [L4]: … missing → offline (8 of 12 asked), 500 → offline, short tile → broken, stuck → timeout after 62 ms, closed → aborted
+    // `if (how === 'timeout') return { ok: false, reason: 'timeout' };` → `reason: 'offline'`:
+    //   FAIL playback loader [L4]: … missing → missing (8 of 12 asked), 500 → offline, short tile → broken, stuck → offline after 63 ms, closed → aborted
+    const miss4 = source3((c, r) => (c === 1 && r === 1 ? 'missing' : undefined));
+    const m4 = await loadHeights(miss4, range3, f3, new AbortController().signal);
+    const off4 = await loadHeights(source3((c) => (c === 3 ? 'The tile server answered 500' : undefined)), range3, f3, new AbortController().signal);
+    const brk4 = await loadHeights(source3((c, r) => (c === 2 && r === 2 ? new Float32Array(100) : undefined)), range3, f3, new AbortController().signal);
+    const t4start = Date.now();
+    const tmo4 = await loadHeights(source3((c, r) => (c === 0 && r === 0 ? 'never' : undefined)), range3, f3, new AbortController().signal, { deadline_ms: 60 });
+    const t4took = Date.now() - t4start;
+    const ab4 = new AbortController();
+    setTimeout(() => ab4.abort(), 3);
+    const abt4 = await loadHeights(source3((c, r) => (c === 3 && r === 2 ? 'never' : undefined)), range3, f3, ab4.signal);
+    const why = (o: { ok: boolean; reason?: string }) => (o.ok ? 'ok' : o.reason);
+    ok('playback loader [L4]: heights are all or nothing: missing, offline, broken, timeout and aborted each give flat ground with the right reason',
+       why(m4) === 'missing' && miss4.calls.length < 12 && why(off4) === 'offline' && why(brk4) === 'broken' && why(tmo4) === 'timeout' && t4took < 1000 && why(abt4) === 'aborted',
+       `missing → ${why(m4)} (${miss4.calls.length} of 12 asked), 500 → ${why(off4)}, short tile → ${why(brk4)}, stuck → ${why(tmo4)} after ${t4took} ms, closed → ${why(abt4)}`);
+
+    // [L5] The drape's upload pace: the first tile after a quiet second goes at once; tiles inside the
+    // second are held and go together when it is up (or at the end); never two sends within a second.
+    // Mutation proof: tileLoading.ts UploadPace.tile `if (now - this.last >= this.gap_ms)` → `>= 0`:
+    //   FAIL playback loader [L5]: … got [true,true,null,true,false,false,true,true,null,true,false,false], want [true,false,900,false,true,false,false,true,null,false,true,false]
+    const p5 = new UploadPace(1000);
+    const seq5 = [p5.tile(0), p5.tile(100), p5.waitMs(100), p5.tile(200), p5.flush(1000), p5.flush(1000), p5.tile(1100), p5.tile(2100), p5.waitMs(2100), p5.tile(2500), p5.flush(2600), p5.flush(2700)];
+    const want5 = [true, false, 900, false, true, false, false, true, undefined, false, true, false];
+    ok('playback loader [L5]: the drape is re-sent at once after a quiet second, otherwise held to the second, and once more at the end',
+       seq5.every((v, i) => v === want5[i]), `got ${JSON.stringify(seq5)}, want ${JSON.stringify(want5)}`);
+
+    // [L6] The skirt sits SKIRT_BELOW_M under the lowest point on the box's EDGE (a deep valley inside
+    // the box does not drag it down; the terrain hides it there anyway), and 2 m under 0 on flat ground.
+    // Mutation proof: tileLoading.ts skirtHeight, the first edge loop → `for (let i = 0; i < up.length; i++) lo = Math.min(lo, up[i]);`:
+    //   FAIL playback loader [L6]: … real -52, flat -2, no heights -2
+    const g6: TerrainGrid = { box: { west_m: 0, east_m: 400, south_m: 0, north_m: 400 }, segX: 4, segY: 4, dx_m: 100, dy_m: 100 };
+    const up6 = new Float64Array(25).fill(40);
+    up6[2 * 5 + 2] = -50; // the middle: a valley
+    up6[4 * 5 + 1] = 12; // the south edge: the lowest edge point
+    const s6 = [skirtHeight({ grid: g6, up: up6 }, 'real'), skirtHeight({ grid: g6, up: up6 }, 'flat'), skirtHeight({ grid: g6, up: undefined }, 'real')];
+    ok('playback loader [L6]: the skirt sits 2 m under the lowest edge of the drawn ground, and 2 m under 0 on flat ground',
+       SKIRT_BELOW_M === 2 && s6[0] === 10 && s6[1] === -2 && s6[2] === -2, `real ${s6[0]}, flat ${s6[1]}, no heights ${s6[2]}`);
+
+    // [L7] The haze follows the camera: standing back 150 km from the middle of a 52 km half-diagonal
+    // box, the middle is clear, the far corner is mostly hazed (≥ 80% by three's smoothstep fog), and
+    // the skirt's far edge 4 half-diagonals out is wholly hazed; close in, nothing near is hazed.
+    // Mutation proof: tileLoading.ts fogRange `far_m: d + FOG_FAR_K * halfDiag_m` → `far_m: FOG_FAR_K * halfDiag_m`:
+    //   FAIL playback loader [L7]: … stood back: near 170800 far 62400, middle 0.09632633791786374, corner 0.000, skirt 0; close in: near 22800
+    const sstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    const H7 = 52_000, far7 = fogRange(150_000, H7), close7 = fogRange(2_000, H7);
+    const corner7 = sstep(far7.near_m, far7.far_m, 150_000 + H7), middle7 = sstep(far7.near_m, far7.far_m, 150_000), skirt7 = sstep(far7.near_m, far7.far_m, 150_000 + 4 * H7);
+    ok('playback loader [L7]: the haze follows the camera: the box middle clear, its far corner mostly hazed, the skirt edge wholly, nothing near hazed close in',
+       middle7 === 0 && corner7 >= 0.8 && corner7 < 1 && skirt7 === 1 && close7.near_m >= 2_000 + 0.3 * H7 && far7.far_m > far7.near_m,
+       `stood back: near ${far7.near_m} far ${far7.far_m}, middle ${middle7}, corner ${corner7.toFixed(3)}, skirt ${skirt7}; close in: near ${close7.near_m}`);
+
+    // ── Added after the spike's review (2026-11-14). Same proof rule: each check below was turned red
+    // by the one-line edit to the real module written beside it, and the edit restored.
+
+    // [L6b] The skirt also reads the WEST and EAST edges: here the lowest edge point is on the west
+    // edge (row 2, column 0), which the north/south loop never visits. Missing it would leave the
+    // skirt standing up out of the land along a coast on that side.
+    // Mutation proof: tileLoading.ts skirtHeight, the line `for (let j = 0; j <= segY; j++) lo = Math.min(lo, up[j * row], up[j * row + segX]);` deleted:
+    //   FAIL playback loader [L6b]: … west low point → 38 (want 3), east low point → 38 (want 5)
+    const up6b = new Float64Array(25).fill(40), up6c = new Float64Array(25).fill(40);
+    up6b[2 * 5 + 0] = 5; // west edge, middle row
+    up6c[3 * 5 + 4] = 7; // east edge, row 3
+    const s6b = skirtHeight({ grid: g6, up: up6b }, 'real'), s6c = skirtHeight({ grid: g6, up: up6c }, 'real');
+    ok('playback loader [L6b]: the skirt follows a low point on the west or east edge too, not only the north and south',
+       s6b === 3 && s6c === 5, `west low point → ${s6b} (want 3), east low point → ${s6c} (want 5)`);
+
+    // [L4b] The view closing ends the heights at once: with a tile that never lands and a 5 s time
+    // limit, closing 5 ms in answers 'aborted' within a few milliseconds, not when the timer fires
+    // (until then the tiles fetched so far would be kept alive after the view is gone).
+    // Mutation proof: tileLoading.ts loadHeights `Promise.race([pool.then(() => 'done' as const), timeout, aborted])` → `…, timeout])`:
+    //   FAIL playback loader [L4b]: … closed → hung after 2002 ms; closed before the start → aborted after 0 ms
+    // A watchdog, because an answer that never comes would otherwise end this section silently (node
+    // exits once nothing is pending): 'hung' after 2 s fails the check out loud.
+    const within4b = <T,>(p: Promise<T>) => Promise.race([p, sleep(2000).then(() => ({ ok: false, reason: 'hung' }) as const)]);
+    const ab4b = new AbortController();
+    const t4b = Date.now();
+    setTimeout(() => ab4b.abort(), 5);
+    const abt4b = await within4b(loadHeights(source3((c, r) => (c === 1 && r === 1 ? 'never' : undefined)), range3, f3, ab4b.signal, { deadline_ms: 5000 }));
+    const took4b = Date.now() - t4b;
+    const pre4b = new AbortController();
+    pre4b.abort();
+    const t4c = Date.now();
+    const abt4c = await within4b(loadHeights(source3(() => 'never'), range3, f3, pre4b.signal, { deadline_ms: 5000 }));
+    const took4c = Date.now() - t4c;
+    ok('playback loader [L4b]: closing the view ends the heights at once (aborted), without waiting for the tiles in flight or the time limit',
+       why(abt4b) === 'aborted' && took4b < 1000 && why(abt4c) === 'aborted' && took4c < 1000,
+       `closed → ${why(abt4b)} after ${took4b} ms; closed before the start → ${why(abt4c)} after ${took4c} ms`);
+
+    // [L7b] The haze is written into the caller's object (the scene asks every drawn frame, and its
+    // frames allocate nothing), with the same numbers as before; without one it still answers.
+    // Mutation proof: tileLoading.ts fogRange `return out;` → `return { near_m: out.near_m, far_m: out.far_m };`:
+    //   FAIL playback loader [L7b]: … same object false, near 170800 far 212400, plain call 170800/212400
+    const out7b = { near_m: -1, far_m: -1 };
+    const got7b = fogRange(150_000, H7, out7b), plain7b = fogRange(150_000, H7);
+    ok('playback loader [L7b]: the haze range is written into the object the scene keeps, with the same numbers',
+       got7b === out7b && out7b.near_m === far7.near_m && out7b.far_m === far7.far_m && plain7b.near_m === far7.near_m && plain7b.far_m === far7.far_m,
+       `same object ${got7b === out7b}, near ${out7b.near_m} far ${out7b.far_m}, plain call ${plain7b.near_m}/${plain7b.far_m}`);
+    loaderSectionEnded = true;
+  } catch (e) {
+    loaderSectionEnded = true; // it ended, by throwing: one FAIL line, not two
+    ok('playback loader: the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+})();
+
+// ─── 0.4.0 playback view: what Play hands over, and what the small print says ───
+// The attack editor's Play button builds the playback from the editor's drafts as they stand
+// (src/components/playback/launch.ts), and the view's small print says what ground is drawn
+// (StatusNotes.tsx). The jets here are built the editor's way (newJet, respace, assignFlanks,
+// resolveDraft, draftAttackData, draftIpAnchor) and never saved. Each check carries its mutation
+// proof (2026-11-14): one temporary edit to the real module, geo-check run, the FAIL line copied
+// (shortened with …), the edit restored.
+{
+  try {
+    const vTgt2 = { id: 'v-tgt2', steerpoint: 9, name: 'TGT2', type: 'target', coordinates: calculateDestination(tgt, 160, 2), elevation_ft: 5200 };
+    const vCrew = (id: string, position: number) => ({ id, callsign: `Viper 1-${position}`, aircraftId: 'f16c', position, loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 6 }] });
+    const vMission = {
+      id: 'vm', name: 'View test', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '',
+      waypoints: [{ id: 'v-ip', steerpoint: 7, name: 'STPT 7', type: 'turnpoint', coordinates: calculateDestination(tgt, 68, 15.3), elevation_ft: 5000 }, wpTgt, vTgt2],
+      threats: [], attacks: [], strikes: [], flightMembers: [vCrew('v1', 1), vCrew('v2', 2)],
+    } as never as Mission;
+    const vProfiles = (JSON.parse(readFileSync('src-tauri/resources/profiles/f16c.json', 'utf8')) as { id: string }[]).filter((p) => p.id === 'f16c.popup.std');
+    const vCtx = { mission: vMission, weapons: refWeapons, profiles: vProfiles, threatSystems: [] } as never;
+    // A two-ship strike as the editor opens it, then an edit not yet saved: #2 moves to the second target.
+    const vJets0 = assignFlanks(respace(['v1', 'v2'].map((id) => newJet(vMission, id, wpTgt.id, {})), 30), vCtx);
+    const vJets = vJets0.map((j, i) => (i === 1 ? { ...j, draft: { ...j.draft, targetWaypointId: vTgt2.id } } : j));
+    const vResolved = vJets.map((j) => resolveDraft(j.draft, vCtx));
+    // The editor's own `drafts` (AttackEditor.tsx): the attack as it would save, under a draft id, and its IP.
+    const vDrafts = vJets.map((j, i) => {
+      const data = draftAttackData(j.draft, vResolved[i], undefined, 1 + i);
+      const attack = data ? ({ ...data, id: j.attackId ?? `draft-${i}` } as Attack) : undefined;
+      return { attack, ipAnchor: draftIpAnchor(attack, vMission) };
+    });
+
+    // [V1] Play flies the SELECTED jet, as the editor has it now: its id, its (unsaved) target, its
+    // weapon, the editor's seat label, alone at offset 0, so its bombs land at T+0:00 on that target.
+    // Mutation proof: launch.ts `const draft = drafts[selectedIndex];` → `const draft = drafts[0];`:
+    //   FAIL playback view [V1]: … #2: id draft-0, target v-tgt2, label #2, offset 0, mk82, 1 flown, impact T+0 on v-tgt2 true; #1: id draft-0, …
+    const vDescribe = (k: number) => {
+      const launch = playbackLaunchFromEditor(vMission, vDrafts, vResolved, k);
+      if (!launch) return { ok: false, text: `#${k + 1}: nothing built` };
+      const j = launch.input.jets[0];
+      const pb = buildStrikePlayback(launch.input);
+      const impact = strikeEvents(pb, retime(pb)).events.find((e) => e.kind === 'impact');
+      const onTarget = !!impact && Math.abs(impact.t_s) < 1e-9 && calculateDistance({ lat: impact.lat, lon: impact.lon }, j.target.coordinates) < 1e-6;
+      const want = vDrafts[k].attack!;
+      return {
+        ok: launch.input.jets.length === 1 && j.id === want.id && j.target.id === want.targetWaypointId && j.label === `#${k + 1}` && j.totOffset_s === 0 &&
+          j.weapon?.id === 'mk82' && launch.jetId === want.id && pb.jets.length === 1 && onTarget && j.ipAnchor !== undefined,
+        text: `#${k + 1}: id ${j.id}, target ${j.target.id}, label ${j.label}, offset ${j.totOffset_s}, ${j.weapon?.id}, ${pb.jets.length} flown, impact T+0 on ${j.target.id} ${onTarget}`,
+      };
+    };
+    const v1 = [vDescribe(1), vDescribe(0)];
+    ok('playback view [V1]: Play flies the selected jet from the unsaved drafts, alone at offset 0, its bombs on its own target at T+0:00',
+       vResolved.every((r) => r.canSave) && vDrafts[1].attack?.targetWaypointId === vTgt2.id && v1.every((d) => d.ok) &&
+       playbackLaunchFromEditor(vMission, [], [], 0) === undefined,
+       v1.map((d) => d.text).join('; '));
+
+    // [V2] The notes playback shows are the planner's theater warnings: none on a verified theater,
+    // the theater named on an unverified one, and the real-world line on a "strike near me" plan.
+    // Mutation proof: launch.ts `if (info && !info.verified)` → `if (info && info.verified)`:
+    //   FAIL playback view [V2]: … verified: 1 note; unverified: 0 notes; real world: Real world: can't be flown in DCS. …
+    const theater = (id: string, verified: boolean) => ({ dcs_name: id, id, display_name: id === 'nevada' ? 'Nevada' : 'Kola', supported: true, verified, default_center: tgt }) as TheaterInfo;
+    const before = useTheaterStore.getState();
+    useTheaterStore.setState({ theaters: { nevada: theater('nevada', true), kola: theater('kola', false) }, loaded: true });
+    const n2 = [theaterNotes(vMission), theaterNotes({ ...vMission, theater: 'kola' }), theaterNotes({ ...vMission, theater: 'real_world' })];
+    useTheaterStore.setState({ theaters: before.theaters, loaded: before.loaded });
+    ok('playback view [V2]: the notes are the planner\'s theater warnings: none on a verified theater, the theater named when unverified, the real-world line',
+       n2[0].length === 0 && n2[1].length === 1 && /^Kola: coordinates unverified/.test(n2[1][0]) && n2[2].length === 1 && /can't be flown in DCS/.test(n2[2][0]),
+       `verified: ${n2[0].length} note${n2[0].length === 1 ? '' : 's'}; unverified: ${n2[1].length} notes; real world: ${n2[2].join(' ')}`);
+
+    // [V3] The ground line under the 3D view: loading counts the map tiles; a failure says flat ground
+    // and why; real ground carries the "DCS ground can differ" warning; flat chosen says clearance isn't shown.
+    // Mutation proof: StatusNotes.tsx groundNote `return \`Loading terrain…${map}\`;` → `return 'Loading terrain…';`:
+    //   FAIL playback view [V3]: … loading: Loading terrain… | failed: Terrain unavailable (no network, …
+    type VStatus = Parameters<typeof groundNote>[0] & object;
+    const vMap = (loaded: number, total: number, done = false) => ({ total, loaded, failed: 0, done });
+    const vS = (s: Partial<VStatus>): VStatus => ({ heights: 'ready', map: vMap(10, 10, true), wanted: 'real', ground: 'real', credits: '', ...s });
+    const g3 = {
+      loading: groundNote(vS({ heights: 'loading', ground: 'flat', map: vMap(3, 10) })),
+      failed: groundNote(vS({ heights: 'failed', heightsFailure: 'offline', ground: 'flat' })),
+      real: groundNote(vS({})),
+      flat: groundNote(vS({ wanted: 'flat', ground: 'flat' })),
+    };
+    ok('playback view [V3]: the ground line says loading (with the map count), unavailable and why, the DCS warning on real ground, no clearance on flat',
+       g3.loading === 'Loading terrain… (map 3/10)' && /^Terrain unavailable \(no network/.test(g3.failed) && /flat ground/.test(g3.failed) &&
+       g3.real === REAL_GROUND_NOTE && /DCS ground can differ/.test(g3.real) && /clearance isn't shown/.test(g3.flat) && groundNote(undefined) === 'Loading terrain…',
+       Object.entries(g3).map(([k, v]) => `${k}: ${v}`).join(' | '));
+
+    // ── Added after the spike's review (2026-11-14), with the same proof rule.
+    // [V4] The jet keeps the editor's colour: Play on #2 flies it alone (playback jet 0) but hands
+    // over its seat, so the 3D view draws it in JET_COLORS[1] (magenta), as the editor's map and jet
+    // strip do, not in #1's cyan.
+    // Mutation proof: launch.ts `colorIndex: selectedIndex` → `colorIndex: 0`:
+    //   FAIL playback view [V4]: … #1 colour index 0 (#22d3ee), #2 colour index 0 (#22d3ee)
+    const v4 = [0, 1].map((k) => playbackLaunchFromEditor(vMission, vDrafts, vResolved, k)?.colorIndex);
+    ok('playback view [V4]: Play hands over the selected seat\'s colour, so #2 is drawn magenta as in the editor',
+       v4[0] === 0 && v4[1] === 1 && jetColor(v4[1] ?? -1) === SCENE_JET_COLORS[1] && SCENE_JET_COLORS[1] !== SCENE_JET_COLORS[0],
+       v4.map((c, k) => `#${k + 1} colour index ${c} (${c === undefined ? 'none' : jetColor(c)})`).join(', '));
+  } catch (e) {
+    ok('playback view: the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }

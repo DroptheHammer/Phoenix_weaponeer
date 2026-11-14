@@ -1,0 +1,39 @@
+/**
+ * The contract between the scene core (createScene.ts) and the things it
+ * draws. Each layer builds its own three.js objects once, then is told the
+ * time and the camera every rendered frame through one shared, mutable
+ * FrameCtx (no per-frame allocation), and frees everything on dispose.
+ *
+ * Frame order: the world layers move to time t, then the camera follows,
+ * then the after-camera layers (screen-size scaling, later the labels) run
+ * with the final camera.
+ */
+import type { PerspectiveCamera } from 'three';
+import type { GroundMode, SceneSource } from '../../../lib/playbackScene';
+
+export interface FrameCtx {
+  /** Strike time, s. */
+  t: number;
+  /** This frame's wall-clock step, s, capped at 0.1. */
+  dt: number;
+  source: SceneSource;
+  camera: PerspectiveCamera;
+  /** The canvas in CSS pixels. */
+  viewW: number;
+  viewH: number;
+  /** The ground being drawn. */
+  ground: GroundMode;
+  /** Bumped whenever the drawn ground changes (heights arrived, Real / Flat): anything seated on the ground re-seats. */
+  groundVersion: number;
+  /** The drawn ground's height at a point in three.js axes (x east, z = −north), m on the playback's datum. */
+  heightAt(x: number, z: number): number;
+}
+
+export interface Layer {
+  /** Called every rendered frame, before the camera moves. Must not allocate. */
+  update(ctx: FrameCtx): void;
+  /** Called every rendered frame after the camera has moved (sizes kept constant on screen read the final camera). Must not allocate. */
+  afterCamera?(ctx: FrameCtx): void;
+  /** Frees what the layer made that is not in the shared bag (most things are). */
+  dispose(): void;
+}

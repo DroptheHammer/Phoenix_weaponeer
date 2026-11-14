@@ -25,7 +25,8 @@
     "paths": {
       "@/*": ["src/*"],
       "@platform": ["src/lib/platform/desktop.ts"],
-      "@pwa-update": ["src/lib/pwaUpdate/desktop.ts"]
+      "@pwa-update": ["src/lib/pwaUpdate/desktop.ts"],
+      "@playback": ["src/components/playback/entry.desktop.tsx"]
     }
   },
   "include": ["src"],

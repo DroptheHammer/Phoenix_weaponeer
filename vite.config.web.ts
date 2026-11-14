@@ -100,6 +100,7 @@ export default defineConfig({
     alias: {
       "@platform": fileURLToPath(new URL("./src/lib/platform/web.ts", import.meta.url)),
       "@pwa-update": fileURLToPath(new URL("./src/lib/pwaUpdate/web.ts", import.meta.url)),
+      "@playback": fileURLToPath(new URL("./src/components/playback/entry.web.tsx", import.meta.url)),
     },
   },
 

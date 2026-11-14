@@ -12,6 +12,7 @@ export default defineConfig(async () => ({
       // points this at the browser platform instead.
       "@platform": fileURLToPath(new URL("./src/lib/platform/desktop.ts", import.meta.url)),
       "@pwa-update": fileURLToPath(new URL("./src/lib/pwaUpdate/desktop.ts", import.meta.url)),
+      "@playback": fileURLToPath(new URL("./src/components/playback/entry.desktop.tsx", import.meta.url)),
     },
   },
 

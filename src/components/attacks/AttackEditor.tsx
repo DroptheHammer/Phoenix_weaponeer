@@ -10,6 +10,7 @@ import { JetPanel, type AircraftLite } from './JetPanel';
 import { GroupPanel } from './GroupPanel';
 import { JetStrip, JET_COLORS } from './JetStrip';
 import { AttackPreviewMap, type PreviewAttack } from '../map/AttackPreviewMap';
+import { PlayStrikeButton, playbackLaunchFromEditor } from '@playback';
 import { draftAttackData, draftFromAttack, draftIpAnchor, resolveDraft, setIp, type DraftContext, type ResolvedDraft } from '../../lib/attackDraft';
 import { newJet, newStrike, jetsOfStrike, respace, sortJets, setStrikeIp, strikeIpOf, syncJetIp, assignFlanks, leadSideOf, type Jet } from '../../lib/strikeDraft';
 import { attackSpeedOf, coneGrade, fmtStrikeTime, strikeFlank, strikeOf, strikeReadout, type StrikeJet } from '../../lib/strike';
@@ -329,6 +330,8 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
               </button>
             )}
             {strike && jets.length < 2 && <span className="mr-auto text-xs text-amber-300">Add a second jet on the Group tab</span>}
+            {/* 3D playback of the selected jet, built from the drafts as they are now (unsaved edits included). */}
+            <PlayStrikeButton disabled={!allSavable} build={() => playbackLaunchFromEditor(mission, drafts, resolved, selectedIndex)} />
             <button onClick={onClose} className="px-6 py-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors">Cancel</button>
             <button
               onClick={handleSave}

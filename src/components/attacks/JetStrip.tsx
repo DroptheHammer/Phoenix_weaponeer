@@ -1,13 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { useIsPhone } from '../../hooks/useIsPhone';
+import { JET_COLORS } from '../../lib/jetColors';
 
-/**
- * One colour per jet in a strike, the same on the tab, the preview map and the
- * readout. Deliberately none of the attack picture's own colours (blue route,
- * red attack, green egress), so a wingman's track never reads as a leg of
- * the selected jet's.
- */
-export const JET_COLORS = ['#22d3ee', '#e879f9', '#a3e635', '#fbbf24'];
+/** One colour per jet (see lib/jetColors), re-exported so the editor's imports stay as they were. */
+export { JET_COLORS };
 
 interface JetStripProps {
   labels: string[];

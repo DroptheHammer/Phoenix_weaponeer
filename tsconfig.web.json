@@ -6,7 +6,8 @@
     "paths": {
       "@/*": ["src/*"],
       "@platform": ["src/lib/platform/web.ts"],
-      "@pwa-update": ["src/lib/pwaUpdate/web.ts"]
+      "@pwa-update": ["src/lib/pwaUpdate/web.ts"],
+      "@playback": ["src/components/playback/entry.web.tsx"]
     }
   },
   "include": ["src"],
