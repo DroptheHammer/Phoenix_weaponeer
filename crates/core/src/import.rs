@@ -1187,10 +1187,11 @@ mod tests {
         unit.loadout.iter().map(|l| (l.weapon_id.as_deref(), l.name.as_str(), l.quantity)).collect()
     }
 
-    /// Four jets: a strike loadout, bombs and a cluster, a mix with Rockeyes and
-    /// a British cluster bomb (the BL-755) the tool has no row for, and a jet that
-    /// carries only air-to-air missiles and tanks. The first three arrive loaded,
-    /// the last with nothing.
+    /// Four jets: a strike loadout, bombs and a cluster, a mix with Rockeyes, a
+    /// British cluster bomb (the BL-755) and a Shrike anti-radiation missile, of
+    /// which the tool has no row for the Shrike, and a jet that carries only
+    /// air-to-air missiles and tanks. The first three arrive loaded, the last
+    /// with nothing.
     #[test]
     fn a_link_with_loaded_jets_imports_each_jets_air_to_ground_stores() {
         let json = include_str!(concat!(
@@ -1220,9 +1221,10 @@ mod tests {
         assert_eq!(
             loadout_of(&units[2]),
             vec![
+                (None, "AGM-45B Shrike ARM", 1),
                 (Some("mk20"), "Mk-20 Rockeye", 2),
                 (Some("gbu38"), "GBU-38 JDAM", 2),
-                (None, "BL-755 CBU - 450kg, 147 Frag/Pen bomblets", 1),
+                (Some("bl755"), "BL-755", 1),
                 (Some("hydra70"), "Hydra 70 2.75\" rockets", 7),
             ],
             "a store with no row stays under its DCS name; the illumination pod and the targeting pod are dropped"

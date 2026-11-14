@@ -46,6 +46,22 @@
 //!   from each DCS module's own pylon table as published in the public pydcs
 //!   library (`dcs/planes.py`), and for the A-4E-C from the community mod's
 //!   aircraft definition, checked 2026-10-03.
+//! - **The bombs the pylon tables carry that still had no row** (added
+//!   2026-11-13): the Mk-81 and Mk-81 Snakeye, Mk-83 and Mk-83 AIR, BR-250 and
+//!   BR-500, the BLU-107 Durandal, the CBU-103 and CBU-105, the BL-755, and the
+//!   CBU-1/A, CBU-2/A and CBU-2B/A. Same shape as the rows above: a name, a
+//!   class and a guidance type, weight 0, every number null, `notes` saying
+//!   "Name only", station 0 and a quantity of 1. The CBU-103 and CBU-105 ride a
+//!   WCMD tail kit, which is an inertial (INS) kit and not a seeker, so their
+//!   guidance is none. The Durandal is a parachute-retarded bomb with a
+//!   booster, so it is filed as a high-drag bomb and its name says "retarded"
+//!   (`weaponClassOf` and the Rust `weapon_is_of_class` both read that word).
+//!   Who carries what is read from the same public pydcs pylon tables
+//!   (`dcs/planes.py` at commit 5ddcc63a2dcd661e16b14f7aa43219b93044855d,
+//!   release 1.0.0), and for the A-4E-C from the community mod's aircraft file
+//!   (`A-4E-C/A-4E-C.lua`) and its weapon definitions
+//!   (`A-4E-C/Weapons/A4E_Weapons.lua`). The BL-755 is an F-4E store, not an
+//!   A-4E-C one.
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -300,10 +316,11 @@ mod tests {
         assert_eq!(hydra.carried_by, vec!["a10c", "f4e", "f5e"], "sorted");
     }
 
-    /// Thirteen rows are name-only: the four from reference DB v5 and the nine
-    /// cluster and SAMP rows added 2026-10-03. The planner has no release or frag
-    /// figure for them and must not be handed an invented one. A number here
-    /// would also stop the "no data on file" note from firing on an attack.
+    /// Twenty-six rows are name-only: the four from reference DB v5, the nine
+    /// cluster and SAMP rows added 2026-10-03, and the thirteen bomb rows added
+    /// 2026-11-13. The planner has no release or frag figure for them and must
+    /// not be handed an invented one. A number here would also stop the "no data
+    /// on file" note from firing on an attack.
     #[test]
     fn the_name_only_rows_carry_no_numbers() {
         let rows = [
@@ -320,6 +337,19 @@ mod tests {
             ("samp400", "bomb_unguided", "none"),
             ("samp250hd", "bomb_unguided", "none"),
             ("samp400hd", "bomb_unguided", "none"),
+            ("mk81", "bomb_unguided", "none"),
+            ("mk81se", "bomb_unguided", "none"),
+            ("mk83", "bomb_unguided", "none"),
+            ("mk83air", "bomb_unguided", "none"),
+            ("br250", "bomb_unguided", "none"),
+            ("br500", "bomb_unguided", "none"),
+            ("blu107", "bomb_unguided", "none"),
+            ("cbu103", "cluster", "none"),
+            ("cbu105", "cluster", "none"),
+            ("bl755", "cluster", "none"),
+            ("cbu1a", "cluster", "none"),
+            ("cbu2a", "cluster", "none"),
+            ("cbu2ba", "cluster", "none"),
         ];
         for (id, category, guidance) in rows {
             let w = reference().get_weapon_by_id(id).unwrap_or_else(|| panic!("no weapon row {id}"));
@@ -346,10 +376,12 @@ mod tests {
 
     /// Saved missions and the planner's loadout match a weapon on its name, so a
     /// reworded row would quietly orphan every attack that used it. Pinned by id,
-    /// all 39 rows. The SAMP names are deliberate too: a bomb's drag class comes
-    /// from its name, so the whole word "HD" is what makes a SAMP high-drag.
+    /// all 52 rows. The SAMP names are deliberate too: a bomb's drag class comes
+    /// from its name, so the whole word "HD" is what makes a SAMP high-drag, and
+    /// so do "AIR", "Snakeye" and "retarded" for the Mk-83 AIR, the Mk-81 Snakeye
+    /// and the Durandal.
     #[test]
-    fn the_thirty_nine_weapon_names_are_pinned_by_id() {
+    fn the_fifty_two_weapon_names_are_pinned_by_id() {
         let expected: &[(&str, &str)] = &[
             ("mk82", "Mk-82 LDGP"),
             ("mk82air", "Mk-82 AIR"),
@@ -372,6 +404,19 @@ mod tests {
             ("samp400", "SAMP-400 LD"),
             ("samp250hd", "SAMP-250 HD"),
             ("samp400hd", "SAMP-400 HD"),
+            ("mk81", "Mk-81 LDGP"),
+            ("mk81se", "Mk-81 Snakeye"),
+            ("mk83", "Mk-83 LDGP"),
+            ("mk83air", "Mk-83 AIR"),
+            ("br250", "BR-250 LD"),
+            ("br500", "BR-500 LD"),
+            ("blu107", "BLU-107 Durandal (retarded)"),
+            ("cbu103", "CBU-103 CEM"),
+            ("cbu105", "CBU-105 SFW"),
+            ("bl755", "BL-755"),
+            ("cbu1a", "CBU-1/A"),
+            ("cbu2a", "CBU-2/A"),
+            ("cbu2ba", "CBU-2B/A"),
             ("agm65d", "AGM-65D Maverick"),
             ("agm65f", "AGM-65F Maverick"),
             ("agm65g", "AGM-65G Maverick"),
@@ -434,6 +479,14 @@ mod tests {
     /// (`dcs/planes.py`), and for the A-4E-C from the community mod's aircraft
     /// definition. They are what gives the F/A-18C, A-4E-C, F-5E, F-14, Mirage F1
     /// and AV-8B a cluster weapon of their own, and the Mirage F1 a high-drag bomb.
+    ///
+    /// The Mk-81, Mk-83, BR-250, BR-500, Durandal, CBU-103, CBU-105, BL-755 and
+    /// the CBU-1/A, CBU-2/A and CBU-2B/A were added on 2026-11-13 from the same
+    /// pydcs tables (`dcs/planes.py` at commit
+    /// 5ddcc63a2dcd661e16b14f7aa43219b93044855d) and the A-4E-C mod's files.
+    /// Each pair was checked against a store name in the module's own table: the
+    /// F-4E carries the CBU-1/A as well as the CBU-2/A and CBU-2B/A, and the
+    /// BL-755 is an F-4E store, not the A-4E-C's.
     #[test]
     fn what_each_aircraft_carries_is_pinned() {
         let table: &[(&str, &[&str])] = &[
@@ -441,51 +494,65 @@ mod tests {
                 "f16c",
                 &[
                     "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "gbu31", "gbu38", "cbu87", "cbu97",
-                    "agm65d", "agm65g", "agm65h", "agm65k", "agm88c", "agm154a", "agm154c",
+                    "cbu103", "cbu105", "agm65d", "agm65g", "agm65h", "agm65k", "agm88c", "agm154a", "agm154c",
                 ],
             ),
             (
                 "f18c",
                 &[
-                    "mk82", "mk82se", "mk84", "gbu10", "gbu12", "gbu16", "gbu24", "gbu31", "gbu38", "mk20", "cbu99",
-                    "agm65f", "agm88c", "agm154a", "agm154c",
+                    "mk82", "mk82se", "mk83", "mk83air", "mk84", "gbu10", "gbu12", "gbu16", "gbu24", "gbu31", "gbu38",
+                    "mk20", "cbu99", "agm65f", "agm88c", "agm154a", "agm154c",
                 ],
             ),
             (
                 "a10c",
                 &[
-                    "mk82", "mk82air", "mk84", "gbu10", "gbu12", "gbu31", "gbu38", "cbu87", "cbu97", "agm65d", "agm65g",
-                    "agm65h", "agm65k", "gau8", "hydra70",
+                    "mk82", "mk82air", "mk84", "gbu10", "gbu12", "gbu31", "gbu38", "cbu87", "cbu97", "cbu103", "cbu105",
+                    "agm65d", "agm65g", "agm65h", "agm65k", "gau8", "hydra70",
                 ],
             ),
             (
                 "f15e",
                 &[
-                    "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "gbu31", "gbu38", "cbu87", "cbu97",
-                    "mk20",
+                    "mk82", "mk82air", "mk82se", "mk84", "blu107", "gbu10", "gbu12", "gbu24", "gbu31", "gbu38", "cbu87",
+                    "cbu97", "mk20",
                 ],
             ),
             (
                 "f4e",
                 &[
-                    "mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu24", "cbu87", "mk20", "cbu52b", "samp250",
-                    "samp250hd", "agm65d", "agm65g", "hydra70", "ffar275", "zuni",
+                    "mk81", "mk82", "mk82air", "mk82se", "mk83", "mk84", "blu107", "gbu10", "gbu12", "gbu24", "cbu87",
+                    "mk20", "cbu52b", "bl755", "cbu1a", "cbu2a", "cbu2ba", "samp250", "samp250hd", "agm65d", "agm65g",
+                    "hydra70", "ffar275", "zuni",
                 ],
             ),
-            ("a4ec", &["mk82", "mk82se", "mk84", "mk20", "mk12gun", "ffar275", "zuni"]),
-            ("f5e", &["mk82", "mk82se", "mk84", "cbu52b", "m39", "hydra70"]),
-            ("f14", &["mk82", "mk82air", "mk82se", "mk84", "gbu10", "gbu12", "gbu16", "gbu24", "mk20", "cbu99"]),
+            (
+                "a4ec",
+                &[
+                    "mk81", "mk81se", "mk82", "mk82se", "mk83", "mk84", "mk20", "cbu1a", "cbu2a", "cbu2ba", "mk12gun",
+                    "ffar275", "zuni",
+                ],
+            ),
+            ("f5e", &["mk82", "mk82se", "mk83", "mk84", "cbu52b", "m39", "hydra70"]),
+            (
+                "f14",
+                &[
+                    "mk81", "mk82", "mk82air", "mk82se", "mk83", "mk83air", "mk84", "gbu10", "gbu12", "gbu16", "gbu24",
+                    "mk20", "cbu99",
+                ],
+            ),
             (
                 "f1",
                 &[
-                    "mk82", "gbu10", "gbu12", "gbu16", "blg66", "samp125", "samp250", "samp400", "samp250hd", "samp400hd",
-                    "defa553", "sneb68",
+                    "mk82", "mk83", "br250", "br500", "blu107", "gbu10", "gbu12", "gbu16", "blg66", "samp125", "samp250",
+                    "samp400", "samp250hd", "samp400hd", "defa553", "sneb68",
                 ],
             ),
             (
                 "av8b",
                 &[
-                    "mk82", "mk82air", "mk82se", "gbu12", "gbu16", "gbu38", "mk20", "cbu99", "agm65f", "agm122", "gau12",
+                    "mk81", "mk82", "mk82air", "mk82se", "mk83", "gbu12", "gbu16", "gbu38", "mk20", "cbu99", "agm65f",
+                    "agm122", "gau12",
                 ],
             ),
         ];

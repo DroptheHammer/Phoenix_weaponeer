@@ -479,6 +479,65 @@ mod tests {
         assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 
+    /// Weapons that only work dropped low and level (`LEVEL_ONLY_WEAPON_IDS` in
+    /// `src/lib/weaponClass.ts`, kept in step by hand): the planner offers their
+    /// attacks level profiles only, so every aircraft that carries one needs a
+    /// level profile for its class, or the attack cannot be built at all.
+    #[test]
+    fn every_level_only_weapon_has_a_level_profile_on_each_carrier() {
+        const LEVEL_ONLY_WEAPON_IDS: &[&str] = &["blu107"];
+        let weapons = crate::refdata::reference().get_all_weapons();
+        let profiles = bundled_profiles().unwrap();
+        let mut problems: Vec<String> = Vec::new();
+        for id in LEVEL_ONLY_WEAPON_IDS {
+            let w = weapons.iter().find(|w| w.id == *id).unwrap_or_else(|| panic!("{id} has no row"));
+            assert!(!w.carried_by.is_empty(), "{id} is carried by nobody");
+            for aircraft in &w.carried_by {
+                let has_level = profiles.iter().any(|p| {
+                    &p.aircraft_id == aircraft
+                        && p.geometry == "level"
+                        && p.weapon_classes.iter().any(|c| weapon_is_of_class(w, c))
+                });
+                if !has_level {
+                    problems.push(format!("{aircraft} carries {id} but has no level profile for its class"));
+                }
+            }
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    /// A bomb's profile class comes from its name (`weaponClassOf` in the
+    /// TypeScript, `weapon_is_of_class` here), so a reworded row would quietly move
+    /// it to another class. The bombs added 2026-11-13: the Snakeye, the AIR and
+    /// the "retarded" Durandal are high-drag (the user chose that for the
+    /// Durandal), the rest of the unguided ones are low-drag, and the CBUs and the
+    /// BL-755 are clusters (the CBU-103 and CBU-105 are not guided bombs: their
+    /// WCMD kit is an INS tail kit and the rows say guidance none).
+    #[test]
+    fn the_new_bomb_rows_are_classed_by_their_names() {
+        let expect: &[(&str, &str)] = &[
+            ("mk81", "bomb_ld"),
+            ("mk81se", "bomb_hd"),
+            ("mk83", "bomb_ld"),
+            ("mk83air", "bomb_hd"),
+            ("br250", "bomb_ld"),
+            ("br500", "bomb_ld"),
+            ("blu107", "bomb_hd"),
+            ("cbu103", "cluster"),
+            ("cbu105", "cluster"),
+            ("bl755", "cluster"),
+            ("cbu1a", "cluster"),
+            ("cbu2a", "cluster"),
+            ("cbu2ba", "cluster"),
+        ];
+        let classes = ["bomb_ld", "bomb_hd", "lgb", "jdam", "cluster", "agm", "gun", "rocket"];
+        for (id, class) in expect {
+            let w = crate::refdata::reference().get_weapon_by_id(id).unwrap_or_else(|| panic!("no weapon row {id}"));
+            let got: Vec<&str> = classes.iter().copied().filter(|c| weapon_is_of_class(&w, c)).collect();
+            assert_eq!(got, vec![*class], "{id} ({}) is classed as {got:?}", w.name);
+        }
+    }
+
     /// Auto-build picks "the default for this class"; two of them would make
     /// that pick arbitrary. And every class an aircraft's profiles mention
     /// should have one, or auto-build silently falls back to "whichever came

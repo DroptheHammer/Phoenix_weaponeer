@@ -995,6 +995,186 @@
       "max_quantity": 1,
       "station": 0,
       "weapon_id": "samp400hd"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk81"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk81"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk81"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk81"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk81se"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83"
+    },
+    {
+      "aircraft_id": "f5e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83"
+    },
+    {
+      "aircraft_id": "av8b",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83"
+    },
+    {
+      "aircraft_id": "f18c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83air"
+    },
+    {
+      "aircraft_id": "f14",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "mk83air"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "br250"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "br500"
+    },
+    {
+      "aircraft_id": "f15e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "blu107"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "blu107"
+    },
+    {
+      "aircraft_id": "f1",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "blu107"
+    },
+    {
+      "aircraft_id": "f16c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu103"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu103"
+    },
+    {
+      "aircraft_id": "f16c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu105"
+    },
+    {
+      "aircraft_id": "a10c",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu105"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "bl755"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu1a"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu1a"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu2a"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu2a"
+    },
+    {
+      "aircraft_id": "f4e",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu2ba"
+    },
+    {
+      "aircraft_id": "a4ec",
+      "max_quantity": 1,
+      "station": 0,
+      "weapon_id": "cbu2ba"
     }
   ],
   "fuze_options": [
@@ -2248,6 +2428,227 @@
       "min_release_speed_ktas": null,
       "name": "SNEB 68 mm rockets",
       "notes": "Matra pods",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "mk81",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "Mk-81 LDGP",
+      "notes": "Low-drag general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "mk81se",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "Mk-81 Snakeye",
+      "notes": "High-drag (Snakeye fins) general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "mk83",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "Mk-83 LDGP",
+      "notes": "Low-drag general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "mk83air",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "Mk-83 AIR",
+      "notes": "High-drag general-purpose bomb with a retarding parachute (AIR). Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "br250",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "BR-250 LD",
+      "notes": "Low-drag general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "br500",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "BR-500 LD",
+      "notes": "Low-drag general-purpose bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "bomb_unguided",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "blu107",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "BLU-107 Durandal (retarded)",
+      "notes": "Anti-runway penetrator bomb, parachute-retarded with a booster, so filed as a high-drag bomb. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "cbu103",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "CBU-103 CEM",
+      "notes": "Combined Effects Munition cluster bomb with a WCMD tail kit. WCMD is an inertial (INS) tail kit with no seeker, so guidance is none here. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "cbu105",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "CBU-105 SFW",
+      "notes": "Sensor Fuzed Weapon cluster bomb with a WCMD tail kit. WCMD is an inertial (INS) tail kit with no seeker, so guidance is none here. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "bl755",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "BL-755",
+      "notes": "British cluster bomb of frag and penetrator bomblets. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "cbu1a",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "CBU-1/A",
+      "notes": "Cluster dispenser pod of anti-personnel bomblets. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "cbu2a",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "CBU-2/A",
+      "notes": "Cluster dispenser pod of BLU-3 bomblets. Name only: no release or frag data on file.",
+      "weight_lbs": 0.0
+    },
+    {
+      "category": "cluster",
+      "dcs_weapon_name": null,
+      "drag_index": null,
+      "frag_effective_radius_ft": null,
+      "frag_lethal_radius_ft": null,
+      "frag_min_safe_alt_ft": null,
+      "guidance": "none",
+      "id": "cbu2ba",
+      "max_release_alt_ft": null,
+      "max_release_speed_ktas": null,
+      "min_release_alt_ft": null,
+      "min_release_speed_ktas": null,
+      "name": "CBU-2B/A",
+      "notes": "Cluster dispenser pod of BLU-3B bomblets. Name only: no release or frag data on file.",
       "weight_lbs": 0.0
     }
   ]

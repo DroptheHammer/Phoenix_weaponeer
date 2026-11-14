@@ -38,7 +38,7 @@
         {
           "name": "Venom 1-3", "type": "F-16C_50", "callsign": "Venom13", "tailNumber": "103", "x": -399186, "y": -18636,
           "payload": [
-            "AIM-9M Sidewinder IR AAM",
+            "AGM-45B Shrike ARM",
             "Mk-20 Rockeye - 490lbs CBU, 247 x HEAT Bomblets",
             "GBU-38 - 500lb JDAM GPS Guided Bomb",
             "AN/AAQ-28 LITENING - Targeting Pod",

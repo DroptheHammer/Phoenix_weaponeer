@@ -45,9 +45,11 @@
 //! The GBU-16, AGM-65F, AGM-122 and the GAU-12 gun pod have rows that hold only
 //! a name, a class and a guidance type (reference DB v5), and so do the Mk-20
 //! Rockeye, CBU-99, CBU-52B, BLG-66 Belouga and the five SAMP bombs (added
-//! 2026-10-03). They load, and the planner says so on an attack that uses one.
-//! The internal guns have no rule: a gun built into the jet is never a pylon
-//! store.
+//! 2026-10-03), and the Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500,
+//! BLU-107 Durandal, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A and CBU-2B/A
+//! (added 2026-11-13). They load, and the planner says so on an attack that
+//! uses one. The internal guns have no rule: a gun built into the jet is never
+//! a pylon store.
 //!
 //! Counts. "X with N x ..." is N of what X holds (a TER of 3 Mk-82 is 3). So is
 //! a count written right before the weapon's own name, "BRU-42 - 3 x Mk-20 ..."
@@ -89,7 +91,7 @@ pub enum StoreClass {
     Skipped(SkipReason),
 }
 
-/// Whether a bomb is retarded. Only the unguided Mk-8x rows carry one: the
+/// Whether a bomb is retarded. Only the unguided bomb rows carry one: the
 /// guard compares the name's drag against the row the name landed on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Drag {
@@ -146,7 +148,34 @@ static STORE_RULES: &[StoreRule] = &[
     high_drag("Mk-82 AIR", "mk82air"),
     high_drag("Mk-82AIR", "mk82air"),
     high_drag("Mk-82 Snakeye", "mk82se"),
+    // Some DCS names spell it "SnakeEye" ("Mk-82 SnakeEye", "MAK79 3 Mk-82
+    // SnakeEye"), one token that is not "snakeye". Without this rule, and the
+    // spelling in HIGH_DRAG_TOKENS, those loaded as the low-drag Mk-82.
+    high_drag("Mk-82 SnakeEye", "mk82se"),
     low_drag("Mk-84", "mk84"),
+    // The Mk-81 and Mk-83 (added 2026-11-13). DCS: "Mk-81 - 250lb GP Bomb LD",
+    // "Mk-81 Snakeye - 250lb GP Bomb HD" (the A-4E-C), "Mk-83 - 1000lb GP Bomb
+    // LD", "Mk-83 AIR (BSU-85) - 1000 lb GP Chute Retarded Bomb HD". The F-4E,
+    // F-14 and Harrier racks write a bare "Mk-83" and the retarded one
+    // "Mk-83 AIR" or "Mk-83AIR", so the Mk-83 AIR is listed in both spellings,
+    // as the Mk-82 AIR is. "Mk-83CT" is another bomb (a different token) and has
+    // no row, so it stays unrecognised.
+    low_drag("Mk-81", "mk81"),
+    high_drag("Mk-81 Snakeye", "mk81se"),
+    low_drag("Mk-83", "mk83"),
+    high_drag("Mk-83 AIR", "mk83air"),
+    high_drag("Mk-83AIR", "mk83air"),
+    // The Mirage F1's low-drag bombs, DCS: "BR-250 - 250kg GP Bomb LD", "BR-500 -
+    // 500kg GP Bomb LD".
+    low_drag("BR-250", "br250"),
+    low_drag("BR-500", "br500"),
+    // The Durandal is parachute-retarded, so its row is a high-drag one. DCS:
+    // "BLU-107/B Durandal - 219kg Concrete Piercing Chute Retarded Bomb
+    // w/Booster", but also "BLU-107 - 440lb Anti-Runway Penetrator Bomb" and
+    // "BLU-107 * 3", which say nothing of drag: a high-drag rule is never
+    // blocked by a name that does not look high-drag (only the low-drag
+    // rules are, by the drag guard).
+    high_drag("BLU-107", "blu107"),
     // Laser-guided bombs. DCS: "GBU-12 - 500lb Laser Guided Bomb", "GBU-24
     // Paveway III - 2000lb Laser Guided Bomb"; some modules write a bare "GBU-24".
     rule("GBU-10", "gbu10"),
@@ -169,6 +198,24 @@ static STORE_RULES: &[StoreRule] = &[
     rule("CBU-99", "cbu99"),
     rule("CBU-52B", "cbu52b"),
     rule("BLG-66", "blg66"),
+    // More cluster bombs (added 2026-11-13). DCS: "CBU-103 - 202 x CEM, CBU with
+    // WCMD", "CBU-105 - 10 x SFW, CBU with WCMD", "BL-755 CBU - 450kg, 147
+    // Frag/Pen bomblets". The CBU-103 and CBU-105 names carry the words "CEM",
+    // "SFW" and "with" after the number, and a "202 x" or "10 x", none of which
+    // is a rule or a count: only the designation picks the row. The dispenser
+    // pods of the F-4E and A-4E-C are spelled "CBU-1/A pod - ...", "CBU-1A/A x
+    // 27x19 ...", "CBU-2/A x 19x19 ...", "CBU-2A x 19x19 ..." and "CBU-2B/A x
+    // 22x19 ...", so the CBU-1/A and CBU-2/A each have two rules (the slash
+    // splits "1/A" into two tokens, "1A" is one). The three cannot shadow each
+    // other: "cbu 2 a", "cbu 2a" and "cbu 2b a" are different token runs.
+    rule("CBU-103", "cbu103"),
+    rule("CBU-105", "cbu105"),
+    rule("BL-755", "bl755"),
+    rule("CBU-1/A", "cbu1a"),
+    rule("CBU-1A", "cbu1a"),
+    rule("CBU-2/A", "cbu2a"),
+    rule("CBU-2A", "cbu2a"),
+    rule("CBU-2B/A", "cbu2ba"),
     // The French SAMP bombs. DCS: "SAMP-250 - 250 kg GP Bomb LD", "SAMP-250 - 250
     // kg GP Chute Retarded Bomb HD". There is no high-drag SAMP-125. A low and a
     // high rule share each 250 and 400 pattern: only the "HD" at the far end of
@@ -222,7 +269,7 @@ const SENSOR_POD_TOKENS: &[&str] =
     &["litening", "lantirn", "sniper", "atflir", "tgp", "hts", "alq", "ecm", "acmi", "tcts", "tald"];
 
 /// Whole tokens that mark a bomb as retarded or high-drag.
-const HIGH_DRAG_TOKENS: &[&str] = &["hd", "retarded", "ballute", "snakeye", "chute", "parachute"];
+const HIGH_DRAG_TOKENS: &[&str] = &["hd", "retarded", "ballute", "snakeye", "snakeeye", "chute", "parachute"];
 
 /// The pylon names a payload carries: its non-null strings, in order.
 ///
@@ -444,6 +491,11 @@ mod tests {
             ("Mk-82AIR - 500lb GP Bomb HD", weapon("mk82air", 1)),
             ("Mk-82 Snakeye - 500lb GP Bomb HD", weapon("mk82se", 1)),
             ("BRU-33 with 2 x Mk-82 Snakeye - 500lb GP Bomb HD", weapon("mk82se", 2)),
+            // DCS also spells it "SnakeEye"; that is the retarded bomb, never mk82.
+            ("Mk-82 SnakeEye", weapon("mk82se", 1)),
+            ("GDJ-II19 - 2 x Mk-82 SnakeEye", weapon("mk82se", 2)),
+            ("MAK79 3 Mk-82 SnakeEye", weapon("mk82se", 1)),
+            ("Mk-82 SnakeEye * 3", weapon("mk82se", 1)),
             ("GBU-12 - 500lb Laser Guided Bomb", weapon("gbu12", 1)),
             ("GBU-16", weapon("gbu16", 1)),
             ("GBU-10 - 2000lb Laser Guided Bomb", weapon("gbu10", 1)),
@@ -525,6 +577,144 @@ mod tests {
         for (name, expected) in cases {
             assert_eq!(classify_store(name), *expected, "{name:?}");
         }
+    }
+
+    /// Real DCS display names (the public pydcs weapons list, and the A-4E-C mod's
+    /// own weapon file) for the bombs added 2026-11-13. A rack's count is read only
+    /// as "with N x" or an "N x" / "Nx" straight before the weapon's name; a bare
+    /// number ("MAK79 3 Mk-81", "CBU-103 * 3") stays at one.
+    #[test]
+    fn mk81_mk83_br_and_durandal_names_become_weapon_ids_and_counts() {
+        let cases: &[(&str, StoreClass)] = &[
+            // Mk-81, in each shape a rack gives its name. The bare numbers are a
+            // rack's or a pylon's, never a count.
+            ("Mk-81 - 250lb GP Bomb LD", weapon("mk81", 1)),
+            ("3x Mk-81 - 250lb GP Bomb LD (TER)", weapon("mk81", 3)),
+            ("6x Mk-81 - 250lb GP Bomb LD (MER)", weapon("mk81", 6)),
+            ("BRU-42 with 3 x Mk-81 - 250lb GP Bombs LD", weapon("mk81", 3)),
+            ("(Special Weapons Adapter) Mk-81 - 250lb GP Bomb LD", weapon("mk81", 1)),
+            ("(Special Weapons Adapter) 2x Mk-81 - 250lb GP Bomb LD (TER)", weapon("mk81", 2)),
+            ("MAK79 3 Mk-81", weapon("mk81", 1)),
+            ("MAK79 4 Mk-81", weapon("mk81", 1)),
+            ("2 Mk-81", weapon("mk81", 1)),
+            // The A-4E-C writes the count as "N x" with spaces, and has a Snakeye.
+            ("6 x Mk-81 - 250lb GP Bomb LD (MER)", weapon("mk81", 6)),
+            ("Mk-81 Snakeye - 250lb GP Bomb HD", weapon("mk81se", 1)),
+            ("6 x Mk-81 Snakeye - 250lb GP Bomb HD (MER)", weapon("mk81se", 6)),
+            // Mk-83: the low-drag bomb in each rack, and the retarded one.
+            ("Mk-83 - 1000lb GP Bomb LD", weapon("mk83", 1)),
+            ("Mk-83", weapon("mk83", 1)),
+            ("BRU-33 with 2 x Mk-83 - 1000lb GP Bomb LD", weapon("mk83", 2)),
+            ("3x Mk-83 - 1000lb GP Bomb LD (MER) Ripple", weapon("mk83", 3)),
+            ("MER2 with 2 x Mk-83 - 1000lb GP Bombs LD", weapon("mk83", 2)),
+            ("CLB 30 - Mk-83 - 1000lb GP Bomb LD", weapon("mk83", 1)),
+            ("MAK79 Mk-83", weapon("mk83", 1)),
+            ("Mk-83 AIR (BSU-85) - 1000 lb GP Chute Retarded Bomb HD", weapon("mk83air", 1)),
+            ("BRU-33 with 2 x Mk-83 AIR (BSU-85) - 1000 lb GP Chute Retarded Bomb HD", weapon("mk83air", 2)),
+            ("Mk-83 AIR", weapon("mk83air", 1)),
+            ("Mk-83AIR", weapon("mk83air", 1)),
+            ("MAK79 3 Mk-83AIR", weapon("mk83air", 1)),
+            // "Mk-83CT" is another bomb, with no row: the token is "83ct", not "83".
+            ("Mk-83CT", StoreClass::Unrecognised),
+            // The French bombs.
+            ("BR-250 - 250kg GP Bomb LD", weapon("br250", 1)),
+            ("AUF 2 - 2 x BR-250 - 250kg GP Bomb LD", weapon("br250", 2)),
+            ("CLB 4 - 4 x BR-250 - 250kg GP Bomb LD", weapon("br250", 4)),
+            ("BR-500 - 500kg GP Bomb LD", weapon("br500", 1)),
+            // The Durandal is the high-drag row, with or without a word of drag in
+            // its name.
+            (
+                "BLU-107/B Durandal - 219kg Concrete Piercing Chute Retarded Bomb w/Booster",
+                weapon("blu107", 1),
+            ),
+            (
+                "AUF 2 - 2 x BLU-107/B Durandal - 219kg Concrete Piercing Chute Retarded Bomb w/Booster",
+                weapon("blu107", 2),
+            ),
+            (
+                "6x BLU-107/B Durandal - 219kg Concrete Piercing Chute Retarded Bomb w/Booster (MER)",
+                weapon("blu107", 6),
+            ),
+            (
+                "(Special Weapons Adapter) 3x BLU-107/B Durandal - 219kg Concrete Piercing Chute Retarded Bomb w/Booster (TER)",
+                weapon("blu107", 3),
+            ),
+            ("BLU-107 - 440lb Anti-Runway Penetrator Bomb", weapon("blu107", 1)),
+            ("MER6 with 6 x BLU-107 - 440lb Anti-Runway Penetrator Bombs", weapon("blu107", 6)),
+            ("BLU-107 * 3", weapon("blu107", 1)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// Real DCS display names for the cluster bombs added 2026-11-13. The
+    /// submunition counts ("202 x", "10 x", "147", "27x19") and the words "CEM",
+    /// "SFW" and "with" in a name are never a count and never another row: only
+    /// the designation picks the row.
+    #[test]
+    fn cbu_103_cbu_105_bl_755_and_the_dispenser_pods_become_weapon_ids_and_counts() {
+        let cases: &[(&str, StoreClass)] = &[
+            // The WCMD bombs. "10 x SFW" is not a count and "SFW" is not a CBU-97;
+            // "202 x CEM" is not a count and "CEM" is not a CBU-87.
+            ("CBU-103 - 202 x CEM, CBU with WCMD", weapon("cbu103", 1)),
+            ("CBU-105 - 10 x SFW, CBU with WCMD", weapon("cbu105", 1)),
+            ("BRU-57 with 2 x CBU-103 - 202 x CEM, CBU with WCMD", weapon("cbu103", 2)),
+            ("BRU-57 with 2 x CBU-105 - 10 x SFW, CBU with WCMD", weapon("cbu105", 2)),
+            ("HSAB - 8 x CBU-103 - 202 x CEM, CBU with WCMD", weapon("cbu103", 8)),
+            ("SECBM - 10 x CBU-105 - 10 x SFW, CBU with WCMD", weapon("cbu105", 10)),
+            ("CBU-103 * 3", weapon("cbu103", 1)),
+            ("CBU-105 * 3", weapon("cbu105", 1)),
+            // The BL-755.
+            ("BL-755 CBU - 450kg, 147 Frag/Pen bomblets", weapon("bl755", 1)),
+            ("2 x BL-755 CBUs - 450kg, 147 Frag/Pen bomblets", weapon("bl755", 2)),
+            ("3x BL-755 - 147 Frag/Pen bomblets (TER)", weapon("bl755", 3)),
+            ("1x BL-755 - 147 Frag/Pen bomblets (TER)", weapon("bl755", 1)),
+            // The F-4E's dispenser pods.
+            ("CBU-1/A pod - 19 x tubes of Bomblets BLU-3B x 27, HE", weapon("cbu1a", 1)),
+            ("CBU-2/A pod - 19 x tubes of Bomblets BLU-3B x 19, HE", weapon("cbu2a", 1)),
+            ("CBU-2B/A pod - 19 x tubes of Bomblets BLU-3B x 22, HE", weapon("cbu2ba", 1)),
+            ("2x CBU-1A/A x 27x19 (513) BLU-4B Bomblets, HE (MER)", weapon("cbu1a", 2)),
+            ("2x CBU-2/A x 19x19 (361) BLU-3 Bomblets, HE (MER)", weapon("cbu2a", 2)),
+            ("2x CBU-2B/A x 22x19 (418) BLU-3B Bomblets, HE (MER)", weapon("cbu2ba", 2)),
+            ("1x CBU-2/A x 19x19 (361) BLU-3 Bomblets, HE (MER)", weapon("cbu2a", 1)),
+            // The F-100 mod's spelling ("CBU-2A"), which the F-4E tables also use.
+            ("CBU-2A x 19x19 (361) Bomblets - BLU-3 x 19, HE Bomblets, HE", weapon("cbu2a", 1)),
+            ("CBU-1A x 27x19 (513) Bomblets - BLU-4B x 27, HE Bomblets, HE", weapon("cbu1a", 1)),
+            ("CBU-2B/A x 22x19 (418) Bomblets - BLU-3B x 22, HE Bomblets, HE", weapon("cbu2ba", 1)),
+            // The A-4E-C mod's own names: a bare dispenser, and a count in front of
+            // the rack's.
+            ("CBU-1A/A x 27x19 (513) BLU-4B Bomblets, HE", weapon("cbu1a", 1)),
+            ("CBU-2/A x 19x19 (361) BLU-3 Bomblets, HE", weapon("cbu2a", 1)),
+            ("CBU-2B/A x 22x19 (418) BLU-3B Bomblets, HE", weapon("cbu2ba", 1)),
+            ("2 x CBU-1A/A x 27x19 (513) BLU-4B Bomblets, HE (TER)", weapon("cbu1a", 2)),
+            ("2 x CBU-2/A x 19x19 (361) BLU-3 Bomblets, HE (TER)", weapon("cbu2a", 2)),
+            ("2 x CBU-2B/A x 22x19 (418) BLU-3B Bomblets, HE (TER)", weapon("cbu2ba", 2)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(classify_store(name), *expected, "{name:?}");
+        }
+    }
+
+    /// A high-drag name must never land on one of the new low-drag rows. The Mk-81
+    /// and Mk-83 have retarded variants of their own (the Snakeye, the AIR); a
+    /// retarded name that fits none of them has no row, so it is unrecognised, as
+    /// a retarded Mk-84 is. The low-drag names beside them still map.
+    #[test]
+    fn a_high_drag_name_never_lands_on_the_new_low_drag_bomb_rows() {
+        for name in [
+            "Mk-83 Retarded - 1000lb GP Bomb HD",
+            "Mk-83 - 1000lb GP Chute Retarded Bomb HD",
+            "Mk-81 - 250lb GP Bomb HD",
+            "Mk-81 Retarded - 250lb GP Bomb HD",
+            "BR-250 - 250kg GP Chute Retarded Bomb HD",
+            "BR-500 Retarded",
+        ] {
+            assert_eq!(classify_store(name), StoreClass::Unrecognised, "{name:?}");
+        }
+        assert_eq!(classify_store("Mk-83 - 1000lb GP Bomb LD"), weapon("mk83", 1));
+        assert_eq!(classify_store("Mk-81 - 250lb GP Bomb LD"), weapon("mk81", 1));
+        assert_eq!(classify_store("BR-250 - 250kg GP Bomb LD"), weapon("br250", 1));
     }
 
     /// The SAMP-250 and SAMP-400 names share their tokens across the low and high
@@ -688,8 +878,13 @@ mod tests {
     #[test]
     fn anything_unknown_is_unrecognised_rather_than_skipped() {
         for name in [
-            // No row and no rule, now or planned.
-            "BL-755 CBU - 450kg, 147 Frag/Pen bomblets",
+            // No row and no rule, now or planned: the F-4E's Shrike, in the three
+            // shapes DCS writes it. (It was the BL-755 until that got a row on
+            // 2026-11-13, and the Mk-20 Rockeye before that. When the Shrike gets
+            // one, pick another store the tool has no row for.)
+            "AGM-45A Shrike ARM (LAU-34)",
+            "AGM-45B Shrike ARM",
+            "LAU-118A - AGM-45A Shrike ARM",
             "Some Future Bomb",
             // A pod with an unknown payload must not be taken for a sensor pod.
             "B-8M1 pod - 20 x S-8KOM",
@@ -762,10 +957,10 @@ mod tests {
             null,
             "Fuel tank 370 gal",
             "TER-9A with 3 x Mk-82 - 500lb GP Bomb LD",
-            "BL-755 CBU - 450kg, 147 Frag/Pen bomblets",
+            "AGM-45A Shrike ARM (LAU-34)",
             "GBU-12 - 500lb Laser Guided Bomb",
             "LAU-131 pod - 7 x 2.75 Hydra, UnGd Rkts M257, Para Illum",
-            "BL-755 CBU - 450kg, 147 Frag/Pen bomblets",
+            "AGM-45A Shrike ARM (LAU-34)",
         ]);
         let loadout = loadout_from_payload(Some(&payload), reference());
         let lines: Vec<(Option<&str>, &str, u32)> =
@@ -775,7 +970,7 @@ mod tests {
             vec![
                 (Some("mk82"), "Mk-82 LDGP", 6),
                 (Some("gbu12"), "GBU-12 Paveway II", 2),
-                (None, "BL-755 CBU - 450kg, 147 Frag/Pen bomblets", 2),
+                (None, "AGM-45A Shrike ARM (LAU-34)", 2),
             ],
             "first appearance order, summed quantity, row names, the unrecognised store kept under its DCS name"
         );

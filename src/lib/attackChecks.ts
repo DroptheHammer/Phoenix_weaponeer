@@ -72,8 +72,10 @@ function hdg(v: number): string {
 /**
  * What the tool cannot check for this weapon, when its reference row has no
  * figure for the floor the checks below compare against. A few rows hold only a
- * name (the GBU-16, AGM-65F, AGM-122, and the Rockeye, CBU-99, CBU-52B, Belouga
- * and SAMP bombs): the floor is then no floor at all, and
+ * name (the GBU-16, AGM-65F, AGM-122, the Rockeye, CBU-99, CBU-52B, Belouga and
+ * SAMP bombs, and the Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500,
+ * Durandal, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A and CBU-2B/A): the floor
+ * is then no floor at all, and
  * without a note the attack would plan and print as if it had been checked.
  *
  * A bomb needs a frag min-safe altitude (that is where the aircraft is at

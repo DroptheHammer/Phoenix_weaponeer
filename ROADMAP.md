@@ -22,16 +22,23 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
 - [ ] **Loft geometry** (LABS, F-16 loft). The profiles ship hidden
       (`f16c.loft.std`, `f4e.loft.labs45`) until the geometry exists.
       Session 5.
-- [ ] **Release and frag numbers for the thirteen name-only rows**: GBU-16,
-      AGM-65F, AGM-122 and the GAU-12 pod, and the nine cluster and SAMP rows
+- [ ] **Release and frag numbers for the twenty-six name-only rows**: GBU-16,
+      AGM-65F, AGM-122 and the GAU-12 pod, the nine cluster and SAMP rows
       (Mk-20 Rockeye, CBU-99, CBU-52B, BLG-66 Belouga, SAMP-125/250/400 and
-      SAMP-250/400 HD). Until then their attacks and cards carry a "no data
-      on file" caution and no floor is enforced. Session 4.
-- [ ] **Bombs the modules carry that still have no row.** Seen in the DCS
-      pylon tables: Mk-81, Mk-83, CBU-103 and CBU-105 (F-16C, A-10C), BL-755,
-      CBU-1/A and CBU-2/A (A-4E-C), BLU-107 Durandal, BR-250 and BR-500. A
-      link import keeps each one and marks it "not in the weapon table".
-      Session 1.
+      SAMP-250/400 HD), and the thirteen bomb rows added 2026-11-13 (Mk-81 and
+      Snakeye, Mk-83 and AIR, BR-250, BR-500, BLU-107 Durandal, CBU-103,
+      CBU-105, BL-755, CBU-1/A, CBU-2/A, CBU-2B/A). Until then their attacks
+      and cards carry a "no data on file" caution and no floor is enforced.
+      Session 4.
+- [x] **Bombs the modules carry that still had no row** (2026-11-13,
+      Session 1, on `main`, unreleased). Thirteen name-only rows from the DCS
+      pylon tables: Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500,
+      BLU-107 Durandal, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A and
+      CBU-2B/A. The Snakeye, the AIR and the Durandal (parachute-retarded; the
+      user chose high-drag) are high-drag bombs. The BL-755 is an F-4E store,
+      not the A-4E-C's, and the F-4E carries the CBU-1/A too. A link import
+      now loads each of them. The store with no row in the tests and in the
+      synthetic file is now the AGM-45 Shrike.
 - [ ] **Rack counts written as a bare number.** The F-14's `MAK79 2 MK-20`
       and legacy names such as `Mk-20 Rockeye * 3` load as one bomb, because
       a number with no "x" is never read as a count (a rack's own number,
@@ -135,6 +142,20 @@ waypoint list on 2026-10-03).
 - **A link import knows these stores and counts racks of them.** A count
   written straight before the weapon's name (`BRU-42 - 3 x Mk-20 …`,
   `2x CBU-52B … (TER)`) is now read, for every bomb and missile.
+- **Thirteen more bombs, by name only** (2026-11-13): Mk-81 and its Snakeye,
+  Mk-83 and its AIR, BR-250, BR-500, BLU-107 Durandal, CBU-103, CBU-105,
+  BL-755, CBU-1/A, CBU-2/A and CBU-2B/A, each carried by the aircraft whose
+  DCS pylon table loads it. No release or frag numbers were invented, so
+  their attacks and cards carry the "no data on file" caution. A link import
+  loads them.
+- **The Durandal is laid down, never dived** (2026-11-13, the user's call).
+  Its attacks are offered level profiles only, so on the Mirage F1 and F-15E
+  (whose high-drag default is a 30° dive) it builds the 500 ft laydown. Other
+  high-drag bombs keep their defaults (`LEVEL_ONLY_WEAPON_IDS`,
+  `src/lib/weaponClass.ts`).
+- **Fix: "Mk-82 SnakeEye" loads as the retarded Mk-82 Snakeye** (2026-11-13).
+  DCS spells it that way in some store names, and they used to load as the
+  low-drag Mk-82, so the attack was planned for a slick bomb.
 
 ### v0.3.3 — 2026-10-03
 - **Jets arrive loaded.** After a FragOrders link import each pilot's loadout

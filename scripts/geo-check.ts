@@ -26,7 +26,7 @@ import {
 import { describeRunIn } from '../src/lib/runIn';
 import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSide, weaponChoicesFor, loadoutWeapons, unrecognisedStores } from '../src/lib/autoBuildAttack';
 import { rowsFromLoadout, pickWeapon, loadoutFromRows, loadoutPickerWeapons } from '../src/lib/loadoutRows';
-import { storesMappedFor } from '../src/lib/weaponClass';
+import { storesMappedFor, weaponClassOf } from '../src/lib/weaponClass';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, REAL_WORLD_DEFAULT_WEAPON, REAL_WORLD_DEFAULT_WEAPON_ID, isRealWorld } from '../src/lib/strikeNearMe';
 import { buildAttackPicture, pictureFitPoints, LINE_STYLE, MARKER_COLOR } from '../src/lib/attackPicture';
@@ -84,7 +84,7 @@ import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../sr
 import { validateMission } from '../src/lib/validateMission';
 import { isThreatVisible, visibleMission, probableThreats, hiddenCounts, type HideFlags } from '../src/lib/threatVisibility';
 import { escapeHtml } from '../src/lib/html';
-import { runAttackChecks, hasErrors } from '../src/lib/attackChecks';
+import { runAttackChecks, hasErrors, noDataNote } from '../src/lib/attackChecks';
 import { readFileSync, readdirSync } from 'node:fs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -1364,10 +1364,12 @@ ok('attackChecks: an absent optional field (egress heading) is not an error',
    !hasErrors(runAttackChecks({ profileType: 'level_ccrp', profile: { ...cleanLevel, egressHeading_deg: undefined } as never, targetElevation_ft: 0 })));
 
 // ---------------------------------------------------------------------------
-// "No data on file" (reference DB v5, and the cluster and SAMP rows added
-// 2026-10-03). The GBU-16, AGM-65F and AGM-122 rows, and the Rockeye, CBU-99,
-// CBU-52B, Belouga and SAMP rows, hold only a name, so their floor is null and
-// the limit checks skip it; without a
+// "No data on file" (reference DB v5, the cluster and SAMP rows added
+// 2026-10-03, and the pylon-table bombs added 2026-11-13). The GBU-16, AGM-65F
+// and AGM-122 rows, the Rockeye, CBU-99, CBU-52B, Belouga and SAMP rows, and the
+// Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500, Durandal, CBU-103,
+// CBU-105, BL-755, CBU-1/A, CBU-2/A and CBU-2B/A rows, hold only a name, so
+// their floor is null and the limit checks skip it; without a
 // note the first such attack would plan and print as if it had been checked. A
 // bomb with no frag floor and a missile with no minimum release get a warning,
 // never an error (Save stays open). Rows shaped as get_all_weapons returns them.
@@ -2415,6 +2417,52 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
      `${hornetRealAll.length} of ${real.filter((w) => w.category !== 'gun').length}`);
   ok('real table: an unmapped type is offered every bomb and missile in it without the switch',
      real.filter((w) => !['gun', 'rocket'].includes(w.category)).every((w) => choices(apache, undefined, real).split(',').includes(w.id)));
+
+  // ── The pylon-table bombs added 2026-11-13: class by name, a no-data note, who is offered them ──
+  // The class comes from the name (the Snakeye, the AIR and the "retarded" Durandal are high-drag).
+  const newBombClasses: [string, string][] = [
+    ['mk81', 'bomb_ld'], ['mk81se', 'bomb_hd'], ['mk83', 'bomb_ld'], ['mk83air', 'bomb_hd'], ['br250', 'bomb_ld'], ['br500', 'bomb_ld'],
+    ['blu107', 'bomb_hd'], ['cbu103', 'cluster'], ['cbu105', 'cluster'], ['bl755', 'cluster'], ['cbu1a', 'cluster'], ['cbu2a', 'cluster'], ['cbu2ba', 'cluster'],
+  ];
+  const wrongClass = newBombClasses.filter(([id, cls]) => { const w = real.find((r) => r.id === id); return !w || weaponClassOf(w) !== cls; });
+  ok('real table: the thirteen bombs added 2026-11-13 are each in the class their name gives (the Durandal is high-drag)',
+     wrongClass.length === 0, wrongClass.map(([id]) => `${id}=${weaponClassOf(real.find((r) => r.id === id) as never)}`).join());
+  const silentNewBombs = newBombClasses.filter(([id]) => noDataNote(real.find((r) => r.id === id) as never) === undefined);
+  ok('real table: ...and each is name-only, so an attack that uses one carries the "no data on file" note',
+     silentNewBombs.length === 0, silentNewBombs.map(([id]) => id).join());
+  const viperNew = choices(jet('f16c'), undefined, real).split(',');
+  const hornetNew = choices(jet('f18c'), undefined, real).split(',');
+  ok('real table: the F-16C is offered the CBU-103 and CBU-105 and no Mk-83; the Hornet the Mk-83 and Mk-83 AIR and no CBU-103',
+     viperNew.includes('cbu103') && viperNew.includes('cbu105') && !viperNew.includes('mk83') &&
+     hornetNew.includes('mk83') && hornetNew.includes('mk83air') && !hornetNew.includes('cbu103'), `${viperNew.join()} / ${hornetNew.join()}`);
+  ok('real table: the BL-755 is the F-4E\'s alone, not the A-4E-C\'s; the A-4E-C has the CBU-1/A, CBU-2/A, CBU-2B/A and Mk-81 Snakeye, the F-4E all but the Snakeye',
+     carriedBy('bl755') === 'f4e' && carriedBy('cbu1a') === 'a4ec,f4e' && carriedBy('cbu2a') === 'a4ec,f4e' && carriedBy('cbu2ba') === 'a4ec,f4e' &&
+     carriedBy('mk81se') === 'a4ec', `${carriedBy('bl755')} / ${carriedBy('cbu1a')} / ${carriedBy('mk81se')}`);
+
+  // ── The Durandal is laid down, never dived (the user decided 2026-11-13) ──
+  // Real row, real profiles, every carrier. The F-1 and F-15E's high-drag
+  // default is a 30° dive, which suits a Snakeye but not a Durandal.
+  const tgtWp = { id: 'w-tgt', steerpoint: 8, name: 'TGT1', type: 'target', coordinates: tgt, elevation_ft: 4000 };
+  const ipWp = { id: 'w-ip', steerpoint: 7, name: 'STPT 7', type: 'turnpoint', coordinates: calculateDestination(tgt, 68, 15.3), elevation_ft: 5000 };
+  const buildWith = (aircraftId: string, weaponId: string) => {
+    const w = real.find((r) => r.id === weaponId)!;
+    const pilot = jet(aircraftId, [{ weaponType: w.name, quantity: 2, weaponId }]) as { id: string };
+    return autoBuildAttack({
+      mission: { waypoints: [ipWp, tgtWp], flightMembers: [pilot], threats: [], attacks: [] },
+      targetWaypointId: tgtWp.id, attackerId: pilot.id, weapons: real, profiles: lib(aircraftId), threatSystems: [],
+    } as never);
+  };
+  const durandalBuilds = (carriedBy('blu107') ?? '').split(',').map((ac) => ({ ac, r: buildWith(ac, 'blu107') }));
+  ok('Durandal: on every carrier (F-4E, F-1, F-15E) it auto-builds a level laydown, not a dive',
+     durandalBuilds.length === 3 && durandalBuilds.every(({ r }) => r.attack?.profileType === 'level_ccrp'),
+     durandalBuilds.map(({ ac, r }) => `${ac}=${r.attack?.profileType ?? r.problems.join(';')}`).join());
+  ok('Durandal: ...and the editor offers it level profiles only',
+     durandalBuilds.every(({ r }) => r.candidates.length > 0 && r.candidates.every((p) => p.geometry === 'level')),
+     durandalBuilds.map(({ ac, r }) => `${ac}:${r.candidates.map((p) => p.id).join('|')}`).join(' '));
+  const snakeyeF15 = buildWith('f15e', 'mk82se');
+  ok('Durandal rule is the Durandal\'s alone: an F-15E Snakeye still defaults to its dive and is still offered the laydown',
+     snakeyeF15.attack?.profileType === 'dive_ccip' && snakeyeF15.candidates.some((p) => p.geometry === 'level'),
+     `${snakeyeF15.attack?.profileType} / ${snakeyeF15.candidates.map((p) => p.id).join('|')}`);
 
   // ── Strike near me: "every aircraft carries it" ──
   const nearMeWeapon = real.find((w) => w.id === REAL_WORLD_DEFAULT_WEAPON_ID);

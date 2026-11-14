@@ -5,7 +5,7 @@ import type { DbWeapon } from '../types/weapon.types';
 import type { Coordinates, Waypoint } from '../types/waypoint.types';
 import type { DeliveryProfile, WeaponClass } from '../types/profile.types';
 import { SUPPORTED_GEOMETRIES, diveParams, levelParams, popupParams } from '../types/profile.types';
-import { weaponClassOf, offeredTo, storesMappedFor, WEAPON_CLASS_LABEL } from './weaponClass';
+import { weaponClassOf, offeredTo, storesMappedFor, geometrySuitsWeapon, WEAPON_CLASS_LABEL } from './weaponClass';
 import { calculateBearing, calculateDistance } from './coordinates';
 import { runAttackChecks, type AttackCheck } from './attackChecks';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, type IpAnchor } from './ipAnchor';
@@ -321,13 +321,16 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
   if (weapon && !weaponClass) problems.push(`${weapon.name} is not an air-to-ground store`);
 
   // Profile: the override, else the aircraft's default for this weapon class.
+  // A level-only weapon (the Durandal) is offered level profiles only, so it
+  // never lands on a dive default meant for its class.
   const candidates =
-    attacker && weaponClass
+    attacker && weapon && weaponClass
       ? profiles.filter(
           (p) =>
             p.aircraftId === attacker.aircraftId &&
             SUPPORTED_GEOMETRIES.includes(p.geometry) &&
-            p.weaponClasses.includes(weaponClass),
+            p.weaponClasses.includes(weaponClass) &&
+            geometrySuitsWeapon(p.geometry, weapon),
         )
       : [];
   const profile =

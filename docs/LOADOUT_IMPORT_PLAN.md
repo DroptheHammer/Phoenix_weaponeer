@@ -246,10 +246,43 @@ The seven gaps listed above are closed, and `KNOWN_CLASS_GAPS` is empty.
   never a count, so the F-14's `MAK79 2 MK-20` loads as one.
 - **The synthetic loaded-jets file** now has `Venom 1-3` carrying recognised
   Rockeyes and one BL-755, which has no row, so the "not in the weapon table"
-  mark can still be seen.
+  mark can still be seen. (Since 2026-11-13 the BL-755 has a row; see Session 1
+  below, which swapped in a Shrike as the store with none.)
 - **Checked on screen 2026-11-13** in a build from source: Venom 1-3's marks,
   an F/A-18C offered Rockeye and CBU-99, and a real link's Loadouts list.
   None of the four captured links carries a loadout longer than three lines.
   The iPhone check is still open.
 - **Still no row:** Mk-81, Mk-83, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A,
-  Durandal, BR-250 and BR-500 (on the roadmap).
+  Durandal, BR-250 and BR-500 (on the roadmap). **Built in Session 1,
+  2026-11-13; see below.**
+
+### Session 1 (built 2026-11-13): rows for the bombs that had none
+
+- **Thirteen name-only rows:** Mk-81 LDGP, Mk-81 Snakeye, Mk-83 LDGP, Mk-83
+  AIR, BR-250 LD, BR-500 LD, BLU-107 Durandal (retarded), CBU-103 CEM, CBU-105
+  SFW, BL-755, CBU-1/A, CBU-2/A and CBU-2B/A. Weight 0, every number null, no
+  invented figures, so their attacks carry the "no data on file" caution. The
+  weapon table is now 52 rows, 26 of them name-only.
+- **Carriage** is read from the public pydcs pylon tables (`dcs/planes.py` at
+  commit `5ddcc63a2dcd661e16b14f7aa43219b93044855d`, release 1.0.0) and, for
+  the A-4E-C, from the community mod's aircraft and weapon files. The F-4E
+  carries the CBU-1/A as well as the CBU-2/A and CBU-2B/A, and the BL-755 is
+  an F-4E store, not the A-4E-C's. The F-16C is offered the CBU-103 and
+  CBU-105 (and the A-10C too); it carries no Mk-83 in the pydcs table.
+- **The Durandal is a high-drag row** (the user's call): it is
+  parachute-retarded with a booster, so its name says "retarded", which both
+  `weaponClassOf` and the Rust `weapon_is_of_class` read as high-drag. The
+  Snakeye and the AIR are high-drag by their names too.
+- **The CBU-103 and CBU-105 are clusters with guidance none.** Their WCMD kit
+  is an inertial (INS) tail kit with no seeker, so they are not filed as
+  guided bombs. The import rules never read the "10 x SFW" or "202 x CEM" as a
+  count or as another row.
+- **Import rules:** the Mk-83 AIR is listed in both DCS spellings (`Mk-83 AIR`
+  and `Mk-83AIR`), as the Mk-82 AIR is. The CBU-1/A and CBU-2/A each have two
+  rules, since DCS writes `CBU-1/A pod`, `CBU-1A/A x 27x19` and `CBU-2A x
+  19x19`. Bare-number rack counts are unchanged and still load as one
+  (`MAK79 3 Mk-81`, `CBU-103 * 3`): that is Session 2.
+- **The store with no row is now the AGM-45 Shrike**, in the synthetic
+  loaded-jets file (`Venom 1-3`) and in the store-mapping tests. When the
+  Shrike gets a row, pick another.
+- **Left unrecognised on purpose:** `Mk-83CT` (no source says what it is).

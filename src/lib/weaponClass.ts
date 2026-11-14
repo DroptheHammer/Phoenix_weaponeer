@@ -1,5 +1,21 @@
 import type { DbWeapon } from '../types/weapon.types';
-import type { WeaponClass } from '../types/profile.types';
+import type { ProfileGeometry, WeaponClass } from '../types/profile.types';
+
+/**
+ * Weapons that only work dropped low and level, so their attacks are offered
+ * level profiles only. The BLU-107 Durandal's parachute pitches it nose-down
+ * before its booster fires: it needs a low, level release and has no slick
+ * mode for a dive. Other high-drag bombs (Snakeye, AIR, SAMP HD) can be dropped
+ * slick in a dive and keep every profile of their class. The user decided this
+ * 2026-11-13. Rust pins that every carrier has a level profile for it
+ * (`every_level_only_weapon_has_a_level_profile_on_each_carrier`, profiles.rs).
+ */
+export const LEVEL_ONLY_WEAPON_IDS: readonly string[] = ['blu107'];
+
+/** Whether a profile of this geometry may deliver this weapon. */
+export function geometrySuitsWeapon(geometry: ProfileGeometry, weapon: Pick<DbWeapon, 'id'>): boolean {
+  return geometry === 'level' || !LEVEL_ONLY_WEAPON_IDS.includes(weapon.id);
+}
 
 /**
  * Which profile weapon class a database weapon belongs to.
