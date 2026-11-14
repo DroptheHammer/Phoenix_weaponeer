@@ -22,14 +22,41 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
 - [ ] **Loft geometry** (LABS, F-16 loft). The profiles ship hidden
       (`f16c.loft.std`, `f4e.loft.labs45`) until the geometry exists.
       Session 5.
-- [ ] **Release and frag numbers for the twenty-six name-only rows**: GBU-16,
-      AGM-65F, AGM-122 and the GAU-12 pod, the nine cluster and SAMP rows
-      (Mk-20 Rockeye, CBU-99, CBU-52B, BLG-66 Belouga, SAMP-125/250/400 and
-      SAMP-250/400 HD), and the thirteen bomb rows added 2026-11-13 (Mk-81 and
-      Snakeye, Mk-83 and AIR, BR-250, BR-500, BLU-107 Durandal, CBU-103,
-      CBU-105, BL-755, CBU-1/A, CBU-2/A, CBU-2B/A). Until then their attacks
-      and cards carry a "no data on file" caution and no floor is enforced.
-      Session 4.
+- [x] **Numbers for the twenty-six name-only rows** (2026-11-13, Session 4,
+      on `main`, unreleased). Each number was approved one by one and its
+      source is in the row's `notes` (and `docs/DELIVERY_PLANNING.md`, "Weapon
+      numbers (2026-11-13)").
+  - *Weight, all 26:* DCS's own, from the public pydcs library, except the
+    Mk-81 Snakeye (the A-4E-C mod's file) and the AGM-65F (the Navy training
+    system plan, the missile alone).
+  - *Frag floor, which clears the "no data on file" caution and is enforced:*
+    the Mk-83 alone, 1,300 ft (USAF Dash-34, F-4C/D/E manual, a level-release
+    figure). The Mk-20 Rockeye and CBU-99 get none: T.O. 1-1M-34's 1,380 ft
+    maximum fragment altitude was considered as their floor and rejected,
+    because a release below a floor is an error that blocks saving, and it
+    would block a normal 500 ft laydown. The figure is in their notes only.
+  - *Envelope extras, which keep the caution:* BLU-107 minimum release 250 ft
+    and 620 kt (T.O. 1-1M-34; Heatblur's F-4E manual advises about 500 ft);
+    CBU-105 200 to 20,000 ft and 650 kt and CBU-103 40,000 ft
+    (globalsecurity.org; the CBU-105's are the CBU-97's, before the WCMD kit).
+- [ ] **Release and frag floors for the rows still without one** (only where a
+      public source exists). Still no frag min-safe, so their attacks and
+      cards carry the "no data on file" caution: GBU-16 (weight only, by
+      choice), Mk-20 Rockeye and CBU-99 (see above), CBU-52B, BLG-66 Belouga,
+      the five SAMPs, Mk-81 and its Snakeye, Mk-83 AIR, BR-250, BR-500,
+      BLU-107 Durandal, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A and
+      CBU-2B/A (22 bomb and cluster rows). Still no
+      minimum release: AGM-65F and AGM-122. The GAU-12 pod has a weight and
+      needs nothing more (a gun never has the caution).
+- [ ] **Audit the seed rows' numbers.** The rows that came from the old
+      SQLite seed (Mk-82, Mk-84, GBU-12 and so on) cite no source. The public
+      USAF Dash-34 safe-escape tables disagree with two of them: T.O.
+      1F-4C-34-1-1 Fig 6-14 (level release, 360 KTAS) gives the Mk-82 about
+      1,100 ft and the Mk-84 about 1,700 ft, where the seed rows say 3,000 and
+      4,500. T.O. 1-1M-34 Fig 6-1 gives the maximum fragment altitude at sea
+      level as 2,050 ft for the Mk-82 and 2,750 ft for the Mk-84. Nothing is
+      changed yet: decide row by row whether to re-source them (a lower floor
+      lets auto-build plan lower releases).
 - [x] **Bombs the modules carry that still had no row** (2026-11-13,
       Session 1, on `main`, unreleased). Thirteen name-only rows from the DCS
       pylon tables: Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500,
@@ -192,6 +219,16 @@ waypoint list on 2026-10-03).
   empty pylon (`<CLEAN>`) is nothing, air-to-air, tanks and pods are dropped,
   and a CLSID with no name on file stays on the loadout under the CLSID,
   marked "not in the weapon table". Regenerate with `npm run gen-clsids`.
+- **Weights for the 26 name-only weapons, and a frag floor for the Mk-83**
+  (2026-11-13). Every one of them now has a sourced weight (the loadout
+  picker shows it, "(489 lbs)"). The Mk-83 has a 1,300 ft frag floor, so its
+  attacks and cards lose the "no data on file" caution, print "MIN SAFE", and
+  auto-build enforces the floor (every Mk-83 dive and pop-up profile already
+  released above it, so no release moves). The BLU-107, CBU-105 and CBU-103
+  have release limits too (none moves a release), and keep the caution. The
+  Rockeye and CBU-99 keep it as well: a 1,380 ft fragment ceiling was
+  considered as their floor and rejected, because a floor blocks saving the
+  normal 500 ft laydown. Sources are in each row's `notes`.
 
 ### v0.3.3 — 2026-10-03
 - **Jets arrive loaded.** After a FragOrders link import each pilot's loadout

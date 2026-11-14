@@ -30,17 +30,19 @@
 //!   module manuals and Chuck's Guides (2026-10-01) and leaves out what the DCS
 //!   module does not carry: the F/A-18C's AGM-65G, the A-4E-C's Mk-82 AIR and the
 //!   Mirage F1's Mk-82 Snakeye and Mk-84. The GBU-16, AGM-65F, AGM-122 and
-//!   GAU-12/U rows hold a name, a class and a guidance type only: weight 0 and
-//!   every release and frag field null, with `notes` saying so. The planner
+//!   GAU-12/U rows held a name, a class and a guidance type only when added:
+//!   weight 0 and every release and frag field null, with `notes` saying so (the
+//!   last bullet below says what they carry now). The planner
 //!   flags an attack that uses a bomb with no frag floor or a missile with no
 //!   minimum release (`runAttackChecks`), since nothing else would stop it
 //!   releasing too low.
 //! - **Cluster bombs and the SAMP bombs** (added 2026-10-03) are the stores the
 //!   v5 lists left without a row: the Mk-20 Rockeye, CBU-99, CBU-52B and BLG-66
 //!   Belouga, and the SAMP-125, -250 and -400 low-drag bombs and the -250 and
-//!   -400 high-drag ones. Like the GBU-16 row they hold a name, a class and a
-//!   guidance type only (weight 0, every release and frag field null, `notes`
-//!   saying so), and their `aircraft_weapons` rows use station 0 and a quantity
+//!   -400 high-drag ones. Like the GBU-16 row they held a name, a class and a
+//!   guidance type only when added (weight 0, every release and frag field null,
+//!   `notes` saying so; see the last bullet), and their `aircraft_weapons` rows
+//!   use station 0 and a quantity
 //!   of 1. A bomb's class comes from its name (`weaponClassOf`), so the whole
 //!   word "HD" in a SAMP name is what makes it high-drag. Who carries what comes
 //!   from each DCS module's own pylon table as published in the public pydcs
@@ -51,7 +53,8 @@
 //!   BR-500, the BLU-107 Durandal, the CBU-103 and CBU-105, the BL-755, and the
 //!   CBU-1/A, CBU-2/A and CBU-2B/A. Same shape as the rows above: a name, a
 //!   class and a guidance type, weight 0, every number null, `notes` saying
-//!   "Name only", station 0 and a quantity of 1. The CBU-103 and CBU-105 ride a
+//!   "Name only" (when added; see the last bullet), station 0 and a quantity of
+//!   1. The CBU-103 and CBU-105 ride a
 //!   WCMD tail kit, which is an inertial (INS) kit and not a seeker, so their
 //!   guidance is none. The Durandal is a parachute-retarded bomb with a
 //!   booster, so it is filed as a high-drag bomb and its name says "retarded"
@@ -62,6 +65,35 @@
 //!   (`A-4E-C/A-4E-C.lua`) and its weapon definitions
 //!   (`A-4E-C/Weapons/A4E_Weapons.lua`). The BL-755 is an F-4E store, not an
 //!   A-4E-C one.
+//! - **Numbers for the name-only rows** (added 2026-11-13, each approved by the
+//!   user, each with its source in the row's `notes`). The 26 rows above held a
+//!   name and nothing else; they now carry a weight, and a few carry more:
+//!   - *Weight:* DCS's own value from the public pydcs library's
+//!     `dcs/weapons_data.py` at commit 5ddcc63a2dcd661e16b14f7aa43219b93044855d
+//!     (kg, converted to lb and rounded), except the Mk-81 Snakeye (250 lb, the
+//!     A-4E-C mod's `A4E_Weapons.lua` at 34c1ef4: `mass = 250 * POUNDS_TO_KG`) and
+//!     the AGM-65F (669 lb, the missile alone: USN training system plan
+//!     N88-NTSP-A-50-8501B/D, "Weight (Prelaunch) 669.0 pounds", via
+//!     globalsecurity.org; DCS lists it only with its LAU-117 launcher).
+//!   - *A frag floor, which is what clears the "no data on file" caution:* the
+//!     Mk-83 alone, 1,300 ft (USAF T.O. 1F-4C-34-1-1, F-4C/D/E Aircrew Weapons
+//!     Delivery Manual, Fig 6-14 sheet 2, level delivery, low drag, worst row at
+//!     360 KTAS, contact burst; it is a level-release figure). The Mk-20 Rockeye
+//!     and CBU-99 get none: T.O. 1-1M-34 Fig 6-1 gives 1,380 ft as the maximum
+//!     fragment altitude of an intact Rockeye cluster at sea level, which was
+//!     considered as a floor and rejected on 2026-11-13, because a release below
+//!     a floor is an error that blocks saving and it would block a normal 500 ft
+//!     laydown. The figure is in their `notes` for reference only.
+//!   - *Envelope extras, which do not clear the caution* (the floor the caution
+//!     keys on is still empty): BLU-107 minimum release 250 ft and maximum
+//!     release speed 620 (T.O. 1-1M-34 Sec I, "level delivery at 250 feet AGL and
+//!     for release speeds up to 620 KCAS"); CBU-105 200 to 20,000 ft and 650 kt
+//!     and CBU-103 40,000 ft (globalsecurity.org's CBU-105 page; the 200 to
+//!     20,000 ft and 650 kt are stated there for the CBU-97, before the WCMD kit).
+//!   Every other field is still null, and no row has `dcs_weapon_name`. A bomb or
+//!   cluster with no frag floor, and a missile with no minimum release, still get
+//!   the "no data on file" caution; their `notes` say so in the same words.
+//!   The GBU-16 gets a weight only (borrowing the Mk-83's floor was declined).
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -316,45 +348,66 @@ mod tests {
         assert_eq!(hydra.carried_by, vec!["a10c", "f4e", "f5e"], "sorted");
     }
 
-    /// Twenty-six rows are name-only: the four from reference DB v5, the nine
-    /// cluster and SAMP rows added 2026-10-03, and the thirteen bomb rows added
-    /// 2026-11-13. The planner has no release or frag figure for them and must
-    /// not be handed an invented one. A number here would also stop the "no data
-    /// on file" note from firing on an attack.
+    /// The 26 rows that were name-only until 2026-11-13 (the four from reference
+    /// DB v5, the nine cluster and SAMP rows added 2026-10-03, and the thirteen
+    /// bomb rows added 2026-11-13), and what each carries now. Every number in
+    /// the table came from a source the user approved, and that source is in the
+    /// row's `notes` (the last column is a marker that must still be there). A
+    /// number that is not in `extras` must still be null: the planner must not be
+    /// handed an invented one. Reworded, this is the test to change on purpose.
+    ///
+    /// `extras` are the non-null fields besides the weight, by field name.
     #[test]
-    fn the_name_only_rows_carry_no_numbers() {
-        let rows = [
-            ("gbu16", "bomb_guided", "laser"),
-            ("agm65f", "missile_agm", "ir"),
-            ("agm122", "missile_agm", "radar"),
-            ("gau12", "gun", "none"),
-            ("mk20", "cluster", "none"),
-            ("cbu99", "cluster", "none"),
-            ("cbu52b", "cluster", "none"),
-            ("blg66", "cluster", "none"),
-            ("samp125", "bomb_unguided", "none"),
-            ("samp250", "bomb_unguided", "none"),
-            ("samp400", "bomb_unguided", "none"),
-            ("samp250hd", "bomb_unguided", "none"),
-            ("samp400hd", "bomb_unguided", "none"),
-            ("mk81", "bomb_unguided", "none"),
-            ("mk81se", "bomb_unguided", "none"),
-            ("mk83", "bomb_unguided", "none"),
-            ("mk83air", "bomb_unguided", "none"),
-            ("br250", "bomb_unguided", "none"),
-            ("br500", "bomb_unguided", "none"),
-            ("blu107", "bomb_unguided", "none"),
-            ("cbu103", "cluster", "none"),
-            ("cbu105", "cluster", "none"),
-            ("bl755", "cluster", "none"),
-            ("cbu1a", "cluster", "none"),
-            ("cbu2a", "cluster", "none"),
-            ("cbu2ba", "cluster", "none"),
+    fn the_sourced_numbers_of_the_formerly_name_only_rows_are_pinned_by_id() {
+        const PYDCS: &str = "pydcs weapons_data.py 5ddcc63";
+        // (id, category, guidance, weight_lbs, extras, a source marker the notes must carry)
+        let rows: &[(&str, &str, &str, f64, &[(&str, f64)], &str)] = &[
+            ("gbu16", "bomb_guided", "laser", 1131.0, &[], PYDCS),
+            ("agm65f", "missile_agm", "ir", 669.0, &[], "N88-NTSP-A-50-8501B/D"),
+            ("agm122", "missile_agm", "radar", 194.0, &[], PYDCS),
+            ("gau12", "gun", "none", 626.0, &[], PYDCS),
+            ("mk20", "cluster", "none", 489.0, &[], PYDCS),
+            ("cbu99", "cluster", "none", 489.0, &[], PYDCS),
+            ("cbu52b", "cluster", "none", 539.0, &[], PYDCS),
+            ("blg66", "cluster", "none", 661.0, &[], PYDCS),
+            ("samp125", "bomb_unguided", "none", 265.0, &[], PYDCS),
+            ("samp250", "bomb_unguided", "none", 540.0, &[], PYDCS),
+            ("samp400", "bomb_unguided", "none", 794.0, &[], PYDCS),
+            ("samp250hd", "bomb_unguided", "none", 593.0, &[], PYDCS),
+            ("samp400hd", "bomb_unguided", "none", 871.0, &[], PYDCS),
+            ("mk81", "bomb_unguided", "none", 260.0, &[], PYDCS),
+            ("mk81se", "bomb_unguided", "none", 250.0, &[], "A4E_Weapons.lua 34c1ef4"),
+            ("mk83", "bomb_unguided", "none", 1001.0, &[("frag_min_safe_alt_ft", 1300.0)], "T.O. 1F-4C-34-1-1"),
+            ("mk83air", "bomb_unguided", "none", 1050.0, &[], PYDCS),
+            ("br250", "bomb_unguided", "none", 551.0, &[], PYDCS),
+            ("br500", "bomb_unguided", "none", 1102.0, &[], PYDCS),
+            (
+                "blu107",
+                "bomb_unguided",
+                "none",
+                483.0,
+                &[("min_release_alt_ft", 250.0), ("max_release_speed_ktas", 620.0)],
+                "T.O. 1-1M-34 Sec I p.1-39",
+            ),
+            ("cbu103", "cluster", "none", 948.0, &[("max_release_alt_ft", 40000.0)], "globalsecurity.org/military/systems/munitions/cbu-105.htm"),
+            (
+                "cbu105",
+                "cluster",
+                "none",
+                919.0,
+                &[("min_release_alt_ft", 200.0), ("max_release_alt_ft", 20000.0), ("max_release_speed_ktas", 650.0)],
+                "globalsecurity.org/military/systems/munitions/cbu-105.htm",
+            ),
+            ("bl755", "cluster", "none", 582.0, &[], PYDCS),
+            ("cbu1a", "cluster", "none", 726.0, &[], PYDCS),
+            ("cbu2a", "cluster", "none", 746.0, &[], PYDCS),
+            ("cbu2ba", "cluster", "none", 844.0, &[], PYDCS),
         ];
-        for (id, category, guidance) in rows {
+        assert_eq!(rows.len(), 26, "the table is the 26 formerly name-only rows");
+        for (id, category, guidance, weight, extras, source) in rows {
             let w = reference().get_weapon_by_id(id).unwrap_or_else(|| panic!("no weapon row {id}"));
-            assert_eq!((w.category.as_str(), w.guidance.as_str()), (category, guidance), "{id}");
-            assert_eq!(w.weight_lbs, 0.0, "{id}: weight 0 means not tracked");
+            assert_eq!((w.category.as_str(), w.guidance.as_str()), (*category, *guidance), "{id}");
+            assert_eq!(w.weight_lbs, *weight, "{id}: weight");
             let numbers = [
                 ("drag_index", w.drag_index),
                 ("min_release_alt_ft", w.min_release_alt_ft),
@@ -366,11 +419,65 @@ mod tests {
                 ("frag_min_safe_alt_ft", w.frag_min_safe_alt_ft),
             ];
             for (field, value) in numbers {
-                assert_eq!(value, None, "{id}.{field} is a number; this row is name-only");
+                let expected = extras.iter().find(|(f, _)| *f == field).map(|(_, v)| *v);
+                assert_eq!(value, expected, "{id}.{field}: only the sourced numbers may be filled in");
+            }
+            // Every extra named in the table is a real field (a typo would otherwise be ignored).
+            for (field, _) in *extras {
+                assert!(numbers.iter().any(|(f, _)| f == field), "{id}: {field} is not a weapon field");
             }
             assert_eq!(w.dcs_weapon_name, None, "{id}: the internal name is for the CLSID follow-up");
             let notes = w.notes.as_deref().unwrap_or("");
-            assert!(notes.contains("Name only"), "{id}: notes must say the row is name-only, not {notes:?}");
+            assert!(notes.contains("Weight:"), "{id}: notes must say where the weight comes from, not {notes:?}");
+            assert!(notes.contains(source), "{id}: notes must cite {source}, not {notes:?}");
+            assert!(!notes.contains("Name only"), "{id}: it is no longer a name-only row: {notes:?}");
+        }
+    }
+
+    /// The "no data on file" caution keys on one field per class
+    /// (`noDataNote` in `src/lib/attackChecks.ts`): a bomb or cluster needs
+    /// `frag_min_safe_alt_ft`, a missile needs `min_release_alt_ft`, a gun never
+    /// has one. The rows below still have no such figure, so the field must stay
+    /// null (the caution stays) and the row's `notes` must say so in the
+    /// planner's own words. The one row that did get a frag floor, the Mk-83, is
+    /// the other half: the field is filled and the notes carry no "on file" claim.
+    /// The Mk-20 Rockeye and CBU-99 are in the first group on purpose: a 1,380 ft
+    /// fragment ceiling was considered as their floor and rejected on 2026-11-13,
+    /// since a release below a floor is an error that blocks saving and it would
+    /// block a normal 500 ft laydown. (`scripts/geo-check.ts` pins that laydown.)
+    #[test]
+    fn rows_without_a_caution_clearing_number_keep_it_null_and_say_so() {
+        let bombs_without_floor = [
+            "gbu16", "mk20", "cbu99", "cbu52b", "blg66", "samp125", "samp250", "samp400", "samp250hd", "samp400hd", "mk81", "mk81se",
+            "mk83air", "br250", "br500", "blu107", "cbu103", "cbu105", "bl755", "cbu1a", "cbu2a", "cbu2ba",
+        ];
+        for id in bombs_without_floor {
+            let w = reference().get_weapon_by_id(id).unwrap_or_else(|| panic!("no weapon row {id}"));
+            assert_eq!(w.frag_min_safe_alt_ft, None, "{id}: a frag floor here would clear the caution; it needs a source first");
+            let notes = w.notes.as_deref().unwrap_or("");
+            assert!(notes.contains("No frag data on file"), "{id}: notes must say there is no frag data, not {notes:?}");
+        }
+        for id in ["agm65f", "agm122"] {
+            let w = reference().get_weapon_by_id(id).unwrap_or_else(|| panic!("no weapon row {id}"));
+            assert_eq!(w.min_release_alt_ft, None, "{id}: a minimum release here would clear the caution; it needs a source first");
+            let notes = w.notes.as_deref().unwrap_or("");
+            assert!(notes.contains("No release data on file"), "{id}: notes must say there is no release data, not {notes:?}");
+        }
+        // A gun has no caution to keep, but still has no release or frag figure.
+        let gau12 = reference().get_weapon_by_id("gau12").unwrap();
+        assert_eq!((gau12.min_release_alt_ft, gau12.frag_min_safe_alt_ft), (None, None));
+        assert!(gau12.notes.as_deref().unwrap_or("").contains("No release or frag data on file"));
+
+        let mk83 = reference().get_weapon_by_id("mk83").unwrap();
+        assert_eq!(mk83.frag_min_safe_alt_ft, Some(1300.0));
+        let notes = mk83.notes.as_deref().unwrap_or("");
+        assert!(notes.contains("Frag min-safe"), "mk83: notes must say where the floor comes from, not {notes:?}");
+        assert!(!notes.contains("on file"), "mk83: it has its floor, so it must not claim there is no data: {notes:?}");
+
+        // The Rockeye and CBU-99 keep the 1,380 ft figure in their notes for reference, and say it is not a floor.
+        for id in ["mk20", "cbu99"] {
+            let notes = reference().get_weapon_by_id(id).unwrap().notes.unwrap_or_default();
+            assert!(notes.contains("1,380 ft") && notes.contains("not used as a floor"), "{id}: {notes:?}");
         }
     }
 

@@ -248,3 +248,69 @@ estimates.
 - **Group edits.** A number changed on the Group tab is copied to every jet
   flying the same delivery. Each jet then re-derives its own headings on its
   own flank. Side, headings, IP and egress are never copied.
+
+## Weapon numbers (2026-11-13)
+
+Where the weapon table's numbers come from, for the 26 rows that were name-only
+until now. Each value was approved one by one; the row's `notes` in
+`crates/core/data/reference.json` carry the same sources. Nothing here was
+invented: a row with no source for a floor still has none, and its attacks and
+cards still carry the "no data on file" caution.
+
+- **Weights, all 26.** DCS's own value from the public pydcs library
+  (`dcs/weapons_data.py` at commit `5ddcc63a2dcd661e16b14f7aa43219b93044855d`),
+  kg converted to lb and rounded: Mk-81 260, Mk-83 1,001, Mk-83 AIR 1,050,
+  GBU-16 1,131, BLU-107 483 (the BLU-107/B Durandal entry; pydcs also lists a
+  lighter 185 kg "BLU-107 440lb" entry), CBU-52B 539, CBU-103 948, CBU-105 919,
+  BL-755 582, CBU-1/A 726, CBU-2/A 746, CBU-2B/A 844, Mk-20 489, CBU-99 489,
+  BLG-66 661, SAMP-125 265, SAMP-250 540, SAMP-250 HD 593, SAMP-400 794,
+  SAMP-400 HD 871, BR-250 551, BR-500 1,102, AGM-122 194 (the AGM-122A entry,
+  88 kg), GAU-12/U 626 (the Equalizer gunpod, 283.9 kg). Two come from
+  elsewhere: the **Mk-81 Snakeye, 250 lb**, from the A-4E-C community mod's
+  `A4E_Weapons.lua` at commit `34c1ef439581234ee24d4bde2e13a54999ebaa5a`
+  (`mass = 250 * POUNDS_TO_KG`); and the **AGM-65F, 669 lb**, the missile alone
+  (USN training system plan N88-NTSP-A-50-8501B/D, AGM-65F, "Weight (Prelaunch)
+  669.0 pounds", via globalsecurity.org). DCS lists the AGM-65F only with its
+  LAU-117 launcher (360 kg), so the Navy figure is the missile's.
+- **A frag floor (this clears the caution, and auto-build enforces it): the
+  Mk-83 only, 1,300 ft.** USAF T.O. 1F-4C-34-1-1, *F-4C/D/E Aircrew Weapons
+  Delivery Manual, Non-Nuclear*, Sec VI Safe Escape, Fig 6-14 sheet 2, p.6-43,
+  "Level delivery, low drag", straight-and-level constant-speed escape, worst
+  row (360 KTAS). Contact burst. A public scan is on archive.org
+  (`f4cdennwdmanual`). It agrees with T.O. 1A-7K-34-1-1 Fig 6-15. It is a
+  **level-release** figure.
+- **Considered and rejected: a floor for the Mk-20 Rockeye and CBU-99.**
+  USAF T.O. 1-1M-34, Fig 6-1, p.6-9, gives 1,380 ft as the maximum fragment
+  altitude of an intact Mk 20 Rockeye cluster at sea level ("MK 20 ROCKEYE
+  (INTACT CLUSTER) 1380"; cluster safe escape there is based on the canister
+  failing to open, p.6-2). It is a fragment ceiling, not a release minimum, and
+  it was dropped as a floor on 2026-11-13: a release below a floor is an error
+  that blocks saving, so it would have made the normal 500 ft Rockeye laydown
+  unsaveable on every jet. The figure stays in the two rows' `notes` for
+  reference; both rows keep the "no data on file" caution.
+- **Envelope extras (these do not clear the caution).** BLU-107: minimum release
+  250 ft and maximum 620 kt, from T.O. 1-1M-34 Sec I p.1-39, "designed for level
+  delivery at 250 feet AGL and for release speeds up to 620 KCAS" (the source
+  says KCAS; the field is KTAS). Heatblur's F-4E manual advises about 500 ft AGL.
+  CBU-105: 200 to 20,000 ft and up to 650 kt, and CBU-103: up to 40,000 ft, from
+  globalsecurity.org/military/systems/munitions/cbu-105.htm. The CBU-105's three
+  figures are stated there for the CBU-97, before the WCMD kit; the CBU-103's
+  40,000 ft is the page's "delivery altitude increases up to 40,000 feet" for
+  the WCMD kit.
+- **The GBU-16 gets a weight only.** Borrowing the Mk-83's floor for it was
+  declined.
+- **What changes in the planner.** The Mk-83's floor is read as its floor
+  everywhere the seed rows' are: auto-build raises a lower release to it, the
+  attack checks error on a release under it, the pop-up form shows "Weapon
+  floor", the card prints "MIN SAFE 1,300 ft AGL", and a strike's frag clear
+  time for it is 20 s (it was 0). Every Mk-83 profile already released above
+  1,300 ft, so no auto-built release moves. None of the envelope extras moves
+  an auto-built release either: the lowest release of the Durandal and the
+  CBU-105 is 500 ft AGL, above their 250 and 200 ft minimums.
+- **Not audited: the older rows.** The rows from the old SQLite seed cite no
+  source, and the public Dash-34 tables disagree with two of them: the same
+  Fig 6-14 gives the Mk-82 about 1,100 ft and the Mk-84 about 1,700 ft (level
+  release, 360 KTAS), where the seed rows say 3,000 and 4,500; T.O. 1-1M-34
+  Fig 6-1 gives maximum fragment altitudes of 2,050 ft (Mk-82) and 2,750 ft
+  (Mk-84) at sea level. Nothing was changed; see "Audit the seed rows' numbers"
+  in `ROADMAP.md`.

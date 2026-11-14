@@ -71,12 +71,17 @@ function hdg(v: number): string {
 
 /**
  * What the tool cannot check for this weapon, when its reference row has no
- * figure for the floor the checks below compare against. A few rows hold only a
- * name (the GBU-16, AGM-65F, AGM-122, the Rockeye, CBU-99, CBU-52B, Belouga and
- * SAMP bombs, and the Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500,
- * Durandal, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A and CBU-2B/A): the floor
- * is then no floor at all, and
- * without a note the attack would plan and print as if it had been checked.
+ * figure for the floor the checks below compare against. A few rows have a
+ * weight but no such floor (the GBU-16, AGM-65F, AGM-122, CBU-52B, Belouga and
+ * SAMP bombs, and the Mk-81, Mk-81 Snakeye, Mk-83 AIR, BR-250, BR-500,
+ * Durandal, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A and CBU-2B/A, and the
+ * Rockeye and CBU-99, whose 1,380 ft fragment ceiling was rejected as a floor
+ * because a floor blocks saving a normal 500 ft laydown; only the Mk-83 got a
+ * sourced frag floor, on 2026-11-13, and no longer appears here): the floor is
+ * then no floor at all, and
+ * without a note the attack would plan and print as if it had been checked. A
+ * weight, or an envelope extra such as the Durandal's minimum release, does not
+ * clear the note: only the one floor it keys on does.
  *
  * A bomb needs a frag min-safe altitude (that is where the aircraft is at
  * impact). A missile needs a minimum release altitude: the seven missile and

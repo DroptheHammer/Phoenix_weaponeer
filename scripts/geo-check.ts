@@ -1365,14 +1365,17 @@ ok('attackChecks: an absent optional field (egress heading) is not an error',
 
 // ---------------------------------------------------------------------------
 // "No data on file" (reference DB v5, the cluster and SAMP rows added
-// 2026-10-03, and the pylon-table bombs added 2026-11-13). The GBU-16, AGM-65F
-// and AGM-122 rows, the Rockeye, CBU-99, CBU-52B, Belouga and SAMP rows, and the
-// Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500, Durandal, CBU-103,
-// CBU-105, BL-755, CBU-1/A, CBU-2/A and CBU-2B/A rows, hold only a name, so
-// their floor is null and the limit checks skip it; without a
-// note the first such attack would plan and print as if it had been checked. A
-// bomb with no frag floor and a missile with no minimum release get a warning,
-// never an error (Save stays open). Rows shaped as get_all_weapons returns them.
+// 2026-10-03, and the pylon-table bombs added 2026-11-13). Those rows held only
+// a name, so their floor was null and the limit checks skipped it; without a
+// note the first such attack would plan and print as if it had been checked.
+// Since 2026-11-13 (Session 4) every one of them has a sourced weight, and the
+// Mk-83 also has a sourced frag floor, which is what clears the note (the
+// Rockeye and CBU-99 do not: a 1,380 ft fragment ceiling was considered and
+// rejected, since a floor makes a lower release an error that blocks saving):
+// a bomb or cluster with no frag floor and a missile with
+// no minimum release still get a warning, never an error (Save stays open), and
+// a weight or an envelope extra (the Durandal's, the CBU-105's, the CBU-103's)
+// does not clear it. Rows shaped as get_all_weapons returns them.
 // ---------------------------------------------------------------------------
 {
   const row = (id: string, name: string, category: string, guidance: string, fields: object = {}) =>
@@ -1399,6 +1402,8 @@ ok('attackChecks: an absent optional field (egress heading) is not an error',
     ['an Mk-82', row('mk82', 'Mk-82 LDGP', 'bomb_unguided', 'none', { min_release_alt_ft: 3000, frag_min_safe_alt_ft: 3000 })],
     ['a GBU-38', row('gbu38', 'GBU-38 JDAM', 'bomb_gps', 'gps', { min_release_alt_ft: 2500, frag_min_safe_alt_ft: 3000 })],
     ['a CBU-87', row('cbu87', 'CBU-87 CEM', 'cluster', 'none', { min_release_alt_ft: 500, frag_min_safe_alt_ft: 500 })],
+    // Session 4 (2026-11-13): the Mk-83 has a sourced frag floor and so loses the note.
+    ['an Mk-83 (the 1,300 ft frag floor it has since 2026-11-13)', row('mk83', 'Mk-83 LDGP', 'bomb_unguided', 'none', { weight_lbs: 1001, frag_min_safe_alt_ft: 1300 })],
     // The seven missile and standoff rows have no frag floor and a minimum release: no note for them.
     ['an AGM-65D (no frag floor, a minimum release)', row('agm65d', 'AGM-65D Maverick', 'missile_agm', 'ir', { min_release_alt_ft: 500 })],
     ['an AGM-154A (standoff, no frag floor, a minimum release)', row('agm154a', 'AGM-154A JSOW', 'standoff', 'gps', { min_release_alt_ft: 5000 })],
@@ -1409,6 +1414,23 @@ ok('attackChecks: an absent optional field (egress heading) is not an error',
     ok(`no-data note: not for ${what}`, noteOf(weapon).length === 0, JSON.stringify(noteOf(weapon)));
   }
   ok('no-data note: none without a weapon', runAttackChecks({ profileType: 'dive_ccip', profile: cleanDive as never }).every((c) => c.kind !== 'no-data'));
+
+  // A weight, or an envelope extra, is not a floor: only the field the note keys on clears it.
+  const stillNoted: [string, object, string][] = [
+    ['a GBU-16 with its weight (1,131 lb) but no frag floor', row('gbu16', 'GBU-16 Paveway II', 'bomb_guided', 'laser', { weight_lbs: 1131 }), 'No frag data on file'],
+    ['a Mk-20 Rockeye with its weight (489 lb) but no frag floor (the 1,380 ft ceiling was rejected as one)', row('mk20', 'Mk-20 Rockeye', 'cluster', 'none', { weight_lbs: 489 }), 'No frag data on file'],
+    ['a CBU-99 with its weight (489 lb) but no frag floor', row('cbu99', 'CBU-99', 'cluster', 'none', { weight_lbs: 489 }), 'No frag data on file'],
+    ['an AGM-65F with its weight (669 lb) but no minimum release', row('agm65f', 'AGM-65F Maverick', 'missile_agm', 'ir', { weight_lbs: 669 }), 'No release data on file'],
+    ['a Durandal with a 250 ft minimum release and a 620 kt cap but no frag floor',
+     row('blu107', 'BLU-107 Durandal (retarded)', 'bomb_unguided', 'none', { weight_lbs: 483, min_release_alt_ft: 250, max_release_speed_ktas: 620 }), 'No frag data on file'],
+    ['a CBU-105 with a 200 to 20,000 ft, 650 kt envelope but no frag floor',
+     row('cbu105', 'CBU-105 SFW', 'cluster', 'none', { weight_lbs: 919, min_release_alt_ft: 200, max_release_alt_ft: 20000, max_release_speed_ktas: 650 }), 'No frag data on file'],
+    ['a CBU-103 with a 40,000 ft ceiling but no frag floor', row('cbu103', 'CBU-103 CEM', 'cluster', 'none', { weight_lbs: 948, max_release_alt_ft: 40000 }), 'No frag data on file'],
+  ];
+  for (const [what, weapon, start] of stillNoted) {
+    const notes = noteOf(weapon);
+    ok(`no-data note: ${what} still gets it`, notes.length === 1 && notes[0]!.text.startsWith(start), JSON.stringify(notes));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2427,9 +2449,10 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   const wrongClass = newBombClasses.filter(([id, cls]) => { const w = real.find((r) => r.id === id); return !w || weaponClassOf(w) !== cls; });
   ok('real table: the thirteen bombs added 2026-11-13 are each in the class their name gives (the Durandal is high-drag)',
      wrongClass.length === 0, wrongClass.map(([id]) => `${id}=${weaponClassOf(real.find((r) => r.id === id) as never)}`).join());
-  const silentNewBombs = newBombClasses.filter(([id]) => noDataNote(real.find((r) => r.id === id) as never) === undefined);
-  ok('real table: ...and each is name-only, so an attack that uses one carries the "no data on file" note',
-     silentNewBombs.length === 0, silentNewBombs.map(([id]) => id).join());
+  // Session 4 (2026-11-13) gave the Mk-83 a sourced frag floor, so it is the one of the thirteen with no note.
+  const silentNewBombs = newBombClasses.filter(([id]) => id !== 'mk83' && noDataNote(real.find((r) => r.id === id) as never) === undefined);
+  ok('real table: ...and each but the Mk-83 still has no frag floor, so an attack that uses one carries the "no data on file" note',
+     silentNewBombs.length === 0 && noDataNote(real.find((r) => r.id === 'mk83') as never) === undefined, silentNewBombs.map(([id]) => id).join());
   const viperNew = choices(jet('f16c'), undefined, real).split(',');
   const hornetNew = choices(jet('f18c'), undefined, real).split(',');
   ok('real table: the F-16C is offered the CBU-103 and CBU-105 and no Mk-83; the Hornet the Mk-83 and Mk-83 AIR and no CBU-103',
@@ -2444,12 +2467,13 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // default is a 30° dive, which suits a Snakeye but not a Durandal.
   const tgtWp = { id: 'w-tgt', steerpoint: 8, name: 'TGT1', type: 'target', coordinates: tgt, elevation_ft: 4000 };
   const ipWp = { id: 'w-ip', steerpoint: 7, name: 'STPT 7', type: 'turnpoint', coordinates: calculateDestination(tgt, 68, 15.3), elevation_ft: 5000 };
-  const buildWith = (aircraftId: string, weaponId: string) => {
+  const buildWith = (aircraftId: string, weaponId: string, profileId?: string) => {
     const w = real.find((r) => r.id === weaponId)!;
     const pilot = jet(aircraftId, [{ weaponType: w.name, quantity: 2, weaponId }]) as { id: string };
     return autoBuildAttack({
       mission: { waypoints: [ipWp, tgtWp], flightMembers: [pilot], threats: [], attacks: [] },
       targetWaypointId: tgtWp.id, attackerId: pilot.id, weapons: real, profiles: lib(aircraftId), threatSystems: [],
+      overrides: profileId ? { profileId } : undefined,
     } as never);
   };
   const durandalBuilds = (carriedBy('blu107') ?? '').split(',').map((ac) => ({ ac, r: buildWith(ac, 'blu107') }));
@@ -2463,6 +2487,95 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   ok('Durandal rule is the Durandal\'s alone: an F-15E Snakeye still defaults to its dive and is still offered the laydown',
      snakeyeF15.attack?.profileType === 'dive_ccip' && snakeyeF15.candidates.some((p) => p.geometry === 'level'),
      `${snakeyeF15.attack?.profileType} / ${snakeyeF15.candidates.map((p) => p.id).join('|')}`);
+
+  // ── Sourced numbers for the formerly name-only rows (Session 4, 2026-11-13) ──
+  // Real rows, real profiles. Where a frag floor is sourced (the Mk-83, 1,300 ft) the "no data
+  // on file" caution goes and the floor is enforced; where it is not, the caution stays,
+  // whatever weight or envelope the row has. The Rockeye and CBU-99 are deliberately in the
+  // second group: a 1,380 ft fragment ceiling was considered as their floor and rejected
+  // (2026-11-13) because a release below a floor is an error that blocks saving, and it
+  // would block the normal 500 ft laydown every jet that carries them is written for.
+  const stillNotedIds = [
+    'gbu16', 'mk20', 'cbu99', 'cbu52b', 'blg66', 'samp125', 'samp250', 'samp400', 'samp250hd', 'samp400hd', 'mk81', 'mk81se', 'mk83air', 'br250',
+    'br500', 'blu107', 'cbu103', 'cbu105', 'bl755', 'cbu1a', 'cbu2a', 'cbu2ba', 'agm65f', 'agm122',
+  ];
+  const silentRows = stillNotedIds.filter((id) => noDataNote(real.find((r) => r.id === id) as never) === undefined);
+  ok('sourced numbers: the 24 rows with no caution-clearing number (the GBU-16, Rockeye, CBU-99, AGM-65F, AGM-122, the SAMPs...) still carry the "no data on file" note',
+     silentRows.length === 0, silentRows.join());
+  const releaseAglOf = (attack: { profileType: string; profile: unknown }): number => {
+    const p = attack.profile as { releaseAltitude_ft: number };
+    return attack.profileType === 'level_ccrp' ? p.releaseAltitude_ft - tgtWp.elevation_ft : p.releaseAltitude_ft;
+  };
+  const buildsFor = (weaponId: string) =>
+    (real.find((r) => r.id === weaponId)?.carried_by ?? []).flatMap((ac) =>
+      buildWith(ac, weaponId).candidates.map((p) => ({ ac, profileId: p.id, r: buildWith(ac, weaponId, p.id) })));
+  type BuildOf = ReturnType<typeof buildsFor>[number];
+  const labelOf = (b: BuildOf) => `${b.ac}/${b.profileId}`;
+  {
+    const [weaponId, floor] = ['mk83', 1300] as [string, number];
+    const builds = buildsFor(weaponId);
+    ok(`${weaponId}: every carrier x every profile the editor offers auto-builds (${builds.length} attacks)`,
+       builds.length > 0 && builds.every((b) => b.r.attack !== null), builds.filter((b) => !b.r.attack).map((b) => `${labelOf(b)}: ${b.r.problems.join(';')}`).join(' | '));
+    ok(`${weaponId}: ...and none of them carries the "no data on file" caution`,
+       builds.every((b) => b.r.checks.every((c) => c.kind !== 'no-data')), builds.filter((b) => b.r.checks.some((c) => c.kind === 'no-data')).map(labelOf).join());
+    const below = builds.filter((b) => b.r.attack && releaseAglOf(b.r.attack) < floor);
+    ok(`${weaponId}: ...and none releases below its ${floor.toLocaleString()} ft AGL floor (auto-build raises a lower profile to it)`,
+       below.length === 0, below.map((b) => `${labelOf(b)} ${releaseAglOf(b.r.attack!)}`).join());
+    ok(`${weaponId}: ...and none is flagged as an error`, builds.every((b) => !hasErrors(b.r.checks)), builds.filter((b) => hasErrors(b.r.checks)).map(labelOf).join());
+  }
+  // A release lowered by hand below the floor is an error, one at the floor is not: the floor is enforced as a check too.
+  const loweredTo = (weaponId: string, patch: object) =>
+    runAttackChecks({
+      profileType: 'dive_ccip', profile: { ...cleanDive, ...patch } as never, weapon: real.find((r) => r.id === weaponId) as never,
+    }).filter((c) => c.level === 'error' || c.text.includes('maximum'));
+  {
+    const [weaponId, floor] = ['mk83', 1300] as [string, number];
+    const under = loweredTo(weaponId, { releaseAltitude_ft: floor - 1, rollInAltitude_ft: 6000 });
+    ok(`${weaponId}: a release lowered to ${(floor - 1).toLocaleString()} ft AGL is an error, "min-safe ${floor.toLocaleString()} ft"`,
+       under.length === 1 && under[0]!.level === 'error' && under[0]!.text.includes(`min-safe ${floor.toLocaleString()} ft`), JSON.stringify(under));
+    ok(`${weaponId}: ...and a release at ${floor.toLocaleString()} ft AGL is fine`, loweredTo(weaponId, { releaseAltitude_ft: floor, rollInAltitude_ft: 6000 }).length === 0);
+  }
+  // The Rockeye and CBU-99 have no floor, by decision: their 500 ft laydown stays 500 ft, stays savable and keeps the caution.
+  for (const weaponId of ['mk20', 'cbu99']) {
+    const builds = buildsFor(weaponId);
+    ok(`${weaponId}: every carrier x every profile the editor offers auto-builds (${builds.length} attacks)`,
+       builds.length > 0 && builds.every((b) => b.r.attack !== null), builds.filter((b) => !b.r.attack).map((b) => `${labelOf(b)}: ${b.r.problems.join(';')}`).join(' | '));
+    ok(`${weaponId}: ...each carries the "no data on file" caution, and none is an error, so every one can be saved`,
+       builds.every((b) => b.r.checks.some((c) => c.kind === 'no-data' && c.level === 'warn') && !hasErrors(b.r.checks)),
+       builds.filter((b) => !b.r.checks.some((c) => c.kind === 'no-data') || hasErrors(b.r.checks)).map(labelOf).join());
+    const laydowns = builds.filter((b) => b.profileId.endsWith('.level.laydown'));
+    ok(`${weaponId}: ...and the laydown on all ${laydowns.length} jets that have one still releases at its written 500 ft AGL, with nothing raised`,
+       laydowns.length > 0 && laydowns.every((b) => b.r.attack !== null && releaseAglOf(b.r.attack) === 500 && !b.r.adjustments.some((a) => a.startsWith('Release raised'))),
+       laydowns.map((b) => `${labelOf(b)} ${b.r.attack ? releaseAglOf(b.r.attack) : 'no attack'} ${b.r.adjustments.join('|')}`).join(' ; '));
+  }
+  {
+    // The two jets whose default Rockeye profile is the laydown (A-4E-C, F-4E), and the Hornet, named outright.
+    const f4e = buildWith('f4e', 'mk20');
+    ok('mk20: the F-4E\'s default Rockeye attack is the laydown, released at 500 ft AGL (4,500 ft MSL on this 4,000 ft target), savable',
+       f4e.attack?.profileType === 'level_ccrp' && f4e.attack !== null && releaseAglOf(f4e.attack) === 500 &&
+       (f4e.attack.profile as { releaseAltitude_ft: number }).releaseAltitude_ft === 4500 && !hasErrors(f4e.checks) && f4e.adjustments.every((a) => !a.startsWith('Release raised')),
+       `${f4e.attack?.profileType} ${f4e.attack ? releaseAglOf(f4e.attack) : ''} ${f4e.adjustments.join('|')} ${JSON.stringify(f4e.checks)}`);
+    const hornet = buildWith('f18c', 'cbu99', 'f18c.level.laydown');
+    ok('cbu99: the Hornet\'s laydown is released at 500 ft AGL and is savable, so a frag floor above 500 ft has not crept back in',
+       hornet.attack !== null && releaseAglOf(hornet.attack) === 500 && !hasErrors(hornet.checks), `${hornet.attack ? releaseAglOf(hornet.attack) : 'no attack'} ${JSON.stringify(hornet.checks)}`);
+  }
+  // The envelope extras (they do not clear the caution, but they are checked).
+  const envelope = (weaponId: string, patch: object) =>
+    runAttackChecks({
+      profileType: 'dive_ccip', profile: { ...cleanDive, rollInAltitude_ft: 50000, ...patch } as never, weapon: real.find((r) => r.id === weaponId) as never,
+    }).filter((c) => c.kind !== 'no-data');
+  ok('Durandal: a release under its 250 ft minimum is an error, at 250 ft it is fine, and over 620 kt is a warning',
+     envelope('blu107', { releaseAltitude_ft: 249 }).some((c) => c.level === 'error' && c.text.includes('minimum 250 ft')) &&
+     envelope('blu107', { releaseAltitude_ft: 250 }).length === 0 &&
+     envelope('blu107', { releaseAltitude_ft: 500, releaseSpeed_ktas: 621 }).some((c) => c.level === 'warn' && c.text.includes('maximum 620')));
+  ok('CBU-105: a release under 200 ft is an error, over 20,000 ft or 650 kt is a warning, and inside the envelope is fine',
+     envelope('cbu105', { releaseAltitude_ft: 199 }).some((c) => c.level === 'error' && c.text.includes('minimum 200 ft')) &&
+     envelope('cbu105', { releaseAltitude_ft: 20001 }).some((c) => c.level === 'warn' && c.text.includes('maximum 20,000 ft')) &&
+     envelope('cbu105', { releaseAltitude_ft: 3000, releaseSpeed_ktas: 651 }).some((c) => c.level === 'warn' && c.text.includes('maximum 650')) &&
+     envelope('cbu105', { releaseAltitude_ft: 200 }).length === 0 && envelope('cbu105', { releaseAltitude_ft: 20000, releaseSpeed_ktas: 650 }).length === 0);
+  ok('CBU-103: a release over its 40,000 ft ceiling is a warning, and one at 40,000 ft is fine',
+     envelope('cbu103', { releaseAltitude_ft: 40001 }).some((c) => c.level === 'warn' && c.text.includes('maximum 40,000 ft')) &&
+     envelope('cbu103', { releaseAltitude_ft: 40000 }).length === 0);
 
   // ── Strike near me: "every aircraft carries it" ──
   const nearMeWeapon = real.find((w) => w.id === REAL_WORLD_DEFAULT_WEAPON_ID);

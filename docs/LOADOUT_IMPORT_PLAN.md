@@ -368,3 +368,20 @@ The seven gaps listed above are closed, and `KNOWN_CLASS_GAPS` is empty.
   count glued to the weapon (`2xGBU-12`) are unrecognised.
 - `dcs_weapon_name` was left alone: the generator did not need it, and its
   refdata test still says it is null on the name-only rows.
+
+### Session 4 (built 2026-11-13): numbers for the name-only rows
+
+- The 26 rows Sessions 1 to 3 left name-only now have a sourced weight, one
+  of them (the Mk-83) a frag floor, and three some release limits (BLU-107,
+  CBU-105, CBU-103). A 1,380 ft fragment ceiling for the Rockeye and CBU-99 was
+  considered as a floor and rejected on 2026-11-13, because a floor blocks
+  saving their normal 500 ft laydown; they keep the caution. The sources are in
+  `docs/DELIVERY_PLANNING.md`,
+  "Weapon numbers (2026-11-13)", and in each row's `notes`. "Name only" no
+  longer describes any row; the rows still without a caution-clearing number
+  say "No frag data on file" (bombs and clusters) or "No release data on file"
+  (missiles), the planner's own words. `dcs_weapon_name` is still null on all
+  26. Tests: `the_sourced_numbers_of_the_formerly_name_only_rows_are_pinned_by_id`
+  and `rows_without_a_caution_clearing_number_keep_it_null_and_say_so`
+  (`crates/core/src/refdata.rs`), and the "sourced numbers" block in
+  `scripts/geo-check.ts`.
