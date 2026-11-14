@@ -2,6 +2,42 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Session:** 2026-11-13/14 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **Session 5 (loft) shipped to `main`: all five planned
+build sessions are done. Nothing released. `main` was v0.3.3 plus Sessions
+1–5, unreleased (released as v0.3.4 the next session).** Gates at the last
+code commit (`27908a6`): geo-check 718/0, core 154, desktop 24 + 1 ignored,
+`npm run build`. Pages run 43576259468 green on `c97d8da`.
+
+**What was built** (sources and decisions: `docs/DELIVERY_PLANNING.md`,
+"Loft and LABS"; memory `project-loft-geometry`):
+- `e33e899` **The sourced loft model** (`src/lib/loftPlanning.ts`): a 4 G pull
+  built over 2 s, the climb trading speed for height, release at the loft
+  angle, and the bomb with one drag constant fitted to the public USAF F-4
+  weapons delivery manual's loft table (T.O. 1F-4C-34-1-1 Fig 5-9, M117).
+  All 13 rows are geo-check tests (range within 0.6%, range peak at 42°);
+  Heatblur's DCS Mk-82 example lands within 1%. A vacuum bomb lands 10–24%
+  long, so lofts can't use the pop-up's. Pull-up range and release
+  altitude are derived; the profiles' old unsourced numbers are gone.
+- `27908a6` **Picture, side view, editor (`LoftForm.tsx`), card, checks and
+  strikes.** The F-4E pull-up timer is in the card header ("TIMER nn.n s · set
+  before IP"), from the live IP. `c97d8da`: roadmap and plan updated.
+- **Decided by the user:** a loft runs straight from the IP (custom IP picks
+  another axis; no straight-in warning); lofts skip the release floors and
+  get a **warning** inside 0.5 nm of the target at bomb impact, plus one when
+  the IP is inside the pull-up range.
+- **On screen, checked by the user, no issues:** F-16 loft map picture, side
+  view, editor knobs, F-4E LABS card header.
+- **New on the roadmap (optional):** smooth side-view bomb arc; per-weapon
+  drag; the F-4E gyro (pitch) angle, about 6–8° above the planned
+  flight-path angle. `docs/BUILD_SESSIONS_PLAN.md` is finished and can move
+  to `docs/archive/`.
+- Lesson: research agents can litter the repo root (this session left four
+  copies of the F-16 handbook's text there). Check `git status` before
+  committing.
+
+---
+
 **Session:** 2026-11-13 UTC (Opus 5.5 orchestrating on the main Mac,
 Sonnet 5.5 builders). **Four of the five planned build sessions shipped to
 `main`; nothing released. `main` is v0.3.3 plus all of it, unreleased.**

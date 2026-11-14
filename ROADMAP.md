@@ -20,7 +20,7 @@ The five bold build items below each have a session plan in
 counts (2), CLI loadouts (3), numbers (4), loft (5).
 
 - [x] **Loft geometry** (F-16 Loft 30°, F-4E LABS 45°) — 2026-11-14,
-      Session 5, on `main`, unreleased. Checked on screen by the user (map,
+      Session 5, released in v0.3.4. Checked on screen by the user (map,
       side view, editor, LABS card). Model and sources in
       `docs/DELIVERY_PLANNING.md`, "Loft and LABS": the USAF F-4 weapons
       delivery manual's loft table (Fig 5-9) is a geo-check test, row by row.
@@ -37,7 +37,7 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
         flight-path angle the tool plans on (Fig 5-9: 36.9° for a 30°
         release). No gyro setting is printed.
 - [x] **Numbers for the twenty-six name-only rows** (2026-11-13, Session 4,
-      on `main`, unreleased). Each number was approved one by one and its
+      released in v0.3.4). Each number was approved one by one and its
       source is in the row's `notes` (and `docs/DELIVERY_PLANNING.md`, "Weapon
       numbers (2026-11-13)").
   - *Weight, all 26:* DCS's own, from the public pydcs library, except the
@@ -72,7 +72,7 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       changed yet: decide row by row whether to re-source them (a lower floor
       lets auto-build plan lower releases).
 - [x] **Bombs the modules carry that still had no row** (2026-11-13,
-      Session 1, on `main`, unreleased). Thirteen name-only rows from the DCS
+      Session 1, released in v0.3.4). Thirteen name-only rows from the DCS
       pylon tables: Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500,
       BLU-107 Durandal, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A and
       CBU-2B/A. The Snakeye, the AIR and the Durandal (parachute-retarded; the
@@ -80,8 +80,8 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       not the A-4E-C's, and the F-4E carries the CBU-1/A too. A link import
       now loads each of them. The store with no row in the tests and in the
       synthetic file is now the AGM-45 Shrike.
-- [x] **Rack counts written as a bare number** (2026-11-13, Session 2, on
-      `main`, unreleased). Four shapes taken from the DCS name lists are read:
+- [x] **Rack counts written as a bare number** (2026-11-13, Session 2,
+      released in v0.3.4). Four shapes taken from the DCS name lists are read:
       a trailing `* N`, a leading `N` before the weapon, `MAK79 N`, and a
       trailing `x N`. A rack's own number (the 42 in BRU-42) is still never a
       count. Stores with no row are still counted only by `with N x`. Over
@@ -93,8 +93,8 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
       carry Mk-82 values that auto-build applies to bombs only. Needs
       per-rocket numbers from the manuals.
-- [x] **Loadout from a CLI/.miz import** (2026-11-13, Session 3, on `main`,
-      unreleased). The CLI writes pylons as DCS CLSIDs; a generated table
+- [x] **Loadout from a CLI/.miz import** (2026-11-13, Session 3,
+      released in v0.3.4). The CLI writes pylons as DCS CLSIDs; a generated table
       (`scripts/gen-clsids.mjs` → `crates/core/src/parsers/clsid_data.rs`, from
       pydcs and the A-4E-C mod, both pinned) names each one, and the names go
       through the same rules and merge as a link's. A CLSID the table does not
@@ -181,7 +181,7 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
         lines, and it reads cleanly. The synthetic file's four-line jet is
         longer than any real one.
   - [ ] The same screens on the iPhone (pinned until the user has the phone).
-- [x] **On-screen check of the cluster and SAMP rows** (on `main`, unreleased),
+- [x] **On-screen check of the cluster and SAMP rows** (released in v0.3.4),
       2026-11-13, in a build from source: the synthetic file's Venom 1-3 shows
       Rockeye as known and BL-755 as "not in the weapon table", and an F/A-18C
       attack offers Mk-20 Rockeye and CBU-99.
@@ -195,7 +195,12 @@ waypoint list on 2026-10-03).
 
 ## Shipped
 
-### Unreleased (on `main`, next desktop release)
+### v0.3.4 — 2026-11-14
+- **Loft attacks** (2026-11-14): F-16 Loft 30 and F-4E LABS 45 offered again,
+  fitted to the USAF F-4 Dash-34 loft table (every row a geo-check test).
+  Map picture, side view, editor knobs, the F-4E pull-up timer in the card
+  header, a 0.5 nm impact-standoff warning instead of release floors, and
+  strike support.
 - **Cluster bombs for the jets that had none, and the Mirage F1's own
   bombs** (2026-10-03). Nine new weapons, by name only: Mk-20 Rockeye
   (F/A-18C, F-14, AV-8B, A-4E-C, F-4E, F-15E), CBU-99 (F/A-18C, F-14,

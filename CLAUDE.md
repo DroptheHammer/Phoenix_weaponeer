@@ -221,47 +221,34 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-11-13/14 UTC (Opus 5.5 orchestrating on the main Mac,
-Sonnet 5.5 builders). **Session 5 (loft) shipped to `main`: all five planned
-build sessions are done. Nothing released. `main` is v0.3.3 plus Sessions
-1–5, unreleased. The user wants to release 0.3.4 next session.** Gates at
-the last code commit (`27908a6`): geo-check 718/0, core 154, desktop 24 + 1
-ignored, `npm run build`. Pages run 43576259468 green on `c97d8da`.
-
-**What was built** (sources and decisions: `docs/DELIVERY_PLANNING.md`,
-"Loft and LABS"; memory `project-loft-geometry`):
-- `e33e899` **The sourced loft model** (`src/lib/loftPlanning.ts`): a 4 G pull
-  built over 2 s, the climb trading speed for height, release at the loft
-  angle, and the bomb with one drag constant fitted to the public USAF F-4
-  weapons delivery manual's loft table (T.O. 1F-4C-34-1-1 Fig 5-9, M117).
-  All 13 rows are geo-check tests (range within 0.6%, range peak at 42°);
-  Heatblur's DCS Mk-82 example lands within 1%. A vacuum bomb lands 10–24%
-  long, so lofts can't use the pop-up's. Pull-up range and release
-  altitude are derived; the profiles' old unsourced numbers are gone.
-- `27908a6` **Picture, side view, editor (`LoftForm.tsx`), card, checks and
-  strikes.** The F-4E pull-up timer is in the card header ("TIMER nn.n s · set
-  before IP"), from the live IP. `c97d8da`: roadmap and plan updated.
-- **Decided by the user:** a loft runs straight from the IP (custom IP picks
-  another axis; no straight-in warning); lofts skip the release floors and
-  get a **warning** inside 0.5 nm of the target at bomb impact, plus one when
-  the IP is inside the pull-up range.
-- **On screen, checked by the user, no issues:** F-16 loft map picture, side
-  view, editor knobs, F-4E LABS card header.
-- **New on the roadmap (optional):** smooth side-view bomb arc; per-weapon
-  drag; the F-4E gyro (pitch) angle, about 6–8° above the planned
-  flight-path angle. `docs/BUILD_SESSIONS_PLAN.md` is finished and can move
-  to `docs/archive/`.
+**Last session:** 2026-11-14 UTC (Opus 5.5 on the main Mac). **v0.3.4
+released and published, marked Latest** (2026-11-14T08:56Z):
+https://github.com/DroptheHammer/Phoenix_weaponeer/releases/tag/v0.3.4.
+It carries build Sessions 1–5: loft/LABS, 13 more bombs plus the cluster
+and SAMP rows, bare-number rack counts, CLI/.miz loadouts, sourced weapon
+numbers.
+- Privacy scan clean (known false positives only; binaries and commit
+  metadata clean). Gates: geo-check 718/0, core 154, desktop 24 + 1
+  ignored, `npm run build`.
+- Version bump `efd96fe`, tag `v0.3.4`. Release CI run **43576856227**
+  green on all three platforms; all seven installers attached.
+- Web app (GitHub Pages) publish run **43578151796** green (build and
+  deploy). It was the first publish on the Node 24 actions
+  (upload-pages-artifact@v5, deploy-pages@v5), and they worked. The live site
+  was redeployed at 08:58 UTC.
+- Release notes list known gaps: the Mk-82/Mk-84 seed floors versus the
+  Dash-34 (roadmap audit), no F-4E gyro angle, no Harrier strafe.
+- ROADMAP: "Unreleased" became "v0.3.4 — 2026-11-14", with loft added.
 
 ### START OF NEXT SESSION
 
 1. `git pull origin main`.
-2. **Release 0.3.4** (the user asked for it): the full RELEASE CHECKLIST
-   above, through publishing, installers included. It carries Sessions 1–5
-   (13 bomb rows, bare rack counts, CLI/.miz loadouts, sourced weapon
-   numbers, loft/LABS). Release notes in plain language from the commits
-   since `v0.3.3`. It is the first run of the web app's upload and publish
-   steps on the Node 24 actions: watch that Pages run. Run the privacy scan
-   first (memory `reference-privacy-scan-scripts`).
+2. **Nothing is queued.** "What's next" = ROADMAP.md "Open" cross-checked
+   against the code (memory `feedback-check-shipped-work-not-one-doc`).
+   Candidates there: the seed-row floor audit (Mk-82/Mk-84), the F-4E gyro
+   angle, per-weapon loft drag, floors for the name-only rows.
+   `docs/BUILD_SESSIONS_PLAN.md` is finished and can move to `docs/archive/`
+   (update the roadmap's pointers to it when it does).
 3. **Still open:** the 0.3.3 loadout screens on the iPhone (ask only if the
    user has the phone); the CLI loadouts have never been looked at on screen;
    a real Android phone check (`docs/MOBILE_WEB_PLAN.md`).
@@ -271,5 +258,5 @@ ignored, `npm run build`. Pages run 43576259468 green on `c97d8da`.
    `$TMPDIR`: don't write a log there and read it back inside.
 5. **Look-and-feel work goes in front of the user in the real app first.**
    "Simulate" means running the app's own functions on real data.
-6. **Research agents can litter the repo root** (this session left four copies
-   of the F-16 handbook's text there). Check `git status` before committing.
+6. **Research agents can litter the repo root.** Check `git status` before
+   committing.
