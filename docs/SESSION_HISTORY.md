@@ -2,6 +2,31 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Session:** 2026-11-14 UTC (Opus 5.5 on the main Mac). **v0.3.4
+released and published, marked Latest** (2026-11-14T08:56Z):
+https://github.com/DroptheHammer/Phoenix_weaponeer/releases/tag/v0.3.4.
+It carries build Sessions 1–5: loft/LABS, 13 more bombs plus the cluster
+and SAMP rows, bare-number rack counts, CLI/.miz loadouts, sourced weapon
+numbers.
+- Privacy scan clean (known false positives only; binaries and commit
+  metadata clean). Gates: geo-check 718/0, core 154, desktop 24 + 1
+  ignored, `npm run build`.
+- Version bump `efd96fe`, tag `v0.3.4`. Release CI run **43576856227**
+  green on all three platforms; all seven installers attached.
+- Web app (GitHub Pages) publish run **43578151796** green (build and
+  deploy). It was the first publish on the Node 24 actions
+  (upload-pages-artifact@v5, deploy-pages@v5), and they worked. The live site
+  was redeployed at 08:58 UTC.
+- Release notes list known gaps: the Mk-82/Mk-84 seed floors versus the
+  Dash-34 (roadmap audit), no F-4E gyro angle, no Harrier strafe.
+- ROADMAP: "Unreleased" became "v0.3.4 — 2026-11-14", with loft added.
+- Left open for later sessions: the 0.3.3 loadout screens on the iPhone; the
+  CLI loadouts have never been looked at on screen; a real Android phone
+  check (`docs/MOBILE_WEB_PLAN.md`); `docs/BUILD_SESSIONS_PLAN.md` is
+  finished and can move to `docs/archive/`.
+
+---
+
 **Session:** 2026-11-13/14 UTC (Opus 5.5 orchestrating on the main Mac,
 Sonnet 5.5 builders). **Session 5 (loft) shipped to `main`: all five planned
 build sessions are done. Nothing released. `main` was v0.3.3 plus Sessions

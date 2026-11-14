@@ -160,6 +160,10 @@ profile to egress. Everything it needs exists:
   carries:
   - The opening view was far too zoomed out. Playback opens following the
     jet, and the home view frames the attack, not the whole run-in.
+  - The run starts **10 seconds before the first action** (a later note the
+    same day), not two minutes out at the start of the run-in. The design
+    reads "first action" as the first planner marker after the IP; the
+    whole run-in stays available from a switch.
   - Speeds are **1×, 2×, 4×, 8×, 16×** (this replaces the list under B3).
   - The planner's and the card's colour code on the 3D path (run-in blue,
     climb yellow, pull-down orange, attack red, egress green) and the same

@@ -221,42 +221,88 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-11-14 UTC (Opus 5.5 on the main Mac). **v0.3.4
-released and published, marked Latest** (2026-11-14T08:56Z):
-https://github.com/DroptheHammer/Phoenix_weaponeer/releases/tag/v0.3.4.
-It carries build Sessions 1–5: loft/LABS, 13 more bombs plus the cluster
-and SAMP rows, bare-number rack counts, CLI/.miz loadouts, sourced weapon
-numbers.
-- Privacy scan clean (known false positives only; binaries and commit
-  metadata clean). Gates: geo-check 718/0, core 154, desktop 24 + 1
-  ignored, `npm run build`.
-- Version bump `efd96fe`, tag `v0.3.4`. Release CI run **43576856227**
-  green on all three platforms; all seven installers attached.
-- Web app (GitHub Pages) publish run **43578151796** green (build and
-  deploy). It was the first publish on the Node 24 actions
-  (upload-pages-artifact@v5, deploy-pages@v5), and they worked. The live site
-  was redeployed at 08:58 UTC.
-- Release notes list known gaps: the Mk-82/Mk-84 seed floors versus the
-  Dash-34 (roadmap audit), no F-4E gyro angle, no Harrier strafe.
-- ROADMAP: "Unreleased" became "v0.3.4 — 2026-11-14", with loft added.
+**Last session:** 2026-11-14 UTC (Fable 5.2 directing on the main Mac, with
+Opus and Sonnet agents). **0.4.0 "Polish and Playback" is under way and was
+paused mid-work at the user's request.** Nothing of 0.4.0 is on `main`
+except documents. The brief, the user's decisions and
+each gate's outcome are in `docs/V040_PLAN.md`.
+
+**Branches, all pushed** (rollback tag `pre-0.4.0` on `main`):
+- `v040-playback`, tip `e429ced`: the playback maths (`src/lib/playback/`),
+  three.js 0.187, map and terrain tiles through Rust with a disk cache
+  (`src-tauri/src/tiles.rs`), and the first 3D cut: a "▶ Play" button beside
+  Cancel in the attack editor flies one jet over real terrain
+  (`src/lib/playbackScene/`, `src/components/playback/`). Gates there:
+  geo-check 901/0, tsc, build with the bundle check, the web check, core 154,
+  desktop 34 + 2 ignored. Headless checks: `scripts/playback-shots.cjs`.
+- `v040-landing-data`, one commit `3127c41` on an older `main`: the front
+  page's data layer (`src/lib/landing/`, 143 checks). Nothing in the app
+  uses it yet. Both branches append to the end of `scripts/geo-check.ts`, so
+  expect a small conflict there.
+
+**The user's decisions this session** (details in `docs/V040_PLAN.md`):
+- **Design pick: the EFB draft.** He asked to see it on the iPhone next.
+- **Terrain gate passed** in the real Mac app (72 frames a second, Retina).
+  He wants: playback that opens following the jet and **starts 10 seconds
+  before the first action** instead of flying the whole run-in; speeds 1× to
+  16×; the planner's colour code on the 3D path and on the timeline; the
+  target drawn as the planner draws it; action-point markers with the
+  planner's own instructions (off, as they come, or always); threat
+  envelopes switched from a menu by system, early-warning radars included.
+- Windows is accepted untested. The loft card's "push IP (est)" lateness is
+  parked on the roadmap. Don't re-raise either.
+- Not answered, so the design's defaults stand: Reset after Apply goes back
+  to the applied times; closing playback with unapplied times discards them.
+
+**Three jobs were stopped part-way.** Their papers are git-ignored and exist
+only on the main Mac (`Other Items/`):
+1. **iPhone mockup of the EFB draft:** `Other Items/v040-mockups/efb-phone.html`
+   is built and has two critiques beside it (`critique-efb-phone-*.md`). The
+   revision was half done. Left: finish the revision, run the static check,
+   screenshot at 375×667, 390×844 and 430×932, publish as a private artifact
+   and give the user the link (never put that link in the repo).
+2. **Full-playback spec, section 9** (the user's feedback folded in):
+   `Other Items/v040-work/b3/` holds the brief (`OWNER_FEEDBACK.md`), two
+   inventories, two designs (`fb-*.md`) and two skeptic passes (in the job's
+   journal). Left: write section 9, the director reviews it and appends it
+   to `BUILD_SPEC.md` there, then the build starts stage by stage on a
+   branch cut from `v040-playback`. Nothing of the full playback is built.
+3. **EFB design-foundation spec** (tokens, bundled fonts, shared buttons and
+   panels): `Other Items/v040-work/a2/` has two finished maps and an
+   unfinished first draft of `BUILD_SPEC.md`. Left: finish it, check it with
+   two skeptics, then build on a new branch cut from `v040-landing-data`.
+
+**Waiting on the user:** the icon and splash images (prompts are in
+`docs/V040_PLAN.md`, Track D; picks go in `Other Items/Artwork/v040/`), and
+whether "first action" means the first planner marker after the IP (the
+reading the design uses) or the IP itself.
 
 ### START OF NEXT SESSION
 
-1. `git pull origin main`.
-2. **Nothing is queued.** "What's next" = ROADMAP.md "Open" cross-checked
-   against the code (memory `feedback-check-shipped-work-not-one-doc`).
-   Candidates there: the seed-row floor audit (Mk-82/Mk-84), the F-4E gyro
-   angle, per-weapon loft drag, floors for the name-only rows.
-   `docs/BUILD_SESSIONS_PLAN.md` is finished and can move to `docs/archive/`
-   (update the roadmap's pointers to it when it does).
-3. **Still open:** the 0.3.3 loadout screens on the iPhone (ask only if the
-   user has the phone); the CLI loadouts have never been looked at on screen;
-   a real Android phone check (`docs/MOBILE_WEB_PLAN.md`).
-4. **Never `cd` into a subfolder**, and edit files only with Edit/Write (memory
-   `feedback-commands-that-dont-prompt`). **`git push`, `gh` and `cargo` run
-   outside the Bash sandbox.** A command run outside it has a different
-   `$TMPDIR`: don't write a log there and read it back inside.
-5. **Look-and-feel work goes in front of the user in the real app first.**
-   "Simulate" means running the app's own functions on real data.
-6. **Research agents can litter the repo root.** Check `git status` before
-   committing.
+1. `git pull origin main`. The main Mac's checkout is on `v040-playback`;
+   leave it there for playback work.
+2. **Pick the three stopped jobs up where they stopped.** If the same Claude
+   Code session is still open on the main Mac, resume them there: they keep
+   their finished steps. In a new session, start from the papers listed
+   above. Memory `project-v040-polish-and-playback` has the full state,
+   including the private mockup links.
+3. **Order after that:** show the user the iPhone mockup; finish section 9
+   and build the full playback, his complaints first; finish the foundation
+   spec and build it. Merge to `main` only after he has seen each in the
+   real app.
+4. **Still open from before 0.4.0:** the 0.3.3 loadout screens on the iPhone
+   (ask only if the user has the phone); the CLI loadouts have never been
+   looked at on screen; a real Android phone check
+   (`docs/MOBILE_WEB_PLAN.md`); `docs/BUILD_SESSIONS_PLAN.md` is finished and
+   can move to `docs/archive/`.
+5. **Never `cd` into a subfolder**, and edit files only with Edit/Write (memory
+   `feedback-commands-that-dont-prompt`). **`git push`, `gh`, `cargo`,
+   `git worktree add/remove` and the headless browser run outside the Bash
+   sandbox.** A command run outside it has a different `$TMPDIR`: don't
+   write a log there and read it back inside.
+6. **Commits:** `TZ=UTC`, and credited with the `Co-Authored-By` line only.
+   The session link is left out because this repo is public.
+7. **Look-and-feel work goes in front of the user in the real app first.**
+   Review every agent's diff and show each new check failing once.
+8. **Agents can litter the repo root** (one left a screenshot there this
+   session). Check `git status` before committing.
