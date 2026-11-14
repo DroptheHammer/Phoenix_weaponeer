@@ -247,5 +247,9 @@ The seven gaps listed above are closed, and `KNOWN_CLASS_GAPS` is empty.
 - **The synthetic loaded-jets file** now has `Venom 1-3` carrying recognised
   Rockeyes and one BL-755, which has no row, so the "not in the weapon table"
   mark can still be seen.
+- **Checked on screen 2026-11-13** in a build from source: Venom 1-3's marks,
+  an F/A-18C offered Rockeye and CBU-99, and a real link's Loadouts list.
+  None of the four captured links carries a loadout longer than three lines.
+  The iPhone check is still open.
 - **Still no row:** Mk-81, Mk-83, CBU-103, CBU-105, BL-755, CBU-1/A, CBU-2/A,
   Durandal, BR-250 and BR-500 (on the roadmap).

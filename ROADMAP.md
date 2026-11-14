@@ -97,9 +97,15 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
       `test-data/nevada_SYNTHETIC_loaded_jets.json`, and all four passed: the
       import preview's **Loadouts** list, the Flight roster, the weapon
       already picked on a new attack, and **Show all weapons**. Still open:
-  - [ ] The Loadouts list and the roster with long loadouts (a real link,
-        such as the Syria capture in `test-data/private/fragorders-links/`).
-  - [ ] The same screens on the iPhone.
+  - [x] The Loadouts list with a real link (2026-11-13). No captured link has
+        a long loadout: the longest is the Syria capture's AV-8B flight, three
+        lines, and it reads cleanly. The synthetic file's four-line jet is
+        longer than any real one.
+  - [ ] The same screens on the iPhone (pinned until the user has the phone).
+- [x] **On-screen check of the cluster and SAMP rows** (on `main`, unreleased),
+      2026-11-13, in a build from source: the synthetic file's Venom 1-3 shows
+      Rockeye as known and BL-755 as "not in the weapon table", and an F/A-18C
+      attack offers Mk-20 Rockeye and CBU-99.
 
 The in-use check of 0.3.2 is closed: the user reported every item as fine
 (3× cards in DCS and the Lighting dropdown on 2026-10-01; the iPhone carousel
