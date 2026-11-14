@@ -10,7 +10,9 @@
  *   the caller keeps, so nothing is allocated at 60 fps;
  * - once per open: each jet's planned path as a flat Float32Array of xyz,
  *   each jet's target point, the strike window, the box the terrain is
- *   built from, the lead's attack axis (for the home camera), the frame.
+ *   built from, the lead's attack axis (for the home camera), the frame;
+ * - each jet's moments on the strike clock: in the picture from, first
+ *   action, release, impact, hidden after.
  *
  * Always the DISPLAY layer: corners rounded in time, the lead-in before the
  * IP, the formation slot. That is the layer for cameras; the plan layer (the
@@ -25,6 +27,7 @@ import {
   newBombState, newJetState, playbackBounds, sampleBomb, sampleJet, toLocal, upOf,
   type LocalFrame, type PlaybackBounds, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
 } from '../playback';
+import { firstActionTau } from './actionPoints';
 
 export type ScenePhase = PlaybackPhase;
 
@@ -90,6 +93,16 @@ export interface SceneSource {
   jetAt(jet: number, t_s: number, out: SceneJetPose): SceneJetPose;
   /** Jet k's bomb at strike time t, written into `out` (returned). Allocates nothing. */
   bombAt(jet: number, t_s: number, out: SceneBombPose): SceneBombPose;
+  /** Strike time jet k's bombs land: its TOT. */
+  impactOf(jet: number): number;
+  /** Strike time of jet k's first action after the IP (firstActionTau in actionPoints.ts). */
+  firstActionOf(jet: number): number;
+  /** Strike time jet k comes into the picture, at the start of its drawn lead-in. */
+  visibleFromOf(jet: number): number;
+  /** Strike time after which jet k is hidden. */
+  hideOf(jet: number): number;
+  /** Strike time jet k releases. */
+  releaseOf(jet: number): number;
 }
 
 export function newSceneJetPose(): SceneJetPose {
@@ -161,6 +174,10 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     return { x: p.e_m, y: upOf(pb.frame, j.targetElevation_ft), z: -p.n_m };
   });
 
+  // Each jet's moments on the strike clock, once: the frame code and Home ask for them, never per frame.
+  const firstAction_s = pb.jets.map((j, k) => timing.jets[k].shift_s + firstActionTau(j).tau_s);
+  const visibleFrom_s = pb.jets.map((j, k) => timing.jets[k].shift_s - j.display.leadIn.capTau_s);
+
   const lead = pb.jets[0];
   const h = ((lead?.attackHeading_deg ?? 0) * Math.PI) / 180;
 
@@ -191,5 +208,10 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     labelOf: (jet) => pb.jets[jet].label,
     jetAt,
     bombAt,
+    impactOf: (jet) => timing.jets[jet].impact_s,
+    firstActionOf: (jet) => firstAction_s[jet],
+    visibleFromOf: (jet) => visibleFrom_s[jet],
+    hideOf: (jet) => timing.jets[jet].hide_s,
+    releaseOf: (jet) => timing.jets[jet].release_s,
   };
 }

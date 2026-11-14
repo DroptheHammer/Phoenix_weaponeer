@@ -43,7 +43,7 @@ import {
   makeLocalFrame, toLocal, fromLocal, fromLocalInto, toThree, newJetState, newBombState,
   dangerZones, inDangerZone, readoutJets, threatDomes, domeHeightAt_m, insideDome, playbackBounds, sideCoords, fragCloudAt,
   fragSpecOf,
-  type PlaybackJetInput, type StrikePlayback, type JetState,
+  type PlaybackJetInput, type StrikePlayback, type JetState, type JetTrack,
 } from '../src/lib/playback';
 // Two internals, for checks that only the model functions can answer (the apex slope, the pull table).
 import { buildAltitude, pullTable } from '../src/lib/playback/altitude';
@@ -122,6 +122,11 @@ import {
   MAP_IN_FLIGHT, TERRAIN_IN_FLIGHT, HEIGHTS_DEADLINE_MS, DRAPE_DEADLINE_MS, DRAPE_UPLOAD_GAP_MS,
 } from '../src/lib/playbackScene';
 import { ELEVATION_SOURCES, maxOrbitFor, MAX_ORBIT_BOXES, MIN_ORBIT_M, HOME_ORBIT_SLACK, NEAR_SHARE } from '../src/lib/playbackScene';
+import {
+  firstActionTau, markerMoments, labelMoments, playRange, homeBox, openingMode, initShow, showReducer, isThreatOn,
+  FIRST_ACTION_FALLBACK_S, RUN_LEAD_S, HOME_AFTER_S, type ShowState,
+} from '../src/lib/playbackScene';
+import { harnessLaunch } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, theaterNotes } from '../src/components/playback/launch';
 import { groundNote, REAL_GROUND_NOTE } from '../src/components/playback/StatusNotes';
 import { draftIpAnchor } from '../src/lib/attackDraft';
@@ -7115,5 +7120,328 @@ void (async () => {
        respaceMissed.length === 0 && respaceFalse.length === 0, `missed ${JSON.stringify(respaceMissed)}, false hits ${JSON.stringify(respaceFalse)}`);
   } catch (e) {
     ok('playback B3: the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
+
+// ─── 0.4.0 playback B3: where playback starts, what Home frames, what Show holds ───
+// The full playback opens a little before the first thing a pilot does after the IP, frames the
+// attack (not the whole run-in) at Home, and keeps what the 3D view shows in one small state. All of
+// it is pure (src/lib/playbackScene: actionPoints.ts, homeView.ts, show.ts) and pinned here.
+// Fixtures: a four-ship saved the editor's way (newJet, assignFlanks, saveStrikeTo) off a 15.3 nm IP
+// on 068°: #1 and #2 pop-ups on TGT1 (4,000 ft), #3 a pop-up on TGT2 (2 nm on 160°, 5,200 ft), #4
+// an F-16 loft on TGT1, all Mk-82, offsets 0/10/40/40, IPs automatic (so #3 runs in from TGT1's
+// waypoint, 2 nm out); and a skip variant, three pop-ups saved the same way with #2's target then
+// pointed at a waypoint that does not exist. The lone pop-up is the dev harness's own. Each check
+// carries its mutation proof (2026-11-14): one temporary edit to the real module, geo-check run, the
+// FAIL line copied (shortened with …), the edit restored.
+{
+  try {
+    const b3Profiles = (JSON.parse(readFileSync('src-tauri/resources/profiles/f16c.json', 'utf8')) as { id: string }[]);
+    const b3Tgt2 = { id: 'b3-tgt2', steerpoint: 9, name: 'TGT2', type: 'target', coordinates: calculateDestination(tgt, 160, 2), elevation_ft: 5200 };
+    const b3Crew = (id: string, position: number) => ({ id, callsign: `Viper 1-${position}`, aircraftId: 'f16c', position, loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 6 }] });
+    const b3Mission = (ipNm: number) => ({
+      id: 'b3m', name: 'B3 test', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '',
+      waypoints: [{ id: 'b3-ip', steerpoint: 7, name: 'STPT 7', type: 'turnpoint', coordinates: calculateDestination(tgt, 68, ipNm), elevation_ft: 5000 }, wpTgt, b3Tgt2],
+      threats: [], attacks: [], strikes: [], flightMembers: [b3Crew('p1', 1), b3Crew('p2', 2), b3Crew('p3', 3), b3Crew('p4', 4)],
+    }) as never as Mission;
+    type B3Seat = { who: string; target: string; profile: string; tot: number };
+    /** A strike drafted the editor's way, flanks assigned, and saved: the mission and the new attack ids. */
+    const b3Saved = (m: Mission, strikeId: string, seats: B3Seat[]) => {
+      const ctx = { mission: m, weapons: refWeapons, profiles: b3Profiles.filter((p) => p.id === 'f16c.popup.std' || p.id === 'f16c.loft.std'), threatSystems: [] } as never;
+      const jets = assignFlanks(seats.map((s) => {
+        const j = newJet(m, s.who, s.target, {});
+        return { ...j, draft: { ...j.draft, weaponId: 'mk82', profileId: s.profile }, totOffset_s: s.tot };
+      }), ctx);
+      let seq = 0;
+      return saveStrikeTo(m, { id: strikeId, name: `${seats.length}-ship`, ip: {}, spacing_s: 10 },
+        jets.map((j, i) => ({ data: draftAttackData(j.draft, resolveDraft(j.draft, ctx), undefined, 1 + i)!, totOffset_s: j.totOffset_s })),
+        () => `${strikeId}-${++seq}`);
+    };
+    const b3m = b3Mission(15.3);
+    const strike4 = b3Saved(b3m, 'b3', [
+      { who: 'p1', target: wpTgt.id, profile: 'f16c.popup.std', tot: 0 },
+      { who: 'p2', target: wpTgt.id, profile: 'f16c.popup.std', tot: 10 },
+      { who: 'p3', target: b3Tgt2.id, profile: 'f16c.popup.std', tot: 40 },
+      { who: 'p4', target: wpTgt.id, profile: 'f16c.loft.std', tot: 40 },
+    ]).mission;
+    const s4Pb = buildStrikePlayback(playbackInputFromMission(strike4, { strikeId: 'b3' }, refWeapons as never)!);
+    const s4Timing = retime(s4Pb);
+    const s4Src = sceneSourceFrom(s4Pb, s4Timing);
+    const skip3 = b3Saved(b3m, 'b3s', ['p1', 'p2', 'p3'].map((who, i) => ({ who, target: wpTgt.id, profile: 'f16c.popup.std', tot: [0, 10, 40][i] })));
+    const skipM = { ...skip3.mission, attacks: skip3.mission.attacks.map((a) => (a.id === skip3.attackIds[1] ? { ...a, targetWaypointId: 'b3-nowhere' } : a)) } as Mission;
+    const skipPb = buildStrikePlayback(playbackInputFromMission(skipM, { strikeId: 'b3s' }, refWeapons as never)!);
+    // A precondition for the checks below (and the later ones on seats): the fixtures build as described.
+    // Mutation proof: the four-ship's #4 drafted with 'f16c.popup.std' instead of the loft, seen red 2026-11-14:
+    //   FAIL playback B3 fixture: …  four-ship: #1 popup@0 TGT1, #2 popup@10 TGT1, #3 popup@40 TGT2, #4 popup@40 TGT1, skipped 0; …
+    const s4Desc = s4Pb.jets.map((j) => `${j.label} ${j.family}@${s4Pb.planDelays_s[j.id]} ${j.target.name}`).join(', ');
+    const skipDesc = skipPb.members.map((mb) => `${mb.label}:${mb.jet ?? 'skipped'}`).join(' ') + ` (${skipPb.skipped.map((s) => s.reason).join('; ')})`;
+    ok('playback B3 fixture: the four-ship flies pop-up, pop-up, pop-up on TGT2, loft at 0/10/40/40; the skip variant flies #1 and #3 and skips #2 for its missing target, keeping its place',
+       s4Desc === '#1 popup@0 TGT1, #2 popup@10 TGT1, #3 popup@40 TGT2, #4 loft@40 TGT1' && s4Pb.skipped.length === 0 &&
+       skipPb.jets.length === 2 && skipPb.members.length === 3 && skipPb.members[1].jet === undefined && skipPb.members[2].jet === 1 &&
+       skipPb.skipped.length === 1 && skipPb.skipped[0].reason === 'Its target waypoint is missing.',
+       `four-ship: ${s4Desc}, skipped ${s4Pb.skipped.length}; skip variant: ${skipDesc}`);
+
+    // Lone jets, auto-built on the real profile file and reference rows.
+    const lone = (m: Mission, profileId: string, weaponId: string, opts: { withIp?: boolean; leadIn_s?: number } = {}) => {
+      const b = autoBuildAttack({ mission: m, targetWaypointId: wpTgt.id, attackerId: 'p1', weapons: refWeapons, profiles: b3Profiles, threatSystems: [], overrides: { weaponId, profileId } } as never);
+      if (!b.attack) throw new Error(`B3 fixture: ${profileId} did not auto-build`);
+      const a = { ...b.attack, id: `b3-${profileId}` } as Attack;
+      const jet: PlaybackJetInput = { id: a.id, attack: a, ipAnchor: opts.withIp === false ? undefined : attackIpAnchor(m.waypoints, a), target: wpTgt as never, weapon: refWeapon(weaponId), totOffset_s: 0, label: '#1' };
+      const pb = buildStrikePlayback({ name: a.id, jets: [jet] }, opts.leadIn_s != null ? { leadIn_s: opts.leadIn_s } : {});
+      if (pb.jets.length !== 1) throw new Error(`B3 fixture: ${profileId} not flown: ${pb.skipped[0]?.reason}`);
+      return pb;
+    };
+    const popPb = buildStrikePlayback(harnessLaunch().input);
+    const popTiming = retime(popPb);
+    const popSrc = sceneSourceFrom(popPb, popTiming);
+    const divePb = lone(b3m, 'f16c.dive.ccip30', 'mk82');
+    const levelPb = lone(b3m, 'f16c.level.ccrp.jdam', 'gbu31');
+    const levelNoIpPb = lone(b3m, 'f16c.level.ccrp.jdam', 'gbu31', { withIp: false });
+    const loftPb = lone(b3m, 'f16c.loft.std', 'mk82');
+    const pop = popPb.jets[0], dive = divePb.jets[0];
+    const rangeAp: JetTrack = { ...dive, anchors: { ...dive.anchors, AP: { ...dive.anchors.AP!, source: 'range' } } };
+    const only = (j: JetTrack, keep: string[]): JetTrack => ({ ...j, anchors: Object.fromEntries(Object.entries(j.anchors).filter(([k]) => keep.includes(k))) });
+    const bare = only(pop, ['IP', 'REL', 'END']);
+    const bareEarly: JetTrack = { ...bare, releaseTau_s: 12 };
+
+    // [FB1] A jet's first action is its first marker anchor among AP, ROLL, RUN and POP: the pop-up's
+    // action point at 81.0 s after the IP (not its pull-up at 84.3), the dive's and the level JDAM's
+    // action points, the turn-in of a level run with no IP (so no action point), the loft's pull-up;
+    // an action point placed by range (no check turn) does not count, so that dive starts at its
+    // roll-in; with none anchored, 20 s before release, never before the IP.
+    // Mutation proofs (each seen red 2026-11-14): actionPoints.ts FIRST_ACTION_KINDS without 'AP':
+    //   FAIL playback B3 [FB1]: … pop-up: POP 84.3 (want AP 81.0); 30° dive: ROLL 106.8 (want AP 86.4); level JDAM: RUN 103.1 (want AP 11.6); … (and [FB2])
+    // (an 'IP' in the list could never fail it: the IP's anchor source is 'ip', so the marker guard drops it)
+    // `a.tau_s < best.tau_s` → `a.tau_s > best.tau_s` (the latest, not the earliest):
+    //   FAIL playback B3 [FB1]: … pop-up: POP 84.3 (want AP 81.0); 30° dive: ROLL 106.8 (want AP 86.4); level JDAM: RUN 103.1 (want AP 11.6); … (and [FB2])
+    // the `a.source !== 'marker'` guard dropped:
+    //   FAIL playback B3 [FB1]: … dive, AP placed by range: AP 86.4 (want ROLL 106.8); …
+    const fb1 = [
+      { name: 'pop-up', track: pop, kind: 'AP', tau: pop.anchors.AP?.tau_s },
+      { name: '30° dive', track: dive, kind: 'AP', tau: dive.anchors.AP?.tau_s },
+      { name: 'level JDAM', track: levelPb.jets[0], kind: 'AP', tau: levelPb.jets[0].anchors.AP?.tau_s },
+      { name: 'level, no IP', track: levelNoIpPb.jets[0], kind: 'RUN', tau: levelNoIpPb.jets[0].anchors.RUN?.tau_s },
+      { name: 'F-16 loft', track: loftPb.jets[0], kind: 'POP', tau: loftPb.jets[0].anchors.POP?.tau_s },
+      { name: 'dive, AP placed by range', track: rangeAp, kind: 'ROLL', tau: dive.anchors.ROLL?.tau_s },
+      { name: 'IP, REL and END only', track: bare, kind: 'fallback', tau: pop.releaseTau_s - 20 },
+      { name: 'the same, released 12 s after the IP', track: bareEarly, kind: 'fallback', tau: 0 },
+    ].map((c) => ({ ...c, got: firstActionTau(c.track) }));
+    const fb1Bad = fb1.filter((c) => c.tau === undefined || c.got.kind !== c.kind || c.got.tau_s !== c.tau);
+    ok('playback B3 [FB1]: the first action is the first marker anchor of AP, ROLL, RUN or POP (pop-up AP 81.0 s, dive AP, level JDAM AP, level without IP RUN, loft POP); a range-placed AP does not count; else 20 s before release, never before the IP',
+       fb1Bad.length === 0 && Math.abs(fb1[0].got.tau_s - 81.0) < 0.05 && levelNoIpPb.jets[0].anchors.AP === undefined && FIRST_ACTION_FALLBACK_S === 20,
+       fb1.map((c) => `${c.name}: ${c.got.kind} ${c.got.tau_s.toFixed(1)}${c.got.kind === c.kind && c.got.tau_s === c.tau ? '' : ` (want ${c.kind} ${c.tau?.toFixed(1)})`}`).join('; '));
+
+    // [FB2] The played range starts 10 s before the earliest first action among the flown jets (here
+    // #1's action point) and ends with the window; Whole run-in is the window itself. Delay #1 by 60 s
+    // and #2's action point leads. It never starts before the window: with a 5 s lead-in and a level
+    // jet whose action point is 4.3 s after its IP, the window's start stands.
+    // Mutation proofs (each seen red 2026-11-14): actionPoints.ts playRange looping over jet 0 only (`k < 1`):
+    //   FAIL playback B3 [FB2]: … four-ship -50.15…80.00 (want -50.15, #1 leads true); …; #1 +60 s 9.85 (want #2's -40.15, #2 leads true); …
+    // `first - RUN_LEAD_S` → `first + RUN_LEAD_S`:
+    //   FAIL playback B3 [FB2]: … four-ship -30.15…80.00 (want -50.15, #1 leads true); …; #1 +60 s -20.15 (want #2's -40.15, …); 5 s lead-in, AP 4.29 s after the IP: -100.35 against the window's -119.64
+    // `Math.max(w.t0_s, first - RUN_LEAD_S)` → `first - RUN_LEAD_S` (no clamp):
+    //   FAIL playback B3 [FB2]: … 5 s lead-in, AP 4.29 s after the IP: -120.35 against the window's -119.64
+    const firstAt = (pb: StrikePlayback, t: ReturnType<typeof retime>, k: number) => t.jets[k].shift_s + firstActionTau(pb.jets[k]).tau_s;
+    const fb2Range = playRange(s4Pb, s4Timing, false);
+    const fb2Whole = playRange(s4Pb, s4Timing, true);
+    const fb2Want = firstAt(s4Pb, s4Timing, 0) - 10;
+    const fb2Lead = s4Pb.jets.map((_, k) => firstAt(s4Pb, s4Timing, k)).every((f, k) => k === 0 || f > firstAt(s4Pb, s4Timing, 0));
+    const late1 = retime(s4Pb, { [s4Pb.jets[0].id]: 60 });
+    const fb2Late = playRange(s4Pb, late1, false), fb2LateWant = firstAt(s4Pb, late1, 1) - 10;
+    const fb2LateLead = s4Pb.jets.map((_, k) => firstAt(s4Pb, late1, k)).every((f, k) => k === 1 || f > firstAt(s4Pb, late1, 1));
+    const clampPb = lone(b3Mission(12), 'f16c.level.ccrp.jdam', 'gbu31', { leadIn_s: 5 });
+    const clampTiming = retime(clampPb), clampFirst = firstActionTau(clampPb.jets[0]);
+    const fb2Clamp = playRange(clampPb, clampTiming, false);
+    const clampPre = clampFirst.kind === 'AP' && clampFirst.tau_s > 3.5 && clampFirst.tau_s < 5 && clampTiming.window.t0_s === clampTiming.jets[0].push_s - 5;
+    ok('playback B3 [FB2]: the range starts 10 s before the earliest first action (#1\'s, or #2\'s with #1 60 s late), ends with the window, is the window with Whole run-in, and never starts before the window',
+       RUN_LEAD_S === 10 && fb2Lead && Math.abs(fb2Range.t0_s - fb2Want) < 1e-9 && fb2Range.t1_s === s4Timing.window.t1_s && fb2Whole === s4Timing.window &&
+       fb2LateLead && Math.abs(fb2Late.t0_s - fb2LateWant) < 1e-9 && fb2Late.t1_s === late1.window.t1_s &&
+       clampPre && fb2Clamp.t0_s === clampTiming.window.t0_s && fb2Clamp.t1_s === clampTiming.window.t1_s,
+       `four-ship ${fb2Range.t0_s.toFixed(2)}…${fb2Range.t1_s.toFixed(2)} (want ${fb2Want.toFixed(2)}, #1 leads ${fb2Lead}); whole is the window ${fb2Whole === s4Timing.window}; ` +
+       `#1 +60 s ${fb2Late.t0_s.toFixed(2)} (want #2's ${fb2LateWant.toFixed(2)}, #2 leads ${fb2LateLead}); ` +
+       `5 s lead-in, ${clampFirst.kind} ${clampFirst.tau_s.toFixed(2)} s after the IP: ${fb2Clamp.t0_s.toFixed(2)} against the window's ${clampTiming.window.t0_s.toFixed(2)}`);
+
+    // [FB3] The marker moments are the picture's markers less TGT, in picture order, each with the
+    // marker's own lines (the very array the map and the card print) at its anchor's time, the first
+    // action marked once and only on a track that has one; a marker with no anchor is left out. The
+    // label moments are the picture's IP label at the IP and its egress label at the end of the leg.
+    // Mutation proof: actionPoints.ts markerMoments `lines: m.lines` → the words of the track event
+    // anchored at that marker (`lines: track.events.filter((e) => e.anchor === m.kind).map((e) => e.label)`),
+    // seen red 2026-11-14:
+    //   FAIL playback B3 [FB3]: … #1 popup AP: lines ["Action · check turn"] vs ["4.5nm: ACTION — turn RIGHT 25° to 273°"]
+    let fb3Bad = '', fb3N = 0;
+    const fb3Tracks = [...s4Pb.jets, pop, dive, levelPb.jets[0], loftPb.jets[0]];
+    for (const j of fb3Tracks) {
+      const mm = markerMoments(j);
+      const want = j.picture.markers.filter((m) => m.kind !== 'TGT');
+      const fa = firstActionTau(j);
+      const firsts = mm.filter((x) => x.first);
+      if (mm.map((x) => x.kind).join() !== want.map((m) => m.kind).join()) fb3Bad ||= `${j.label} ${j.family}: kinds ${mm.map((x) => x.kind).join()} vs ${want.map((m) => m.kind).join()}`;
+      mm.forEach((x, i) => {
+        fb3N++;
+        if (x.lines !== want[i]?.lines || JSON.stringify(x.lines) !== JSON.stringify(want[i]?.lines)) fb3Bad ||= `${j.label} ${j.family} ${x.kind}: lines ${JSON.stringify(x.lines)} vs ${JSON.stringify(want[i]?.lines)}`;
+        if (x.tau_s !== j.anchors[x.kind]?.tau_s) fb3Bad ||= `${j.label} ${j.family} ${x.kind}: at ${x.tau_s} vs its anchor ${j.anchors[x.kind]?.tau_s}`;
+      });
+      if (firsts.length !== 1 || firsts[0].kind !== fa.kind || firsts[0].tau_s !== fa.tau_s) fb3Bad ||= `${j.label} ${j.family}: first ${JSON.stringify(firsts.map((x) => x.kind))} vs ${fa.kind}`;
+      const lm = labelMoments(j);
+      const ipL = j.picture.labels.find((l) => l.kind === 'ip'), egL = j.picture.labels.find((l) => l.kind === 'egress');
+      const lmIp = lm.find((l) => l.kind === 'ip'), lmEg = lm.find((l) => l.kind === 'egress');
+      if (!ipL || !egL || lm.length !== j.picture.labels.length || lmIp?.tau_s !== 0 || lmIp.text !== ipL.text || lmEg?.tau_s !== j.anchors.END?.tau_s || lmEg.text !== egL.text)
+        fb3Bad ||= `${j.label} ${j.family}: labels ${JSON.stringify(lm)}`;
+    }
+    const bareMm = markerMoments(bare);
+    if (bareMm.map((x) => x.kind).join() !== 'REL' || bareMm.some((x) => x.first)) fb3Bad ||= `IP, REL and END only: ${JSON.stringify(bareMm.map((x) => [x.kind, x.first]))}`;
+    ok('playback B3 [FB3]: marker moments are the picture\'s markers less TGT in order, with the markers\' own lines at their anchors, the first action marked once (never on a fallback); the IP label at the IP, the egress label at the end',
+       fb3Bad === '' && fb3N >= 20, fb3Bad || `${fb3Tracks.length} tracks, ${fb3N} moments; a track with only IP, REL and END has REL alone, unmarked`);
+
+    // A screen projection for the Home checks: where an ENU point lands in a `w`×`h` canvas, px from the
+    // middle (x right, y up), as a fraction of the half-view too.
+    const b3Proj = (pose: { eye: Vec3; look: Vec3; fov_deg: number }, w: number, h: number, q: Vec3) => {
+      const f0 = [pose.look[0] - pose.eye[0], pose.look[1] - pose.eye[1], pose.look[2] - pose.eye[2]];
+      const fl = Math.hypot(f0[0], f0[1], f0[2]), f = [f0[0] / fl, f0[1] / fl, f0[2] / fl];
+      const rl = Math.hypot(f[1], f[0]), rr = [f[1] / rl, -f[0] / rl, 0];
+      const uu = [rr[1] * f[2] - rr[2] * f[1], rr[2] * f[0] - rr[0] * f[2], rr[0] * f[1] - rr[1] * f[0]];
+      const d = [q[0] - pose.eye[0], q[1] - pose.eye[1], q[2] - pose.eye[2]];
+      const z = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+      const tv = Math.tan((pose.fov_deg * Math.PI) / 360), th = tv * (w / h);
+      const nx = (d[0] * rr[0] + d[1] * rr[1]) / z / th, ny = (d[0] * uu[0] + d[1] * uu[1] + d[2] * uu[2]) / z / tv;
+      return { x: (nx * w) / 2, y: (ny * h) / 2, frac: z > 0 ? Math.max(Math.abs(nx), Math.abs(ny)) : Infinity };
+    };
+    const lastImpact = (src: typeof s4Src) => Math.max(...Array.from({ length: src.jetCount }, (_, k) => src.impactOf(k)));
+
+    // [FB4] Home's box holds every flown jet and falling bomb from the start of the range to 5 s after
+    // the last impact (sampled here every 0.1 s, against the box's 0.25 s grid and its extra moments,
+    // within 2 m) and every target; its east edge, toward the IP, is the farthest jet at the range's
+    // start (#4, the loft), so nothing before the range is framed. On a lone F-16 loft the bomb climbs
+    // well above the jet after release, and its apex is the box's top.
+    // Measured 2026-11-14: no pose or bomb of the four-ship outside the box at all (0.000 m worst at
+    // 0.1 s), so 2 m is slack, not a fit; the loft box's top is 0.2 m under the apex (its 0.25 s grid).
+    // Mutation proofs (each seen red 2026-11-14): homeView.ts homeBox `const t0 = range.t0_s` → `const t0 = src.window.t0_s`:
+    //   FAIL playback B3 [FB4]: … east edge 45671.1 m vs #4 at the start 20645.1 m; … (and [FB5]: POP→REL 121 px)
+    // the two `if (src.bombAt(…).visible) hold(…)` lines dropped (bombs left out; the four-ship still
+    // passes, its bombs never leave the jets' box):
+    //   FAIL playback B3 [FB4]: … lone loft: top 516.2 m vs bomb apex 1257.9 m (jet's highest 516.1 m)
+    const fb4Range = playRange(s4Pb, s4Timing, false);
+    const fb4Out = { min_e_m: 0, max_e_m: 0, min_n_m: 0, max_n_m: 0, min_up_m: 0, max_up_m: 0 };
+    const fb4Box = homeBox(s4Src, fb4Range, fb4Out);
+    const fb4End = Math.min(fb4Range.t1_s, lastImpact(s4Src) + HOME_AFTER_S);
+    const outside = (b: typeof fb4Out, e: number, n: number, u: number) =>
+      Math.max(b.min_e_m - e, e - b.max_e_m, b.min_n_m - n, n - b.max_n_m, b.min_up_m - u, u - b.max_up_m, 0);
+    const fbPose = newSceneJetPose(), fbBomb = newSceneBombPose();
+    let fb4Worst = 0, fb4WorstAt = '', fb4N = 0;
+    for (let i = 0, t = fb4Range.t0_s; t <= fb4End + 1e-9; i++, t = fb4Range.t0_s + i * 0.1) {
+      for (let k = 0; k < s4Src.jetCount; k++) {
+        if (s4Src.jetAt(k, t, fbPose).visible) {
+          fb4N++;
+          const o = outside(fb4Box, fbPose.x, -fbPose.z, fbPose.y);
+          if (o > fb4Worst) { fb4Worst = o; fb4WorstAt = `#${k + 1} jet at ${t.toFixed(1)}`; }
+        }
+        if (s4Src.bombAt(k, t, fbBomb).visible) {
+          fb4N++;
+          const o = outside(fb4Box, fbBomb.x, -fbBomb.z, fbBomb.y);
+          if (o > fb4Worst) { fb4Worst = o; fb4WorstAt = `#${k + 1} bomb at ${t.toFixed(1)}`; }
+        }
+      }
+    }
+    const fb4Targets = Array.from({ length: s4Src.jetCount }, (_, k) => s4Src.targetOf(k)).every((tg) => outside(fb4Box, tg.x, -tg.z, tg.y) === 0);
+    let fb4StartE = -Infinity, fb4StartJet = -1;
+    for (let k = 0; k < s4Src.jetCount; k++) if (s4Src.jetAt(k, fb4Range.t0_s, fbPose).visible && fbPose.x > fb4StartE) { fb4StartE = fbPose.x; fb4StartJet = k; }
+    const loftTiming = retime(loftPb), loftSrc = sceneSourceFrom(loftPb, loftTiming);
+    const loftBox = homeBox(loftSrc, playRange(loftPb, loftTiming, false));
+    let loftApex = -Infinity, loftJetTop = -Infinity;
+    for (let t = loftTiming.jets[0].release_s; t <= loftTiming.jets[0].impact_s; t += 0.01) if (loftSrc.bombAt(0, t, fbBomb).visible) loftApex = Math.max(loftApex, fbBomb.y);
+    for (let t = loftSrc.window.t0_s; t <= loftSrc.window.t1_s; t += 0.1) if (loftSrc.jetAt(0, t, fbPose).visible) loftJetTop = Math.max(loftJetTop, fbPose.y);
+    ok('playback B3 [FB4]: Home\'s box holds every jet and falling bomb from the range\'s start to 5 s after the last impact (2 m) and every target, its east edge is the farthest jet at the start (1 m), and a loft\'s bomb apex is its top (1 m)',
+       fb4Box === fb4Out && fb4Worst <= 2 && fb4N > 1000 && fb4Targets && Math.abs(fb4Box.max_e_m - fb4StartE) <= 1 && fb4StartJet === 3 &&
+       Math.abs(loftBox.max_up_m - loftApex) <= 1 && loftApex > loftJetTop + 100,
+       `four-ship: ${fb4N} poses, worst ${fb4Worst.toFixed(3)} m outside (${fb4WorstAt || 'none'}), targets in ${fb4Targets}; east edge ${fb4Box.max_e_m.toFixed(1)} m vs #${fb4StartJet + 1} at the start ${fb4StartE.toFixed(1)} m; ` +
+       `lone loft: top ${loftBox.max_up_m.toFixed(1)} m vs bomb apex ${loftApex.toFixed(1)} m (jet's highest ${loftJetTop.toFixed(1)} m)`);
+
+    // [FB5] Home, framed on that box, shows the attack: on the lone pop-up at 1288×690 the pull-up to
+    // the release spans at least 300 px across the canvas, and at 1400×900, 1024×768 and a tall 0.6
+    // window every pose of the jet from the range's start to 5 s after impact is inside 80% of the
+    // half-view.
+    // Mutation proof: the Home box built on the whole window (`homeBox(popSrc, popSrc.window)` here,
+    // the framing the old played box gave), seen red 2026-11-14:
+    //   FAIL playback B3 [FB5]: … POP→REL 121 px at 1288×690; worst pose at 0.586 / 0.608 / 0.682 of the half-view
+    // (green: 429 px; worst pose 0.739 / 0.747 / 0.754)
+    const popRange = playRange(popPb, popTiming, false);
+    const popBox = homeBox(popSrc, popRange);
+    const enuOf = (p: { x: number; y: number; z: number }): Vec3 => [p.x, -p.z, p.y];
+    const popAt = (t: number) => enuOf({ ...popSrc.jetAt(0, t, fbPose) });
+    const home1288 = homePose({ box: popBox, axis: popSrc.attackAxis, aspect: 1288 / 690 });
+    const pPop = b3Proj(home1288, 1288, 690, popAt(popTiming.jets[0].shift_s + pop.anchors.POP!.tau_s));
+    const pRel = b3Proj(home1288, 1288, 690, popAt(popTiming.jets[0].release_s));
+    const fb5Span = Math.hypot(pPop.x - pRel.x, pPop.y - pRel.y);
+    const fb5End = Math.min(popRange.t1_s, popTiming.jets[0].impact_s + HOME_AFTER_S);
+    const fb5Worst = [[1400, 900], [1024, 768], [600, 1000]].map(([w, h]) => {
+      const hp = homePose({ box: popBox, axis: popSrc.attackAxis, aspect: w / h });
+      let worst = 0;
+      for (let i = 0, t = popRange.t0_s; t <= fb5End + 1e-9; i++, t = popRange.t0_s + i * 0.1) if (popSrc.jetAt(0, t, fbPose).visible) worst = Math.max(worst, b3Proj(hp, w, h, enuOf(fbPose)).frac);
+      return worst;
+    });
+    ok('playback B3 [FB5]: Home on the lone pop-up spans the pull-up to the release over at least 300 px at 1288×690, and holds every pose from the range\'s start to 5 s after impact inside 80% of the half-view at 1400×900, 1024×768 and 0.6',
+       fb5Span >= 300 && fb5Worst.every((w) => w <= 0.8 + 1e-3),
+       `POP→REL ${fb5Span.toFixed(0)} px at 1288×690; worst pose at ${fb5Worst.map((w) => w.toFixed(3)).join(' / ')} of the half-view`);
+
+    // [FB16] The playback opens following the watched jet when it is in the picture at the range's
+    // start, else in orbit at Home: the lone pop-up opens in Chase; on the four-ship, #2 delayed to
+    // 300 s is still out of sight when the range starts (Orbit), at 200 s already flying in (Chase).
+    // Mutation proof: homeView.ts openingMode returning 'chase' always, seen red 2026-11-14:
+    //   FAIL playback B3 [FB16]: … lone pop-up chase; #2 at 300 s chase, at 200 s chase
+    const openAt = (d: number) => { const t = retime(s4Pb, { [s4Pb.jets[1].id]: d }); return openingMode(sceneSourceFrom(s4Pb, t), playRange(s4Pb, t, false), 1); };
+    const fb16 = { pop: openingMode(popSrc, popRange, 0), at300: openAt(300), at200: openAt(200) };
+    ok('playback B3 [FB16]: the playback opens in Chase when the watched jet is in the picture at the range\'s start, else in Orbit at Home (lone pop-up Chase; #2 at 300 s Orbit, at 200 s Chase)',
+       fb16.pop === 'chase' && fb16.at300 === 'orbit' && fb16.at200 === 'chase', `lone pop-up ${fb16.pop}; #2 at 300 s ${fb16.at300}, at 200 s ${fb16.at200}`);
+
+    // [SH1] The Show menu opens with labels on, action points as they come, the planner's colours on
+    // the watched jet, the time bar from just before the first action, every listed system in row
+    // order, and only the systems whose rows say so switched on (weapons on, early-warning radars off).
+    // Mutation proof: show.ts initShow pushing every system into threatsOn, seen red 2026-11-14:
+    //   FAIL playback B3 [SH1]: … "threatKeys":["sa6","p19","sa8"],"threatsOn":["sa6","p19","sa8"]} (and [SH2])
+    const shRows = [{ systemId: 'sa6', defaultOn: true }, { systemId: 'p19', defaultOn: false }, { systemId: 'sa8', defaultOn: true }];
+    const sh0 = initShow(shRows), shEmpty = initShow();
+    ok('playback B3 [SH1]: Show opens with labels on, action points as they come, colours on the watched jet, no whole run-in, the systems in row order and only the default-on ones switched on',
+       sh0.labels === true && sh0.actionPoints === 'coming' && sh0.attackColours === 'watched' && sh0.wholeRunIn === false &&
+       sh0.threatKeys.join() === 'sa6,p19,sa8' && sh0.threatsOn.join() === 'sa6,sa8' && shEmpty.threatKeys.length === 0 && shEmpty.threatsOn.length === 0 && shEmpty.labels === true,
+       JSON.stringify(sh0));
+
+    // [SH2] Every Show action changes what it names and nothing else, and hands back the same object when
+    // nothing changes (an unknown system, the value it already has, All with all on, None with none on);
+    // the switched-on list keeps the menu's order whatever the order of the clicks.
+    // Mutation proof: show.ts showReducer `threat` without the known-key test (`if (a.on === isThreatOn(s, a.key)) return s;`,
+    // switching on by appending the key), seen red 2026-11-14:
+    //   FAIL playback B3 [SH2]: … {"type":"threat","key":"sa11","on":true} → {…"threatsOn":["sa6","sa8","sa11"]}; …; {"type":"threat","key":"sa6","on":true} → {…"threatsOn":["sa8","sa6"]}; …
+    const shBad: string[] = [];
+    const shStep = (s: ShowState, a: Parameters<typeof showReducer>[1], same: boolean, want?: (n: ShowState) => boolean) => {
+      const n = showReducer(s, a);
+      if ((n === s) !== same || (want && !want(n))) shBad.push(`${JSON.stringify(a)} → ${n === s ? 'same object' : JSON.stringify(n)}`);
+      return n;
+    };
+    let sh = sh0;
+    sh = shStep(sh, { type: 'labels', on: false }, false, (n) => !n.labels && n.actionPoints === 'coming');
+    sh = shStep(sh, { type: 'labels', on: false }, true);
+    sh = shStep(sh, { type: 'actionPoints', value: 'always' }, false, (n) => n.actionPoints === 'always' && !n.labels);
+    sh = shStep(sh, { type: 'actionPoints', value: 'always' }, true);
+    sh = shStep(sh, { type: 'attackColours', value: 'all' }, false, (n) => n.attackColours === 'all');
+    sh = shStep(sh, { type: 'attackColours', value: 'all' }, true);
+    sh = shStep(sh, { type: 'wholeRunIn', on: true }, false, (n) => n.wholeRunIn && n.attackColours === 'all');
+    sh = shStep(sh, { type: 'wholeRunIn', on: true }, true);
+    sh = shStep(sh, { type: 'threat', key: 'sa11', on: true }, true);
+    sh = shStep(sh, { type: 'threat', key: 'sa6', on: true }, true);
+    sh = shStep(sh, { type: 'threat', key: 'sa6', on: false }, false, (n) => n.threatsOn.join() === 'sa8' && !isThreatOn(n, 'sa6') && isThreatOn(n, 'sa8'));
+    sh = shStep(sh, { type: 'threatsNone' }, false, (n) => n.threatsOn.length === 0);
+    sh = shStep(sh, { type: 'threatsNone' }, true);
+    sh = shStep(sh, { type: 'threat', key: 'sa8', on: true }, false, (n) => n.threatsOn.join() === 'sa8');
+    sh = shStep(sh, { type: 'threat', key: 'sa6', on: true }, false, (n) => n.threatsOn.join() === 'sa6,sa8');
+    sh = shStep(sh, { type: 'threat', key: 'p19', on: true }, false, (n) => n.threatsOn.join() === 'sa6,p19,sa8');
+    sh = shStep(sh, { type: 'threatsAll' }, true);
+    sh = shStep(sh, { type: 'threatsNone' }, false, (n) => n.threatsOn.length === 0);
+    sh = shStep(sh, { type: 'threatsAll' }, false, (n) => n.threatsOn.join() === 'sa6,p19,sa8' && n.threatKeys === sh0.threatKeys);
+    ok('playback B3 [SH2]: every Show action changes only what it names, gives the same object back when nothing changes (unknown system, same value, All when all on, None when none on), and keeps the menu\'s order',
+       shBad.length === 0 && sh.labels === false && sh.actionPoints === 'always' && sh.attackColours === 'all' && sh.wholeRunIn === true,
+       shBad.length ? shBad.join('; ') : '19 steps');
+  } catch (e) {
+    ok('playback B3 (start, Home, Show): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }
