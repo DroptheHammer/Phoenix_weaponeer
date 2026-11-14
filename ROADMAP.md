@@ -8,7 +8,7 @@ kneeboard cards.
 decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 (newest-first). Finished plans and reviews are in `docs/archive/`.
 
-**Last updated:** 2026-11-13
+**Last updated:** 2026-11-14
 
 ---
 
@@ -19,9 +19,23 @@ The five bold build items below each have a session plan in
 `docs/BUILD_SESSIONS_PLAN.md` (planned 2026-11-13). Order: rows (1), rack
 counts (2), CLI loadouts (3), numbers (4), loft (5).
 
-- [ ] **Loft geometry** (LABS, F-16 loft). The profiles ship hidden
-      (`f16c.loft.std`, `f4e.loft.labs45`) until the geometry exists.
-      Session 5.
+- [x] **Loft geometry** (F-16 Loft 30°, F-4E LABS 45°) — 2026-11-14,
+      Session 5, on `main`, unreleased. Checked on screen by the user (map,
+      side view, editor, LABS card). Model and sources in
+      `docs/DELIVERY_PLANNING.md`, "Loft and LABS": the USAF F-4 weapons
+      delivery manual's loft table (Fig 5-9) is a geo-check test, row by row.
+      Decided: a loft runs straight from the IP; no release floors, instead a
+      warning inside 0.5 nm of the target at impact; the F-4E pull-up timer
+      goes in the card header.
+  - [ ] *Smooth bomb arc in the side view* (optional): drawn today as short
+        straight pieces through hidden points; a `path` on `SideSegment`
+        drawn as a polyline would be cleaner.
+  - [ ] *Per-weapon drag for lofts*: one drag constant (an M117's, which
+        lands Heatblur's Mk-82 within 1%) serves every bomb; a cluster or
+        high-drag store flies shorter. Needs a sourced table per store.
+  - [ ] *F-4E gyro angle*: LABS sets a pitch angle, about 6–8° above the
+        flight-path angle the tool plans on (Fig 5-9: 36.9° for a 30°
+        release). No gyro setting is printed.
 - [x] **Numbers for the twenty-six name-only rows** (2026-11-13, Session 4,
       on `main`, unreleased). Each number was approved one by one and its
       source is in the row's `notes` (and `docs/DELIVERY_PLANNING.md`, "Weapon

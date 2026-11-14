@@ -11,7 +11,10 @@ that bear on Session 5:
   today just the Durandal) are filtered in `autoBuildAttack`'s candidate list.
   A loft profile must not be offered to them.
 
-**Next: Session 5 (loft).**
+**Session 5 (loft) is built too** (2026-11-14, on `main`, unreleased):
+`e33e899` (the sourced model) and `27908a6` (picture, editor, card, checks),
+checked on screen by the user. All five sessions are done; this plan is
+finished and can move to `docs/archive/`.
 
 Five roadmap build candidates, one session each. Each section is meant to be
 picked up cold at the start of its session. Recommended order: 1 → 2 → 3 → 4
