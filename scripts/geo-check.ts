@@ -49,7 +49,7 @@ import { draftFromAttack, resolveDraft, draftAttackData, chooseEgress, setIp } f
 import { newJet, assignFlanks, respace, groupEdit } from '../src/lib/strikeDraft';
 import {
   applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
-  fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot, attackSpeedOf,
+  fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot, attackSpeedOf, ipToImpact_s,
 } from '../src/lib/strike';
 import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
@@ -3241,6 +3241,62 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   });
   const withWingman = { ...a4e, attackSection: { ...a4e.attackSection, diagram: { ...diagram, wingmen: [{ label: '#1', picture: northOfIt(diagram.picture!) }] } } };
 
+  // Loft cards, pinned 2026-11-14 before the 0.4.0 playback work touches loftPlanning.ts,
+  // strike.ts, popupPlanning.ts or attackGeometry.ts: until then no card here was a loft. Built
+  // the way the app builds them: auto-build on the real library profile and the real
+  // reference.json Mk-82, from STPT 7 15.3 nm out, so the F-4E's pull-up TIMER exists. Three
+  // cards: the F-4E LABS loft (TIMER in the header), the F-16 CCRP loft (no timer), and the
+  // F-4E #2 of a two-jet loft strike (strike line with "push IP ... (est)", the lead faint
+  // under it; #2 breaks the other way so the lead's track is not drawn over its own). The
+  // LABS side view is pinned alone too, as the editor draws it.
+  const phantom = { id: 'f4', callsign: 'Pharaoh 1-1', aircraftId: 'f4e', position: 1, loadout: [] };
+  const phantom2 = { id: 'f4b', callsign: 'Pharaoh 1-2', aircraftId: 'f4e', position: 2, loadout: [] };
+  const loftCrew = [viper, scooter, phantom, phantom2];
+  const realMk82 = refWeapon('mk82');
+  const buildLoftCard = (attacker: { id: string }, aircraft: string, profileId: string) =>
+    autoBuildAttack({
+      mission: { waypoints: [wpIp, wpTgt], flightMembers: loftCrew, threats, attacks: [] },
+      targetWaypointId: wpTgt.id, attackerId: attacker.id, weapons: [realMk82], profiles: lib(aircraft), threatSystems: systems,
+      overrides: { weaponId: 'mk82', profileId },
+    } as never).attack!;
+  const labsBuilt = buildLoftCard(phantom, 'f4e', 'f4e.loft.labs45');
+  const ccrpBuilt = buildLoftCard(viper, 'f16c', 'f16c.loft.std');
+  const labsTwoBuilt = buildLoftCard(phantom2, 'f4e', 'f4e.loft.labs45');
+  const loftSoloCard = (attack: object) => cardOf({ ...solo(attack), flightMembers: loftCrew }, 'atk', [realMk82]);
+  const labsLoft = loftSoloCard(labsBuilt);
+  const ccrpLoft = loftSoloCard(ccrpBuilt);
+  const leadEgress = (labsBuilt.profile as { egressDirection?: string }).egressDirection;
+  const loftStrikeMission = {
+    ...solo(labsBuilt), flightMembers: loftCrew,
+    attacks: [
+      { ...labsBuilt, id: 'ls1', strikeId: 'ls', totOffset_s: 0, sequenceNumber: 1 },
+      { ...labsTwoBuilt, id: 'ls2', strikeId: 'ls', totOffset_s: 30, sequenceNumber: 2, profile: applyEgress(labsTwoBuilt.profile, leadEgress === 'left' ? 'right' : 'left') },
+    ],
+    strikes: [{ id: 'ls', name: 'Pharaoh strike', ip: {}, spacing_s: 30 }],
+  };
+  const loftStrike = cardOf(loftStrikeMission, 'ls2', [realMk82]);
+  // The branches the pins below are meant to cover, reached (so a pin cannot pass on a card
+  // that lost its timer or its strike line).
+  ok('loft card fixtures: the F-4E LABS and F-16 CCRP lofts auto-build, and only the LABS card carries a pull-up timer',
+     labsBuilt.profileType === 'loft_ccrp' && labsBuilt.deliveryMode === 'LABS' && ccrpBuilt.profileType === 'loft_ccrp' && ccrpBuilt.deliveryMode === 'CCRP' &&
+       (labsLoft.header.pullUpTimer_s ?? 0) > 0 && ccrpLoft.header.pullUpTimer_s === undefined,
+     `${labsBuilt.deliveryMode} timer ${labsLoft.header.pullUpTimer_s} / ${ccrpBuilt.deliveryMode} timer ${ccrpLoft.header.pullUpTimer_s}`);
+  ok('loft card fixtures: the strike #2 card carries the strike line with a push time and the lead as its one faint wingman, breaking the other way',
+     /push IP T-\d:\d\d \(est\)/.test(loftStrike.header.strikeLine ?? '') && loftStrike.attackSection.diagram?.wingmen?.length === 1 &&
+       (loftStrikeMission.attacks[1].profile as { egressDirection?: string }).egressDirection !== leadEgress,
+     `${loftStrike.header.strikeLine} / ${loftStrike.attackSection.diagram?.wingmen?.length} wingmen`);
+  // The push time of a loft strike member, as numbers (C): ipToImpact_s flies IP → pull-up →
+  // release → target at the 500 kt run-in speed, straight down the 15.3 nm IP line, so
+  // 15.3 / 500 × 3600 = 110.16 s (110.16019 as the pieces sum on the sphere), and #2 (TOT T+0:30)
+  // leaves the IP 80.16 s before the lead's TOT: "T-1:20".
+  const loftStrikeFlight = ipToImpact_s(loftStrike.attackSection.diagram!.picture!, 500);
+  ok('loft strike: #2\'s run-in speed is 500 kt and ipToImpact_s is 110.16 s from the 15.3 nm IP (IP line length ÷ speed)',
+     attackSpeedOf(loftStrikeMission.attacks[1].profile) === 500 && loftStrikeFlight !== undefined && Math.abs(loftStrikeFlight - 110.16019035950815) < 1e-6,
+     `${attackSpeedOf(loftStrikeMission.attacks[1].profile)} kt, ${loftStrikeFlight} s`);
+  ok('loft strike: #2\'s card strike line, word for word',
+     loftStrike.header.strikeLine === 'Pharaoh strike · #2 of 2 · TOT T+0:30 · push IP T-1:20 (est) · with #1 Pharaoh 1-1 T+0:00',
+     loftStrike.header.strikeLine);
+
   // Each drawing, in a theme or (theme left out) as the card has always been drawn. With no
   // theme the call is the old three-argument one, so the pins below prove that call unchanged.
   const paint = (ctx: CanvasRenderingContext2D, card: ReturnType<typeof cardOf>, tiles: BasemapTiles | undefined, theme?: CardTheme) => {
@@ -3259,6 +3315,11 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     // The attack editor draws the side view alone, with no theme to give it.
     { id: 'side', name: 'the side view alone, as the attack editor draws it',
       draw: (ctx, theme) => theme === undefined ? drawSideProfile(ctx, popup.attackSection.diagram!.side!, sideBox) : drawSideProfile(ctx, popup.attackSection.diagram!.side!, sideBox, theme) },
+    { id: 'loft-labs', name: 'F-4E LABS loft, the pull-up timer in its header', draw: (ctx, theme) => paint(ctx, labsLoft, undefined, theme) },
+    { id: 'loft-ccrp', name: 'F-16 CCRP loft', draw: (ctx, theme) => paint(ctx, ccrpLoft, undefined, theme) },
+    { id: 'loft-strike', name: 'F-4E LABS loft, #2 of a two-jet strike', draw: (ctx, theme) => paint(ctx, loftStrike, undefined, theme) },
+    { id: 'loft-side', name: 'the F-4E LABS loft side view alone, as the attack editor draws it',
+      draw: (ctx, theme) => theme === undefined ? drawSideProfile(ctx, labsLoft.attackSection.diagram!.side!, sideBox) : drawSideProfile(ctx, labsLoft.attackSection.diagram!.side!, sideBox, theme) },
   ];
   const runAll = (theme?: CardTheme, refuseBlends = false) =>
     fixtures.map(({ id, name, draw }) => {
@@ -3285,6 +3346,11 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     bare: { ops: 516, sha: 'e2df81b66a426da2' },
     'no-tiles': { ops: 610, sha: 'b8df503ed65c0b3b' },
     wingman: { ops: 1118, sha: 'f4bc2152d5064957' },
+    // The loft cards, first pinned 2026-11-14 on the code as shipped in v0.3.4 (not re-pins).
+    'loft-labs': { ops: 1034, sha: '4b70354b77866b80' },
+    'loft-ccrp': { ops: 1036, sha: '8ae658a6e11beb96' },
+    'loft-strike': { ops: 1096, sha: 'b6b20406fffc8192' },
+    'loft-side': { ops: 419, sha: '918baef989834be8' },
   };
   const runs = runAll();
   for (const run of runs) {
@@ -3293,6 +3359,11 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     const want = DAY_PIN[run.id];
     ok(`Day card: ${run.name} is drawn exactly as it always was`, got.sha === want.sha && got.ops === want.ops, `${got.ops} draw calls, ${got.sha}`);
   }
+  const loftLog = (id: string) => runs.find((run) => run.id === id)!.log;
+  ok('Day card: the LABS loft card\'s log prints the TIMER and the CCRP one\'s does not; the strike #2 log prints its push time',
+     loftLog('loft-labs').some((l) => /^fillText\(".*TIMER \d+\.\d s · set before IP/.test(l)) && !loftLog('loft-ccrp').some((l) => /TIMER \d/.test(l)) &&
+       loftLog('loft-strike').some((l) => /^fillText\(".*push IP T-1:20 \(est\)/.test(l)),
+     loftLog('loft-labs').find((l) => /TIMER/.test(l)) ?? '(no timer drawn)');
   ok('Day card: naming the Day theme draws the same as leaving the theme out',
      runAll(DAY_THEME).every((run, i) => digest(run.log).sha === digest(runs[i].log).sha));
 
@@ -3468,6 +3539,11 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     'no-tiles': '0bd6a11f04ec133d',
     wingman: '928f3bac5498e095',
     side: 'c5ad2258b64c94f0',
+    // The loft cards, first pinned 2026-11-14 (see DAY_PIN).
+    'loft-labs': '6f64e0f9df8d741f',
+    'loft-ccrp': '4d9f5d77a93b2169',
+    'loft-strike': 'c38d41ef80cef541',
+    'loft-side': 'fddeb05de1b37ec6',
   };
   for (const run of markedRuns) {
     if (dumpDir) writeFileSync(join(dumpDir, `${run.id}.marked.log`), run.log.join('\n') + '\n');
@@ -3634,6 +3710,10 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
       bare: { ops: 516, sha: '445adf8a4e25aa10' },
       'no-tiles': { ops: 611, sha: '38562df4e75a1df1' },
       wingman: { ops: 1119, sha: '0eaa1bb89fc092b0' },
+      'loft-labs': { ops: 1035, sha: 'd083f63be490564a' },
+      'loft-ccrp': { ops: 1037, sha: 'b83e766c648a0cdf' },
+      'loft-strike': { ops: 1097, sha: 'a302260cff1a99fa' },
+      'loft-side': { ops: 419, sha: '79436a427ed72875' },
     },
     nvg: {
       a4e: { ops: 1036, sha: 'a3692daff0a78271' },
@@ -3644,6 +3724,10 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
       bare: { ops: 516, sha: 'a38d43e526bf6dd5' },
       'no-tiles': { ops: 611, sha: '8d892daeaabc3b71' },
       wingman: { ops: 1119, sha: 'e4bccf86c8d6621e' },
+      'loft-labs': { ops: 1035, sha: '7c4acda898511715' },
+      'loft-ccrp': { ops: 1037, sha: 'ebe1081d3327784c' },
+      'loft-strike': { ops: 1097, sha: '62c0a2c3b2eae5ae' },
+      'loft-side': { ops: 419, sha: '6fdcd02cb615657b' },
     },
   };
   for (const theme of [NIGHT_THEME, NVG_THEME]) {
@@ -3746,4 +3830,178 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
      && CARD_LIGHTINGS.every((l) => themeForLighting(l).id === l));
   ok('card lighting: no lighting, an empty one, or one this build does not know gives Day',
      [undefined, null, '', 'banana', 'NIGHT', ' nvg'].every((l) => themeForLighting(l) === DAY_THEME));
+}
+
+// ─── strikeReadout word for word: the frag rule, the cone rule, the pushes ────
+// Pinned 2026-11-14, before the 0.4.0 playback work may lift the frag rule out of
+// strikeReadout (strike.ts:278-312). The older checks ("strikeReadout: 10 s spacing ...")
+// look only for "inside #1" and an empty list. These write every warning out in full and
+// the splits and pushes as numbers. A refactor that changes one character, the rounding,
+// the order of the warnings, or which jet counts as first then fails. The warning texts
+// are typed by hand from the rule. The numbers were read once off the shipped code (v0.3.4)
+// and checked against plain arithmetic (12 nm at 520 kt is 83.08 s). They are never worked
+// out here with strike.ts.
+// Real reference.json rows: Mk-82 clears in ~30 s, Mk-84 ~35 s, Mk-83 ~20 s, Mk-81 has no
+// frag data (0). Real pictures: the F-16 loft from the 12 nm IP (axis 248.1°), F-16 lofts
+// from custom IPs 12 nm out on 078°, 088° and 078.6° (10°, 20° and 10.6° round from it), and the saved
+// level-JDAM trio off the shared IP (#1 and #3 fly one flank, #2 the other).
+{
+  const mk82r = refWeapon('mk82'), mk84r = refWeapon('mk84'), mk83r = refWeapon('mk83'), mk81r = refWeapon('mk81');
+  const loftFrom = (bearing: number) => {
+    const built = loftBuild(loftViper, f16Loft, 'mk82', { customIp: calculateDestination(tgt, bearing, 12) });
+    const attack = loftAttackOf(built);
+    return buildAttackPicture(attack, attackIpAnchor([loftIpWp, loftTgtWp] as never, attack), loftTgtWp as never);
+  };
+  const loft10 = loftFrom(78), loft20 = loftFrom(88), loft11 = loftFrom(78.6);
+  const trioPics = strikeMembers(withIp, sId).map((a) => buildAttackPicture(a, attackIpAnchor(withIp.waypoints, a), wpTgt as never));
+  ok('strikeReadout fixtures: every picture exists (the loft from 12 nm, the lofts from 078° and 088°, the three level jets)',
+     loftPic != null && loft10 != null && loft20 != null && loft11 != null && trioPics.length === 3 && trioPics.every((p) => p != null));
+  const jet = (label: string, picture: unknown, speed_ktas: number | undefined, totOffset_s: number, weapon: unknown) =>
+    ({ label, picture, speed_ktas, totOffset_s, weapon }) as never;
+  type Want = { splits: [string, string, number, string][]; pushes: [string, number, number | undefined][]; warnings: string[] };
+  /** Compares strikeReadout's output with literals: text exactly, numbers to 1e-6 (s or degrees). */
+  const readoutIs = (name: string, jets: never[], want: Want) => {
+    const got = strikeReadout(jets);
+    const close = (x: number | undefined, y: number | undefined) => (x === undefined || y === undefined ? x === y : Math.abs(x - y) < 1e-6);
+    const splitsOk = got.splits.length === want.splits.length &&
+      got.splits.every((s, i) => s.a === want.splits[i][0] && s.b === want.splits[i][1] && close(s.deg, want.splits[i][2]) && s.grade === want.splits[i][3]);
+    const pushesOk = got.pushes.length === want.pushes.length &&
+      got.pushes.every((p, i) => p.label === want.pushes[i][0] && p.tot_s === want.pushes[i][1] && close(p.push_s, want.pushes[i][2]));
+    const warningsOk = JSON.stringify(got.warnings) === JSON.stringify(want.warnings);
+    ok(`strikeReadout literal: ${name}`, splitsOk && pushesOk && warningsOk,
+       `${splitsOk ? '' : 'SPLITS '}${pushesOk ? '' : 'PUSHES '}${warningsOk ? '' : 'WARNINGS '}${JSON.stringify(got)}`);
+  };
+  // ipToImpact_s of each picture, in seconds (a push is TOT minus this). The three lofts run
+  // 12 nm straight at the target at 520 kt: 12 / 520 × 3600 = 83.08 s. The level jets fly the
+  // IP, the check turn and the offset leg at 420 kt; #1 and #3 fly one track.
+  const LOFT12_520 = 83.07704705979224, LOFT10_520 = 83.07706083653262, LOFT20_520 = 83.07706663921236;
+  const L1 = 169.35677293599005, L2 = 168.8778085846112, L3 = 169.35677293599005;
+  // Splits, in degrees between attack axes: the loft (248.1°) against level #1; the lofts from
+  // 078° and 088° against the one from 068°; the level pair's 2φ ≈ 97°; #3 against #1 (one flank).
+  const SPLIT_L1_LOFT = 176.8625100706035, SPLIT_10 = 10.007609382822523, SPLIT_20 = 20.010699954878532;
+  // The loft from 078.6° (case 8): 10.6° round from the 068° one, 12 nm at 520 kt again.
+  const SPLIT_11 = 10.607923747331597, LOFT11_520 = 83.07706142129246;
+  const SPLIT_L1_L2 = 97.18075578145834, SPLIT_L2_L3 = 97.18075578145834, SPLIT_L3_L1 = 0;
+
+  // 1. A fractional gap: 12.5 s rounds to "13 s" in the text (Math.round). Axes far apart: no suffix, no cone.
+  readoutIs('a 12.5 s gap inside a Mk-82\'s 30 s prints "13 s", with no same-axis suffix', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 12.5, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_LOFT, 'good']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 12.5, 12.5 - L1]],
+    warnings: ['#2 is over the target 13 s after #1, inside #1\'s ~30 s of frag (est.)'],
+  });
+  // 1b. ...and 12.4 s prints "12 s": with 12.5 → 13 and 29.9 → 30 alone, Math.ceil would pass too.
+  readoutIs('a 12.4 s gap prints "12 s" (rounded to nearest, not up)', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 12.4, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_LOFT, 'good']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 12.4, 12.4 - L1]],
+    warnings: ['#2 is over the target 12 s after #1, inside #1\'s ~30 s of frag (est.)'],
+  });
+  // 8. The cone warning's degrees round to nearest too: 10.6° prints "11°" (the 10.0° and 20.0°
+  // splits above floor and round alike). 40 s apart is outside the Mk-82's 30 s: no frag warning.
+  readoutIs('10.6° apart, 40 s apart: only the cone warning, and it prints "11°"', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', loft11, 520, 40, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_11, 'inside']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 40, 40 - LOFT11_520]],
+    warnings: ['#1 and #2 are only 11° apart — inside one 40° fire-control cone'],
+  });
+  // 2. Same axis (10° apart, under 15°) adds the suffix; adjacent, so the cone warning follows the frag one.
+  readoutIs('10° apart: the frag warning says "— and on the same axis", then the cone warning', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', loft10, 520, 15, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_10, 'inside']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 15, 15 - LOFT10_520]],
+    warnings: [
+      '#2 is over the target 15 s after #1, inside #1\'s ~30 s of frag (est.) — and on the same axis',
+      '#1 and #2 are only 10° apart — inside one 40° fire-control cone',
+    ],
+  });
+  // 6. Not the same axis (20°) but inside the 40° cone: both kinds of warning, frag first.
+  readoutIs('20° apart: no same-axis suffix, but inside the cone; the frag warning comes before the cone warning', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', loft20, 520, 10, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_20, 'inside']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 10, 10 - LOFT20_520]],
+    warnings: [
+      '#2 is over the target 10 s after #1, inside #1\'s ~30 s of frag (est.)',
+      '#1 and #2 are only 20° apart — inside one 40° fire-control cone',
+    ],
+  });
+  // 3. A tie on time: the jet listed first counts as first, so its weapon's frag decides.
+  readoutIs('tied at T+0, Mk-82 listed first: warned with the Mk-82\'s 30 s, "0 s after"', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 0, mk81r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_LOFT, 'good']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 0, 0 - L1]],
+    warnings: ['#2 is over the target 0 s after #1, inside #1\'s ~30 s of frag (est.)'],
+  });
+  readoutIs('tied at T+0, the Mk-81 (no frag data) listed first: no warning at all', [
+    jet('#1', trioPics[0], 420, 0, mk81r), jet('#2', loftPic, 520, 0, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_LOFT, 'good']],
+    pushes: [['#1', 0, 0 - L1], ['#2', 0, 0 - LOFT12_520]],
+    warnings: [],
+  });
+  readoutIs('tied at T+0, Mk-82 then Mk-83: the Mk-82\'s ~30 s', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 0, mk83r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_LOFT, 'good']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 0, 0 - L1]],
+    warnings: ['#2 is over the target 0 s after #1, inside #1\'s ~30 s of frag (est.)'],
+  });
+  readoutIs('tied at T+0, Mk-83 then Mk-82: the Mk-83\'s ~20 s', [
+    jet('#1', trioPics[0], 420, 0, mk83r), jet('#2', loftPic, 520, 0, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_LOFT, 'good']],
+    pushes: [['#1', 0, 0 - L1], ['#2', 0, 0 - LOFT12_520]],
+    warnings: ['#2 is over the target 0 s after #1, inside #1\'s ~20 s of frag (est.)'],
+  });
+  // 4. The boundary is strict: a gap equal to the frag time is clear; 29.9 s warns, and prints "30 s".
+  readoutIs('30 s after a Mk-82 (exactly its ~30 s) is not warned', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 30, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_LOFT, 'good']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 30, 30 - L1]],
+    warnings: [],
+  });
+  readoutIs('29.9 s after a Mk-82 is warned, and the text rounds it to "30 s"', [
+    jet('#1', loftPic, 520, 0, mk82r), jet('#2', trioPics[0], 420, 29.9, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_LOFT, 'good']],
+    pushes: [['#1', 0, 0 - LOFT12_520], ['#2', 29.9, 29.9 - L1]],
+    warnings: ['#2 is over the target 30 s after #1, inside #1\'s ~30 s of frag (est.)'],
+  });
+  // 5. Three jets: every pair is checked, in the order (1,2), (1,3), (2,3); "first" is by time, not by
+  // place in the list (#3 at T+20 is first against #2 at T+30); #1 and #3 share an axis but are not neighbours,
+  // so they get the suffix and no cone warning.
+  readoutIs('three jets: all three pairs warned, in pair order, the later-listed #3 first against #2', [
+    jet('#1', trioPics[0], 420, 0, mk84r), jet('#2', trioPics[1], 420, 30, mk82r), jet('#3', trioPics[2], 420, 20, mk82r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_L2, 'good'], ['#2', '#3', SPLIT_L2_L3, 'good']],
+    pushes: [['#1', 0, 0 - L1], ['#2', 30, 30 - L2], ['#3', 20, 20 - L3]],
+    warnings: [
+      '#2 is over the target 30 s after #1, inside #1\'s ~35 s of frag (est.)',
+      '#3 is over the target 20 s after #1, inside #1\'s ~35 s of frag (est.) — and on the same axis',
+      '#2 is over the target 10 s after #3, inside #3\'s ~30 s of frag (est.)',
+    ],
+  });
+  readoutIs('three jets: only the non-adjacent pair (#1, #3) is inside the frag, and it is still warned', [
+    jet('#1', trioPics[0], 420, 0, mk82r), jet('#2', trioPics[1], 420, 40, mk82r), jet('#3', trioPics[2], 420, 25, mk81r),
+  ], {
+    splits: [['#1', '#2', SPLIT_L1_L2, 'good'], ['#2', '#3', SPLIT_L2_L3, 'good']],
+    pushes: [['#1', 0, 0 - L1], ['#2', 40, 40 - L2], ['#3', 25, 25 - L3]],
+    warnings: ['#3 is over the target 25 s after #1, inside #1\'s ~30 s of frag (est.) — and on the same axis'],
+  });
+  // 7. No picture, no speed, a zero speed: push undefined; a split needs both pictures. No weapon, no frag warning.
+  readoutIs('no picture or no speed gives no push and no split; one jet with both gets its push; no weapon, no frag warning', [
+    jet('#1', undefined, 520, 0, undefined), jet('#2', trioPics[1], undefined, 30, undefined),
+    jet('#3', trioPics[2], 420, 60, undefined), jet('#4', trioPics[0], 0, 90, undefined),
+  ], {
+    splits: [['#2', '#3', SPLIT_L2_L3, 'good'], ['#3', '#4', SPLIT_L3_L1, 'inside']],
+    pushes: [['#1', 0, undefined], ['#2', 30, undefined], ['#3', 60, 60 - L3], ['#4', 90, undefined]],
+    warnings: ['#3 and #4 are only 0° apart — inside one 40° fire-control cone'],
+  });
 }
