@@ -1,5 +1,18 @@
 # Build sessions plan (planned 2026-11-13)
 
+**Status (2026-11-13, end of day):** Sessions 1–4 are built and on `main`
+(unreleased): `1c64857`, `9428a2d`, `0532f23`, `2490b84`. Decisions taken
+along the way are in each commit, `ROADMAP.md` and the memory system. Two
+that bear on Session 5:
+- **A floor blocks saving.** A release below `frag_min_safe_alt_ft` or
+  `min_release_alt_ft` is an error, and `canSave` is false on any error. Say
+  so whenever a loft floor or check is proposed.
+- **Level-only weapons** (`LEVEL_ONLY_WEAPON_IDS` in `src/lib/weaponClass.ts`,
+  today just the Durandal) are filtered in `autoBuildAttack`'s candidate list.
+  A loft profile must not be offered to them.
+
+**Next: Session 5 (loft).**
+
 Five roadmap build candidates, one session each. Each section is meant to be
 picked up cold at the start of its session. Recommended order: 1 → 2 → 3 → 4
 → 5. Sessions 1 and 2 are small and touch the same file (`store_mapping.rs`),
