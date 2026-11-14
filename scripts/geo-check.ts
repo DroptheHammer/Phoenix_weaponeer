@@ -27,6 +27,7 @@ import {
   applyPopupPlan,
   bombRangeVacuum_ft,
   bombFallVacuum,
+  popupActionOf,
 } from '../src/lib/popupPlanning';
 import { planLoft, bombFlight, pullUpTimer_s, jetRangeAtImpact_nm, applyLoftPlan, resolveLoftEgressHeading, loftPlanOf, LOFT_FRAG_STANDOFF_NM, loftPullUpTimer_s } from '../src/lib/loftPlanning';
 import { describeRunIn } from '../src/lib/runIn';
@@ -36,6 +37,17 @@ import { storesMappedFor, weaponClassOf, geometrySuitsWeapon } from '../src/lib/
 import { SUPPORTED_GEOMETRIES } from '../src/types/profile.types';
 import type { LoftCCRPProfile } from '../src/types/attack.types';
 import type { DbWeapon } from '../src/types/weapon.types';
+import type { Attack, Mission, ThreatInstance } from '../src/types';
+import {
+  buildStrikePlayback, retime, sampleJet, sampleBomb, strikeEvents, delaysToOffsets, playbackInputFromMission,
+  makeLocalFrame, toLocal, fromLocal, fromLocalInto, toThree, newJetState, newBombState,
+  dangerZones, inDangerZone, readoutJets, threatDomes, domeHeightAt_m, insideDome, playbackBounds, sideCoords, fragCloudAt,
+  fragSpecOf,
+  type PlaybackJetInput, type StrikePlayback, type JetState,
+} from '../src/lib/playback';
+// Two internals, for checks that only the model functions can answer (the apex slope, the pull table).
+import { buildAltitude, pullTable } from '../src/lib/playback/altitude';
+import { buildChain } from '../src/lib/playback/chain';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, REAL_WORLD_DEFAULT_WEAPON, REAL_WORLD_DEFAULT_WEAPON_ID, isRealWorld } from '../src/lib/strikeNearMe';
 import { buildAttackPicture, buildSideProfile, pictureFitPoints, LINE_STYLE, MARKER_COLOR } from '../src/lib/attackPicture';
@@ -53,7 +65,7 @@ import { newJet, assignFlanks, respace, groupEdit } from '../src/lib/strikeDraft
 import {
   applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
   fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot, attackSpeedOf, ipToImpact_s,
-  fragConflicts, setStrikeOffsets,
+  fragConflicts, setStrikeOffsets, type StrikeJet,
 } from '../src/lib/strike';
 import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
@@ -4025,6 +4037,17 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // - fragConflicts `< SAME_AXIS_DEG` → `< FIRE_CONTROL_CONE_DEG` fails here and, through strikeReadout, the literal pin:
   //     FAIL strikeReadout literal: 20° apart: no same-axis suffix, but inside the cone; the frag warning comes before the cone warning  WARNINGS {…}
   //     FAIL fragConflicts: 20° apart at 10 s: not the same axis  [{"first":"#1","second":"#2","firstIndex":0,"secondIndex":1,"gap_s":10,"frag_s":30,"sameAxis":true}] vs 1 frag warning(s)
+  // Stage-4 independent proofs (2026-11-14, each alone in strike.ts, run, restored):
+  // - `secondIndex: iFirst ? j : i` → `secondIndex: j`:
+  //     FAIL fragConflicts: three jets, #3 (listed last) is first against #2  [… ,{"first":"#3","second":"#2","firstIndex":2,"secondIndex":2,"gap_s":10,"frag_s":30,"sameAxis":false}] vs 3 frag warning(s)
+  // - `if (frag > 0 && gap < frag)` → `… && jets.length < 0` (no conflicts at all) fails all ten cases that expect rows, e.g.
+  //     FAIL fragConflicts: a 12.5 s gap stays 12.5 (unrounded), Mk-82 30 s, axes apart  [] vs 0 frag warning(s)
+  // - `gap < frag` → `gap <= frag + 10` fails the cases that expect none on the gap:
+  //     FAIL fragConflicts: 40 s apart, outside a Mk-82's 30 s: none (the cone warning is not a frag conflict)  [{"first":"#1","second":"#2",…,"gap_s":40,"frag_s":30,"sameAxis":true}] vs 1 frag warning(s)
+  //     FAIL fragConflicts: exactly 30 s after a Mk-82: none (strict boundary)  [{"first":"#1","second":"#2",…,"gap_s":30,"frag_s":30,"sameAxis":false}] vs 1 frag warning(s)
+  // - `const frag = fragClearTime_s(first.weapon)` → `… || 30` (a fallback for no data):
+  //     FAIL fragConflicts: tied, Mk-81 (no frag data) listed first: none  [{"first":"#1","second":"#2",…,"gap_s":0,"frag_s":30,"sameAxis":false}] vs 1 frag warning(s)
+  //   and "no weapons: none" stays GREEN under it (its jets are exactly 30 s apart): the tied case below was added for it.
   type Row = [string, string, number, number, number, number, boolean];
   const conflictsAre = (name: string, jets: never[], want: Row[]) => {
     const got = fragConflicts(jets);
@@ -4077,6 +4100,13 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     jet('#1', undefined, 520, 0, undefined), jet('#2', trioPics[1], undefined, 30, undefined),
     jet('#3', trioPics[2], 420, 60, undefined), jet('#4', trioPics[0], 0, 90, undefined),
   ], []);
+  // The case above is spaced exactly 30 s, so a frag-time fallback of up to 30 s for a weapon with
+  // no data would still pass it; tied and 5 s apart, any fallback above 5 s shows. Stage-4 proof:
+  // strike.ts `const frag = fragClearTime_s(first.weapon)` → `… || 30` leaves "no weapons: none" GREEN and fails this one:
+  //     FAIL fragConflicts: no weapons, tied and 5 s apart: none (no frag data means no frag)  [{"first":"#1","second":"#2","firstIndex":0,"secondIndex":1,"gap_s":0,"frag_s":30,"sameAxis":false},{"first":"#1","second":"#3",…
+  conflictsAre('no weapons, tied and 5 s apart: none (no frag data means no frag)', [
+    jet('#1', undefined, 520, 0, undefined), jet('#2', trioPics[1], 420, 0, undefined), jet('#3', trioPics[2], 420, 5, undefined),
+  ], []);
 }
 
 // ─── 0.4.0 playback prerequisites in the shipped modules ──────────────────────
@@ -4106,6 +4136,21 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   //     FAIL fall sibling: levelFallVacuum range / 6076.12 === levelReleaseRange_nm over the grid (incl. h = -500)  first mismatch h=1 v=250: 0.01730709924116751 vs 0.017314090813682313
   //     FAIL fall sibling: levelFallVacuum time solves 16.087·t² = max(h, 0), range = vx·t  worst residual 9.7e+0 ft
   //     FAIL fall sibling: 1,500 ft level falls 9.656 s; 30° at 450 kt from 3,000 ft falls 6.241 s  9.652 s, 6.241 s
+  // Stage-4 independent proofs (2026-11-14, each alone, run, restored):
+  // - popupPlanning.ts bombFallVacuum `Math.max(releaseAltitude_ft, 0)` → `Math.max(releaseAltitude_ft, 1)`:
+  //     FAIL fall sibling: bombFallVacuum range === bombRangeVacuum_ft over the grid (incl. h = -500)  first mismatch h=-500 v=250 dive=0: 105.29646110148667 vs 0
+  //     FAIL fall sibling: bombFallVacuum time solves vy0·t + 16.1·t² = max(h, 0), range = vx·t  worst residual 1.0e+0 ft
+  // - popupPlanning.ts bombFallVacuum `time_s: t` → `time_s: t * 1.001`:
+  //     FAIL fall sibling: bombFallVacuum time solves vy0·t + 16.1·t² = max(h, 0), range = vx·t  worst residual 2.5e+1 ft
+  //     FAIL fall sibling: 1,500 ft level falls 9.656 s; 30° at 450 kt from 3,000 ft falls 6.241 s  9.656 s, 6.247 s
+  // - attackGeometry.ts levelFallVacuum `speed_ktas * KT_TO_FT_S` → `speed_ktas * 1.69` (the pop-up's constant):
+  //     FAIL fall sibling: levelFallVacuum range / 6076.12 === levelReleaseRange_nm over the grid (incl. h = -500)  first mismatch h=1 v=250: 0.017336556528947635 vs 0.017314090813682313
+  //     FAIL fall sibling: levelFallVacuum time solves 16.087·t² = max(h, 0), range = vx·t  worst residual 3.2e+1 ft
+  // - attackGeometry.ts levelFallVacuum `time_s: t` → `time_s: Math.sqrt(h0 / 16.1)`:
+  //     FAIL fall sibling: levelFallVacuum time solves 16.087·t² = max(h, 0), range = vx·t  worst residual 1.0e+1 ft
+  //     FAIL fall sibling: 1,500 ft level falls 9.656 s; 30° at 450 kt from 3,000 ft falls 6.241 s  9.652 s, 6.241 s
+  // - popupPlanning.ts bombFallVacuum `g_fps2: G_FT_S2` → `g_fps2: 32.174` (only the worked values see the field itself):
+  //     FAIL fall sibling: 1,500 ft level falls 9.656 s; 30° at 450 kt from 3,000 ft falls 6.241 s  9.656 s, 6.241 s
   const heights = [-500, 0, 1, 300, 1500, 4000, 12000];
   const speeds = [0, 250, 450, 540];
   const dives = [0, 5, 20, 30, 45, 60];
@@ -4151,7 +4196,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // point is pushed on the landing step with the interpolated t, which bombFlight returns as
   // timeOfFlight_s. Both are the same variable, so the check is ===.
   // When the pull takes a whole multiple of 100 steps of 0.002 s, the last in-loop sample and the
-  // post-loop push are the same point (judge-risk §6.1, ~1% of inputs): the search below finds such
+  // post-loop push are the same point (about 1.6% of the grid's inputs): the search below finds such
   // inputs and pins that the duplicate carries an equal t_s (so a zero-length interval, which the
   // playback must drop). Fixtures: the two bundled lofts, the 13 Fig 5-9 rows and a 1,482-plan grid.
   // Nothing drawn moves: the side view builds its own points from x_ft / alt_ft (attackPicture.ts),
@@ -4167,6 +4212,15 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // - planLoft `bombPath: bomb.path.map((p) => ({ ...p, x_ft: p.x_ft + x }))` → the old `({ x_ft: p.x_ft + x, alt_ft: p.alt_ft })` (drops t_s):
   //     FAIL loft t_s: ...and the bombPath starts at release (t 0) where the pull ends
   //   (and the two checks above, "undefined vs 28.833859505761666").
+  // Stage-4 independent proofs (2026-11-14, each alone in loftPlanning.ts, run, restored):
+  // - planLoft in-loop `t_s: t` → `t_s: -t`:
+  //     FAIL loft t_s: every pull and bomb point has a finite time from 0 that never goes back (only a duplicated final pull point ties)  1497 plans, 1497 bad; …
+  // - planLoft post-loop push `t_s: t` → `t_s: t + dt`:
+  //     FAIL loft t_s: the last pull point is at exactly pullTime_s and the last bomb point at exactly timeOfFlight_s  F-16: 5.623999999999603 vs 5.621999999999603, …; 1497 bad
+  // - planLoft in-loop `t_s: t` → `t_s: t - 1e-9` (only the duplicate's two times split; the order check stays GREEN):
+  //     FAIL loft t_s: a searched input whose pull duplicates its final point (a multiple of 100 steps) gives the duplicate an equal t_s  … t 4.999999998999671 / 4.999999999999671 …
+  // - planLoft `bombPath: … x_ft: p.x_ft + x` → `… x_ft: p.x_ft + x + 1` (and the loft card pins):
+  //     FAIL loft t_s: ...and the bombPath starts at release (t 0) where the pull ends
   type Plan = ReturnType<typeof planLoft>;
   const grid: Plan[] = [];
   for (const ingress of [300, 500, 800]) {
@@ -4233,6 +4287,23 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // - `{ ...a, totOffset_s: offsets[a.id] }` → `Object.assign(a, { totOffset_s: offsets[a.id] })` (writes into the input):
   //     FAIL setStrikeOffsets: the mission given is not changed
   //   (and the two later checks, which then start from the dirtied fixture).
+  // Stage-4 independent proofs (2026-11-14, each alone in strike.ts, run, restored):
+  // - strikeMembers sort `(a.totOffset_s ?? 0) - (b.totOffset_s ?? 0)` → `(b…) - (a…)`:
+  //     FAIL setStrikeOffsets fixture: three members, lead first, at 0/30/60, and two attacks outside the strike  a3@0,a2@-30,a1@-60
+  // - `rebaseTot(written, strikeId)` → `rebaseTot(written.attacks.length < 0 ? written : mission, strikeId)` (the offsets never written):
+  //     FAIL setStrikeOffsets: offsets 5/40/75 are re-based to 0/35/70 on the lead  a1@0,a2@30,a3@60
+  // - `{ ...a, totOffset_s: … }` → `{ ...(JSON.parse(JSON.stringify(a)) as Attack), totOffset_s: … }`:
+  //     FAIL setStrikeOffsets: every attack keeps its very profile object
+  // - the untouched branch `: a` → `: { ...a }`:
+  //     FAIL setStrikeOffsets: attacks outside the strike are the same objects, untouched, even when listed  undefined / 15
+  // - `rebaseTot(written, strikeId)` → `rebaseTot(Object.assign(mission, written), strikeId)`:
+  //     FAIL setStrikeOffsets: the mission given is not changed
+  // - `totOffset_s: offsets[a.id]` → `totOffset_s: Math.abs(offsets[a.id])`:
+  //     FAIL setStrikeOffsets: #2 moved 10 s ahead of the lead becomes the lead, and the rest shift by 10 s  a1@0,a2@10,a3@60
+  // - `if (!strikeOf(mission, strikeId)) return mission;` → `return { ...mission };`:
+  //     FAIL setStrikeOffsets: an unknown strike id returns the very same mission
+  // - `Number.isFinite(offsets[a.id])` → `typeof offsets[a.id] === 'number'`:
+  //     FAIL setStrikeOffsets: a member not listed, or given a non-number, keeps its offset  a1@NaN,a2@NaN,a3@NaN
   const [m1, m2, m3] = strikeMembers(withIp, sId);
   const plain = { ...m1, id: 'plain-1', strikeId: undefined, totOffset_s: undefined, sequenceNumber: 4 };
   const other = { ...m2, id: 'other-1', strikeId: 'strike-2', totOffset_s: 15, sequenceNumber: 5 };
@@ -4257,4 +4328,1633 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   const partial = setStrikeOffsets(base, sId, { [m1.id]: NaN, [m3.id]: 50 });
   ok('setStrikeOffsets: a member not listed, or given a non-number, keeps its offset',
      offsetsOf(partial) === `${m1.id}@0,${m2.id}@30,${m3.id}@50`, offsetsOf(partial));
+}
+
+// ─── 0.4.0 playback: the plan layer agrees with the planner ──────────────────
+// src/lib/playback turns a planned strike into time-stamped jet and bomb tracks for the 3D
+// playback (0.4.0 Track B1). Every check here runs on the PLAN layer, the one on the card's lines;
+// the numbers in brackets are the build spec's test numbers. Fixtures: the NTTR target at 4,000 ft,
+// an IP 15.3 nm (and 20 nm) out on 068°, a second target 2 nm away at 5,200 ft, the real profile
+// files and the real reference.json weapons (so "Mk-82" is the real row: 30 s of frag). Strikes are
+// built the editor's way and saved with saveStrikeTo, so the playback reads a real Mission.
+// Read [1] for what it is: "impact = TOT" holds by construction (each jet's clock is shifted so its
+// impact lands on its TOT). The evidence that the playback agrees with the planner is [2]-[6], which
+// pin it against numbers the planner states.
+// Each check carries its mutation proofs (2026-11-14): one temporary edit to the real module under
+// src/lib/playback, geo-check run, the FAIL line copied (shortened with …), the edit restored.
+// "Stage-4" marks a proof redone independently in a last pass over every check.
+// "spec D1" … "spec D13" are the design decisions of the build spec, a working paper kept outside
+// the repo. Each is restated where it is built: the file headers under src/lib/playback (types.ts
+// for the two clocks and the two layers, timing.ts for impact = TOT, display.ts, formation.ts,
+// frag.ts, threats.ts, bounds.ts).
+{
+  try {
+    const pbLib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8')) as { id: string }[];
+    const refRows = refWeapons as never as DbWeapon[];
+    const PB_IP = 'pb-ip';
+    const pbTgt2 = { id: 'pb-tgt2', steerpoint: 9, name: 'TGT2', type: 'target', coordinates: calculateDestination(tgt, 160, 2), elevation_ft: 5200 };
+    const crew = (id: string, position: number, aircraftId = 'f16c') =>
+      ({ id, callsign: `Viper 1-${position}`, aircraftId, position, loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 6 }] });
+    const pbMission = (ipNm: number) => ({
+      id: 'pbm', name: 'Playback test', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '',
+      waypoints: [{ id: PB_IP, steerpoint: 7, name: 'STPT 7', type: 'turnpoint', coordinates: calculateDestination(tgt, 68, ipNm), elevation_ft: 5000 }, wpTgt, pbTgt2],
+      threats: [], attacks: [], strikes: [],
+      flightMembers: [crew('p1', 1), crew('p2', 2), crew('p3', 3), crew('p4', 4), crew('f4', 5, 'f4e')],
+    }) as never as Mission;
+    const targetOf = (m: Mission, a: Attack) => m.waypoints.find((w) => w.id === a.targetWaypointId)!;
+    const autoBuilt = (m: Mission, attackerId: string, file: string, profileId: string, weaponId: string, id: string, extra: object = {}, targetId = wpTgt.id) => {
+      const b = autoBuildAttack({ mission: m, targetWaypointId: targetId, attackerId, weapons: refWeapons, profiles: pbLib(file), threatSystems: [], overrides: { weaponId, profileId, ...extra } } as never);
+      return b.attack ? ({ ...b.attack, id } as Attack) : undefined;
+    };
+    const jetInput = (m: Mission, a: Attack, weapon: DbWeapon | undefined, label = '#1', totOffset_s = 0, withIpAnchor = true): PlaybackJetInput =>
+      ({ id: a.id, attack: a, ipAnchor: withIpAnchor ? attackIpAnchor(m.waypoints, a) : undefined, target: targetOf(m, a), weapon, totOffset_s, label });
+    const lone = (m: Mission, a: Attack, weapon: DbWeapon | undefined, withIpAnchor = true) =>
+      buildStrikePlayback({ name: a.id, jets: [jetInput(m, a, weapon, '#1', 0, withIpAnchor)] });
+    /** A strike's jets as the strike editor hands them to strikeReadout, built here without the playback. */
+    const editorJets = (m: Mission, strikeId: string, weapons: DbWeapon[], offsets?: Record<string, number>): StrikeJet[] =>
+      strikeMembers(m, strikeId).map((a, k) => ({
+        label: `#${k + 1}`, picture: buildAttackPicture(a, attackIpAnchor(m.waypoints, a), targetOf(m, a)), speed_ktas: attackSpeedOf(a.profile),
+        totOffset_s: offsets?.[a.id] ?? a.totOffset_s ?? 0, weapon: weapons.find((w) => w.id === a.weaponId),
+      }));
+    const popStrike = (ids: string[], spacing: number, strikeId: string) => {
+      const m0 = pbMission(15.3);
+      const ctx = { mission: m0, weapons: refWeapons, profiles: pbLib('f16c').filter((p) => p.id === 'f16c.popup.std'), threatSystems: [] } as never;
+      const jets = assignFlanks(respace(ids.map((id) => newJet(m0, id, wpTgt.id, {})), spacing), ctx);
+      let seq = 0;
+      return saveStrikeTo(m0, { id: strikeId, name: `${ids.length}-ship`, ip: {}, spacing_s: spacing },
+        jets.map((j) => ({ data: draftAttackData(j.draft, resolveDraft(j.draft, ctx), undefined, 1)!, totOffset_s: j.totOffset_s })),
+        () => `${strikeId}-${++seq}`).mission;
+    };
+    const fromMission = (m: Mission, strikeId: string, weapons: DbWeapon[]) => {
+      const input = playbackInputFromMission(m, { strikeId }, weapons);
+      return input ? buildStrikePlayback(input) : undefined;
+    };
+    const fragWarningCount = (jets: StrikeJet[]) => strikeReadout(jets).warnings.filter((w) => w.includes('s of frag (est.)')).length;
+
+    // Six families, each a lone jet at two IP distances. `delta` is the measured flown − card push (s).
+    const FAMILIES = [
+      { key: 'pop-up', file: 'f16c', who: 'p1', profile: 'f16c.popup.std', weapon: 'mk82', delta: 1.630 },
+      { key: '30° dive', file: 'f16c', who: 'p1', profile: 'f16c.dive.ccip30', weapon: 'mk82', delta: 0.366 },
+      { key: '45° dive', file: 'f16c', who: 'p1', profile: 'f16c.dive.ccip45', weapon: 'mk82', delta: -3.873 },
+      { key: 'level JDAM (offset leg)', file: 'f16c', who: 'p1', profile: 'f16c.level.ccrp.jdam', weapon: 'gbu31', delta: 0 },
+      { key: 'F-16 loft', file: 'f16c', who: 'p1', profile: 'f16c.loft.std', weapon: 'mk82', delta: -6.941 },
+      { key: 'F-4E LABS loft', file: 'f4e', who: 'f4', profile: 'f4e.loft.labs45', weapon: 'mk82', delta: -15.774 },
+    ];
+    const familyCases = [15.3, 20].flatMap((ipNm) => {
+      const m = pbMission(ipNm);
+      return FAMILIES.map((f) => {
+        const attack = autoBuilt(m, f.who, f.file, f.profile, f.weapon, `a-${f.profile}`);
+        return { ...f, ipNm, m, attack, pb: attack ? lone(m, attack, refWeapon(f.weapon)) : undefined };
+      });
+    });
+    // Mutation proof: family.ts familyOf `case 'loft_ccrp': return 'loft'` → `return undefined`:
+    //   FAIL playback fixture: all six families auto-build at 15.3 and 20 nm and each plays its one jet  F-16 loft@15.3: A loft needs an IP: … (and [1], [2], [5], [14])
+    // Stage-4: familyOf `case 'dive_ccip': return 'dive'` → `return undefined`:
+    //   FAIL playback fixture: all six families … 30° dive@15.3: This delivery (strafe, low-angle low-drag) has no attack picture to fly.; … (and [1], [2], [4], [5], events, a throw)
+    ok('playback fixture: all six families auto-build at 15.3 and 20 nm and each plays its one jet',
+       familyCases.every((c) => c.pb?.jets.length === 1 && c.pb.skipped.length === 0),
+       familyCases.filter((c) => c.pb?.jets.length !== 1).map((c) => `${c.key}@${c.ipNm}: ${c.pb?.skipped[0]?.reason ?? 'no attack'}`).join('; '));
+
+    // Four strikes: pop-up 2- and 4-ship, the level offset-leg trio off the shared IP (withIp, its
+    // hand-made 1,500 ft GBU-31), and a mixed strike whose pop-up #2 flies to a 5,200 ft target.
+    const pop2 = popStrike(['p1', 'p2'], 30, 'pop2');
+    const pop4 = popStrike(['p1', 'p2', 'p3', 'p4'], 25, 'pop4');
+    const mixM = pbMission(15.3);
+    const mixLevel = autoBuilt(mixM, 'p1', 'f16c', 'f16c.level.ccrp.jdam', 'gbu31', 'mx-level');
+    const mixPop = autoBuilt(mixM, 'p2', 'f16c', 'f16c.popup.std', 'mk82', 'mx-pop', { ipWaypointId: PB_IP }, pbTgt2.id);
+    let mixSeq = 0;
+    const mixed = mixLevel && mixPop
+      ? saveStrikeTo(mixM, { id: 'mx', name: 'Mixed', ip: {}, spacing_s: 40 }, [{ data: mixLevel as never, totOffset_s: 0 }, { data: mixPop as never, totOffset_s: 40 }], () => `mx-${++mixSeq}`).mission
+      : undefined;
+    const strikeCases = [
+      { name: 'pop-up 2-ship', m: pop2, id: 'pop2', weapons: refRows, n: 2 },
+      { name: 'pop-up 4-ship at 25 s', m: pop4, id: 'pop4', weapons: refRows, n: 4 },
+      { name: 'level offset-leg trio off a shared IP', m: withIp as Mission, id: sId, weapons: [gbu31] as never as DbWeapon[], n: 3 },
+      { name: 'mixed: level lead, pop-up #2 on a 5,200 ft target', m: mixed, id: 'mx', weapons: refRows, n: 2 },
+    ].map((c) => ({ ...c, pb: c.m ? fromMission(c.m, c.id, c.weapons) : undefined }));
+    // Mutation proofs: input.ts label `#${k + 1}` → `#${k}`:
+    //   FAIL playback fixture: the four strikes play every member in strikeMembers order, labelled #1…, …  pop-up 2-ship: #0@0,#1@30; …
+    // strikePlayback.ts `jets.push(built)` → `jets.unshift(built)` (the caller's order reversed):
+    //   FAIL playback fixture: the four strikes … pop-up 2-ship: #2@30,#1@0; … (and [7] ties, [8], [9])
+    // Stage-4: input.ts `members = strikeMembers(mission, strike.id)` → `….reverse()` (last on target first):
+    //   FAIL playback fixture: the four strikes … pop-up 2-ship: #1@30,#2@0; pop-up 4-ship at 25 s: #1@75,#2@50,#3@25,#4@0; … (and [7], [8], [9], [11], [15])
+    ok('playback fixture: the four strikes play every member in strikeMembers order, labelled #1…, with their raw offsets',
+       strikeCases.every((c) => c.pb?.jets.length === c.n && c.pb.strikeId === c.id &&
+         c.pb.jets.every((j, k) => j.label === `#${k + 1}` && j.id === strikeMembers(c.m!, c.id)[k].id && c.pb!.planDelays_s[j.id] === strikeMembers(c.m!, c.id)[k].totOffset_s)),
+       strikeCases.map((c) => `${c.name}: ${c.pb ? c.pb.jets.map((j) => `${j.label}@${c.pb!.planDelays_s[j.id]}`).join(',') : 'none'}`).join('; '));
+
+    type Case = { name: string; m: Mission; pb: StrikePlayback; attackOf: (id: string) => Attack | undefined };
+    const cases: Case[] = [
+      ...familyCases.filter((c) => c.pb).map((c) => ({ name: `${c.key} @${c.ipNm} nm`, m: c.m, pb: c.pb!, attackOf: () => c.attack })),
+      ...strikeCases.filter((c) => c.pb).map((c) => ({ name: c.name, m: c.m!, pb: c.pb!, attackOf: (id: string) => c.m!.attacks.find((a) => a.id === id) })),
+    ];
+    /** Run `fn` on every jet of every case; the first reason it gives is the failure. */
+    const eachJet = (fn: (c: Case, k: number, t: ReturnType<typeof retime>) => string | undefined) => {
+      let jets = 0;
+      let bad = '';
+      for (const c of cases) {
+        const t = retime(c.pb);
+        c.pb.jets.forEach((j, k) => {
+          jets++;
+          const why = fn(c, k, t);
+          if (why && !bad) bad = `${c.name} ${j.label}: ${why}`;
+        });
+      }
+      return { jets, bad };
+    };
+
+    // [1] Impact = TOT, and shift invariance.
+    // Mutation proof: timing.ts `const shift = tot_s - track.impactTau_s` → `tot_s - track.releaseTau_s` (the fall dropped):
+    //   FAIL playback [1]: every jet's impact event and last bomb sample fall at its TOT, … pop-up @15.3 nm #1: impact event at 8.46090533098608 vs TOT 0
+    // Stage-4: "drop the impact pin": timing.ts `const shift = tot_s - track.impactTau_s` → `tot_s - (track.cardIpToImpact_s ?? track.impactTau_s)` (every jet shifted by its card push):
+    //   FAIL playback [1]: every jet's impact event … pop-up @15.3 nm #1: impact event at -1.6243363213018256 vs TOT 0 (and [2] for all but level, [3], window, visibility)
+    // bomb.ts the last vacuum point's `f: 1` → `f: 0.999`:
+    //   FAIL playback [1]: every jet's impact event … pop-up @15.3 nm #1: bomb at TOT 1.06e-3 nm off, 1.9468870959826745e-12 ft (and [3], [6], [11], extras)
+    // "end the bomb on the drawn bomb line's last vertex": jetTrack.ts buildBomb's target → `{ ...input.target, coordinates: <last point of the picture's bomb line> }`:
+    //   FAIL playback [1]: every jet's impact event … pop-up @15.3 nm #1: bomb at TOT 5.21e-1 nm off, 1.9468870959826745e-12 ft (and [3], [6], [11], extras)
+    const t1 = eachJet((c, k, t) => {
+      const j = c.pb.jets[k], tj = t.jets[k], tot = c.pb.planDelays_s[j.id];
+      const impact = j.events.find((e) => e.kind === 'impact');
+      const lastBomb = tj.shift_s + j.releaseTau_s + j.bomb.tau_s[j.bomb.n - 1];
+      const b = sampleBomb(c.pb, t, k, tot);
+      if (!impact || Math.abs(impact.tau_s + tj.shift_s - tot) > 1e-9) return `impact event at ${impact ? impact.tau_s + tj.shift_s : '-'} vs TOT ${tot}`;
+      if (Math.abs(lastBomb - tot) > 1e-9 || tj.impact_s !== tot) return `last bomb sample at ${lastBomb} vs TOT ${tot}`;
+      if (calculateDistance(b, j.target.coordinates) > 1e-6 || Math.abs(b.agl_ft) > 1e-6) return `bomb at TOT ${calculateDistance(b, j.target.coordinates).toExponential(2)} nm off, ${b.agl_ft} ft`;
+      return undefined;
+    });
+    ok('playback [1]: every jet\'s impact event and last bomb sample fall at its TOT, on its own target at AGL 0 (six families twice, four strikes)',
+       t1.bad === '' && t1.jets === 23, t1.bad || `${t1.jets} jets`);
+    // Mutation proofs: sample.ts `const tau = t_s - timing.jets[jet].shift_s` → `t_s - (pb.planDelays_s[track.id] - track.impactTau_s)` (sampling ignores the re-time):
+    //   FAIL playback [1]: re-timing every jet by +17.25 s gives the same jet and bomb state 17.25 s later …  F-4E LABS loft @15.3 nm #1 at t=-142.98: off 5.39e-1, leadIn/route
+    // timing.ts retime `timingJet(j, tots[k])` → `timingJet(j, pb.planDelays_s[j.id])`: the same FAIL (and [8]).
+    // Stage-4: sample.ts sampleBomb `t_s - timing.jets[jet].shift_s - track.releaseTau_s` → `t_s - (pb.planDelays_s[track.id] - track.impactTau_s) - …` (the bomb ignores the re-time):
+    //   FAIL playback [1]: re-timing every jet by +17.25 s … F-4E LABS loft @15.3 nm #1 at t=-54.18: off 5.20e+1, route/route (and [11]'s slotted bomb)
+    const DELTA = 17.25;
+    let shiftBad = '', shiftSamples = 0;
+    for (const c of cases.filter((x) => x.pb.jets.length > 1 || x.name.startsWith('F-4E'))) {
+      const ta = retime(c.pb);
+      const tb = retime(c.pb, Object.fromEntries(c.pb.jets.map((j) => [j.id, c.pb.planDelays_s[j.id] + DELTA])));
+      const sa = newJetState(), sb = newJetState(), ba = newBombState(), bb = newBombState();
+      c.pb.jets.forEach((_, k) => {
+        for (let t = ta.window.t0_s; t <= ta.window.t1_s; t += 0.37) {
+          sampleJet(c.pb, ta, k, t, 'plan', sa);
+          sampleJet(c.pb, tb, k, t + DELTA, 'plan', sb);
+          sampleBomb(c.pb, ta, k, t, 'plan', ba);
+          sampleBomb(c.pb, tb, k, t + DELTA, 'plan', bb);
+          shiftSamples++;
+          const off = Math.max(Math.abs(sa.lat - sb.lat), Math.abs(sa.lon - sb.lon), Math.abs(ba.lat - bb.lat), Math.abs(ba.lon - bb.lon)) * 1e3 +
+            Math.max(Math.abs(sa.up_m - sb.up_m), Math.abs(sa.agl_ft - sb.agl_ft), Math.abs(ba.agl_ft - bb.agl_ft), Math.abs(sa.heading_deg - sb.heading_deg));
+          if ((off > 1e-6 || sa.visible !== sb.visible || sa.phase !== sb.phase || ba.stage !== bb.stage) && !shiftBad)
+            shiftBad = `${c.name} #${k + 1} at t=${t.toFixed(2)}: off ${off.toExponential(2)}, ${sa.phase}/${sb.phase}`;
+        }
+      });
+    }
+    ok(`playback [1]: re-timing every jet by +${DELTA} s gives the same jet and bomb state ${DELTA} s later (four strikes, the LABS loft)`,
+       shiftBad === '' && shiftSamples > 2000, shiftBad || `${shiftSamples} samples`);
+
+    // Events (spec D12): one sorted list in strike time; per jet exactly four ticks, in flight order.
+    // Mutation proof: events.ts the commit spec's `tick: true` → `tick: false`:
+    //   FAIL playback events: one sorted strike-time list, four ticks per jet …  pop-up @15.3 nm: sorted true, ticks push,release,impact
+    // Stage-4: events.ts strikeEvents sort `a.t_s - b.t_s || a.jet - b.jet` → `a.jet - b.jet || a.t_s - b.t_s`:
+    //   FAIL playback events: one sorted strike-time list, … pop-up 2-ship: sorted false, ticks push,commit,release,impact | push,commit,release,impact
+    // events.ts strikeEvents `timing.jets[jet].shift_s` → `timing.jets[0].shift_s + 0 * jet` (everyone on the lead's clock):
+    //   FAIL playback events: one sorted strike-time list, … pop-up 2-ship: sorted true, ticks … (push not at the flown push; and [8] +10 s)
+    let eventsBad = '';
+    for (const c of cases) {
+      const t = retime(c.pb);
+      const { events, cardPush_s } = strikeEvents(c.pb, t);
+      const sorted = events.every((e, i) => i === 0 || events[i - 1].t_s <= e.t_s);
+      const ticks = c.pb.jets.map((_, k) => events.filter((e) => e.jet === k && e.tick).map((e) => e.kind).join());
+      if (!sorted || ticks.some((x) => x !== 'push,commit,release,impact') || cardPush_s.some((p, k) => p !== t.jets[k].cardPush_s) ||
+          events.some((e) => e.kind === 'push' && Math.abs(e.t_s - t.jets[e.jet].push_s) > 1e-9))
+        eventsBad ||= `${c.name}: sorted ${sorted}, ticks ${ticks.join(' | ')}`;
+    }
+    ok('playback events: one sorted strike-time list, four ticks per jet (IP push, pull-up/roll-in/turn-in, release, impact), push at the flown push, card pushes beside it',
+       eventsBad === '', eventsBad);
+    // The release event's words are the planner's (spec D12): the very word the picture's REL marker
+    // starts with, for every delivery mode the picture tells apart, and pinned literally.
+    // Mutation proofs: family.ts releaseLabelOf level `mode === 'VIS' ? 'Fire' : 'Pickle'` → `… : 'Release'`:
+    //   FAIL playback events: the release event says what the picture's REL marker says, … level JDAM (offset leg) MAN: event "Release", marker "Pickle ~4.1nm out", want "Pickle"
+    // family.ts releaseLabelOf dive `attack.deliveryMode === 'DTOS' ? 'System release'` → `… ? 'Release'`:
+    //   FAIL playback events: … 30° dive DTOS: event "Release", marker "System release ~ 4,500ft AGL @ 450 KTAS", want "System release"
+    // Stage-4: family.ts releaseLabelOf `family === 'popup' ? 'Release' : 'Auto-release'` → `… : 'Release'`:
+    //   FAIL playback events: the release event says … F-16 loft : event "Release", marker "Auto-release ~1,520ft AGL · 3.2nm out", want "Auto-release"
+    const LABEL_CASES: [string, Partial<Attack>, string][] = [
+      ['30° dive', { deliveryMode: 'CCIP' }, 'Release'], ['30° dive', { deliveryMode: 'DTOS' }, 'System release'], ['30° dive', { deliveryMode: 'MAN' }, 'Pickle'],
+      ['30° dive', { deliveryMode: 'MAN', weaponClass: 'rocket' }, 'Fire'],
+      ['level JDAM (offset leg)', { deliveryMode: 'CCRP' }, 'Auto-release'], ['level JDAM (offset leg)', { deliveryMode: 'AUTO' }, 'Auto-release'],
+      ['level JDAM (offset leg)', { deliveryMode: undefined }, 'Auto-release'], ['level JDAM (offset leg)', { deliveryMode: 'VIS' }, 'Fire'], ['level JDAM (offset leg)', { deliveryMode: 'MAN' }, 'Pickle'],
+      ['pop-up', { deliveryMode: 'CCIP' }, 'Release'], ['F-16 loft', {}, 'Auto-release'], ['F-4E LABS loft', {}, 'Auto-release'],
+    ];
+    let labelBad = '';
+    for (const [key, patch, want] of LABEL_CASES) {
+      const fc = familyCases.find((c) => c.key === key && c.ipNm === 15.3)!;
+      const a = { ...fc.attack!, ...patch } as Attack;
+      const j = lone(fc.m, a, refWeapon(fc.weapon)).jets[0];
+      const label = j?.events.find((e) => e.kind === 'release')?.label;
+      const marker = j?.picture.markers.find((m) => m.kind === 'REL')?.lines?.[0] ?? '';
+      if (label !== want || !marker.startsWith(`${want} `)) labelBad ||= `${key} ${patch.deliveryMode ?? ''}: event "${label}", marker "${marker}", want "${want}"`;
+    }
+    ok('playback events: the release event says what the picture\'s REL marker says, per delivery mode (dive CCIP/DTOS/MAN/fired, level CCRP/AUTO/unset/VIS/MAN, pop-up, lofts)',
+       labelBad === '', labelBad || `${LABEL_CASES.length} modes`);
+    // Each event's position and altitude (spec D12), and its `estimated` flag by events.ts's one rule:
+    // anchored events sit exactly on their anchor's sample; impact and frag clear on the target at
+    // AGL 0; frag clear exactly clear_s after impact; estimated = the push, the frag clear, and the
+    // impact of a bomb that is not a plain vacuum fall. (Stage-4 strengthening: nothing checked these.)
+    // Proofs, each GREEN under the pre-stage-4 geo-check (805dcf5, re-run): events.ts `lat: S.lat[i]` → `lat: S.lat[Math.max(i - 1, 0)]`:
+    //     FAIL playback events: every event sits on its anchor's sample (impact and frag clear on the target, AGL 0), estimated by events.ts's rule  pop-up @15.3 nm #1: action off its AP sample
+    // events.ts impact `estimated: facts.fall.model !== 'vacuum'` → `… !== 'vacuumOnSightLine'`:
+    //     FAIL playback events: every event sits on its anchor's sample … pop-up @15.3 nm #1: impact estimated true
+    const evBad = eachJet((c, k) => {
+      const j = c.pb.jets[k], S = j.samples;
+      for (const e of j.events) {
+        const est = e.kind === 'push' || e.kind === 'fragClear' || (e.kind === 'impact' && j.bomb.model !== 'vacuum');
+        if (e.estimated !== est) return `${e.kind} estimated ${e.estimated}`;
+        if (e.anchor === 'TGT') {
+          if (e.lat !== j.target.coordinates.lat || e.lon !== j.target.coordinates.lon || e.agl_ft !== 0 || e.msl_ft !== j.targetElevation_ft) return `${e.kind} not on the target`;
+          continue;
+        }
+        const a = e.anchor ? j.anchors[e.anchor] : undefined;
+        if (!a || e.tau_s !== a.tau_s || e.lat !== S.lat[a.index] || e.lon !== S.lon[a.index] || e.agl_ft !== S.agl_ft[a.index] || e.up_m !== S.up_m[a.index] || e.e_m !== S.e_m[a.index])
+          return `${e.kind} off its ${e.anchor} sample`;
+      }
+      const fc = j.events.find((e) => e.kind === 'fragClear'), imp = j.events.find((e) => e.kind === 'impact');
+      if (!imp || imp.tau_s !== j.impactTau_s || !!fc !== !!j.frag || (fc && fc.tau_s !== j.impactTau_s + j.frag!.clear_s)) return 'impact or frag clear time';
+      return undefined;
+    });
+    ok('playback events: every event sits on its anchor\'s sample (impact and frag clear on the target, AGL 0), estimated by events.ts\'s rule',
+       evBad.bad === '', evBad.bad || `${evBad.jets} jets`);
+
+    // [2] The flown − card push, per family, at two IP distances, pinned at ±0.1 s. Sign: push_s −
+    // cardPush_s, so > 0 means the playback leaves the IP later than the card's "push IP (est)".
+    // Measured 2026-11-14 (identical at 15.3 and 20 nm, as it must be: both clocks fly the route at the
+    // same speed): pop-up +1.630 (the card flies the bomb line to the aim-off point at jet speed),
+    // 30° dive +0.366, 45° dive −3.873, level 0.000 (a vacuum level bomb line at jet speed IS the
+    // fall), F-16 loft −6.941, F-4E LABS loft −15.774 (the card flies the loft bomb's ground range at
+    // run-in speed; the timer, pull and time of fall add up to more). The card push itself must be
+    // exactly ipToImpact_s on the card's picture at attackSpeedOf.
+    // Mutation proofs: clock.ts `const len_ft = Math.hypot(ds_ft, c.h[i + 1] - c.h[i])` → `const len_ft = ds_ft` (climbs and dives flown as if flat):
+    //   FAIL playback [2]: pop-up: flown push − card push = 1.63 s (±0.1), the same at 15.3 and 20 nm  3.112 s @15.3, 3.112 s @20; card push exact: true
+    //   FAIL playback [2]: 30° dive: … 1.603 s @15.3 …   FAIL playback [2]: 45° dive: … -0.869 s @15.3 … (level and the lofts stay green: level, and stated)
+    // jetTrack.ts `ipToImpact_s(picture, cardSpeed_kt)` → `ipToImpact_s(picture, facts.egress_kt)` (the loft's release speed):
+    //   FAIL playback [2]: F-16 loft: flown push − card push = -6.94 s (±0.1), the same at 15.3 and 20 nm  -2.133 s @15.3, -0.656 s @20; card push exact: false
+    // Stage-4, so that each of the six is seen to fail (level and the F-4E had no proof above):
+    // clock.ts flown time `len_ft / (tas[i] * FT_S_PER_KT)` → `len_ft / (tas[i] * 1.01 * FT_S_PER_KT)` (1% fast on every flown stretch):
+    //   FAIL playback [2]: pop-up: … 2.691 s @15.3, 3.040 s @20   FAIL playback [2]: 30° dive: … 1.514 s @15.3, 1.887 s @20
+    //   FAIL playback [2]: 45° dive: … -2.680 s @15.3, -2.307 s @20   FAIL playback [2]: level JDAM (offset leg): flown push − card push = 0.00 s (±0.1), … 1.273 s @15.3, 1.671 s @20; card push exact: true
+    //   (the lofts stay green: their push is timer + pull + fall, all stated)
+    // family.ts loft pullUpTimer_s(…, plan.speed_ktas) → (…, plan.releaseSpeed_ktas):
+    //   FAIL playback [2]: F-16 loft: … -10.500 s @15.3, -11.977 s @20; card push exact: true
+    //   FAIL playback [2]: F-4E LABS loft: flown push − card push = -15.77 s (±0.1), … -23.799 s @15.3, -27.133 s @20; card push exact: true (and [5])
+    // timing.ts `pushDelta_s: shift - cardPush` → `cardPush - shift` (sign flipped) fails all but level (0), e.g.
+    //   FAIL playback [2]: F-4E LABS loft: … 15.774 s @15.3, 15.774 s @20; card push exact: true (and [8])
+    for (const f of FAMILIES) {
+      const at = (nm: number) => familyCases.find((c) => c.key === f.key && c.ipNm === nm);
+      const [d15, d20] = [15.3, 20].map((nm) => { const c = at(nm); return c?.pb ? retime(c.pb).jets[0]?.pushDelta_s : undefined; });
+      const cardExact = [15.3, 20].every((nm) => {
+        const c = at(nm), j = c?.pb?.jets[0];
+        return !!j && !!c?.attack && j.cardIpToImpact_s === ipToImpact_s(j.picture, attackSpeedOf(c.attack.profile)!);
+      });
+      ok(`playback [2]: ${f.key}: flown push − card push = ${f.delta.toFixed(2)} s (±0.1), the same at 15.3 and 20 nm`,
+         d15 != null && d20 != null && Math.abs(d15 - f.delta) < 0.1 && Math.abs(d20 - f.delta) < 0.1 && Math.abs(d15 - d20) < 0.01 && cardExact,
+         `${d15?.toFixed(3)} s @15.3, ${d20?.toFixed(3)} s @20; card push exact: ${cardExact}`);
+    }
+
+    // [3] Positions on the card's lines.
+    // Mutation proof: chain.ts vertexS default `tol_nm = 1e-6` → `tol_nm = 0.001` (TRK then lands on the pull-down arc's end):
+    //   FAIL playback [3]: the release sample is the REL marker, … (1e-6 nm)  pop-up @15.3 nm #1: TRK 1.68e-4 nm off its marker
+    // (timing.ts's dropped fall, above, also fails it: "impact 1.06e+0 nm off the target".)
+    // Stage-4: "anchor TRK on the pull-down arc's last vertex": anchors.ts `vertexS(chain, m.position, from)` → `vertexS(chain, m.position, from, m.kind === 'TRK' ? NEAR_NM : 1e-6)`:
+    //   FAIL playback [3]: the release sample is the REL marker, … pop-up @15.3 nm #1: TRK 1.68e-4 nm off its marker (and [4] chords)
+    // resample.ts chainColumns `pointAt(chain, s[i])` → `pointAt(chain, s[i] * (1 + 1e-6))` (samples slid 1e-5 nm along the line):
+    //   FAIL playback [3]: … pop-up @15.3 nm #1: AP 1.08e-5 nm off its marker (and [15], [11])
+    let markersChecked = 0;
+    const t3 = eachJet((c, k, t) => {
+      const j = c.pb.jets[k], shift = t.jets[k].shift_s;
+      for (const m of j.picture.markers) {
+        if (m.kind === 'TGT') continue;
+        const a = j.anchors[m.kind];
+        if (!a) return `no anchor for ${m.kind}`;
+        const off = calculateDistance(sampleJet(c.pb, t, k, shift + a.tau_s), m.position);
+        markersChecked++;
+        if (off > 1e-6) return `${m.kind} ${off.toExponential(2)} nm off its marker`;
+      }
+      const rel = j.picture.markers.find((m) => m.kind === 'REL')!;
+      const relOff = calculateDistance(sampleJet(c.pb, t, k, t.jets[k].release_s), rel.position);
+      if (relOff > 1e-6) return `release sample ${relOff.toExponential(2)} nm off REL`;
+      const impOff = calculateDistance(sampleBomb(c.pb, t, k, t.jets[k].impact_s), j.target.coordinates);
+      if (impOff > 1e-6) return `impact ${impOff.toExponential(2)} nm off the target`;
+      return undefined;
+    });
+    ok('playback [3]: the release sample is the REL marker, the impact the target waypoint, and every picture marker lies on the track at its anchor (1e-6 nm)',
+       t3.bad === '' && markersChecked >= 70, t3.bad || `${t3.jets} jets, ${markersChecked} markers`);
+    // Controls, so the two choices above are real: the pop-up's drawn bomb line ends past the target
+    // (the aim-off point), and the pull-down arc's last vertex is 1 ft from TRK (TRK is anchored on
+    // the attack line's first vertex, not on the arc's end). A fixture fact about the shipped
+    // geometry: no edit under src/lib/playback can move it.
+    // Stage-4 (a temporary edit to the shipped attackPicture.ts, restored at once): the pop-up bomb line
+    // `[g.releasePoint, g.aimOffPoint]` → `[g.releasePoint, g.targetPoint]`:
+    //   FAIL playback [3] control: the pop-up's drawn bomb line ends 0.52 nm past the target, and its pull-down arc ends 1 ft from the TRK marker  0.000 nm, 1.018 ft (and [2] pop-up)
+    const popJet = familyCases[0].pb?.jets[0];
+    const lastOf = <T,>(xs: T[]) => xs[xs.length - 1];
+    const aodOff = popJet ? calculateDistance(lastOf(picLine(popJet.picture, 'bomb')), popJet.target.coordinates) : 0;
+    const trkMarker = popJet?.picture.markers.find((m) => m.kind === 'TRK');
+    const arcEndOff = popJet && trkMarker ? calculateDistance(lastOf(picLine(popJet.picture, 'pullDown')), trkMarker.position) * NM : 0;
+    ok('playback [3] control: the pop-up\'s drawn bomb line ends 0.52 nm past the target, and its pull-down arc ends 1 ft from the TRK marker',
+       aodOff > 0.5 && arcEndOff > 0.5 && arcEndOff < 2, `${aodOff.toFixed(3)} nm, ${arcEndOff.toFixed(3)} ft`);
+
+    // [4] Altitudes at the side-profile points, against a side profile built here with the card's
+    // arguments. Ranges at 0.1 nm: the side view rounds the level AP to 0.1 nm and the pop-up POP/PDP
+    // are stored rounded. The loft's APEX is the bomb's apex, not a jet point.
+    // Mutation proof: jetTrack.ts `buildSideProfile(attack, elev)` → `buildSideProfile(attack, 0)` (level MSL read as AGL):
+    //   FAIL playback [4]: the altitude at every side-profile point … matches at its anchor (0.5 ft), …  level JDAM (offset leg) @15.3 nm #1: AP at 24000.0 ft vs the side view's 20000.0
+    //   (and [2] level −3.365 s, [5] level fall 38.62 vs 35.26 s, [6] level mid-fall)
+    // Stage-4: altitude.ts marker knots `h: pt.alt_ft` → `h: pt.alt_ft + 1`:
+    //   FAIL playback [4]: the altitude at every side-profile point … pop-up @15.3 nm #1: AP at 501.0 ft vs the side view's 500.0 (and [6], [15], extras)
+    // "swap AGL and MSL for one family": family.ts level fall `levelFallVacuum(relAgl_ft, …)` → `levelFallVacuum(p.releaseAltitude_ft, …)` (the MSL number):
+    //   FAIL playback [2]: level JDAM (offset leg): … -3.365 s @15.3, …   FAIL playback [5]: … level JDAM (offset leg) @15.3 nm #1: fall 38.624964204029254 vs 35.259606962293994
+    //   FAIL playback [6]: … level JDAM (offset leg) @15.3 nm #1: mid-fall 19000.0 ft at 2.2361 nm vs vacuum 15000.0 ft at 2.0568 nm
+    //   (the label swap, altRef for a dive, is pinned by its own [9] check below)
+    const JET_POINTS = ['AP', 'ROLL', 'RUN', 'POP', 'PDP', 'APEX', 'TRK', 'REL'];
+    let sidePoints = 0;
+    const t4 = eachJet((c, k, t) => {
+      const j = c.pb.jets[k], attack = c.attackOf(j.id);
+      const side = attack ? buildSideProfile(attack, j.target.elevation_ft) : undefined;
+      if (!side) return 'no side profile';
+      for (const pt of side.points) {
+        if (!JET_POINTS.includes(pt.kind) || (j.family === 'loft' && pt.kind === 'APEX')) continue;
+        const a = j.anchors[pt.kind as 'AP'];
+        if (!a) return `no anchor for the side view's ${pt.kind}`;
+        const st = sampleJet(c.pb, t, k, t.jets[k].shift_s + a.tau_s);
+        sidePoints++;
+        if (Math.abs(st.agl_ft - pt.alt_ft) > 0.5) return `${pt.kind} at ${st.agl_ft.toFixed(1)} ft vs the side view's ${pt.alt_ft.toFixed(1)}`;
+        const range = calculateDistance(st, j.target.coordinates);
+        if (Math.abs(range - pt.dist_nm) > 0.1) return `${pt.kind} at ${range.toFixed(3)} nm vs the side view's ${pt.dist_nm}`;
+      }
+      return undefined;
+    });
+    ok('playback [4]: the altitude at every side-profile point (AP ROLL RUN POP PDP APEX TRK REL) matches at its anchor (0.5 ft), at the side view\'s range (0.1 nm)',
+       t4.bad === '' && sidePoints >= 80, t4.bad || `${t4.jets} jets, ${sidePoints} points`);
+    // The apex is placed by range, so its range cannot fail; pin its along-track fraction of the
+    // pull-down arc instead (0.500: the handbook's "halfway") and the curve's shape through it.
+    // Mutation proofs: altitude.ts the APEX `sAtRange(chain, target, anchors.PDP, anchors.TRK, pt.dist_nm)` → `anchors.PDP + 0.45 * (anchors.TRK - anchors.PDP)`:
+    //   FAIL playback [4]: the pop-up APEX sits at 0.500 of the pull-down arc's length …  pop-up @15.3 nm #1: fraction 0.4500, peak 5887.2 at 685 (apex 5887.2 at 685), low 4387.2
+    //   and the side-point check above stays GREEN under it (a range moves at most the along-track 0.049 nm): only this pin catches it.
+    // altitude.ts the down piece's `monotoneSlope(dive, …)` → `dive * 10` (an unclamped slope at TRK):
+    //   FAIL playback [4]: the pop-up APEX sits at 0.500 … pop-up @15.3 nm #1: fraction 0.4999, peak 6803.6 at 705 (apex 5887.2 at 688), low 4387.2
+    // Stage-4: altitude.ts popupPullDown's up piece `apex.s, apex.h, 0)` → `apex.s, apex.h, -2000)` (arriving falling: an overshoot):
+    //   FAIL playback [4]: the pop-up APEX sits at 0.500 … pop-up @15.3 nm #1: fraction 0.4999, peak 5930.9 at 685 (apex 5887.2 at 688), low 4387.2
+    //   (with +2000 instead, a kink and no overshoot, this stays GREEN: the slope check after it was added for that)
+    let apexBad = '', apexes = 0, apexSlopeBad = '';
+    for (const c of cases) {
+      for (const j of c.pb.jets.filter((x) => x.family === 'popup')) {
+        const { PDP, APEX, TRK } = j.anchors;
+        const side = buildSideProfile(c.attackOf(j.id)!, j.target.elevation_ft)!;
+        const apexAlt = side.points.find((p) => p.kind === 'APEX')!.alt_ft;
+        if (!PDP || !APEX || !TRK) { apexBad ||= `${c.name} ${j.label}: no PDP/APEX/TRK`; continue; }
+        const frac = (APEX.s_nm - PDP.s_nm) / (TRK.s_nm - PDP.s_nm);
+        let hi = -Infinity, lo = Infinity, hiAt = -1;
+        for (let i = PDP.index; i <= TRK.index; i++) {
+          const h = j.samples.agl_ft[i];
+          if (h > hi) { hi = h; hiAt = i; }
+          lo = Math.min(lo, h);
+        }
+        // Flat at the apex from both sides (spec D5: a C1 cubic with zero slope at the apex). The stored
+        // samples are 0.02 nm apart, too coarse to see a kink, so ask the altitude model itself, rebuilt
+        // from the jet's own side view, picture and anchors, 1e-7 nm either side of the apex.
+        const altModel = buildAltitude('popup', j.side, Object.fromEntries(Object.values(j.anchors).map((a) => [a!.kind, a!.s_nm])), buildChain(j.picture), j.target.coordinates, undefined);
+        const apexKnot = altModel.knots.find((x) => x.kind === 'APEX');
+        const eps = 1e-7, slopeIn = (altModel.at(APEX.s_nm) - altModel.at(APEX.s_nm - eps)) / eps, slopeOut = (altModel.at(APEX.s_nm + eps) - altModel.at(APEX.s_nm)) / eps;
+        if (apexKnot?.s !== APEX.s_nm || Math.abs(slopeIn) > 2 || Math.abs(slopeOut) > 2)
+          apexSlopeBad ||= `${c.name} ${j.label}: slope into the apex ${slopeIn.toFixed(1)} ft/nm, out of it ${slopeOut.toFixed(1)} ft/nm (knot at ${apexKnot?.s} vs ${APEX.s_nm})`;
+        apexes++;
+        if (Math.abs(frac - 0.5) > 0.01 || Math.abs(APEX.agl_ft - apexAlt) > 0.5 || hi > apexAlt + 1e-6 || hiAt !== APEX.index || lo < Math.min(PDP.agl_ft, TRK.agl_ft) - 1e-6)
+          apexBad ||= `${c.name} ${j.label}: fraction ${frac.toFixed(4)}, peak ${hi.toFixed(1)} at ${hiAt} (apex ${apexAlt.toFixed(1)} at ${APEX.index}), low ${lo.toFixed(1)}`;
+      }
+    }
+    ok('playback [4]: the pop-up APEX sits at 0.500 of the pull-down arc\'s length at the apex altitude; the curve through it peaks there, never above it, never below PDP or TRK',
+       apexBad === '' && apexes === 9, apexBad || `${apexes} pop-ups`);
+    // Stage-4 proof: altitude.ts popupPullDown's up piece `apex.s, apex.h, 0)` → `apex.s, apex.h, 2000)` (arriving at
+    // the apex still climbing at 2,000 ft/nm: a kink, but no overshoot) left every check GREEN before this one; now:
+    //     FAIL playback [4]: the pop-up pull-down curve is flat at the apex from both sides (C1, zero slope; the model at ±1e-7 nm)  pop-up @15.3 nm #1: slope into the apex 2000.0 ft/nm, out of it -0.0 ft/nm (knot at 13.669368802892492 vs 13.669368802892492)
+    ok('playback [4]: the pop-up pull-down curve is flat at the apex from both sides (C1, zero slope; the model at ±1e-7 nm)',
+       apexSlopeBad === '' && apexes === 9, apexSlopeBad || `${apexes} pop-ups`);
+    // [4] Between the side points, on the side view's straight chords (review fix, 2026-11-14): the
+    // side view plots altitude against range to the target and draws each piece as a straight line,
+    // so in sideCoords every stored sample between two consecutive side-point anchors lies on the
+    // straight line through those anchors' (range, AGL), wherever range runs one way across the piece
+    // (the pop-up POP → PDP climb and the dives' offset descents are not radial lines). The pop-up's
+    // PDP → APEX → TRK curve and the loft's simulated pull are not chords and are left out.
+    // Before the fix the pop-up climb was linear in along-track distance: 122 ft off the chord.
+    // Mutation proof: altitude.ts linearPieces `if (p.byRange) {` → `if (false && p.byRange) {` (linear in s again):
+    //   FAIL playback [4]: between the side points … pop-up @15.3 nm #1 POP→PDP: 4.2 ft off the side view's chord at 4.087 nm (the first sample past 1 ft)
+    // Stage-4: altitude.ts linearPieces `const u = (rangeAt(s) - p.ra) / (p.rb - p.ra)` → `Math.sqrt(Math.max(0, …))`:
+    //   FAIL playback [4]: between the side points … pop-up @15.3 nm #1 POP→PDP: 370.5 ft off the side view's chord at 4.087 nm (and [2] pop-up and dives, [6])
+    const CHORD_KINDS = ['IP', 'AP', 'ROLL', 'RUN', 'POP', 'PDP', 'APEX', 'TRK', 'REL'];
+    let chordBad = '', chordPieces = 0, chordWorst = 0, chordSkipped = 0, climbPieces = 0;
+    for (const c of cases) {
+      c.pb.jets.forEach((j) => {
+        const S = j.samples;
+        const sc = (i: number) => ({ r: calculateDistance({ lat: S.lat[i], lon: S.lon[i] }, j.target.coordinates), h: S.agl_ft[i] });
+        const ks = CHORD_KINDS.filter((k) => j.anchors[k as 'AP']).map((k) => j.anchors[k as 'AP']!).sort((x, y) => x.index - y.index);
+        for (let q = 1; q < ks.length; q++) {
+          const a = ks[q - 1], b = ks[q];
+          if ((j.family === 'popup' && (a.kind === 'PDP' || a.kind === 'APEX')) || (j.family === 'loft' && a.kind === 'POP') || Math.abs(b.agl_ft - a.agl_ft) < 1e-9) continue;
+          const A = sc(a.index), B = sc(b.index);
+          let mono = true;
+          for (let i = a.index + 1; i <= b.index; i++) if (Math.sign(sc(i).r - sc(i - 1).r) !== Math.sign(B.r - A.r)) mono = false;
+          if (!mono) { chordSkipped++; continue; }
+          chordPieces++;
+          if (j.family === 'popup' && a.kind === 'POP') climbPieces++;
+          for (let i = a.index; i <= b.index; i++) {
+            const p = sc(i), want = A.h + ((B.h - A.h) * (p.r - A.r)) / (B.r - A.r), off = Math.abs(p.h - want);
+            chordWorst = Math.max(chordWorst, off);
+            if (off > 1) { chordBad ||= `${c.name} ${j.label} ${a.kind}→${b.kind}: ${off.toFixed(1)} ft off the side view's chord at ${p.r.toFixed(3)} nm`; break; }
+          }
+        }
+      });
+    }
+    ok('playback [4]: between the side points the track is on the side view\'s straight chords in range and AGL (1 ft), the pop-up climb and the dive descents included',
+       chordBad === '' && chordPieces >= 20 && climbPieces === 9, chordBad || `${chordPieces} pieces (${climbPieces} pop-up climbs), ${chordSkipped} with range not one-way; worst ${chordWorst.toFixed(3)} ft`);
+    // [4] After the release (added in the final review, 2026-11-14: nothing pinned the altitude past
+    // REL). The side view sketches the egress as one straight piece from the release point to its
+    // tip; the playback reuses that altitude change over the same distance along the track, then
+    // holds the tip altitude to the last stored sample (the extension included). Against a side
+    // profile built here with the card's arguments.
+    // Mutation proof: altitude.ts buildAltitude `return ramp ? ramp.at(s) : …` → `ramp.at(s) + (s > sRel ? 30 : 0)`
+    // (a 30 ft step up just after the release) left all 857 checks GREEN before this one; now:
+    //   FAIL playback [4]: after the release the altitude runs from the release altitude to the side view's egress tip … pop-up @15.3 nm #1: 30.0 ft off at 0.019 nm past the release (3557.9 ft vs 3527.9 ft)
+    let egressBad = '', egressJets = 0, egressRamps = 0, egressWorst = 0;
+    for (const c of cases) {
+      c.pb.jets.forEach((j) => {
+        const S = j.samples, REL = j.anchors.REL;
+        const attack = c.attackOf(j.id);
+        const side = attack ? buildSideProfile(attack, j.target.elevation_ft) : undefined;
+        if (!REL || !side) { egressBad ||= `${c.name} ${j.label}: no release anchor or side profile`; return; }
+        const seg = side.segments.find((x) => x.style === 'egress');
+        if (!seg) { egressBad ||= `${c.name} ${j.label}: the side view has no egress piece`; return; }
+        const from = side.points[seg.from], to = side.points[seg.to];
+        const len = Math.abs(from.dist_nm - to.dist_nm);
+        egressJets++;
+        if (len > 0 && Math.abs(to.alt_ft - from.alt_ft) > 100) egressRamps++;
+        for (let i = REL.index; i < S.n; i++) {
+          const along = S.s_nm[i] - REL.s_nm;
+          const want = from.alt_ft + (to.alt_ft - from.alt_ft) * (len > 0 ? Math.min(along / len, 1) : along > 0 ? 1 : 0);
+          const off = Math.abs(S.agl_ft[i] - want);
+          egressWorst = Math.max(egressWorst, off);
+          if (off > 0.5) { egressBad ||= `${c.name} ${j.label}: ${off.toFixed(1)} ft off at ${along.toFixed(3)} nm past the release (${S.agl_ft[i].toFixed(1)} ft vs ${want.toFixed(1)} ft)`; break; }
+        }
+        if (Math.abs(S.agl_ft[S.n - 1] - to.alt_ft) > 0.5) egressBad ||= `${c.name} ${j.label}: ends at ${S.agl_ft[S.n - 1].toFixed(1)} ft, not the side view's egress tip ${to.alt_ft.toFixed(1)} ft`;
+      });
+    }
+    ok('playback [4]: after the release the altitude runs from the release altitude to the side view\'s egress tip over the side view\'s egress distance, then holds it to the last sample (0.5 ft)',
+       egressBad === '' && egressJets === 23 && egressRamps >= 12, egressBad || `${egressJets} jets, ${egressRamps} with a climb or descent of more than 100 ft; worst ${egressWorst.toFixed(4)} ft`);
+
+    // [5] Stated times win over flown ones, and every fall time is the planner's.
+    // Mutation proofs: clock.ts `const k = span.total_s / flown` → `const k = 1` (stated totals ignored):
+    //   FAIL playback [5]: stated times win: … (1e-9 s)  pop-up @15.3 nm #1: TRK→REL 5.0064844012278655 s vs trackingTime_s 5
+    // jetTrack.ts `span('IP', 'POP', facts.pullUpTimer_s, …)` → `span('IP', 'POP', undefined, …)` (the loft run-in flown):
+    //   FAIL playback [5]: stated times win: … F-16 loft @15.3 nm #1: IP→POP 78.40840503835365 s vs pullUpTimer_s 78.40827437128603
+    // clock.ts `if (c.pull && mid > …)` → `if (false && c.pull && …)` (the pull flown at constant speed):
+    //   FAIL playback [5]: stated times win: … F-16 loft @15.3 nm #1: POP→REL 5.5526795590318585 s vs pullTime_s 5.621999999999603
+    // Stage-4: "pop-up tracking time = length over speed": jetTrack.ts `span('TRK', 'REL', facts.trackingTime_s, …)` → `span('TRK', 'REL', undefined, …)`:
+    //   FAIL playback [5]: stated times win: … pop-up @15.3 nm #1: TRK→REL 5.006484401256799 s vs trackingTime_s 5
+    // family.ts loft pullUpTimer_s(…, plan.speed_ktas) → (…, plan.releaseSpeed_ktas):
+    //   FAIL playback [5]: stated times win: … F-16 loft @15.3 nm #1: IP→POP 81.96722690970834 s vs pullUpTimer_s 78.40827437128603
+    let statedBad = '', statedJets = 0;
+    for (const c of cases) {
+      const t = retime(c.pb);
+      c.pb.jets.forEach((j, k) => {
+        const a = c.attackOf(j.id)!, A = j.anchors, fall = j.impactTau_s - j.releaseTau_s;
+        const fail = (why: string) => { statedBad ||= `${c.name} ${j.label}: ${why}`; };
+        const p = a.profile as { releaseAltitude_ft: number; releaseSpeed_ktas: number; diveAngle_deg: number };
+        statedJets++;
+        if (j.family === 'popup') {
+          const plan = popupActionOf(a.profile as never, 0).plan;
+          const track = A.REL!.tau_s - A.TRK!.tau_s;
+          if (Math.abs(track - plan.trackingTime_s) > 1e-9) fail(`TRK→REL ${track} s vs trackingTime_s ${plan.trackingTime_s}`);
+          if (Math.abs(fall - bombFallVacuum(plan.releaseAltitude_ft, plan.speed_ktas, plan.diveAngle_deg).time_s) > 1e-9) fail(`fall ${fall}`);
+        } else if (j.family === 'loft') {
+          const plan = loftPlanOf(a.profile as LoftCCRPProfile);
+          const timer = pullUpTimer_s(calculateDistance(attackIpAnchor(c.m.waypoints, a)!.point, j.target.coordinates) * NM, plan.pullUpRange_ft, plan.speed_ktas)!;
+          if (Math.abs(A.POP!.tau_s - timer) > 1e-9) fail(`IP→POP ${A.POP!.tau_s} s vs pullUpTimer_s ${timer}`);
+          if (Math.abs(A.REL!.tau_s - A.POP!.tau_s - plan.pullTime_s) > 1e-9) fail(`POP→REL ${A.REL!.tau_s - A.POP!.tau_s} s vs pullTime_s ${plan.pullTime_s}`);
+          if (Math.abs(fall - plan.timeOfFlight_s) > 1e-9) fail(`fall ${fall} vs timeOfFlight_s ${plan.timeOfFlight_s}`);
+          for (const q of plan.pullPath) {
+            const st = sampleJet(c.pb, t, k, t.jets[k].shift_s + A.POP!.tau_s + q.t_s!);
+            if (Math.abs(st.agl_ft - q.alt_ft) > 0.5) fail(`pull at ${q.t_s} s: ${st.agl_ft.toFixed(1)} ft vs ${q.alt_ft.toFixed(1)}`);
+          }
+        } else if (j.family === 'level') {
+          const want = levelFallVacuum(Math.max(p.releaseAltitude_ft - j.target.elevation_ft, 0), p.releaseSpeed_ktas).time_s;
+          if (Math.abs(fall - want) > 1e-9) fail(`fall ${fall} vs ${want}`);
+        } else if (Math.abs(fall - bombFallVacuum(p.releaseAltitude_ft, p.releaseSpeed_ktas, p.diveAngle_deg).time_s) > 1e-9) {
+          fail(`fall ${fall}`);
+        }
+      });
+    }
+    ok('playback [5]: stated times win: pop-up TRK→REL = trackingTime_s; loft IP→POP = the exact pullUpTimer_s, POP→REL = pullTime_s with each pull point at its own time; every fall time (1e-9 s)',
+       statedBad === '' && statedJets === 23, statedBad || `${statedJets} jets`);
+
+    // [6] Bombs. (The fall siblings' parity grid is pinned in the prerequisites block above.)
+    // Mutation proofs: bomb.ts `if (fall.model === 'vacuumOnSightLine')` → `if (fall.model === 'loftDrag')` (the dive bomb off its sight line):
+    //   FAIL playback [6]: every bomb ends exactly on its target at AGL 0; … 30° dive @15.3 nm #1: 13.8 ft off the sight line at 0.10 s
+    // bomb.ts `VACUUM_DT_S = 0.1` → `2` (coarse samples):
+    //   FAIL playback [6]: … pop-up @15.3 nm #1: mid-fall 2031.6 ft at 0.5307 nm vs vacuum 2038.1 ft at 0.5307 nm
+    // bomb.ts the last vacuum point's `agl: 0` → `agl: h0 − vy0·T − g·T²/2` (computed, ~1e-12 ft):
+    //   FAIL playback [6]: … 30° dive @15.3 nm #1: does not end exactly on the target at AGL 0
+    // clock.ts's flat-path mutation ([2]) also fails it: "30° dive @15.3 nm #1: leaves -58.2 kt off the jet's ground speed".
+    // Stage-4: "the dive bomb as a free vacuum fall": family.ts dive `vacuum('vacuumOnSightLine', f, f.vy0_fps)` → `vacuum('vacuum', f, f.vy0_fps)`:
+    //   FAIL playback [6]: every bomb ends exactly on its target at AGL 0; … 30° dive @15.3 nm #1: 13.8 ft off the sight line at 0.10 s
+    // bomb.ts vacuum height `fall.h0_ft - fall.vy0_fps * t - …` → `fall.h0_ft - 0 * fall.vy0_fps * t - …` (the dive's throw dropped):
+    //   FAIL playback [6]: … pop-up @15.3 nm #1: mid-fall 3211.8 ft at 0.5307 nm vs vacuum 2038.1 ft at 0.5307 nm
+    // the drawn-bomb-line ending (see [1]) also fails it: "pop-up @15.3 nm #1: does not end exactly on the target at AGL 0".
+    let bombBad = '', bombFromBad = '';
+    for (const c of cases) {
+      const t = retime(c.pb);
+      c.pb.jets.forEach((j, k) => {
+        const B = j.bomb, n = B.n, a = c.attackOf(j.id)!, tgtC = j.target.coordinates;
+        const fail = (why: string) => { bombBad ||= `${c.name} ${j.label}: ${why}`; };
+        if (B.lat[n - 1] !== tgtC.lat || B.lon[n - 1] !== tgtC.lon || B.agl_ft[n - 1] !== 0) fail('does not end exactly on the target at AGL 0');
+        const rel = j.picture.markers.find((m) => m.kind === 'REL')!.position;
+        const p = a.profile as { releaseAltitude_ft: number; releaseSpeed_ktas: number; diveAngle_deg: number };
+        // Every bomb leaves from the jet's own release: exactly the REL marker, at the jet's release altitude.
+        const failFrom = (why: string) => { bombFromBad ||= `${c.name} ${j.label}: ${why}`; };
+        if (B.lat[0] !== rel.lat || B.lon[0] !== rel.lon || Math.abs(B.agl_ft[0] - j.anchors.REL!.agl_ft) > 0.5)
+          failFrom(`leaves ${(calculateDistance({ lat: B.lat[0], lon: B.lon[0] }, rel) * NM).toFixed(1)} ft from REL at ${B.agl_ft[0].toFixed(1)} ft vs the jet's ${j.anchors.REL!.agl_ft.toFixed(1)} ft`);
+        // The loft bomb is the planner's own drag path (spec D7): each sample is a bombPath point, at
+        // its own time, at its altitude, its share of the ground range along REL → TGT.
+        if (j.family === 'loft') {
+          const plan = loftPlanOf(a.profile as LoftCCRPProfile);
+          const x0 = plan.bombPath[0].x_ft, span = plan.bombPath[plan.bombPath.length - 1].x_ft - x0, relRange = calculateDistance(rel, tgtC);
+          for (let i = 0; i < n; i++) {
+            const q = plan.bombPath.find((pt) => pt.t_s === B.tau_s[i]);
+            const along = calculateDistance(rel, { lat: B.lat[i], lon: B.lon[i] }) / relRange;
+            if (!q || Math.abs(B.agl_ft[i] - q.alt_ft) > 1e-9 || Math.abs(along - (q.x_ft - x0) / span) > 1e-3) {
+              failFrom(`loft bomb sample ${i} at ${B.tau_s[i].toFixed(2)} s: ${B.agl_ft[i].toFixed(1)} ft, ${along.toFixed(4)} of the way, vs the planner's ${q ? `${q.alt_ft.toFixed(1)} ft, ${((q.x_ft - x0) / span).toFixed(4)}` : 'no point at that time'}`);
+              break;
+            }
+          }
+        }
+        if (j.family === 'dive') {
+          const h0 = B.agl_ft[0], relRange = calculateDistance(rel, tgtC);
+          for (let i = 0; i < n; i++) {
+            const lineAlt = (h0 * calculateDistance({ lat: B.lat[i], lon: B.lon[i] }, tgtC)) / relRange;
+            if (Math.abs(B.agl_ft[i] - lineAlt) > 1) { fail(`${(B.agl_ft[i] - lineAlt).toFixed(1)} ft off the sight line at ${B.tau_s[i].toFixed(2)} s`); break; }
+          }
+          // It leaves at the jet's ground speed: the first 0.1 s averages ~1.7 kt faster (g / tan δ), plus the pop-up file's 1.69 ft/s per kt.
+          const jet = sampleJet(c.pb, t, k, t.jets[k].release_s - 0.01), bomb = sampleBomb(c.pb, t, k, t.jets[k].release_s + 0.05);
+          const dv = (Math.hypot(bomb.ve_mps, bomb.vn_mps) - Math.hypot(jet.ve_mps, jet.vn_mps)) / (1852 / 3600);
+          if (Math.abs(dv) > 3) fail(`leaves ${dv.toFixed(1)} kt off the jet's ground speed`);
+        }
+        if (j.family === 'popup' || j.family === 'level') {
+          const plan = j.family === 'popup' ? popupActionOf(a.profile as never, 0).plan : undefined;
+          const v = plan
+            ? bombFallVacuum(plan.releaseAltitude_ft, plan.speed_ktas, plan.diveAngle_deg)
+            : { ...levelFallVacuum(Math.max(p.releaseAltitude_ft - j.target.elevation_ft, 0), p.releaseSpeed_ktas), vy0_fps: 0 };
+          const tm = v.time_s / 2;
+          const b = sampleBomb(c.pb, t, k, t.jets[k].release_s + tm);
+          const wantAgl = v.h0_ft - v.vy0_fps * tm - 0.5 * v.g_fps2 * tm * tm, wantRange = (v.range_ft - v.vx_fps * tm) / NM;
+          const range = calculateDistance(b, tgtC);
+          if (Math.abs(b.agl_ft - wantAgl) > 0.5 || Math.abs(range - wantRange) > 0.001)
+            fail(`mid-fall ${b.agl_ft.toFixed(1)} ft at ${range.toFixed(4)} nm vs vacuum ${wantAgl.toFixed(1)} ft at ${wantRange.toFixed(4)} nm`);
+        }
+      });
+    }
+    ok('playback [6]: every bomb ends exactly on its target at AGL 0; the dive bomb rides the straight REL→TGT sight line from the jet\'s ground speed; level and pop-up bombs are the vacuum fall mid-way',
+       bombBad === '', bombBad);
+    // [6] Where each bomb starts, and the loft's whole path (spec D7). The check above pins the end and
+    // the vacuum shapes; this one pins the start for every family and every loft sample against
+    // LoftPlan.bombPath. Stage-4 proof: bomb.ts loftPoints `agl: p.alt_ft` → `agl: p.alt_ft + 50`
+    // (every loft bomb sample but the last 50 ft high) left every check GREEN before this one; now:
+    //     FAIL playback [6]: every bomb leaves from the jet's release …  F-16 loft @15.3 nm #1: leaves 0.0 ft from REL at 1566.9 ft vs the jet's 1516.9 ft
+    // and bomb.ts loftPoints `f: (p.x_ft - x0) / span` → `((p.x_ft - x0) / span) ** 2` (same start and end, wrong in between),
+    // also GREEN before (re-run against the pre-stage-4 geo-check, 805dcf5):
+    //     FAIL playback [6]: every bomb leaves from the jet's release …  F-16 loft @15.3 nm #1: loft bomb sample 2 at 0.51 s: 1724.5 ft, 0.0004 of the way, vs the planner's 1724.5 ft, 0.0188
+    ok('playback [6]: every bomb leaves from the jet\'s release (the REL marker, the jet\'s release altitude); the loft bomb is the planner\'s drag path, sample by sample',
+       bombFromBad === '', bombFromBad);
+
+    // [7] Frag: the playback's conflicts are fragConflicts of the editor's jets, in the same order, and
+    // as many as strikeReadout's frag warnings; each carries its band (second's TOT → first's TOT + frag).
+    // Mutation proofs: frag.ts `t1_s: readout[c.firstIndex].totOffset_s + c.frag_s` → `readout[c.secondIndex]…`:
+    //   FAIL playback [7]: 4-ship pop-up, Mk-82s 10 s apart: 5 conflicts, … each with its band  [["#1","#2",10,30,10,40],…]
+    //   FAIL playback [7]: 4-ship pop-up, Mk-82s 25 s apart: …  [["#1","#2",25,30,25,55],…]
+    // strikePlayback.ts `jets.push(built)` → `jets.unshift(built)` fails the ties in both orders:
+    //   FAIL playback [7]: tied TOTs, mk82 listed first: one conflict on the first jet's 30 s, …  [["#2","#1",0,35]]
+    //   FAIL playback [7]: tied TOTs, mk84 listed first: one conflict on the first jet's 35 s, …  [["#2","#1",0,30]]
+    // Stage-4: frag.ts strikeJetsAt `totOffset_s: memberTot(…)` → `memberTot(…) * 0.9` (the readout fed wrong TOTs) fails the three spacings
+    // (and both skipped-member cases, and [15]'s missing target):
+    //   FAIL playback [7]: 4-ship pop-up, Mk-82s 10 s apart: 5 conflicts, … [["#1","#2",9,30,9,30],…
+    //   FAIL playback [7]: 4-ship pop-up, Mk-82s 25 s apart: 3 conflicts, … [["#1","#2",22.5,30,22.5,30],…
+    //   FAIL playback [7]: 4-ship pop-up, Mk-82s 30 s apart: 0 conflicts, … [["#1","#2",27,30,27,30],["#2","#3",27,30,54,57],["#3","#4",27,30,81,84]]
+    // frag.ts strikeJetsAt `pb.members.map(…)` → `pb.members.slice().reverse().map(…)` fails the ties in both orders (and the spacings, skips):
+    //   FAIL playback [7]: tied TOTs, mk82 listed first: … [["#2","#1",0,35]]   FAIL playback [7]: tied TOTs, mk84 listed first: … [["#2","#1",0,30]]
+    // `ids` are the members' ids in the editor's order (the test's own list): each conflict names the
+    // same members, and points at the flown jet with that id (or at none, for a skipped member).
+    const conflictsMatch = (pb: StrikePlayback, ej: StrikeJet[], t: ReturnType<typeof retime>, ids: string[]) => {
+      const want = fragConflicts(ej);
+      const jetOf = (id: string) => { const k = pb.jets.findIndex((j) => j.id === id); return k < 0 ? undefined : k; };
+      return t.conflicts.length === want.length && t.conflicts.length === fragWarningCount(ej) &&
+        JSON.stringify(t.readout) === JSON.stringify(strikeReadout(ej)) && t.conflicts.every((c, i) => {
+        const w = want[i];
+        return c.first === w.first && c.second === w.second && c.firstIndex === w.firstIndex && c.secondIndex === w.secondIndex &&
+          c.gap_s === w.gap_s && c.frag_s === w.frag_s && c.sameAxis === w.sameAxis &&
+          c.firstId === ids[w.firstIndex] && c.secondId === ids[w.secondIndex] && c.firstJet === jetOf(ids[w.firstIndex]) && c.secondJet === jetOf(ids[w.secondIndex]) &&
+          c.t0_s === ej[w.secondIndex].totOffset_s && c.t1_s === ej[w.firstIndex].totOffset_s + w.frag_s;
+      });
+    };
+    for (const [spacing, expected] of [[10, 5], [25, 3], [30, 0]]) {
+      const m = popStrike(['p1', 'p2', 'p3', 'p4'], spacing, `p4-${spacing}`);
+      const pb = fromMission(m, `p4-${spacing}`, refRows);
+      const t = pb ? retime(pb) : undefined;
+      const ej = editorJets(m, `p4-${spacing}`, refRows);
+      ok(`playback [7]: 4-ship pop-up, Mk-82s ${spacing} s apart: ${expected} conflicts, exactly fragConflicts of the editor's jets and strikeReadout's warning count, each with its band`,
+         !!pb && !!t && conflictsMatch(pb, ej, t, strikeMembers(m, `p4-${spacing}`).map((a) => a.id)) && t.conflicts.length === expected,
+         t ? JSON.stringify(t.conflicts.map((c) => [c.first, c.second, c.gap_s, c.frag_s, c.t0_s, c.t1_s])) : 'no playback');
+    }
+    // A tie with mixed weapons, both orders: the jet listed first is first, so its weapon decides.
+    const [tieA, tieB] = strikeMembers(pop2, 'pop2');
+    for (const order of [[[tieA, 'mk82'], [tieB, 'mk84']], [[tieB, 'mk84'], [tieA, 'mk82']]] as [Attack, string][][]) {
+      const pb = buildStrikePlayback({ name: 'tie', jets: order.map(([a, w], k) => jetInput(pop2, a, refWeapon(w), `#${k + 1}`, 0)) });
+      const ej: StrikeJet[] = order.map(([a, w], k) => ({ label: `#${k + 1}`, picture: buildAttackPicture(a, attackIpAnchor(pop2.waypoints, a), wpTgt as never), speed_ktas: attackSpeedOf(a.profile), totOffset_s: 0, weapon: refWeapon(w) }));
+      const t = retime(pb);
+      const frag = order[0][1] === 'mk82' ? 30 : 35;
+      ok(`playback [7]: tied TOTs, ${order[0][1]} listed first: one conflict on the first jet's ${frag} s, as fragConflicts and strikeReadout say`,
+         conflictsMatch(pb, ej, t, order.map(([a]) => a.id)) && t.conflicts.length === 1 && t.conflicts[0].frag_s === frag && t.conflicts[0].firstIndex === 0 && t.conflicts[0].gap_s === 0,
+         JSON.stringify(t.conflicts.map((c) => [c.first, c.second, c.gap_s, c.frag_s])));
+    }
+    // A member the playback cannot fly still counts for the frag rule, which needs only its weapon
+    // and TOT, exactly as the editor's strip counts it: a 2-ship of Mk-82 pop-ups 10 s apart whose
+    // #2 has no IP, and a 3-ship whose skipped #2 sits between two flown jets (the conflict indices
+    // are the readout's, firstJet/secondJet the flown jets').
+    // Mutation proofs: strikePlayback.ts `slots[place] = { member: memberOf(s), skipped: s }` (a build-skipped jet) → `void s; void place;` (dropped from the members):
+    //   FAIL playback [7]: a skipped member still counts: 2-ship, #2 has no IP: … [] vs 1 wanted; members 1, skipped 0
+    //   FAIL playback [7]: a skipped member still counts: 3-ship, #2 has no IP: … [["#1","#3",0,1]] vs 3 wanted; members 2, skipped 0 (and [7] dangerZones, [15] skips)
+    // frag.ts strikeJetsAt `weapon: m.weapon` → `weapon: m.jet == null ? undefined : m.weapon` (a skipped jet's weapon ignored):
+    //   FAIL playback [7]: a skipped member still counts: 3-ship, #2 has no IP: … [["#1","#2",0,null],["#1","#3",0,1]] vs 3 wanted; members 3, skipped 1
+    //   (the 2-ship stays green under it: its flown #1 is first, so #1's weapon decides; and [15]'s missing target fails)
+    // Stage-4: the strikeJetsAt `* 0.9` mutation above fails both:
+    //   FAIL playback [7]: a skipped member still counts: 2-ship, #2 has no IP: … [["#1","#2",0,null]] vs 1 wanted; members 2, skipped 1
+    //   FAIL playback [7]: a skipped member still counts: 3-ship, #2 has no IP: … [["#1","#2",0,null],["#1","#3",0,1],["#2","#3",null,1]] vs 3 wanted; members 3, skipped 1
+    const [skA, skB] = strikeMembers(pop2, 'pop2');
+    const skipCases: [string, [Attack, number, boolean][]][] = [
+      ['2-ship, #2 has no IP', [[skA, 0, true], [skB, 10, false]]],
+      ['3-ship, #2 has no IP', [[skA, 0, true], [{ ...skB, id: 'sk-2' } as Attack, 10, false], [{ ...skA, id: 'sk-3' } as Attack, 20, true]]],
+    ];
+    for (const [name, order] of skipCases) {
+      const pb = buildStrikePlayback({ name, jets: order.map(([a, d, ip], k) => jetInput(pop2, a, refWeapon('mk82'), `#${k + 1}`, d, ip)) });
+      const t = retime(pb);
+      const ej: StrikeJet[] = order.map(([a, d, ip], k) => ({
+        label: `#${k + 1}`, picture: buildAttackPicture(a, ip ? attackIpAnchor(pop2.waypoints, a) : undefined, wpTgt as never), speed_ktas: attackSpeedOf(a.profile), totOffset_s: d, weapon: refWeapon('mk82'),
+      }));
+      const want = fragConflicts(ej).length;
+      ok(`playback [7]: a skipped member still counts: ${name}: the conflicts and readout are exactly the editor's (fragConflicts, strikeReadout), the skipped jet at its plan delay`,
+         conflictsMatch(pb, ej, t, order.map(([a]) => a.id)) && want === (order.length === 2 ? 1 : 3) && pb.skipped.length === 1 && pb.members.length === order.length &&
+         pb.members[1].jet === undefined && pb.skipped[0].order === 1,
+         `${JSON.stringify(t.conflicts.map((c) => [c.first, c.second, c.firstJet, c.secondJet]))} vs ${want} wanted; members ${pb.members.length}, skipped ${pb.skipped.length}`);
+    }
+
+    // [8] Re-timing: a new timing object from the same geometry; the card pushes follow the readout.
+    // Mutation proofs: timing.ts retime `timingJet(j, tots[k])` → `timingJet(j, pb.planDelays_s[j.id])`:
+    //   FAIL playback [8]: after a re-time (lead to +12 s, the rest moved), each cardPush_s is strikeReadout's push …  -122.776 vs -110.776, …
+    //   FAIL playback [8]: moving #2 by +10 s moves every one of its events by exactly +10 s and no one else's
+    // timing.ts `delays[id] : …` → `(pb.planDelays_s[id] = delays[id]) : …` (retime writes into the playback):
+    //   FAIL playback [8]: re-timing never touches the playback: the same sample objects, the same plan delays, a new timing object each time
+    //   FAIL playback [8]: #2 moved ahead of the lead re-leads: … {"pop4-1":22,"pop4-2":0,"pop4-3":55,"pop4-4":87.5}
+    // timing.ts delaysToOffsets `x.d - lead` → `x.d - 0 * lead` (no re-base):
+    //   FAIL playback [8]: delaysToOffsets is what setStrikeOffsets (rebaseTot) leaves on the mission, profiles untouched  {"pop4-1":12,"pop4-2":35,"pop4-3":45,"pop4-4":77.5}
+    //   FAIL playback [8]: #2 moved ahead of the lead re-leads: … {"pop4-1":0,"pop4-2":-10,"pop4-3":50,"pop4-4":75}
+    // Stage-4 (each alone, run, restored):
+    // timing.ts `cardPush = … ? tot_s - track.cardIpToImpact_s` → `? 0 * tot_s - track.cardIpToImpact_s` (the card push blind to the TOT):
+    //   FAIL playback [8]: after a re-time (lead to +12 s, the rest moved), each cardPush_s is strikeReadout's push … -122.776 vs -110.776, -122.773 vs -87.773, …
+    // timing.ts `pushDelta_s: shift - cardPush` → `cardPush - shift`:
+    //   FAIL playback [8]: after a re-time … -110.776 vs -110.776, … (the push-delta half; and [2])
+    // timing.ts retime `timingJet(j, pb.planDelays_s[j.id])` → `timingJet(j, (pb.planDelays_s[j.id] = delays[j.id]))` (writes the plan delays):
+    //   FAIL playback [8]: re-timing never touches the playback: the same sample objects, the same plan delays, a new timing object each time
+    //   FAIL playback [8]: moving #2 by +10 s moves every one of its events by exactly +10 s and no one else's (and [8] re-leads, window)
+    // events.ts strikeEvents `timing.jets[jet].shift_s` → `timing.jets[0].shift_s + 0 * jet`:
+    //   FAIL playback [8]: moving #2 by +10 s moves every one of its events by exactly +10 s and no one else's
+    // timing.ts delaysToOffsets `Math.min(…)` → `Math.max(…)`:
+    //   FAIL playback [8]: delaysToOffsets is what setStrikeOffsets (rebaseTot) leaves on the mission, profiles untouched  {"pop4-1":-65.5,"pop4-2":-42.5,"pop4-3":-32.5,"pop4-4":0} (and the re-lead, [15])
+    // timing.ts delaysToOffsets `const lead = Math.min(…)` → `const lead = all[0].d` (the first member, not the earliest):
+    //   FAIL playback [8]: #2 moved ahead of the lead re-leads: … {"pop4-1":0,"pop4-2":-10,"pop4-3":50,"pop4-4":75}
+    const pb4 = strikeCases[1].pb;
+    if (!pb4) throw new Error('no 4-ship playback');
+    const ids4 = pb4.jets.map((j) => j.id);
+    const samplesBefore = pb4.jets.map((j) => j.samples);
+    const plan4 = retime(pb4);
+    const moved4 = { [ids4[0]]: 12, [ids4[1]]: 35, [ids4[2]]: 45, [ids4[3]]: 77.5 };
+    const t8 = retime(pb4, moved4);
+    const pushes8 = strikeReadout(editorJets(pop4, 'pop4', refRows, moved4)).pushes;
+    ok('playback [8]: after a re-time (lead to +12 s, the rest moved), each cardPush_s is strikeReadout\'s push for the new offsets; the flown push is cardPush + pushDelta',
+       t8.jets.every((tj, k) => tj.tot_s === moved4[ids4[k]] && Math.abs(tj.cardPush_s! - pushes8[k].push_s!) < 1e-9 && Math.abs(tj.push_s - tj.cardPush_s! - tj.pushDelta_s!) < 1e-9),
+       t8.jets.map((tj, k) => `${tj.cardPush_s?.toFixed(3)} vs ${pushes8[k].push_s?.toFixed(3)}`).join(', '));
+    ok('playback [8]: re-timing never touches the playback: the same sample objects, the same plan delays, a new timing object each time',
+       pb4.jets.every((j, k) => j.samples === samplesBefore[k]) && ids4.every((id, k) => pb4.planDelays_s[id] === [0, 25, 50, 75][k]) && t8 !== plan4 && plan4.jets[1].tot_s === 25);
+    const ev8 = (t: ReturnType<typeof retime>) => strikeEvents(pb4, t).events.filter((e) => e.jet === 1).map((e) => e.t_s);
+    const only2 = retime(pb4, { [ids4[1]]: 35 });
+    ok('playback [8]: moving #2 by +10 s moves every one of its events by exactly +10 s and no one else\'s',
+       ev8(only2).every((x, i) => Math.abs(x - ev8(plan4)[i] - 10) < 1e-9) && only2.jets.every((tj, k) => k === 1 || tj.shift_s === plan4.jets[k].shift_s));
+    const applied = setStrikeOffsets(pop4, 'pop4', t8.delays_s);
+    const offs = delaysToOffsets(pb4, t8.delays_s);
+    ok('playback [8]: delaysToOffsets is what setStrikeOffsets (rebaseTot) leaves on the mission, profiles untouched',
+       strikeMembers(applied, 'pop4').every((a) => Math.abs((a.totOffset_s ?? NaN) - offs[a.id]) < 1e-9 && a.profile === pop4.attacks.find((b) => b.id === a.id)!.profile) &&
+       Math.min(...Object.values(offs)) === 0 && Object.keys(offs).length === 4,
+       JSON.stringify(offs));
+    const ahead = delaysToOffsets(pb4, { [ids4[1]]: -10 });
+    ok('playback [8]: #2 moved ahead of the lead re-leads: it goes to 0 and the rest shift by 10 s, as setStrikeOffsets does',
+       ahead[ids4[1]] === 0 && ahead[ids4[0]] === 10 && ahead[ids4[3]] === 85 &&
+       strikeMembers(setStrikeOffsets(pop4, 'pop4', { [ids4[1]]: -10 }), 'pop4').every((a) => a.totOffset_s === ahead[a.id]), JSON.stringify(ahead));
+    // The strike window (spec D9): the earliest flown push − 30 s to the last of each jet's egress end
+    // and frag clearing, + 10 s. The plan window stays put while a slider moves, for the timeline axis.
+    // Mutation proofs: timing.ts `planWindow: windowOf(pb, planJets)` → `windowOf(pb, jets)`:
+    //   FAIL playback window: earliest flown push − 30 s to the last egress end or frag clearing + 10 s; …  window -139.15…117.50 vs -139.15…117.50; plan -151.15…115.00
+    // timing.ts windowOf `- pb.options.leadIn_s` → `- 20`:
+    //   FAIL playback window: … window -129.15…117.50 vs -139.15…117.50; plan -141.15…115.00
+    // jetTrack.ts hideTau `Math.max(egressEndTau_s, impactTau_s + (frag?.clear_s ?? 0))` → `Math.max(egressEndTau_s, impactTau_s)`:
+    //   FAIL playback window: … window -139.15…98.05 vs -139.15…117.50; plan -151.15…95.55
+    // Stage-4: timing.ts windowOf `t1_s: Math.max(…j.hide_s)` → `Math.max(…j.egressEnd_s + pb.options.tail_s)` (frag clearing ignored):
+    //   FAIL playback window: … window -139.15…98.05 vs -139.15…117.50; plan -151.15…95.55
+    const win8 = t8.window, winPlan = plan4.window;
+    const wantT0 = Math.min(...t8.jets.map((tj) => tj.push_s)) - 30;
+    const wantT1 = Math.max(...t8.jets.map((tj) => Math.max(tj.egressEnd_s, tj.fragEnd_s))) + 10;
+    ok('playback window: earliest flown push − 30 s to the last egress end or frag clearing + 10 s; the plan window is the plan delays\' window, whatever the delays',
+       Math.abs(win8.t0_s - wantT0) < 1e-9 && Math.abs(win8.t1_s - wantT1) < 1e-9 && t8.jets.every((tj) => tj.fragEnd_s === tj.tot_s + 30) &&
+       t8.planWindow.t0_s === winPlan.t0_s && t8.planWindow.t1_s === winPlan.t1_s && win8.t1_s !== winPlan.t1_s,
+       `window ${win8.t0_s.toFixed(2)}…${win8.t1_s.toFixed(2)} vs ${wantT0.toFixed(2)}…${wantT1.toFixed(2)}; plan ${winPlan.t0_s.toFixed(2)}…${winPlan.t1_s.toFixed(2)}`);
+    // Estimates (spec D12): each jet names what is estimated, the bomb model by family, and the
+    // card's "not yet flown" flag from attack.estimated.
+    // Mutation proof: jetTrack.ts `if (input.attack.estimated) codes.unshift('profileNotFlown')` → `if (!input.attack.estimated) …`:
+    //   FAIL playback estimates: each jet names its bomb model … pop-up @15.3 nm #1: profileNotFlown false vs estimated true
+    // Stage-4: jetTrack.ts codes `[...facts.estimates, 'noWind', …]` → without 'noWind':
+    //   FAIL playback estimates: … pop-up @15.3 nm #1: codes profileNotFlown,vacuumBomb,popClimbChord,apexPlacement,pullDownShape,flatGroundAgl,…
+    const estBad = eachJet((c, k) => {
+      const j = c.pb.jets[k], codes = j.estimates.map((e) => e.code), has = (x: string) => codes.includes(x as never);
+      const bombCode = { dive: 'sightLineBomb', level: 'vacuumBomb', popup: 'vacuumBomb', loft: 'loftDragModel' }[j.family];
+      if (!has(bombCode) || ['sightLineBomb', 'vacuumBomb', 'loftDragModel'].filter(has).length !== 1) return `bomb codes ${codes.join(',')}`;
+      if (has('profileNotFlown') !== !!c.attackOf(j.id)?.estimated) return `profileNotFlown ${has('profileNotFlown')} vs estimated ${c.attackOf(j.id)?.estimated}`;
+      if (has('fragEnvelope') !== !!j.frag || !has('noWind') || j.estimates.some((e) => !e.note)) return `codes ${codes.join(',')}`;
+      return undefined;
+    });
+    const anyNotFlown = cases.some((c) => c.pb.jets.some((j) => c.attackOf(j.id)?.estimated));
+    ok('playback estimates: each jet names its bomb model (sight line, vacuum or loft drag), the profile\'s not-yet-flown flag, frag and no-wind, each with a note',
+       estBad.bad === '' && anyNotFlown, estBad.bad || `${estBad.jets} jets; a not-yet-flown profile among them: ${anyNotFlown}`);
+    // Visibility: on the plan layer hidden before the IP push (the lead-in is the display layer's, [11]), flying until its hide
+    // time; the bomb is carried, then falling, then gone at impact.
+    // Mutation proof: the hideTau mutation above (frag clearing dropped):
+    //   FAIL playback visibility: a jet shows from its IP push to its hide time … pop-up @15.3 nm #1: hides at 20.552018207455177
+    // Stage-4: sample.ts plan layer `out.visible = tau >= 0 && …` → `tau >= -2 && …`:
+    //   FAIL playback visibility: … pop-up @15.3 nm #1: jet visibility or release flag
+    const visBad = eachJet((c, k, t) => {
+      const j = c.pb.jets[k], tj = t.jets[k];
+      const v = (time: number) => sampleJet(c.pb, t, k, time);
+      const b = (time: number) => sampleBomb(c.pb, t, k, time);
+      if (v(tj.push_s - 1).visible || !v(tj.push_s + 1).visible || v(tj.release_s - 0.01).released || !v(tj.release_s + 0.01).released) return 'jet visibility or release flag';
+      if (!v(tj.hide_s - 0.5).visible || v(tj.hide_s + 0.5).visible || tj.hide_s < tj.fragEnd_s || tj.hide_s < tj.egressEnd_s) return `hides at ${tj.hide_s}`;
+      const fall = j.bomb.fall_s;
+      if (b(tj.release_s - 1).stage !== 'carried' || b(tj.release_s - 1).visible || !b(tj.release_s + fall / 2).visible || b(tj.impact_s + 1).stage !== 'impacted' || b(tj.impact_s + 1).visible) return 'bomb stages';
+      return undefined;
+    });
+    ok('playback visibility: a jet shows from its IP push to its hide time (after its frag clears and its egress ends); its bomb shows only between release and impact',
+       visBad.bad === '', visBad.bad || `${visBad.jets} jets`);
+
+    // [9] The local frame: azimuthal equidistant about the lead's target, on the planner's sphere.
+    // Mutation proofs: frame.ts toLocal returns the card's equirectangular metres instead:
+    //   FAIL playback [9]: frame: range and bearing from the origin are exactly the planner's at 20 and 40 nm; …  range 9.0e-2 nm, bearing 2.7e-1°, round trip 3.8e+2 m
+    // resample.ts `S.msl_ft[i] = targetElevation_ft + S.agl_ft[i]` → `frame.originElevation_ft + …` (one datum for every jet):
+    //   FAIL playback [9]: a member on another target flies over ITS target: …  #1 rel 24000 ft MSL, up 6096.0 m; #2 rel 7500 ft MSL, up 1066.8 m
+    // Stage-4: frame.ts toThree `[e_m, up_m, -n_m]` → `[e_m, up_m, n_m]`:
+    //   FAIL playback [9]: frame: range and bearing from the origin are exactly the planner's at 20 and 40 nm; … range 7.1e-15 nm, bearing 5.7e-14°, round trip 2.5e-9 m
+    // "the lead's target elevation for every jet": jetTrack.ts `const elev = input.target.elevation_ft ?? 0` → `const elev = frame.originElevation_ft`:
+    //   FAIL playback [9]: a member on another target flies over ITS target: …  #1 rel 24000 ft MSL, up 6096.0 m; #2 rel 7500 ft MSL, up 1066.8 m
+    const frame = makeLocalFrame(tgt, 4000);
+    let rangeErr = 0, bearingErr = 0, roundTrip_m = 0;
+    for (const d of [20, 40]) {
+      for (const b of [0, 45, 133.3, 248, 301]) {
+        const pt = calculateDestination(tgt, b, d);
+        const l = toLocal(frame, pt);
+        rangeErr = Math.max(rangeErr, Math.abs(Math.hypot(l.e_m, l.n_m) / 1852 - calculateDistance(tgt, pt)));
+        bearingErr = Math.max(bearingErr, Math.abs(signedHeadingDelta((Math.atan2(l.e_m, l.n_m) * 180) / Math.PI, calculateBearing(tgt, pt))));
+        roundTrip_m = Math.max(roundTrip_m, calculateDistance(fromLocal(frame, l.e_m, l.n_m), pt) * 1852);
+      }
+    }
+    const three = toThree(1, 2, 3);
+    ok('playback [9]: frame: range and bearing from the origin are exactly the planner\'s at 20 and 40 nm; toLocal and fromLocal round-trip; three.js axes [e, up, −n]',
+       rangeErr < 1e-9 && bearingErr < 1e-9 && roundTrip_m < 0.01 && three[0] === 1 && three[1] === 3 && three[2] === -2,
+       `range ${rangeErr.toExponential(1)} nm, bearing ${bearingErr.toExponential(1)}°, round trip ${roundTrip_m.toExponential(1)} m`);
+    const mixPb = strikeCases[3].pb;
+    const upOk = !!mixPb && mixPb.frame.originElevation_ft === 4000 && mixPb.jets.every((j) => {
+      const r = j.anchors.REL!.index, S = j.samples;
+      return Math.abs(S.msl_ft[r] - (j.target.elevation_ft + S.agl_ft[r])) < 1e-9 && Math.abs(S.up_m[r] - (S.msl_ft[r] - 4000) * 0.3048) < 1e-9;
+    }) && mixPb.jets[1].target.elevation_ft === 5200 && mixPb.jets[1].altRef === 'AGL' && mixPb.jets[0].altRef === 'MSL';
+    ok('playback [9]: a member on another target flies over ITS target: MSL = 5,200 ft + AGL, up from the lead\'s 4,000 ft datum',
+       upOk, mixPb ? mixPb.jets.map((j) => `${j.label} rel ${j.samples.msl_ft[j.anchors.REL!.index].toFixed(0)} ft MSL, up ${j.samples.up_m[j.anchors.REL!.index].toFixed(1)} m`).join('; ') : 'no playback');
+    // [9] altRef per family (spec D4: level prints MSL, the rest AGL), on every jet of every case, so the
+    // labels can match the planner. The mixed strike above only sees a level and a pop-up.
+    // Stage-4 proof: jetTrack.ts `altRef: family === 'level' ? 'MSL' : 'AGL'` → `family === 'level' || family === 'dive' ? …`
+    // left every check GREEN before this one; now:
+    //     FAIL playback [9]: every jet's altRef is MSL for a level, AGL for a dive, pop-up or loft  30° dive @15.3 nm #1: dive altRef MSL
+    const families = new Set<string>();
+    const altRefBad = eachJet((c, k) => {
+      const j = c.pb.jets[k];
+      families.add(j.family);
+      return j.altRef === (j.family === 'level' ? 'MSL' : 'AGL') ? undefined : `${j.family} altRef ${j.altRef}`;
+    });
+    ok('playback [9]: every jet\'s altRef is MSL for a level, AGL for a dive, pop-up or loft',
+       altRefBad.bad === '' && families.size === 4, altRefBad.bad || `${altRefBad.jets} jets, families ${[...families].join(',')}`);
+
+    // [13] Import purity: nothing under src/lib/playback pulls in three.js, React or the DOM (code
+    // only; comments may say "window"). The control reads a React file so the pattern can match.
+    // Mutation proofs: sample.ts gains `import React from 'react'; void React;`:
+    //   FAIL playback [13]: no file under src/lib/playback imports three, @react-three or react, or touches window / document  sample.ts
+    // sample.ts sampleJet gains `if (t_s < -1e300) window.alert('x');` (never run): the same FAIL.
+    // Stage-4 strengthening: the module pattern used to need `from`, so a side-effect `import 'react';`
+    // (and `import('three')`, `require('react')`) passed it. Proof: sample.ts gaining `import 'react';` left the
+    // check GREEN before; now:
+    //     FAIL playback [13]: no file under src/lib/playback imports three, @react-three or react, or touches window / document  sample.ts
+    const PKG = String.raw`(?:three|@react-three|react|react-dom)(?:\/[^'"]*)?`;
+    const IMPURE = [new RegExp(String.raw`(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]${PKG}['"]`), /(?<![.\w])(window|document)\s*\./];
+    const codeOf = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const pbFiles = readdirSync('src/lib/playback').filter((f: string) => f.endsWith('.ts'));
+    const impure = pbFiles.filter((f: string) => IMPURE.some((re) => re.test(codeOf(readFileSync(`src/lib/playback/${f}`, 'utf8')))));
+    ok('playback [13]: no file under src/lib/playback imports three, @react-three or react, or touches window / document',
+       pbFiles.length >= 10 && impure.length === 0, impure.length ? impure.join(', ') : `${pbFiles.length} files`);
+    // The control's subject is the patterns themselves (and src/App.tsx, which this step may not
+    // edit: a temporary edit to it for a proof was refused, so the control is not mutation-proved
+    // on App.tsx), so it is pinned on literals too; reverting IMPURE[0] to the old `from`-only
+    // pattern makes it fail on `import 'react';`, `await import('three')` and `require('react-dom/client')`: each impure line must match after codeOf, each pure
+    // one must not (a comment saying "window", a key named window, a property .window, a package
+    // whose name only starts with "react").
+    const impureLines = [`import React from 'react';`, `import 'react';`, `import * as THREE from "three";`, `import { Canvas } from '@react-three/fiber';`,
+      `const T = await import('three');`, `const R = require('react-dom/client');`, `window.alert(1);`, `document.body.append(x);`, `export { useState } from 'react';`];
+    const pureLines = [`// the window closes and document.body is never read`, `const w = { window: 1 };`, `t.window.t0_s;`, `import x from 'react-icons';`, `import { a } from './threeish';`];
+    const caught = (src: string) => IMPURE.some((re) => re.test(codeOf(src)));
+    const missed = impureLines.filter((s) => !caught(s)), falseHits = pureLines.filter(caught);
+    ok('playback [13] control: the same patterns do match a React component (so the check above can fail)',
+       IMPURE[0].test(codeOf(readFileSync('src/App.tsx', 'utf8'))) && missed.length === 0 && falseHits.length === 0,
+       `missed ${JSON.stringify(missed)}, false hits ${JSON.stringify(falseHits)}`);
+
+    // [14] A loft whose pull repeats its final point (a whole multiple of 100 steps: 300 ft, 450 kt,
+    // 30°, 4 G, found by the prerequisites block's search) still plays with finite, strictly
+    // increasing samples.
+    // Mutation proof: resample.ts sGrid `p.s - last.s < SAME_S_NM` → `p.s - last.s < 0` (equal s kept, so zero-length intervals):
+    //   FAIL playback [14]: a loft whose pull repeats its final point plays with finite, strictly increasing samples …  duplicate in the fixture: true; a non-finite sample
+    //   (no other check notices: they sample at chosen times.) Deleting only altitude.ts pullTable's
+    //   de-duplication leaves this GREEN, checked: lookup() clamps at the table's end and sGrid merges
+    //   equal s, so the duplicate is guarded twice and no single edit gets it through.
+    // Stage-4: resample.ts sGrid `if (last && p.s - last.s < SAME_S_NM)` → `… && p.exact === last.exact` (an exact and a soft value at one s both kept):
+    //   FAIL playback [14]: a loft whose pull repeats its final point plays … duplicate in the fixture: true; a non-finite sample (and [4], [10], [11])
+    // and planLoft in-loop `t_s: t` → `t_s: t - 1e-9`: "duplicate in the fixture: false; the pull is not pullTime_s".
+    // "Drop the de-duplication" (pullTable keeps the duplicate) stays GREEN here, as said above: the check after this one pins it.
+    const loftAttack = familyCases.find((c) => c.key === 'F-16 loft' && c.ipNm === 15.3)?.attack;
+    if (!loftAttack) throw new Error('no loft attack');
+    const dupAttack = { ...loftAttack, id: 'dup', profile: applyLoftPlan({ ...(loftAttack.profile as LoftCCRPProfile), ingressAltitude_ft: 300, ingressSpeed_ktas: 450, pullUpAngle_deg: 30, pullG: 4 }) } as Attack;
+    const dupPlan = loftPlanOf(dupAttack.profile as LoftCCRPProfile);
+    const dpn = dupPlan.pullPath.length;
+    const duplicated = dupPlan.pullPath[dpn - 2].x_ft === dupPlan.pullPath[dpn - 1].x_ft && dupPlan.pullPath[dpn - 2].t_s === dupPlan.pullPath[dpn - 1].t_s;
+    const dupPb = lone(familyCases[0].m, dupAttack, refWeapon('mk82'));
+    const dj = dupPb.jets[0];
+    let dupBad = '';
+    if (!dj) dupBad = `not played: ${dupPb.skipped[0]?.reason}`;
+    else {
+      const S = dj.samples;
+      for (const col of [S.tau_s, S.s_nm, S.lat, S.lon, S.e_m, S.n_m, S.up_m, S.agl_ft, S.msl_ft, S.tas_kt, S.heading_deg, S.pitch_deg, S.ve_mps, S.vn_mps, S.vu_mps, dj.bomb.tau_s, dj.bomb.up_m]) {
+        if (!col.every(Number.isFinite)) dupBad ||= 'a non-finite sample';
+      }
+      for (let i = 1; i < S.n; i++) if (!(S.tau_s[i] > S.tau_s[i - 1]) || !(S.s_nm[i] > S.s_nm[i - 1])) { dupBad ||= `samples ${i - 1}→${i} do not move forward (tau ${S.tau_s[i - 1]} → ${S.tau_s[i]})`; break; }
+      if (Math.abs(dj.anchors.REL!.tau_s - dj.anchors.POP!.tau_s - dupPlan.pullTime_s) > 1e-9) dupBad ||= 'the pull is not pullTime_s';
+    }
+    ok('playback [14]: a loft whose pull repeats its final point plays with finite, strictly increasing samples and the pull still takes pullTime_s',
+       duplicated && dupBad === '', `duplicate in the fixture: ${duplicated}; ${dupBad || `${dj?.samples.n} samples`}`);
+    // [14] The de-duplication itself (spec D6: "the playback de-duplicates any zero-length interval"):
+    // the check above cannot see it, because sGrid merges equal s and lookup() clamps at the end. So
+    // pin pullTable directly: the duplicated final point is dropped once, x strictly rises, and the
+    // table still ends on the pull's last point at pullTime_s.
+    // Stage-4 proof: altitude.ts pullTable `!(p.x_ft > table.x[n - 1])` → `!(p.x_ft >= table.x[n - 1])` (duplicates kept)
+    // left every check GREEN before this one; now:
+    //     FAIL playback [14]: pullTable drops the repeated final point once: x strictly rises and ends at the pull's end, at pullTime_s  27 points from 27, last t 4.999999999999671 vs 4.999999999999671
+    const dupTable = pullTable(dupPlan);
+    const tn = dupTable.x.length;
+    const tableOk = tn === dpn - 1 && dupTable.x.every((x, i) => i === 0 || x > dupTable.x[i - 1]) && dupTable.t.every((t, i) => i === 0 || t > dupTable.t[i - 1]) &&
+      dupTable.x[tn - 1] === dupPlan.pullPath[dpn - 1].x_ft && dupTable.alt[tn - 1] === dupPlan.pullPath[dpn - 1].alt_ft && dupTable.t[tn - 1] === dupPlan.pullTime_s;
+    ok('playback [14]: pullTable drops the repeated final point once: x strictly rises and ends at the pull\'s end, at pullTime_s',
+       duplicated && tableOk, `${tn} points from ${dpn}, last t ${dupTable.t[tn - 1]} vs ${dupPlan.pullTime_s}`);
+
+    // [15] Edge cases: a lone attack, a dangling strike id, a one-member strike, unknown subjects,
+    // skipped jets, a missing target, and a dive or level with no IP (the planner's 8 nm schematic).
+    // Mutation proofs: input.ts `asStrike ? (attack.totOffset_s ?? 0) : 0` → `attack.totOffset_s ?? 0`:
+    //   FAIL playback [15]: a lone attack plays as a strike of one at offset 0, its stray totOffset_s (45 s) ignored
+    //   FAIL playback [15]: an attack whose strikeId dangles, and a one-member strike, play as a strike of one at offset 0
+    // input.ts `if (!attack) return undefined` → `return { name: '', jets: [] }`:
+    //   FAIL playback [15]: an unknown strike or attack gives no input
+    // input.ts the missing-target skip's `totOffset_s` → `totOffset_s: 0`:
+    //   FAIL playback [15]: a member whose target waypoint is missing is skipped with a reason, and Apply still counts it  [{…"totOffset_s":0}]
+    // jetTrack.ts skipReason `case 'standoff':` → `case 'level_ccrp':`:
+    //   FAIL playback [15]: a pop-up with no IP and a stand-off attack are skipped with plain reasons; …  [… "This delivery (strafe, low-angle low-drag) has no attack picture to …"]
+    // jetTrack.ts `if (!input.ipAnchor) warnings.push(…)` → `if (input.ipAnchor) …`:
+    //   FAIL playback [15]: a dive with no IP flies the planner's 8 nm schematic run-in, says so, and still lands at its TOT  run-in 8.000 nm, AP range, warnings
+    //   FAIL playback [15]: a level with no IP flies … run-in 8.000 nm, AP none, warnings
+    // Stage-4 (each alone, run, restored):
+    // input.ts `asStrike ? (attack.totOffset_s ?? 0) : 0` → `… : attack.strikeId ? 0 : (attack.totOffset_s ?? 0)`:
+    //   FAIL playback [15]: a lone attack plays as a strike of one at offset 0, its stray totOffset_s (45 s) ignored
+    // input.ts `const asStrike = !!strike && members.length >= 2` → `… >= 1`:
+    //   FAIL playback [15]: an attack whose strikeId dangles, and a one-member strike, play as a strike of one at offset 0
+    // input.ts `if (!strike) return undefined;` → `return { name: '', jets: [] };`:
+    //   FAIL playback [15]: an unknown strike or attack gives no input
+    // timing.ts delaysToOffsets `pb.members.map(…)` → `pb.members.filter((m) => m.jet !== undefined).map(…)`:
+    //   FAIL playback [15]: a member whose target waypoint is missing is skipped with a reason, and Apply still counts it  [{"id":"gone-2",…
+    // strikePlayback.ts `const k = s.order` → `const k = s.order === undefined ? undefined : undefined`:
+    //   FAIL playback [15]: a member whose target is missing keeps its place … members gone-1,gone-2, order 1, conflicts [["#1","#2",0,null]]
+    // jetTrack.ts skipReason pop-up → 'A pop-up has no run-in to fly.':
+    //   FAIL playback [15]: a pop-up with no IP and a stand-off attack are skipped with plain reasons; … ["A pop-up has no run-in to fly.","Stand-off attacks have no attack picture to fly."]
+    // jetTrack.ts `source: input.ipAnchor?.source ?? 'schematic'` → `?? 'waypoint'`:
+    //   FAIL playback [15]: a dive with no IP flies … run-in 8.000 nm, AP range, …   FAIL playback [15]: a level with no IP flies … run-in 8.000 nm, AP none, …
+    const m15 = pbMission(15.3);
+    const plainDive = autoBuilt(m15, 'p1', 'f16c', 'f16c.dive.ccip30', 'mk82', 'plain');
+    const plainPop = autoBuilt(m15, 'p2', 'f16c', 'f16c.popup.std', 'mk82', 'plain-pop');
+    const plainLevel = autoBuilt(m15, 'p3', 'f16c', 'f16c.level.ccrp.jdam', 'gbu31', 'plain-level');
+    if (!plainDive || !plainPop || !plainLevel) throw new Error('edge-case fixtures did not build');
+    const edge = {
+      ...m15,
+      attacks: [
+        { ...plainDive, totOffset_s: 45, sequenceNumber: 1 },
+        { ...plainPop, id: 'dangling', strikeId: 'no-such-strike', totOffset_s: 30, sequenceNumber: 2 },
+        { ...plainPop, id: 'solo-member', strikeId: 'solo', totOffset_s: 20, sequenceNumber: 3 },
+        { ...plainDive, id: 'gone-1', strikeId: 'gone', totOffset_s: 0, sequenceNumber: 4 },
+        { ...plainDive, id: 'gone-2', strikeId: 'gone', targetWaypointId: 'no-such-waypoint', totOffset_s: 30, sequenceNumber: 5 },
+      ],
+      strikes: [{ id: 'solo', name: 'Solo', ip: {}, spacing_s: 30 }, { id: 'gone', name: 'Lost target', ip: {}, spacing_s: 30 }],
+    } as Mission;
+    const strikeOfOne = (input: ReturnType<typeof playbackInputFromMission>, id: string) => {
+      if (!input || input.jets.length !== 1 || input.jets[0].id !== id || input.jets[0].totOffset_s !== 0 || input.strikeId !== undefined || input.jets[0].label !== '#1') return false;
+      const pb = buildStrikePlayback(input), t = retime(pb);
+      return t.jets[0].impact_s === 0 && t.conflicts.length === 0 && Object.values(delaysToOffsets(pb, {})).every((x) => x === 0);
+    };
+    ok('playback [15]: a lone attack plays as a strike of one at offset 0, its stray totOffset_s (45 s) ignored',
+       strikeOfOne(playbackInputFromMission(edge, { attackId: 'plain' }, refRows), 'plain'));
+    ok('playback [15]: an attack whose strikeId dangles, and a one-member strike, play as a strike of one at offset 0',
+       strikeOfOne(playbackInputFromMission(edge, { attackId: 'dangling' }, refRows), 'dangling') &&
+       strikeOfOne(playbackInputFromMission(edge, { strikeId: 'solo' }, refRows), 'solo-member'));
+    ok('playback [15]: an unknown strike or attack gives no input',
+       playbackInputFromMission(edge, { strikeId: 'no-such-strike' }, refRows) === undefined && playbackInputFromMission(edge, { attackId: 'nope' }, refRows) === undefined);
+    const goneIn = playbackInputFromMission(edge, { strikeId: 'gone' }, refRows);
+    ok('playback [15]: a member whose target waypoint is missing is skipped with a reason, and Apply still counts it',
+       goneIn?.jets.length === 1 && goneIn.skipped?.length === 1 && goneIn.skipped[0].id === 'gone-2' && /target waypoint/.test(goneIn.skipped[0].reason) &&
+       delaysToOffsets(buildStrikePlayback(goneIn), {})['gone-2'] === 30, JSON.stringify(goneIn?.skipped));
+    // That member keeps its place among the members (input.ts gives it its `order`): moved to −5 s it
+    // is #1 on target, and the frag rule counts it there, as the editor's strip does.
+    // Mutation proof: input.ts the missing-target skip's `order: k` → dropped (the member goes last):
+    //   FAIL playback [15]: a member whose target is missing keeps its place … members gone-1,gone-2, order 1, conflicts [["#1","#2",0,null]]
+    const goneFirst = { ...edge, attacks: edge.attacks.map((a) => (a.id === 'gone-2' ? { ...a, totOffset_s: -5 } : a)) } as Mission;
+    const gfIn = playbackInputFromMission(goneFirst, { strikeId: 'gone' }, refRows);
+    const gfPb = gfIn ? buildStrikePlayback(gfIn) : undefined;
+    const gfT = gfPb ? retime(gfPb) : undefined;
+    const gfEj: StrikeJet[] = strikeMembers(goneFirst, 'gone').map((a, k) => {
+      const tw = goneFirst.waypoints.find((w) => w.id === a.targetWaypointId);
+      return { label: `#${k + 1}`, picture: tw ? buildAttackPicture(a, attackIpAnchor(goneFirst.waypoints, a), tw) : undefined, speed_ktas: attackSpeedOf(a.profile), totOffset_s: a.totOffset_s ?? 0, weapon: refRows.find((w) => w.id === a.weaponId) };
+    });
+    ok('playback [15]: a member whose target is missing keeps its place among the members, and the frag rule counts it there (the editor\'s conflicts and readout)',
+       !!gfPb && !!gfT && gfPb.members.map((m) => m.id).join() === 'gone-2,gone-1' && gfPb.skipped[0]?.order === 0 && conflictsMatch(gfPb, gfEj, gfT, ['gone-2', 'gone-1']) &&
+       gfT.conflicts.length === 1 && gfT.conflicts[0].firstJet === undefined && gfT.conflicts[0].secondJet === 0,
+       `members ${gfPb?.members.map((m) => m.id)}, order ${gfPb?.skipped[0]?.order}, conflicts ${JSON.stringify(gfT?.conflicts.map((c) => [c.first, c.second, c.secondJet, c.firstJet ?? null]))}`);
+    const standoff = { ...plainDive, id: 'standoff', profileType: 'standoff', profile: { type: 'standoff', releasePoint: tgt, releaseAltitude_ft: 20000, releaseSpeed_ktas: 450, releaseHeading_deg: 0, standoffDistance_nm: 10 } } as Attack;
+    const mixedSkips = buildStrikePlayback({ name: 'skips', jets: [jetInput(m15, plainDive, refWeapon('mk82'), '#1', 0), jetInput(m15, plainPop, refWeapon('mk82'), '#2', 30, false), jetInput(m15, standoff, undefined, '#3', 60)] });
+    ok('playback [15]: a pop-up with no IP and a stand-off attack are skipped with plain reasons; the dive still plays',
+       mixedSkips.jets.length === 1 && mixedSkips.skipped.length === 2 && /needs an IP/.test(mixedSkips.skipped[0].reason) && /Stand-off/.test(mixedSkips.skipped[1].reason) &&
+       retime(mixedSkips).jets[0].impact_s === 0, JSON.stringify(mixedSkips.skipped.map((s) => s.reason)));
+    // The loft with no IP (spec D12 names it beside the pop-up; no check had one). Stage-4 strengthening. Proof: jetTrack.ts
+    // skipReason `return 'A loft needs an IP: its axis is the IP→target line.'` → `return 'A loft has no axis to fly.'`:
+    //     FAIL playback [15]: a loft with no IP is skipped with a plain reason, and still counts as a member  ["A loft has no axis to fly."]
+    const loftCase = familyCases.find((c) => c.key === 'F-16 loft' && c.ipNm === 15.3)!;
+    const loftNoIp = buildStrikePlayback({ name: 'loft, no IP', jets: [jetInput(loftCase.m, loftAttack, refWeapon('mk82'), '#1', 0, false), jetInput(m15, plainDive, refWeapon('mk82'), '#2', 30)] });
+    ok('playback [15]: a loft with no IP is skipped with a plain reason, and still counts as a member',
+       loftNoIp.jets.length === 1 && loftNoIp.skipped.length === 1 && /loft needs an IP/.test(loftNoIp.skipped[0].reason) && loftNoIp.members.length === 2 && loftNoIp.skipped[0].order === 0,
+       JSON.stringify(loftNoIp.skipped.map((s) => s.reason)));
+    for (const [what, attack, weapon] of [['dive', plainDive, 'mk82'], ['level', plainLevel, 'gbu31']] as [string, Attack, string][]) {
+      const pb = lone(m15, attack, refWeapon(weapon), false);
+      const j = pb.jets[0];
+      const join = j?.anchors[what === 'dive' ? 'ROLL' : 'RUN'];
+      const side = buildSideProfile(attack, 4000)!;
+      const sideAp = side.points.find((x) => x.kind === 'AP')!;
+      const apOk = what === 'level' ? j?.anchors.AP === undefined : j?.anchors.AP?.source === 'range' && Math.abs(calculateDistance(sampleJet(pb, retime(pb), 0, retime(pb).jets[0].shift_s + j.anchors.AP.tau_s), tgt) - sideAp.dist_nm) < 1e-6;
+      ok(`playback [15]: a ${what} with no IP flies the planner's 8 nm schematic run-in, says so, and still lands at its TOT`,
+         !!j && j.ip.source === 'schematic' && j.warnings.some((w) => /No IP/.test(w)) && !!join && Math.abs(join.s_nm - 8) < 1e-6 && apOk &&
+         retime(pb).jets[0].impact_s === 0 && j.samples.agl_ft.every(Number.isFinite),
+         j ? `run-in ${join?.s_nm.toFixed(3)} nm, AP ${j.anchors.AP?.source ?? 'none'}, warnings ${j.warnings.join(' | ')}` : pb.skipped[0]?.reason);
+    }
+    // A legacy dive (no action point, no IP) whose ingress altitude (10,000 ft) is above its roll-in
+    // (8,000 ft): the side view holds 10,000 ft until its schematic AP at roll-in + 3 nm, then
+    // descends; the track must too, not slope from the IP. The AP has no marker, so [4] cannot see this.
+    // Mutation proof: altitude.ts `kind === 'AP' && family === 'dive'` → `kind === 'AP' && family === 'level'` (no range-placed AP):
+    //   FAIL playback [15]: a legacy dive with no action point holds its 10,000 ft ingress until the side view's schematic AP, … AP none, worst error over the 251 samples before it 1246.9 ft, ROLL 8000.0 ft
+    //   (and "a dive with no IP flies the planner's 8 nm schematic run-in, … AP none")
+    // Stage-4: altitude.ts legacy AP `sAtRange(chain, target, 0, anchors.ROLL, …)` → `sAtRange(chain, target, 0, 0 * anchors.ROLL, …)` (AP falls back to the IP):
+    //   FAIL playback [15]: a legacy dive with no action point holds … AP range, worst error over the 251 samples before it 1246.7 ft, ROLL 8000.0 ft (and the no-IP dive)
+    const legacy = { ...plainDive, id: 'legacy', profile: { ...plainDive.profile, ingressAltitude_ft: 10000, actionRange_nm: undefined, offsetAngle_deg: undefined } } as Attack;
+    const legacyJet = lone(m15, legacy, refWeapon('mk82'), false).jets[0];
+    const legacySideAp = buildSideProfile(legacy, 4000)!.points.find((x) => x.kind === 'AP')!;
+    // The hold is measured by range from the target, not by the AP anchor, so a missing anchor still shows the error.
+    let holdErr = legacyJet ? 0 : Infinity, held = 0;
+    if (legacyJet) {
+      const S = legacyJet.samples;
+      for (let i = 0; i < S.n && calculateDistance({ lat: S.lat[i], lon: S.lon[i] }, tgt) >= legacySideAp.dist_nm; i++, held++) holdErr = Math.max(holdErr, Math.abs(S.agl_ft[i] - 10000));
+    }
+    const legacyAp = legacyJet?.anchors.AP;
+    ok('playback [15]: a legacy dive with no action point holds its 10,000 ft ingress until the side view\'s schematic AP, then descends to the roll-in',
+       !!legacyJet && legacyAp?.source === 'range' && held > 100 && holdErr < 1e-9 && legacySideAp.alt_ft === 10000 &&
+       Math.abs(calculateDistance({ lat: legacyJet.samples.lat[legacyAp.index], lon: legacyJet.samples.lon[legacyAp.index] }, tgt) - legacySideAp.dist_nm) < 1e-6 &&
+       Math.abs(legacyJet.anchors.ROLL!.agl_ft - 8000) < 1e-9,
+       `AP ${legacyAp?.source ?? 'none'}, worst error over the ${held} samples before it ${holdErr.toFixed(1)} ft, ROLL ${legacyJet?.anchors.ROLL?.agl_ft.toFixed(1)} ft`);
+
+    // ── The display layer, the lead-in, formation, frag zones, domes, bounds (spec D8-D12) ──
+    // [10] The display layer rounds the plan's corners in time (a box kernel of ±smooth_s, which
+    // around one corner IS the quadratic Bézier): it equals the plan wherever no corner is within
+    // smooth_s, stays within a bounded distance of it, is continuous in position and heading, and
+    // is the plan at the release. Sampled every 0.01 s from 5 s up the lead-in to the hide time (no
+    // jet here has a formation partner: the strikes are 25 s or more apart).
+    // - "Near" is provable: the average of a path flown at no more than v, over ±h, is within v·h/2
+    //   of its middle point, so the bound is half the jet's top plan speed times smooth_s.
+    // - Continuous: from one 0.01 s sample to the next the jet moves no more than 1.5× its speed
+    //   and turns no more than 2° (a plan corner is a 10°-130° step).
+    // - The release (review fix, 2026-11-14): it used to be the one kink kept (heading and pitch
+    //   snapping 5° and up to 62° in one frame). Now the window shrinks to the release from before
+    //   it, and for 2·smooth_s after it the display is a cubic Hermite from the plan's release point
+    //   with the velocity the plan arrives with (what the bomb leaves with) to the smoothed track,
+    //   so the continuity checks run straight through the release, pitch included, and the release
+    //   check asks for the plan's point and its ARRIVING velocity (the plan layer itself reports the
+    //   egress stretch's velocity at that instant, by its interval convention).
+    // Measured 2026-11-14: 342,392 samples outside the windows, 77,584 inside; worst 97% of v·h/2
+    // (as before the fix: the level trio's #2 route → offset-leg corner); worst step 1.005× speed,
+    // 1.108° heading and 0.575° pitch per 0.01 s. After the release (probe, lone jets at 15.3 nm):
+    // within 144 m of the plan (LABS; 45° dive 132 m), the dives' display dipping up to 236 ft below
+    // the release altitude before the plan's schematic egress climb takes over.
+    // Mutation proofs: display.ts halfWidth `if (d >= 2 * H)` → `if (true)` (the window no longer shrinks at the release):
+    //   FAIL playback [10]: the display layer equals the plan wherever … pop-up @15.3 nm #1: at the release lat differs from the plan
+    //   (rerun after the review fix: … pop-up @15.3 nm #1: jumps 29.90× its speed at tau 112.70, and [11]'s slotted release)
+    // display.ts `CORNER_DEG = 0.01` → `CORNER_DEG = 90` (most corners never smoothed, so the display jumps onto the plan):
+    //   FAIL playback [10]: … pop-up @15.3 nm #1: jumps 2.29× its speed at tau 83.01
+    // display.ts smoothAt (now kernelAt) `out[c] = (Ip[c] - Im[c]) / (2 * h)` → `… * 1.01`:
+    //   FAIL playback [10]: … pop-up @15.3 nm #1: jumps 115.75× its speed at tau -2.00 (and [11] tied jets, bounds; rerun after the fix: [11] slotted release, bounds)
+    // display.ts halfWidth `const H = track.display.smooth_s` → `… * 3` (windows wider than smooth_s says):
+    //   FAIL playback [10]: … pop-up @15.3 nm #1: lat differs from the plan at tau 2.00, no corner within 2 s
+    // display.ts displayAt `if (W > 0 && iRel != null && …` → `if (false && …` (no Hermite: the release corner is back):
+    //   FAIL playback [10]: … pop-up @15.3 nm #1: heading jumps 4.99° in 0.01 s at tau 112.70 (and [11] slotted release)
+    // Stage-4: "sampleJet's display layer returns the plan layer": sample.ts `if (layer !== 'display')` → `if (layer !== 'display' || layer === 'display')`:
+    //   FAIL playback [10]: … pop-up @15.3 nm #1: slot 0 m, visible false at tau -4.99 (and [11] lead-in, slot, tied, slotted release)
+    // display.ts halfWidth `return d - (d * d) / (4 * H)` → `return d - (0 * d * d) / (4 * H)` (h jumps from 2H to H at 2H before the release):
+    //   FAIL playback [10]: … pop-up @15.3 nm #1: jumps 6.82× its sp… (and [11] slotted release)
+    // display.ts leadIn `up_m: S.up_m[0]` → `S.up_m[0] + 30` (with agl/msl +100): FAIL playback [10]: … pop-up @15.3 nm #1: jumps 12.19× its s…
+    const pd = newJetState(), pp = newJetState(), pd0 = newJetState();
+    let dispBad = '', outside = 0, inside = 0, worstDev = 0, worstStep = 0, worstHdg = 0, worstPitch = 0;
+    const SAME = ['lat', 'lon', 'e_m', 'n_m', 'up_m', 'agl_ft', 'msl_ft', 'heading_deg', 'pitch_deg', 've_mps', 'vn_mps', 'vu_mps', 'tas_kt', 'phase', 'released'] as const;
+    for (const c of cases) {
+      const t = retime(c.pb);
+      c.pb.jets.forEach((j, k) => {
+        const tj = t.jets[k], C = j.display.corners_tau, H = j.display.smooth_s, S = j.samples;
+        const fail = (why: string) => { dispBad ||= `${c.name} ${j.label}: ${why}`; };
+        // Inside a window: a corner within smooth_s, or the 2·smooth_s Hermite after the release.
+        const nearCorner = (tau: number) => C.some((x) => Math.abs(x - tau) < H) || (tau >= j.releaseTau_s && tau < j.releaseTau_s + 2 * H);
+        let vmax = Math.hypot(j.display.leadIn.ve_mps, j.display.leadIn.vn_mps);
+        for (let i = 0; i < S.n; i++) vmax = Math.max(vmax, Math.hypot(S.ve_mps[i], S.vn_mps[i], S.vu_mps[i]));
+        const bound = 0.5 * vmax * H;
+        sampleJet(c.pb, t, k, tj.push_s - 5, 'display', pd0);
+        for (let tt = tj.push_s - 5 + 0.01; tt <= tj.hide_s; tt += 0.01) {
+          sampleJet(c.pb, t, k, tt, 'display', pd);
+          if (pd.slot_m !== 0 || !pd.visible) { fail(`slot ${pd.slot_m} m, visible ${pd.visible} at tau ${pd.tau_s.toFixed(2)}`); break; }
+          // No exemption at the release any more (review fix, 2026-11-14): heading and pitch too.
+          const step = Math.hypot(pd.e_m - pd0.e_m, pd.n_m - pd0.n_m, pd.up_m - pd0.up_m) / (pd.tau_s - pd0.tau_s) / Math.hypot(pd.ve_mps, pd.vn_mps, pd.vu_mps);
+          const turn = Math.abs(signedHeadingDelta(pd0.heading_deg, pd.heading_deg));
+          const pitchStep = Math.abs(pd.pitch_deg - pd0.pitch_deg);
+          worstStep = Math.max(worstStep, step);
+          worstHdg = Math.max(worstHdg, turn);
+          worstPitch = Math.max(worstPitch, pitchStep);
+          if (step > 1.5) fail(`jumps ${step.toFixed(2)}× its speed at tau ${pd.tau_s.toFixed(2)}`);
+          if (turn > 2) fail(`heading jumps ${turn.toFixed(2)}° in 0.01 s at tau ${pd.tau_s.toFixed(2)}`);
+          if (pitchStep > 2) fail(`pitch jumps ${pitchStep.toFixed(2)}° in 0.01 s at tau ${pd.tau_s.toFixed(2)}`);
+          Object.assign(pd0, pd);
+          if (pd.tau_s < 0) continue;
+          sampleJet(c.pb, t, k, tt, 'plan', pp);
+          if (!nearCorner(pd.tau_s)) {
+            outside++;
+            const diff = SAME.find((f) => pd[f] !== pp[f]);
+            if (diff) fail(`${diff} differs from the plan at tau ${pd.tau_s.toFixed(2)}, no corner within ${H} s`);
+          } else inside++;
+          const dev = Math.hypot(pd.e_m - pp.e_m, pd.n_m - pp.n_m, pd.up_m - pp.up_m);
+          worstDev = Math.max(worstDev, dev / bound);
+          if (dev > bound + 1e-6) fail(`${dev.toFixed(1)} m off the plan at tau ${pd.tau_s.toFixed(2)}, more than v·h/2 = ${bound.toFixed(1)} m`);
+        }
+        // At the release: the plan's position (e/n/up exactly; lat/lon from them through the frame,
+        // to 1e-9°), and the velocity, heading and pitch the plan ARRIVES with (the stretch before
+        // the release, what the bomb leaves with). The plan layer's own velocity at that instant is
+        // the egress stretch's, by its interval convention; matching that is what kinked the display.
+        sampleJet(c.pb, t, k, tj.release_s, 'display', pd);
+        sampleJet(c.pb, t, k, tj.release_s, 'plan', pp);
+        const ia = j.anchors.REL!.index - 1;
+        const relDiff = (['e_m', 'n_m', 'up_m', 'tas_kt', 'phase', 'released'] as const).find((f) => pd[f] !== pp[f]) ??
+          (Math.abs(pd.lat - pp.lat) > 1e-9 || Math.abs(pd.lon - pp.lon) > 1e-9 ? 'lat/lon' : undefined) ??
+          (Math.abs(pd.agl_ft - pp.agl_ft) > 1e-6 || Math.abs(pd.msl_ft - pp.msl_ft) > 1e-6 ? 'agl/msl' : undefined) ??
+          (pd.ve_mps !== S.ve_mps[ia] || pd.vn_mps !== S.vn_mps[ia] || pd.vu_mps !== S.vu_mps[ia] ? 'velocity (vs the arriving stretch)' : undefined) ??
+          (Math.abs(signedHeadingDelta(pd.heading_deg, S.heading_deg[ia])) > 1e-3 || Math.abs(pd.pitch_deg - S.pitch_deg[ia]) > 1e-9 ? 'heading/pitch (vs the arriving stretch)' : undefined);
+        if (relDiff) fail(`at the release ${relDiff} differs from the plan`);
+      });
+    }
+    ok('playback [10]: the display layer equals the plan wherever no corner is within smooth_s, stays within v·h/2 of it, is continuous in position, heading and pitch (the release included), and at the release is the plan\'s point with the plan\'s arriving velocity',
+       dispBad === '' && outside > 20000 && inside > 5000,
+       dispBad || `${outside} samples outside windows, ${inside} inside; worst ${(100 * worstDev).toFixed(0)}% of v·h/2; worst step ${worstStep.toFixed(3)}× speed, ${worstHdg.toFixed(3)}° heading and ${worstPitch.toFixed(3)}° pitch per 0.01 s`);
+
+    // [11] The lead-in: straight back from the IP at the ingress speed, so a delay shows as trail
+    // spacing; capped at 20 nm behind the IP (not visible beyond). #1/#3 and #2/#4 of the 25 s
+    // 4-ship fly identical geometry 50 s apart: on their lead-ins they must be exactly 50 s × the
+    // ingress speed apart, on one line.
+    // Mutation proofs: display.ts the lead-in's `const k = v / hs0` → `const k = 1.001 * v / hs0` (0.1% off the ingress speed):
+    //   FAIL playback [11]: lead-in: …  #1/#3 at 5 s before the push: 12359.01 m apart vs 12346.67 m (50.000 s × 480 kt), leadIn/leadIn
+    // display.ts `capTau_s = … (options.maxLeadIn_nm / ingress_kt) * 3600` → `… * 7200`:
+    //   FAIL playback [11]: lead-in: …  6 pairs; cap false at 39.9987 nm
+    // Stage-4: display.ts `capTau_s = … (options.maxLeadIn_nm / ingress_kt) * 3600` → `((options.maxLeadIn_nm + 0.1) / ingress_kt) * 3600`:
+    //   FAIL playback [11]: lead-in: …  6 pairs; cap false at 20.0987 nm
+    const s4 = newJetState(), s4b = newJetState();
+    const t4plan = retime(pb4);
+    let trailBad = '', trailPairs = 0;
+    for (const [a, b] of [[0, 2], [1, 3]]) {
+      const ja = pb4.jets[a], dPush = t4plan.jets[b].push_s - t4plan.jets[a].push_s, v = ja.ingress_kt * 1852 / 3600;
+      for (const back of [5, 10, 25]) {
+        const tt = t4plan.jets[a].push_s - back;
+        sampleJet(pb4, t4plan, a, tt, 'display', s4);
+        sampleJet(pb4, t4plan, b, tt, 'display', s4b);
+        const gap = Math.hypot(s4.e_m - s4b.e_m, s4.n_m - s4b.n_m), want = dPush * v;
+        // On one line: the trailing jet sits on the leader's reciprocal heading.
+        const brg = (Math.atan2(s4.e_m - s4b.e_m, s4.n_m - s4b.n_m) * 180) / Math.PI;
+        trailPairs++;
+        // (Stage-4 strengthening: and level at the IP's own altitude, up, AGL and MSL alike. Proof: display.ts
+        // leadIn `agl_ft: S.agl_ft[0]` → `S.agl_ft[0] + 100` was GREEN under the pre-stage-4 geo-check (805dcf5, re-run); now this FAILs:
+        //     FAIL playback [11]: lead-in: …  #1/#3 at 5 s before the push: 12346.67 m apart vs 12346.67 m (50.000 s × 480 kt), leadIn/leadIn)
+        if (Math.abs(gap - want) > 0.01 || s4.phase !== 'leadIn' || s4b.phase !== 'leadIn' || !s4.visible || !s4b.visible || s4.up_m !== s4b.up_m ||
+            s4.up_m !== ja.samples.up_m[0] || s4.agl_ft !== ja.samples.agl_ft[0] || s4.msl_ft !== ja.samples.msl_ft[0] ||
+            Math.abs(signedHeadingDelta(brg, (Math.atan2(ja.display.leadIn.ve_mps, ja.display.leadIn.vn_mps) * 180) / Math.PI)) > 1e-6)
+          trailBad ||= `${ja.label}/${pb4.jets[b].label} at ${back} s before the push: ${gap.toFixed(2)} m apart vs ${want.toFixed(2)} m (${dPush.toFixed(3)} s × ${ja.ingress_kt} kt), ${s4.phase}/${s4b.phase}`;
+      }
+    }
+    // The cap: #4 delayed 200 s more starts invisible, appears exactly 20 nm behind its IP.
+    const late = retime(pb4, { [ids4[3]]: 275 });
+    const j4 = pb4.jets[3], cap = j4.display.leadIn.capTau_s, tl = late.jets[3];
+    const capAt = sampleJet(pb4, late, 3, tl.push_s - cap + 0.01, 'display', s4);
+    const capNm = Math.hypot(capAt.e_m - j4.samples.e_m[0], capAt.n_m - j4.samples.n_m[0]) / 1852;
+    const capOk = !sampleJet(pb4, late, 3, late.window.t0_s, 'display', s4b).visible && !sampleJet(pb4, late, 3, tl.push_s - cap - 0.01, 'display', s4b).visible &&
+      sampleJet(pb4, late, 3, tl.push_s - cap + 0.01, 'display', s4).visible && Math.abs(capNm - 20) < 0.01;
+    ok('playback [11]: lead-in: on their lead-ins two jets flying the same geometry are their push difference × the ingress speed apart, in trail on one line; the lead-in is capped at 20 nm (not visible beyond)',
+       trailBad === '' && trailPairs === 6 && capOk, trailBad || `${trailPairs} pairs; cap ${capOk} at ${capNm.toFixed(4)} nm`);
+
+    // [11] Formation, display only: a tied 2-ship's right-flank #2 flies half a slot (0.25 nm) out
+    // while within 2 s of #1's push, none from 6 s, and the slot moves continuously in between as
+    // #2's delay is dragged 0 → 8 s in 0.02 s steps (sampled 15 s up #2's lead-in).
+    // Mutation proof: formation.ts pushWeight `return 1 - smoothstep(…)` → `return Math.abs(dPush_s) <= FORMATION_TOL_S ? 1 : 0` (a binary tolerance):
+    //   FAIL playback [11]: formation: a tied 2-ship's #2 … slot at 0 s -463.0 m, at 1.9 s -463.0 m, at 4 s 0.0 m, at 6.2 s 0; biggest step 463.00 m (slot 926 m); …
+    // Stage-4: "make the formation weight a step": pushWeight → `return Math.abs(dPush_s) < 4 ? 1 : 0`:
+    //   FAIL playback [11]: formation: a tied 2-ship's #2 … slot at 0 s -463.0 m, at 1.9 s -463.0 m, at 4 s 0.0 m, at 6.2 s 0; biggest step 457.79 m (slot 926 m); flanks right,left
+    // formation.ts `FORMATION_TOL_S = 2` → `1.5`:
+    //   FAIL playback [11]: formation: a tied 2-ship's #2 … slot at 0 s -463.0 m, at 1.9 s -452.4 m, at 4 s -189.8 m, at 6.2 s 0; biggest step 3.42 m (slot 926 m); …
+    // (#2 is the LEFT-flank jet in this fixture, flanks "right,left": the test reads the side from the jet.)
+    const [p2a] = strikeMembers(pop2, 'pop2');
+    const pb2 = strikeCases[0].pb!;
+    const slotS = pb2.options.formationSpacing_nm * 1852;
+    const slots: number[] = [];
+    for (let x = 0; x <= 8 + 1e-9; x += 0.02) {
+      const tx = retime(pb2, { [p2a.id]: 0, [pb2.jets[1].id]: x });
+      slots.push(sampleJet(pb2, tx, 1, tx.jets[1].push_s - 15, 'display', s4).slot_m);
+    }
+    let maxJump = 0;
+    for (let i = 1; i < slots.length; i++) maxJump = Math.max(maxJump, Math.abs(slots[i] - slots[i - 1]));
+    // (Index 95 is a 1.9 s delay, 310 is 6.2 s: the two jets' flights differ by a few ms, so the
+    // push difference is not exactly the delay.)
+    const side2 = pb2.jets[1].flank === 'right' ? 1 : -1;
+    ok('playback [11]: formation: a tied 2-ship\'s #2 flies half a slot out on its flank within 2 s of #1\'s push, none from 6 s, and the slot moves continuously as the delay is dragged across',
+       Math.abs(slots[0] - (side2 * slotS) / 2) < 1e-6 && Math.abs(slots[95] - (side2 * slotS) / 2) < 1e-6 && slots.slice(310).every((x) => x === 0) && maxJump < 0.01 * slotS && pb2.jets[0].flank !== pb2.jets[1].flank,
+       `slot at 0 s ${slots[0].toFixed(1)} m, at 1.9 s ${slots[95].toFixed(1)} m, at 4 s ${slots[200].toFixed(1)} m, at 6.2 s ${slots[310]}; biggest step ${maxJump.toFixed(2)} m (slot ${slotS.toFixed(0)} m); flanks ${pb2.jets.map((j) => j.flank)}`);
+
+    // [11] Tied jets never coincide while their plan lines do: the 4-ship and the 2-ship re-timed to
+    // one TOT (#1 and #3 of the 4-ship fly identical geometry the whole way; mirrored #1 and #2
+    // share the IP → action point leg, then split). Whenever two unslotted tracks are within 30 m,
+    // the displayed jets are at least 0.9 slot apart; a jet two slots (plus 500 m for smoothing) or
+    // more from every other flies no slot at all (the 2-ship after its split; in the 4-ship every
+    // jet keeps a twin).
+    // Mutation proofs: formation.ts the same-flank share `j < jet ? 1 : 0` → `j < jet ? 0 : 0`:
+    //   FAIL playback [11]: formation: tied jets never coincide …  4-ship #1/#3 at t=-151.15: 0.0 m apart while their tracks are 0.0 m apart
+    // formation.ts `const wd = 1 - smoothstep(…)` → `1 - 0 * smoothstep(…)` (the slot never fades as the lines split):
+    //   FAIL playback [11]: formation: tied jets never coincide …  2-ship #1 alone at t=-28.45 still flies a 463.0 m slot
+    // Stage-4: formation.ts opposite-flank share `!== side ? 0.5 :` → `!== side ? 0 :`:
+    //   FAIL playback [11]: formation: tied jets never coincide …  4-ship #1/#2 at t=-151.15: 1.1 m apart while their tracks are 1.1 m apart (and the 2-ship slot check)
+    const unslotted = (s: JetState) => {
+      const gs = Math.hypot(s.ve_mps, s.vn_mps);
+      return { e: s.e_m - (s.slot_m * s.vn_mps) / gs, n: s.n_m + (s.slot_m * s.ve_mps) / gs };
+    };
+    let coincide = 0, faded = 0, minSep = Infinity, tieBad = '';
+    for (const pbT of [pb4, pb2]) {
+      const tiedT = retime(pbT, Object.fromEntries(pbT.jets.map((j) => [j.id, 0])));
+      const st = pbT.jets.map(() => newJetState());
+      for (let tt = tiedT.window.t0_s; tt <= tiedT.window.t1_s; tt += 0.05) {
+        pbT.jets.forEach((_, k) => sampleJet(pbT, tiedT, k, tt, 'display', st[k]));
+        const base = st.map(unslotted);
+        pbT.jets.forEach((_, a) => {
+          if (!st[a].visible) return;
+          let alone = true;
+          pbT.jets.forEach((__, b) => {
+            if (b === a || !st[b].visible) return;
+            const d0 = Math.hypot(base[a].e - base[b].e, base[a].n - base[b].n);
+            // The slot reads the unsmoothed tracks; 500 m covers both jets' smoothing (≤ v·h/2 each).
+            if (d0 < 2 * slotS + 500) alone = false;
+            if (b < a || d0 >= 30) return;
+            coincide++;
+            const sep = Math.hypot(st[a].e_m - st[b].e_m, st[a].n_m - st[b].n_m);
+            minSep = Math.min(minSep, sep);
+            if (sep < 0.9 * slotS) tieBad ||= `${pbT.jets.length}-ship ${pbT.jets[a].label}/${pbT.jets[b].label} at t=${tt.toFixed(2)}: ${sep.toFixed(1)} m apart while their tracks are ${d0.toFixed(1)} m apart`;
+          });
+          if (alone) {
+            faded++;
+            if (st[a].slot_m !== 0) tieBad ||= `${pbT.jets.length}-ship ${pbT.jets[a].label} alone at t=${tt.toFixed(2)} still flies a ${st[a].slot_m.toFixed(1)} m slot`;
+          }
+        });
+      }
+    }
+    ok('playback [11]: formation: tied jets never coincide while their plan lines do (at least 0.9 slot apart), and the slot is gone once a jet is two slots from every other',
+       tieBad === '' && coincide > 1000 && faded > 1000, tieBad || `${coincide} coincident pair samples, closest ${minSep.toFixed(1)} m (slot ${slotS.toFixed(0)} m); ${faded} samples alone with no slot`);
+
+    // Review fixes, 2026-11-14. Fixtures: the 4-ship tied, the 4-ship at 0/30/1/31 s (#1 and #3 share a
+    // flank and their lines, 1 s apart, so #3 keeps a whole slot through its release) and the tied 2-ship.
+    const retimedSets: [string, StrikePlayback, ReturnType<typeof retime>][] = [
+      ['4-ship tied', pb4, retime(pb4, Object.fromEntries(ids4.map((id) => [id, 0])))],
+      ['4-ship 0/30/1/31', pb4, retime(pb4, Object.fromEntries(ids4.map((id, k) => [id, [0, 30, 1, 31][k]])))],
+      ['2-ship tied', pb2, retime(pb2, Object.fromEntries(pb2.jets.map((j) => [j.id, 0])))],
+    ];
+    // [11] A slot never pulls a jet toward the jet it flies that slot for: the slot is sideways to a
+    // jet's own heading, and on egress turns toward each other it pointed at the other jet (tied
+    // 4-ship: #1 and #4 168 m apart, 1,496 m unslotted). In a 2-ship the other jet is the only cause,
+    // so the displayed pair is never closer than its unslotted tracks (unless 0.9 slot apart anyway).
+    // In a 4-ship a slot owed to a twin on the same line can still slide a jet toward a third jet (two
+    // jets on one line must split, and the tied test above wins), so there the floor is a quarter of
+    // the unslotted distance or 0.9 slot. Measured 2026-11-14: the 2-ships never under their
+    // unslotted distance; the tied 4-ship's worst is #1/#4 434 m apart at 1,422 m unslotted (31%;
+    // #4's slot owed to its twin #2), where it was 168 m at 1,496 m (11%) before. Every visible pair,
+    // every 0.05 s. ("Unslotted" undoes the slot along the heading, as the tied test above does.)
+    // Mutation proof: formation.ts `const wa = dist > 0 && (ue !== 0 || un !== 0) ? directionWeight(…) : 1` → `const wa = 1; void dx; void dy;` (no direction weight):
+    //   FAIL playback [11]: formation: a slot never pulls a jet toward … FIRST 4-ship tied #1/#4 at t=0.85: 340.0 m apart, 1422.5 m unslotted; … 4-ship tied: 49.7% of its floor (#1/#4 186 m vs 1493 m unslotted at t=1.15); …
+    //   (the 2-ships stay green under it: a mirrored pair's slots point outward on both legs; the pull came from the 4-ship's half shares)
+    // Stage-4: formation.ts `directionWeight(-(ue * dx + un * dy) / dist, …)` → `directionWeight((ue * dx + un * dy) / dist, …)` (toward and away swapped):
+    //   FAIL playback [11]: formation: a slot never pulls … FIRST 4-ship tied #1/#4 at t=0.85: 340.0 m apart, 1422.5 m unslotted; …
+    // Plus the 4-ship's #1 and #4 (opposite flanks) flown alone as a tied 2-ship: the pair whose egress turns converge.
+    const pb14 = buildStrikePlayback({ name: '#1 and #4', jets: [0, 3].map((k, q) => jetInput(pop4, strikeMembers(pop4, 'pop4')[k], refWeapon('mk82'), `#${q + 1}`, 0)) });
+    let pullBad = '', pullPairs = 0;
+    const pullWorst: string[] = [];
+    for (const [name, pbT, tT] of [...retimedSets, ['2-ship of the 4-ship\'s #1 and #4, tied', pb14, retime(pb14)] as [string, StrikePlayback, ReturnType<typeof retime>]]) {
+      const strict = pbT.jets.length === 2;
+      const st = pbT.jets.map(() => newJetState());
+      let worst = Infinity, worstAt = '';
+      for (let tt = tT.window.t0_s; tt <= tT.window.t1_s; tt += 0.05) {
+        pbT.jets.forEach((_, k) => sampleJet(pbT, tT, k, tt, 'display', st[k]));
+        const bs = st.map(unslotted);
+        for (let a = 0; a < st.length; a++) for (let b = a + 1; b < st.length; b++) {
+          if (!st[a].visible || !st[b].visible) continue;
+          const sep = Math.hypot(st[a].e_m - st[b].e_m, st[a].n_m - st[b].n_m), sep0 = Math.hypot(bs[a].e - bs[b].e, bs[a].n - bs[b].n);
+          pullPairs++;
+          // How far below its floor (unslotted, or half of it in a 4-ship; never above 0.9 slot) the pair is drawn.
+          const floor = Math.min(strict ? sep0 : 0.25 * sep0, 0.9 * slotS);
+          if (sep < floor && sep / floor < worst) { worst = sep / floor; worstAt = `${pbT.jets[a].label}/${pbT.jets[b].label} ${sep.toFixed(0)} m vs ${sep0.toFixed(0)} m unslotted at t=${tt.toFixed(2)}`; }
+          if (sep < floor - 5) pullBad ||= `${name} ${pbT.jets[a].label}/${pbT.jets[b].label} at t=${tt.toFixed(2)}: ${sep.toFixed(1)} m apart, ${sep0.toFixed(1)} m unslotted`;
+        }
+      }
+      pullWorst.push(`${name}: ${worst === Infinity ? 'never under its floor' : `${(100 * worst).toFixed(1)}% of its floor (${worstAt})`}`);
+    }
+    ok('playback [11]: formation: a slot never pulls a jet toward the jet it flies it for (2-ships: never closer than unslotted; 4-ships: never under a quarter), egress turns included',
+       pullBad === '' && pullPairs > 10000, `${pullBad ? `FIRST ${pullBad}; ` : ''}${pullPairs} pair samples; ${pullWorst.join('; ')}`);
+
+    // [11] A jet flying a slot at its release: its displayed bomb leaves from the displayed jet (the
+    // bomb used to leave from the plan line, a whole slot away) and still lands exactly on the target;
+    // the slotted jet is smooth through the release (it used to jump 80 m sideways in one frame, the
+    // slot swinging with the release's heading step). Sampled every 0.01 s from 3 s before the release
+    // to 6 s after. "Smooth" is the second difference p(t+dt) − 2p(t) + p(t−dt) ≤ 0.25 m: a jump of
+    // J metres shows as J, a velocity step of V m/s as V·dt (25 m/s here). A speed ratio cannot be
+    // the test for a slotted jet: in a turn the outside jet flies faster by slot × turn rate (1.5×
+    // and more for a 926 m slot at 8°/s), which is formation flying, not a jump.
+    // Measured 2026-11-14: 4 slotted releases, worst second difference 0.075 m per 0.01 s.
+    // Mutation proofs: sample.ts sampleBomb `if (layer === 'display' && …` → `if (false && …` (the display bomb on the plan line):
+    //   FAIL playback [11]: formation: a slotted jet's displayed bomb leaves from it … 4-ship tied #3: jet to bomb 926.0 m at the release; …
+    // display.ts displayAt `if (W > 0 && iRel != null && …` → `if (false && …` (no Hermite: the release corner kept):
+    //   FAIL playback [11]: formation: … 4-ship tied #3: heading jumps 4.99° in 0.01 s at tau 112.69; 4 slotted releases; worst second difference 1.456 m per 0.01 s (and [10])
+    // display.ts slotDirection `if (H > 0) {` → `if (false && H > 0) {` (the slot square to the displayed velocity, whose turn rate steps):
+    //   FAIL playback [11]: formation: … 4-ship tied #3: jumps (second difference 1.69 m over 0.01 s) at tau 112.691; …
+    // Stage-4: sample.ts sampleBomb `slotDirection(track, track.releaseTau_s)` → `slotDirection(track, track.releaseTau_s + 1)`:
+    //   FAIL playback [11]: formation: a slotted jet's displayed bomb leaves from it … 4-ship tied #3: jet to bomb 86.6 m at the release; …
+    let relBad = '', slottedReleases = 0, worstJerk = 0;
+    const rj = newJetState(), rj0 = newJetState(), rjm = newJetState(), rb = newBombState(), rb0 = newBombState();
+    for (const [name, pbT, tT] of retimedSets) {
+      pbT.jets.forEach((j, k) => {
+        const tj = tT.jets[k];
+        const fail = (why: string) => { relBad ||= `${name} ${j.label}: ${why}`; };
+        sampleJet(pbT, tT, k, tj.release_s, 'display', rj);
+        sampleBomb(pbT, tT, k, tj.release_s, 'display', rb);
+        if (Math.abs(rj.slot_m) < 1) return;
+        slottedReleases++;
+        const gap = Math.hypot(rj.e_m - rb.e_m, rj.n_m - rb.n_m, rj.up_m - rb.up_m);
+        if (gap > 0.01) fail(`jet to bomb ${gap.toFixed(1)} m at the release`);
+        sampleBomb(pbT, tT, k, tj.impact_s, 'display', rb);
+        if (calculateDistance(rb, j.target.coordinates) > 1e-6 || Math.abs(rb.agl_ft) > 1e-6) fail(`bomb lands ${(calculateDistance(rb, j.target.coordinates) * 1852).toFixed(1)} m off the target`);
+        sampleJet(pbT, tT, k, tj.release_s - 3.01, 'display', rjm);
+        sampleJet(pbT, tT, k, tj.release_s - 3, 'display', rj0);
+        sampleBomb(pbT, tT, k, tj.release_s, 'display', rb0);
+        for (let q = 1; q <= 900; q++) {
+          const tt = tj.release_s - 3 + q * 0.01;
+          sampleJet(pbT, tT, k, tt, 'display', rj);
+          const jerk = Math.hypot(rj.e_m - 2 * rj0.e_m + rjm.e_m, rj.n_m - 2 * rj0.n_m + rjm.n_m, rj.up_m - 2 * rj0.up_m + rjm.up_m);
+          const turn = Math.abs(signedHeadingDelta(rj0.heading_deg, rj.heading_deg));
+          worstJerk = Math.max(worstJerk, jerk);
+          if (jerk > 0.25) fail(`jumps (second difference ${jerk.toFixed(2)} m over 0.01 s) at tau ${rj0.tau_s.toFixed(3)}`);
+          if (turn > 2) fail(`heading jumps ${turn.toFixed(2)}° in 0.01 s at tau ${rj.tau_s.toFixed(2)}`);
+          Object.assign(rjm, rj0);
+          Object.assign(rj0, rj);
+          if (tt > tj.release_s && tt <= tj.impact_s) {
+            sampleBomb(pbT, tT, k, tt, 'display', rb);
+            const bStep = Math.hypot(rb.e_m - rb0.e_m, rb.n_m - rb0.n_m, rb.up_m - rb0.up_m) / 0.01 / Math.hypot(rb.ve_mps, rb.vn_mps, rb.vu_mps);
+            if (bStep > 1.5) fail(`bomb jumps ${bStep.toFixed(2)}× its speed at ${(tt - tj.release_s).toFixed(2)} s after release`);
+            Object.assign(rb0, rb);
+          }
+        }
+      });
+    }
+    ok('playback [11]: formation: a slotted jet\'s displayed bomb leaves from it and lands on the target, and the slotted jet is continuous through its release',
+       relBad === '' && slottedReleases >= 3, `${relBad ? `${relBad}; ` : ''}${slottedReleases} slotted releases; worst second difference ${worstJerk.toFixed(3)} m per 0.01 s`);
+
+    // The display layer's lat/lon agree with its local metres (both come from one position through
+    // the frame): on the lead-in out to its 20 nm cap, in the windows and with a slot. And the
+    // allocation-free inverse is the frame's own fromLocal, exactly.
+    // (Before the fix the lead-in extrapolated lat/lon linearly per second and the slot used 60 nm a
+    // degree: 90 m off at the 20 nm cap.) Measured 2026-11-14: worst 0.0006 m.
+    // Mutation proofs: sample.ts displayInto `fromLocalInto(pb.frame, disp.e, disp.n, out)` → a flat 60 nm-a-degree offset from the IP's lat/lon:
+    //   FAIL playback [9]: the display layer's lat/lon are its e/n through the frame … 8410 samples, worst 188.5385 m; fromLocalInto exact: true (and [10] at the release)
+    // frame.ts fromLocalInto `const R = 3440.065` → `const R = 3440`:
+    //   FAIL playback [9]: … 8410 samples, worst 1.2358 m; fromLocalInto exact: false (and [10] at the release)
+    // Stage-4: frame.ts fromLocalInto's longitude `… * Math.cos(lat1Rad), Math.cos(angularDistance) …` → `… * Math.cos(lat2Rad), …`:
+    //   FAIL playback [9]: the display layer's lat/lon are its e/n through the frame … 8410 samples, worst 186.1909 m; fromLocalInto exact: false (and [10] at the release)
+    let llWorst = 0, llPts = 0;
+    for (const [, pbT, tT] of retimedSets) {
+      pbT.jets.forEach((j, k) => {
+        for (let tt = tT.jets[k].push_s - j.display.leadIn.capTau_s + 0.01; tt <= tT.jets[k].hide_s; tt += 0.37) {
+          sampleJet(pbT, tT, k, tt, 'display', rj);
+          if (!rj.visible) continue;
+          const l = toLocal(pbT.frame, rj);
+          llPts++;
+          llWorst = Math.max(llWorst, Math.hypot(l.e_m - rj.e_m, l.n_m - rj.n_m));
+        }
+      });
+    }
+    const fliOut = { lat: 0, lon: 0 };
+    const fliExact = [[0, 0], [12345.6, -7890.1], [-40000, 3000], [1e-3, 0], [-74080, -74080]].every(([e, n]) => {
+      fromLocalInto(frame, e, n, fliOut);
+      const want = fromLocal(frame, e, n);
+      return fliOut.lat === want.lat && fliOut.lon === want.lon;
+    });
+    ok('playback [9]: the display layer\'s lat/lon are its e/n through the frame (lead-in to its cap, windows, slots; 1 cm); fromLocalInto is fromLocal exactly',
+       llWorst < 0.01 && llPts > 1000 && fliExact, `${llPts} samples, worst ${llWorst.toFixed(4)} m; fromLocalInto exact: ${fliExact}`);
+
+    // [7] dangerZones: the delays of each jet that would trip the readout's frag rule, checked
+    // against a brute-force sweep of fragConflicts (strikeReadout's own rule) over that jet's delay,
+    // every other jet held still: on a 0.25 s grid, at every exact boundary (Tᵢ, Tᵢ ± Fᵢ, Tᵢ ± Fⱼ)
+    // and 1e-9 s either side of each. Fixtures: the 25 s 4-ship (Mk-82s), the tie with mixed weapons
+    // in both orders, and a three-ship mixing Mk-82, Mk-84 and a weapon with no frag data (AGM-65D)
+    // in two orders, so a tie's own end is closed or open by who is listed first.
+    // Mutation proofs: frag.ts dangerZones `const tieWarns = (i < jet ? Fi : Fj) > 0` → `(i < jet ? Fj : Fi) > 0`:
+    //   FAIL playback [7]: dangerZones are exactly … mk82, agm65d, mk84 #2 at 0: the readout warns, the zones say false  [{"against":0,…,"from_s":0,"to_s":30,"includesFrom":false,…
+    // frag.ts inDangerZone `x > z.from_s` → `x >= z.from_s` (a frag-time end counted as warning):
+    //   FAIL playback [7]: dangerZones are exactly … 4-ship at 25 s #1 at -5: the readout is clear, the zones say true  [{"against":1,…,"from_s":-5,"to_s":55,…
+    // Two more fixtures since the review (2026-11-14): fractional TOTs (12.3, 0.7, 41.9), where T + F
+    // and the readout's x − T < F differ by an ulp at a frag-time end (12.3 + 30 − 12.3 =
+    // 29.999999999999996), and a 3-ship whose #2 cannot be flown (a pop-up with no IP) but still
+    // counts, held at its delay, in the others' zones. The oracle is the test's own member list
+    // (id, weapon, TOT in the editor's order), never the playback's.
+    // Mutation proofs: frag.ts inDangerZone back to the drawing ends `(x > z.from_s || (z.includesFrom && x === z.from_s)) && (x < z.to_s || (z.includesTo && x === z.to_s))`:
+    //   FAIL playback [7]: dangerZones are exactly … fractional TOTs #3 at 42.3: the readout warns, the zones say false  [{"against":0,"againstMember":0,…
+    // frag.ts dangerZones `if (i === mj) return;` → `if (i === mj || other.jet === undefined) return;` (skipped members dropped):
+    //   FAIL playback [7]: dangerZones are exactly … skipped #2 (no IP) #1 at -19.25: the readout warns, the zones say false  [{"against":1,"againstMember":…
+    // Stage-4: "reverse the tie rule": frag.ts `const tieWarns = (i < mj ? Fi : Fj) > 0` → `(i > mj ? Fi : Fj) > 0`:
+    //   FAIL playback [7]: dangerZones are exactly … mk82, agm65d, mk84 #2 at 0: the readout warns, the zones say false  [{"against":0,…
+    // strike.ts fragConflicts `secondIndex: iFirst ? j : i` → `secondIndex: j` (the oracle's own rule broken) fails it too:
+    //   FAIL playback [7]: dangerZones are exactly … 4-ship at 25 s #1 at 75.25: the readout is clear, the zones say true  [{"against":1,…
+    type DzMember = { id: string; weapon: DbWeapon | undefined; tot: number };
+    const [dzA, dzB] = strikeMembers(pop2, 'pop2');
+    const trio3 = (order: [Attack, string, number][], noIp: number[] = []): [StrikePlayback, DzMember[]] => [
+      buildStrikePlayback({ name: 'dz', jets: order.map(([a, w, d], k) => ({ ...jetInput(pop2, a, refWeapon(w), `#${k + 1}`, d, !noIp.includes(k)), id: `${a.id}-${w}` })) }),
+      order.map(([a, w, d]) => ({ id: `${a.id}-${w}`, weapon: refWeapon(w), tot: d })),
+    ];
+    const dzCases: [string, StrikePlayback, DzMember[]][] = [
+      ['4-ship at 25 s', pb4, pb4.jets.map((j) => ({ id: j.id, weapon: refRows.find((w) => w.id === strikeMembers(pop4, 'pop4').find((a) => a.id === j.id)!.weaponId), tot: pb4.planDelays_s[j.id] }))],
+      ...[[[dzA, 'mk82', 0], [dzB, 'mk84', 0]], [[dzB, 'mk84', 0], [dzA, 'mk82', 0]]].map((o, n) => [`tie ${n ? 'mk84 first' : 'mk82 first'}`, ...trio3(o as never)] as [string, StrikePlayback, DzMember[]]),
+      ['mk82, agm65d, mk84', ...trio3([[dzA, 'mk82', 0], [dzB, 'agm65d', 10], [dzA, 'mk84', 20]])],
+      ['agm65d, mk82, mk84 (tied first two)', ...trio3([[dzB, 'agm65d', 0], [dzA, 'mk82', 0], [dzA, 'mk84', 40]])],
+      ['fractional TOTs', ...trio3([[dzA, 'mk82', 12.3], [dzB, 'mk84', 0.7], [dzB, 'mk82', 41.9]])],
+      ['skipped #2 (no IP)', ...trio3([[dzA, 'mk82', 0], [dzB, 'mk84', 10.6], [dzA, 'agm65d', 25]], [1])],
+    ];
+    let dzBad = '', dzChecks = 0, dzWarn = 0, dzSkipZones = 0, dzDrawn = 0, dzDrawnBad = '';
+    for (const [name, pb, members] of dzCases) {
+      const t = retime(pb);
+      const tots = members.map((m) => m.tot);
+      const F = members.map((m) => fragClearTime_s(m.weapon));
+      const oracle = (ts: number[]): StrikeJet[] => members.map((m, k) => ({ label: `#${k + 1}`, picture: undefined, speed_ktas: undefined, totOffset_s: ts[k], weapon: m.weapon }));
+      if (members.length !== pb.members.length) dzBad ||= `${name}: ${pb.members.length} members vs ${members.length}`;
+      pb.jets.forEach((jt, j) => {
+        const zones = dangerZones(pb, t, j);
+        const mj = members.findIndex((m) => m.id === jt.id);
+        dzSkipZones += zones.filter((z) => z.against === undefined).length;
+        const xs: number[] = [];
+        for (let x = Math.min(...tots) - 60; x <= Math.max(...tots) + 60; x += 0.25) xs.push(x);
+        members.forEach((_, i) => {
+          if (i === mj) return;
+          for (const x of [tots[i], tots[i] + F[i], tots[i] - F[i], tots[i] + F[mj], tots[i] - F[mj]]) xs.push(x, x - 1e-9, x + 1e-9);
+        });
+        for (const x of xs) {
+          const moved = tots.map((v, k) => (k === mj ? x : v));
+          const want = fragConflicts(oracle(moved)).some((c) => c.firstIndex === mj || c.secondIndex === mj);
+          dzChecks++;
+          if (want) dzWarn++;
+          if (want !== inDangerZone(zones, x)) dzBad ||= `${name} ${jt.label} at ${x}: the readout ${want ? 'warns' : 'is clear'}, the zones say ${!want}  ${JSON.stringify(zones)}`;
+          // The drawn interval (from_s, to_s, includesFrom / includesTo: what a slider shades) says the
+          // same, except within 1e-6 s of a frag-time end, where T ± F and the readout's x − T < F may
+          // differ by an ulp (inDangerZone settles those). Tie ends (T itself) are exact and included.
+          const nearFragEnd = zones.some((z) => (z.fragThis_s > 0 && Math.abs(x - z.from_s) < 1e-6) || (z.fragOther_s > 0 && Math.abs(x - z.to_s) < 1e-6));
+          if (nearFragEnd) continue;
+          dzDrawn++;
+          const drawn = zones.some((z) => (x > z.from_s && x < z.to_s) || (x === z.from_s && z.includesFrom) || (x === z.to_s && z.includesTo));
+          if (want !== drawn) dzDrawnBad ||= `${name} ${jt.label} at ${x}: the readout ${want ? 'warns' : 'is clear'}, the drawn interval says ${drawn}  ${JSON.stringify(zones)}`;
+        }
+      });
+    }
+    ok('playback [7]: dangerZones are exactly the delays at which fragConflicts (the readout\'s rule) flags the jet, boundaries, ties, fractional TOTs and skipped members included (brute-force sweep)',
+       dzBad === '' && dzChecks > 7000 && dzWarn > 500 && dzSkipZones === 2, dzBad || `${dzChecks} delays checked, ${dzWarn} of them warning; ${dzSkipZones} zones against a skipped member`);
+    // inDangerZone reads only T_s and the frag times, so the check above never looked at the interval a
+    // slider shades. Stage-4 proof: frag.ts dangerZones `const from_s = Fj > 0 ? Ti - Fj : Ti` → `Ti - 2 * Fj` left every
+    // check GREEN before this one; now:
+    //     FAIL playback [7]: dangerZones' drawn intervals (from_s, to_s, includesFrom/To) shade exactly the delays the readout warns at, …  4-ship at 25 s #1 at -34.75: the readout is clear, the drawn interval says true  [{"against":1,…
+    // and frag.ts `includesFrom: !(Fj > 0) && tieWarns` → `… && tieWarns && Fj < 0` (a tie end never shaded):
+    //     FAIL playback [7]: dangerZones' drawn intervals … mk82, agm65d, mk84 #2 at 0: the readout warns, the drawn interval says false  [{"against":0,…
+    ok('playback [7]: dangerZones\' drawn intervals (from_s, to_s, includesFrom/To) shade exactly the delays the readout warns at, tie ends included (frag-time ends ±1e-6 s left to inDangerZone)',
+       dzDrawnBad === '' && dzDrawn > 7000, dzDrawnBad || `${dzDrawn} delays checked against the drawn intervals`);
+
+    // [12] Threat domes: half-ellipsoids in the local frame (max range across, max altitude up from
+    // the base), the inside test agreeing with domeHeightAt_m (the mesh's height) just below and
+    // just above the surface everywhere and with the ellipsoid formula inside; author-hidden
+    // threats (either flag) never returned unless that flag is revealed; the base the caller's.
+    // Mutation proofs: threats.ts `if (!isThreatVisible(t, reveal)) continue;` → `if (false && …)` (no filter):
+    //   FAIL playback [12]: domes: … hidden false (open,dead,hp,hm,hb | open,dead,hp,hm,hb), base true, 120 points
+    // threats.ts domeHeightAt_m `height_m * Math.sqrt(1 - x * x)` → `height_m * (1 - x)` (a cone):
+    //   FAIL playback [12]: domes: … open: height at 0.25 R 3657.6 m vs the ellipsoid's 4721.9 m
+    // threats.ts insideDome drop `&& z <= domeHeightAt_m(dome, r)` (a cylinder):
+    //   FAIL playback [12]: domes: … open: inside test disagrees with the mesh height at 0 R, bearing 0
+    // Stage-4: "remove the hidden-threat filter" (as a reveal of both flags): `isThreatVisible(t, reveal)` → `isThreatVisible(t, { onPlanner: true, onMap: reveal.onMap || true })`:
+    //   FAIL playback [12]: domes: … hidden false (open,dead,hp,hm,hb | open,dead,hp,hm,hb), base true, 120 points
+    // threats.ts insideDome `z >= 0` → `z >= -1`:
+    //   FAIL playback [12]: domes: … open: inside test disagrees with the mesh height at 0 R, bearing 0
+    const domeSystems = [{ id: 'sa8', max_range_nm: 5.5, max_altitude_ft: 16000 }, { id: 'sa2', max_range_nm: 25, max_altitude_ft: 80000 }, { id: 'nodata', max_range_nm: 0, max_altitude_ft: 0 }];
+    const thr = (id: string, systemId: string, brg: number, nm: number, flags: object = {}, status = 'active') =>
+      ({ id, systemId, position: calculateDestination(tgt, brg, nm), status, source: 'planning', ...flags }) as never as ThreatInstance;
+    const threats = [
+      thr('open', 'sa8', 30, 3), thr('dead', 'sa2', 200, 12, {}, 'destroyed'),
+      thr('hp', 'sa8', 90, 4, { hiddenOnPlanner: true }), thr('hm', 'sa8', 120, 4, { hiddenOnMap: true }), thr('hb', 'sa2', 150, 6, { hiddenOnPlanner: true, hiddenOnMap: true }),
+      thr('nosys', 'zzz', 10, 2), thr('nodata', 'nodata', 10, 2),
+    ];
+    const ids = (r: { onPlanner: boolean; onMap: boolean }) => threatDomes(threats, domeSystems, r, frame).map((d) => d.threatId).join();
+    const hiddenOk = ids({ onPlanner: false, onMap: false }) === 'open,dead' && ids({ onPlanner: true, onMap: false }) === 'open,dead,hp' &&
+      ids({ onPlanner: false, onMap: true }) === 'open,dead,hm' && ids({ onPlanner: true, onMap: true }) === 'open,dead,hp,hm,hb';
+    const allDomes = threatDomes(threats, domeSystems, { onPlanner: true, onMap: true }, frame, (x) => (x.id === 'hb' ? 6000 : undefined));
+    let domeBad = '', domePts = 0;
+    for (const d of allDomes) {
+      const R = d.radius_m, Hm = d.height_m;
+      if (Math.abs(Math.hypot(d.e_m, d.n_m) / 1852 - calculateDistance(tgt, d.centre)) > 1e-9 || R !== d.radius_nm * 1852 || Math.abs(Hm - d.height_ft * 0.3048) > 1e-9)
+        domeBad ||= `${d.threatId}: centre or axes off`;
+      for (const f of [0, 0.25, 0.5, 0.8, 0.95, 0.999]) {
+        const want = Hm * Math.sqrt(1 - f * f);
+        if (Math.abs(domeHeightAt_m(d, f * R) - want) > 1e-6) domeBad ||= `${d.threatId}: height at ${f} R ${domeHeightAt_m(d, f * R).toFixed(1)} m vs the ellipsoid's ${want.toFixed(1)} m`;
+        for (const brg of [0, 77, 190, 300]) {
+          const e = d.e_m + f * R * Math.sin((brg * Math.PI) / 180), n = d.n_m + f * R * Math.cos((brg * Math.PI) / 180);
+          const h = domeHeightAt_m(d, Math.hypot(e - d.e_m, n - d.n_m));
+          domePts++;
+          if (!insideDome(d, e, n, d.base_up_m + h - 0.01) || insideDome(d, e, n, d.base_up_m + h + 0.01) || insideDome(d, e, n, d.base_up_m - 0.01))
+            domeBad ||= `${d.threatId}: inside test disagrees with the mesh height at ${f} R, bearing ${brg}`;
+          for (const zf of [0.1, 0.5, 0.9]) {
+            const z = zf * Hm;
+            if (insideDome(d, e, n, d.base_up_m + z) !== f * f + zf * zf <= 1) domeBad ||= `${d.threatId}: inside test disagrees with the ellipsoid at ${f} R, ${zf} H`;
+          }
+        }
+      }
+      if (insideDome(d, d.e_m + R * 1.001, d.n_m, d.base_up_m + 1)) domeBad ||= `${d.threatId}: inside beyond the rim`;
+    }
+    const hb = allDomes.find((d) => d.threatId === 'hb'), open = allDomes.find((d) => d.threatId === 'open');
+    const baseOk = !!hb && hb.base_ft === 6000 && Math.abs(hb.base_up_m - 2000 * 0.3048) < 1e-9 && !!open && open.base_ft === 4000 && open.base_up_m === 0 &&
+      allDomes.find((d) => d.threatId === 'dead')?.status === 'destroyed' && open.source === 'planning';
+    ok('playback [12]: domes: insideDome agrees with domeHeightAt_m (the mesh) and the half-ellipsoid; hidden threats (either flag) only when revealed; the caller\'s base; status carried',
+       domeBad === '' && hiddenOk && baseOk && domePts > 100,
+       domeBad || `hidden ${hiddenOk} (${ids({ onPlanner: false, onMap: false })} | ${ids({ onPlanner: true, onMap: true })}), base ${baseOk}, ${domePts} points`);
+
+    // playbackBounds (spec D12): the box takes no timing, so dragging delays never moves it; and at
+    // the plan delays it holds every visible sampled position of both layers and every bomb, every
+    // 0.1 s across the plan window, for every case.
+    // Mutation proofs: bounds.ts the lead-in's `add(…)` → `void back_s;`:
+    //   FAIL playback bounds: … pop-up @15.3 nm #1 display at t=-151.1 (leadIn) outside the box
+    // (Review fix, 2026-11-14: the box now takes each whole capped lead-in, so a dragged delay's
+    // longer lead-in stays inside; the dragged sweep was added with it.) bounds.ts the lead-in's
+    // `L.capTau_s` → `Math.min(L.capTau_s, 120)` (only 120 s of lead-in):
+    //   FAIL playback bounds: … pop-up 2-ship #2 display at t=-180.9 (leadIn), delays dragged -60,60, outside the box
+    // and the shipped box before the fix (lead-ins only as far back as the plan window) fails the same sweep:
+    //   FAIL playback bounds: … pop-up 2-ship #2 display at t=-171.1 (leadIn), delays dragged -20,40, outside the box
+    // timing.ts `delays[id] : …` → `(pb.planDelays_s[id] = delays[id]) : …` (a re-time writes the plan delays):
+    //   FAIL playback bounds: … 30° dive @15.3 nm: the box changed after the delays were dragged (and [8], window)
+    let boxBad = '', boxPts = 0, draggedPts = 0;
+    const sj = newJetState(), sb = newBombState();
+    for (const c of cases) {
+      const box0 = JSON.stringify(playbackBounds(c.pb));
+      const box = playbackBounds(c.pb);
+      const t = retime(c.pb);
+      const inBox = (e: number, n: number, up: number) => e >= box.min_e_m && e <= box.max_e_m && n >= box.min_n_m && n <= box.max_n_m && up >= box.min_up_m && up <= box.max_up_m;
+      c.pb.jets.forEach((_, k) => {
+        for (let tt = t.planWindow.t0_s; tt <= t.planWindow.t1_s; tt += 0.1) {
+          for (const layer of ['plan', 'display'] as const) {
+            sampleJet(c.pb, t, k, tt, layer, sj);
+            if (!sj.visible) continue;
+            boxPts++;
+            if (!inBox(sj.e_m, sj.n_m, sj.up_m)) boxBad ||= `${c.name} #${k + 1} ${layer} at t=${tt.toFixed(1)} (${sj.phase}) outside the box`;
+          }
+          sampleBomb(c.pb, t, k, tt, 'plan', sb);
+          if (sb.visible && !inBox(sb.e_m, sb.n_m, sb.up_m)) boxBad ||= `${c.name} #${k + 1} bomb at t=${tt.toFixed(1)} outside the box`;
+        }
+      });
+      // Dragged delays (each jet −60, +40 or +60 s off its plan delay): the box stays put and still holds
+      // everything visible, the dragged jets' longer lead-ins included.
+      // Stage-4 strengthening: plus every jet dragged to one TOT, so formation slots fly (none of the
+      // drags above ties two jets), and the display layer's bomb. Proof: bounds.ts the slot margin
+      // `formationSpacing_nm * NM_TO_M * (pb.jets.length - 1)` → `… * 0 * …` left the check GREEN before; now:
+      //     FAIL playback bounds: … pop-up 4-ship at 25 s #4 display at t=-21.9 (climb), delays dragged all tied, outside the box
+      // (The proofs recorded above name code that has since changed: there is no `back_s` in bounds.ts and no
+      // `delays[id] : …` in timing.ts any more, and a re-time can no longer move the box, which takes no
+      // timing. Re-proved 2026-11-14: bounds.ts the lead-in's `L.ve_mps * L.capTau_s` and `L.vn_mps * L.capTau_s` → `… * 0 * …`:
+      //     FAIL playback bounds: … pop-up @15.3 nm #1 display at t=-151.2 (leadIn) outside the box)
+      const dragSets: [string, ReturnType<typeof retime>][] = [[-20, 40], [-60, 60], [60, -60]].map((drag) =>
+        [`${drag}`, retime(c.pb, Object.fromEntries(c.pb.jets.map((j, k) => [j.id, c.pb.planDelays_s[j.id] + drag[k % 2]])))]);
+      dragSets.push(['all tied', retime(c.pb, Object.fromEntries(c.pb.jets.map((j) => [j.id, 0])))]);
+      for (const [drag, dragged] of dragSets) {
+        c.pb.jets.forEach((_, k) => {
+          for (let tt = dragged.window.t0_s; tt <= dragged.window.t1_s; tt += 0.25) {
+            sampleBomb(c.pb, dragged, k, tt, 'display', sb);
+            if (sb.visible && !inBox(sb.e_m, sb.n_m, sb.up_m)) boxBad ||= `${c.name} #${k + 1} display bomb at t=${tt.toFixed(1)}, delays dragged ${drag}, outside the box`;
+            sampleJet(c.pb, dragged, k, tt, 'display', sj);
+            if (!sj.visible) continue;
+            draggedPts++;
+            if (!inBox(sj.e_m, sj.n_m, sj.up_m)) boxBad ||= `${c.name} #${k + 1} display at t=${tt.toFixed(1)} (${sj.phase}), delays dragged ${drag}, outside the box`;
+          }
+        });
+      }
+      if (JSON.stringify(playbackBounds(c.pb)) !== box0) boxBad ||= `${c.name}: the box changed after the delays were dragged`;
+    }
+    ok('playback bounds: the box does not change when delays change, and holds every visible jet (both layers) and bomb at the plan delays and at dragged ones',
+       boxBad === '' && boxPts > 50000 && draggedPts > 50000, boxBad || `${boxPts} positions inside at the plan delays, ${draggedPts} at dragged ones`);
+
+    // Extras (spec D10, D12). sideCoords of the plan state at each side-view anchor is the side
+    // view's own point (range 0.1 nm, AGL 0.5 ft), the mixed strike's #2 measured to ITS target.
+    // The frag cloud: on the target from the TOT, its top peaking at H √(2H/g) after impact,
+    // fully opaque until the last fragment lands (raw_s), gone when the readout's window closes.
+    // Mutation proofs: sample.ts sideCoords `pb.jets[jet].target.coordinates` → `pb.frame.origin` (the lead's target):
+    //   FAIL playback extras: sideCoords … mixed: level lead, pop-up #2 on a 5,200 ft target #2 AP: sideCoords 4.622 nm 500 ft vs the side view's 4.5 nm 500 ft
+    // frag.ts fragCloudAt `age < frag.clear_s` → `age < frag.raw_s`:
+    //   FAIL playback extras: … cloud top 3000.0 ft at 13.66 s (H 3000), opacity 1/0.00, visible false/true/false
+    // Stage-4: sample.ts sideCoords `out.agl_ft = state.agl_ft` → `state.agl_ft + 1`:
+    //   FAIL playback extras: … pop-up 2-ship #1 AP: sideCoords 4.500 nm 501 ft vs the side view's 4.5 nm 500 ft
+    // frag.ts fragCloudAt `Math.sqrt(2 * G_FT_S2 * frag.H_ft)` → `Math.sqrt(2 * 32.2 * frag.H_ft)`:
+    //   FAIL playback extras: … 47 side points; cloud top 3002.4 ft at 13.66 s (H 3000), opacity 1/0.50, visible false/true/false
+    let extrasBad = '', sidePts = 0;
+    for (const c of strikeCases.filter((x) => x.pb)) {
+      const t = retime(c.pb!);
+      c.pb!.jets.forEach((j, k) => {
+        const side = buildSideProfile(c.m!.attacks.find((a) => a.id === j.id)!, j.target.elevation_ft)!;
+        for (const pt of side.points) {
+          if (!JET_POINTS.includes(pt.kind) || pt.kind === 'APEX') continue;
+          const sc = sideCoords(c.pb!, k, sampleJet(c.pb!, t, k, t.jets[k].shift_s + j.anchors[pt.kind as 'AP']!.tau_s));
+          sidePts++;
+          if (Math.abs(sc.range_nm - pt.dist_nm) > 0.1 || Math.abs(sc.agl_ft - pt.alt_ft) > 0.5) extrasBad ||= `${c.name} ${j.label} ${pt.kind}: sideCoords ${sc.range_nm.toFixed(3)} nm ${sc.agl_ft.toFixed(0)} ft vs the side view's ${pt.dist_nm} nm ${pt.alt_ft} ft`;
+        }
+      });
+    }
+    const cj = pb4.jets[0], cf = cj.frag!, tot0 = t4plan.jets[0].tot_s, peak = Math.sqrt((2 * cf.H_ft) / 32.174);
+    const cloud = (age: number) => ({ ...fragCloudAt(pb4, t4plan, 0, tot0 + age) });
+    const cPeak = cloud(peak), cBefore = cloud(-0.01), cMid = cloud(cf.raw_s - 0.01), cFade = cloud((cf.raw_s + cf.clear_s) / 2), cGone = cloud(cf.clear_s);
+    const cloudOk = Math.abs(cPeak.top_ft - cf.H_ft) < 1e-6 && cloud(peak * 0.9).top_ft < cf.H_ft && cloud(peak * 1.1).top_ft < cf.H_ft && !cBefore.visible && cMid.visible && cMid.opacity === 1 &&
+      cFade.visible && Math.abs(cFade.opacity - 0.5) < 1e-9 && !cGone.visible && cf.clear_s === 30 && cPeak.lat === cj.target.coordinates.lat && cPeak.up_m === 0 && cPeak.estimated;
+    ok('playback extras: sideCoords is the side view\'s range-to-own-target and AGL at every anchor; the frag cloud peaks at H, fades after the last fragment lands and is gone when the frag window closes',
+       extrasBad === '' && sidePts > 30 && cloudOk,
+       extrasBad || `${sidePts} side points; cloud top ${cPeak.top_ft.toFixed(1)} ft at ${peak.toFixed(2)} s (H ${cf.H_ft}), opacity ${cMid.opacity}/${cFade.opacity.toFixed(2)}, visible ${cBefore.visible}/${cMid.visible}/${cGone.visible}`);
+    // The cloud's ground ring (spec D10): frag_effective_radius_ft, else frag_lethal_radius_ft. The
+    // fixture's weapon has both, and they differ, so the order shows. Stage-4 proof: frag.ts fragSpecOf
+    // `ringRadius_ft: effectiveRadius_ft ?? lethalRadius_ft` → `lethalRadius_ft ?? effectiveRadius_ft` left every check GREEN before; now:
+    //     FAIL playback extras: the frag cloud's ground ring is the effective radius, else the lethal one  ring 150 ft (effective 400, lethal 150); without effective: 150
+    const cw = cj.weapon!, eff = cw.frag_effective_radius_ft, leth = cw.frag_lethal_radius_ft;
+    const noEff = fragSpecOf({ ...cw, frag_effective_radius_ft: null })?.ringRadius_ft;
+    ok('playback extras: the frag cloud\'s ground ring is the effective radius, else the lethal one',
+       eff != null && leth != null && eff !== leth && cPeak.ringRadius_ft === eff && cf.ringRadius_ft === eff && noEff === leth,
+       `ring ${cPeak.ringRadius_ft} ft (effective ${eff}, lethal ${leth}); without effective: ${noEff}`);
+  } catch (e) {
+    ok('playback: the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
 }
