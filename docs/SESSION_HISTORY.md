@@ -2,6 +2,42 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Session:** 2026-10-03 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **Nothing released. `main` is v0.3.3 plus the cluster
+and SAMP bombs, unreleased.** Gates at the last code commit: geo-check 585,
+core 130, desktop 24 + 1 ignored, `npm run build`; Pages run 37099334769
+green.
+
+**The user's on-screen checks:**
+- **0.3.3 loadout screens passed on the desktop**, with
+  `test-data/nevada_SYNTHETIC_loaded_jets.json`: the import preview's Loadouts
+  list, the roster, the pre-picked weapon and Show all weapons. Still open:
+  long loadouts from a real link, and the iPhone.
+- **The 0.3.2 in-use check is closed.** The iPhone carousel at 3×, the larger
+  card text, the amber SIGHT header, the Copy menu and the waypoint list were
+  all reported fine.
+
+**What was built:**
+- `9bc1aad` **Nine name-only weapon rows:** Mk-20 Rockeye, CBU-99, CBU-52B,
+  BLG-66 Belouga, SAMP-125/250/400 LD and SAMP-250/400 HD, mapped to the
+  aircraft that carry them. `KNOWN_CLASS_GAPS` (`crates/core/src/profiles.rs`)
+  is now empty: every aircraft carries a weapon for each of its profiles. No
+  numbers were invented, so these carry the "no data on file" caution.
+  Carriage came from the DCS pylon tables in the public pydcs library and the
+  A-4E-C mod's aircraft file (memory `reference-pydcs-weapon-tables`).
+- `9523a09` **Link import knows those stores and counts racks.** A count
+  straight before the weapon's name (`- 3 x Mk-20`, `2x CBU-52B`) is read,
+  for every bomb and missile. A bare number never is, so the F-14's
+  `MAK79 2 MK-20` loads as one. The low-drag and high-drag SAMP rules share a
+  pattern and the name's drag words pick between them
+  (`crates/core/src/parsers/store_mapping.rs`).
+- The synthetic loaded-jets file changed: Venom 1-3's Rockeyes are a known
+  weapon, and it carries one BL-755, which has no row.
+- `docs/LOADOUT_IMPORT_PLAN.md` has a "Follow-up (2026-10-03)" section.
+
+**Not run:** `scripts/web-smoke.cjs` and `web-smoke-cards.cjs` (no wasm
+toolchain or Playwright on the main Mac, by the user's choice).
+
 **Session:** 2026-10-02/03 UTC (Opus 5.5 orchestrating on the main Mac,
 Sonnet 5.5 builders). **v0.3.3 released and published as Latest** on
 2026-10-03: "Jets arrive loaded" and the white-flash fix. Release run

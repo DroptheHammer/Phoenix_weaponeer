@@ -8,28 +8,34 @@ kneeboard cards.
 decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 (newest-first). Finished plans and reviews are in `docs/archive/`.
 
-**Last updated:** 2026-10-03
+**Last updated:** 2026-11-13
 
 ---
 
 ## Open
 
 ### Attacks and weapons
+The five bold build items below each have a session plan in
+`docs/BUILD_SESSIONS_PLAN.md` (planned 2026-11-13). Order: rows (1), rack
+counts (2), CLI loadouts (3), numbers (4), loft (5).
+
 - [ ] **Loft geometry** (LABS, F-16 loft). The profiles ship hidden
       (`f16c.loft.std`, `f4e.loft.labs45`) until the geometry exists.
+      Session 5.
 - [ ] **Release and frag numbers for the thirteen name-only rows**: GBU-16,
       AGM-65F, AGM-122 and the GAU-12 pod, and the nine cluster and SAMP rows
       (Mk-20 Rockeye, CBU-99, CBU-52B, BLG-66 Belouga, SAMP-125/250/400 and
       SAMP-250/400 HD). Until then their attacks and cards carry a "no data
-      on file" caution and no floor is enforced.
+      on file" caution and no floor is enforced. Session 4.
 - [ ] **Bombs the modules carry that still have no row.** Seen in the DCS
       pylon tables: Mk-81, Mk-83, CBU-103 and CBU-105 (F-16C, A-10C), BL-755,
       CBU-1/A and CBU-2/A (A-4E-C), BLU-107 Durandal, BR-250 and BR-500. A
       link import keeps each one and marks it "not in the weapon table".
+      Session 1.
 - [ ] **Rack counts written as a bare number.** The F-14's `MAK79 2 MK-20`
       and legacy names such as `Mk-20 Rockeye * 3` load as one bomb, because
       a number with no "x" is never read as a count (a rack's own number,
-      like the 42 in BRU-42, would be read too).
+      like the 42 in BRU-42, would be read too). Session 2.
 - [ ] Sight settings for rockets on the manual-dive profiles. Rocket cards show
       no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
       carry Mk-82 values that auto-build applies to bombs only. Needs
@@ -37,6 +43,7 @@ decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 - [ ] **Loadout from a CLI/.miz import.** A FragOrders link import fills the
       loadout (see Unreleased). The CLI/.miz path carries DCS CLSIDs, needs a
       CLSID → weapon table, and still arrives with an empty loadout.
+      Session 3.
 - [ ] Store names the link import does not place yet. Russian and Chinese
       air-to-air missiles, and pods outside the skip list, show as "not in
       the weapon table" where they should be dropped. Rockets are mapped for

@@ -221,59 +221,41 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-10-03 UTC (Opus 5.5 orchestrating on the main Mac,
-Sonnet 5.5 builders). **Nothing released. `main` is v0.3.3 plus the cluster
-and SAMP bombs, unreleased.** Gates at the last code commit: geo-check 585,
-core 130, desktop 24 + 1 ignored, `npm run build`; Pages run 37099334769
-green.
+**Last session:** 2026-11-13 UTC (Opus 5.5 orchestrating on the main Mac).
+**No code changed and nothing released. `main` is still v0.3.3 plus the
+cluster and SAMP bombs, unreleased.** Core tests 130, all passing, with the
+private link fixtures really running.
 
-**The user's on-screen checks:**
-- **0.3.3 loadout screens passed on the desktop**, with
-  `test-data/nevada_SYNTHETIC_loaded_jets.json`: the import preview's Loadouts
-  list, the roster, the pre-picked weapon and Show all weapons. Still open:
-  long loadouts from a real link, and the iPhone.
-- **The 0.3.2 in-use check is closed.** The iPhone carousel at 3×, the larger
-  card text, the amber SIGHT header, the Copy menu and the waypoint list were
-  all reported fine.
+**On-screen checks, in a build from source:**
+- **The cluster and SAMP rows passed:** Venom 1-3 shows Rockeye as known and
+  BL-755 as "not in the weapon table", and an F/A-18C attack offers Mk-20
+  Rockeye and CBU-99.
+- **Real-link loadouts passed** on the desktop. A scripted dump of all four
+  captured links showed none carries a loadout over three lines; the
+  synthetic file's four-line jet is longer than any real one.
+- **The iPhone loadout check is pinned.** The user had no phone to hand.
 
-**What was built:**
-- `9bc1aad` **Nine name-only weapon rows:** Mk-20 Rockeye, CBU-99, CBU-52B,
-  BLG-66 Belouga, SAMP-125/250/400 LD and SAMP-250/400 HD, mapped to the
-  aircraft that carry them. `KNOWN_CLASS_GAPS` (`crates/core/src/profiles.rs`)
-  is now empty: every aircraft carries a weapon for each of its profiles. No
-  numbers were invented, so these carry the "no data on file" caution.
-  Carriage came from the DCS pylon tables in the public pydcs library and the
-  A-4E-C mod's aircraft file (memory `reference-pydcs-weapon-tables`).
-- `9523a09` **Link import knows those stores and counts racks.** A count
-  straight before the weapon's name (`- 3 x Mk-20`, `2x CBU-52B`) is read,
-  for every bomb and missile. A bare number never is, so the F-14's
-  `MAK79 2 MK-20` loads as one. The low-drag and high-drag SAMP rules share a
-  pattern and the name's drag words pick between them
-  (`crates/core/src/parsers/store_mapping.rs`).
-- The synthetic loaded-jets file changed: Venom 1-3's Rockeyes are a known
-  weapon, and it carries one BL-755, which has no row.
-- `docs/LOADOUT_IMPORT_PLAN.md` has a "Follow-up (2026-10-03)" section.
+**Decided, don't re-raise:** a target's "Elev" is the waypoint's altitude, by
+design. Mission authors zero their target waypoints, so DCS writes the ground
+height there. A 25,000 ft "Elev" came from an air-to-air training mission's
+cruise point picked as a bomb target. Memory
+`project-target-elevation-from-zeroed-waypoints`.
 
-**Not checked on screen yet:** the new rows in the app. It needs a build from
-source (`npm run tauri dev`); the installed 0.3.3 does not have them.
-
-**Not run:** `scripts/web-smoke.cjs` and `web-smoke-cards.cjs` (no wasm
-toolchain or Playwright on the main Mac, by the user's choice).
+**Planned:** the five build candidates, one session each, in
+`docs/BUILD_SESSIONS_PLAN.md`: rows for the missing bombs, bare-number rack
+counts, CLI/.miz loadouts, numbers for the name-only rows, loft geometry.
 
 ### START OF NEXT SESSION
 
 1. `git pull origin main`.
-2. **Ask whether the user looked at the new rows in the app:** the synthetic
-   file's Venom 1-3 (Rockeye known, BL-755 "not in the weapon table"), and a
-   cluster attack for an F/A-18C (Rockeye and CBU-99 offered, with the "no
-   data on file" caution).
-3. **Still open from 0.3.3:** long loadouts from a real link (the Syria
-   capture in `test-data/private/fragorders-links/` loads through Import →
-   From JSON), and the loadout screens on the iPhone.
-4. **Next build candidates** (all in `ROADMAP.md`): rows for the bombs still
-   missing (Mk-81, Mk-83, CBU-103, CBU-105, BL-755 and others); loadouts from
-   a CLI/.miz import; numbers for the thirteen name-only rows; bare-number
-   rack counts; loft geometry.
+2. **Build Session 1 of `docs/BUILD_SESSIONS_PLAN.md`:** rows for the bombs
+   that have none. Sessions 1 and 2 (rack counts) can share a sitting if the
+   user wants. The plan lists the two decisions to ask about: Durandal's drag
+   class, and a new "no row" test example to replace BL-755.
+3. **Still open from 0.3.3:** the loadout screens on the iPhone. Ask only if
+   the user has the phone.
+4. **The dev app may still be open** from `npm run tauri dev`; close it before
+   rebuilding.
 5. **Releasing 0.3.4** is the user's call. It would be the first run of the
    web app's upload and publish steps on the Node 24 actions.
 6. **Phone web app:** a real Android phone check is still open
