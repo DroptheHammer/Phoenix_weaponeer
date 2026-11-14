@@ -8,6 +8,15 @@
 //! into threat systems. A rule here names its weapon row directly; the threat
 //! table goes through a name lookup instead.
 //!
+//! The FragOrders CLI (a `.miz` read to JSON) writes the same pylons as DCS
+//! CLSIDs instead, `{"CLSID": "{HB_F4E_MK-82_6x}"}`, with `"<CLEAN>"` for an empty
+//! pylon. `loadout_from_pylons` looks each CLSID up in `clsid_data` (generated
+//! from pydcs and the A-4E-C mod, see `scripts/gen-clsids.mjs`) to get the DCS
+//! display name the link would have carried, then runs the names through the
+//! same stages and the same merge as a link's. A CLSID the table does not have
+//! is kept, unclassified, under the CLSID itself: its name is not known, so it
+//! is neither guessed at nor dropped.
+//!
 //! Matching reuses the threat mapper's whole-token form (lower-case, split on
 //! anything that is not a letter or digit, a rule matches a contiguous run of
 //! tokens), so the Mk-82 rule can never match "Mk-82Y" and the GBU-12 rule can
@@ -80,6 +89,7 @@
 
 use serde_json::Value;
 
+use super::clsid_data::CLSID_NAMES;
 use super::fragorders::ImportedStore;
 use super::threat_mapping::{contains_run, tokens};
 use crate::refdata::RefData;
@@ -366,20 +376,39 @@ pub fn classify_store(name: &str) -> StoreClass {
 /// quantity, in order of first appearance. A recognised line is named by its
 /// reference row, so the name matches what the planner's weapon list shows.
 pub fn loadout_from_payload(payload: Option<&Value>, db: &RefData) -> Vec<ImportedStore> {
+    merge_stores(store_names(payload).into_iter().map(Store::Named), db)
+}
+
+/// One pylon's store on its way into a loadout.
+enum Store {
+    /// A DCS display name: classified by the stages in the module docs.
+    Named(String),
+    /// A CLSID with no name on file. Kept as it is, one of it per pylon, and
+    /// never classified: its letters say nothing a name's would, and a made-up
+    /// reading could drop it (as an air-to-air missile) or load it (as a bomb).
+    Unknown(String),
+}
+
+/// The merge shared by both imports: one line per weapon, in order of first
+/// appearance, with the quantities of every pylon that carries it summed.
+fn merge_stores(stores: impl IntoIterator<Item = Store>, db: &RefData) -> Vec<ImportedStore> {
     let mut loadout: Vec<ImportedStore> = Vec::new();
-    for display in store_names(payload) {
-        let (weapon_id, name, quantity) = match classify_store(&display) {
-            StoreClass::Skipped(_) => continue,
-            StoreClass::Weapon { id, quantity } => match db.get_weapon_by_id(id) {
-                Some(weapon) => (Some(weapon.id), weapon.name, quantity),
-                // A rule naming a row that is not there (a test keeps that from
-                // shipping): keep the store rather than lose it.
-                None => (None, display, quantity),
+    for store in stores {
+        let (weapon_id, name, quantity) = match store {
+            Store::Unknown(clsid) => (None, clsid, 1),
+            Store::Named(display) => match classify_store(&display) {
+                StoreClass::Skipped(_) => continue,
+                StoreClass::Weapon { id, quantity } => match db.get_weapon_by_id(id) {
+                    Some(weapon) => (Some(weapon.id), weapon.name, quantity),
+                    // A rule naming a row that is not there (a test keeps that from
+                    // shipping): keep the store rather than lose it.
+                    None => (None, display, quantity),
+                },
+                StoreClass::Unrecognised => {
+                    let quantity = with_count(&tokens(&display)).unwrap_or(1);
+                    (None, display, quantity)
+                }
             },
-            StoreClass::Unrecognised => {
-                let quantity = with_count(&tokens(&display)).unwrap_or(1);
-                (None, display, quantity)
-            }
         };
         match loadout.iter_mut().find(|line| line.weapon_id == weapon_id && line.name == name) {
             Some(line) => line.quantity = line.quantity.saturating_add(quantity),
@@ -387,6 +416,80 @@ pub fn loadout_from_payload(payload: Option<&Value>, db: &RefData) -> Vec<Import
         }
     }
     loadout
+}
+
+/// What the CLI writes for a pylon with nothing on it.
+const EMPTY_PYLON: &str = "<CLEAN>";
+
+/// The CLSID on each pylon of a CLI payload's `pylons`, in pylon order.
+///
+/// `pylons` is an array of `{"number"?, "CLSID", "settings"}` objects. Every
+/// capture so far lists them in pylon order, so array order is used; the
+/// `number` is there in some files and not in others, and a gap in it (1, 3,
+/// 4) is only a pylon with nothing on it. A map keyed by pylon number is read
+/// too, in numeric key order, in case the CLI writes one. An empty pylon
+/// (`"<CLEAN>"`, a blank CLSID, an entry with none) is left out. A missing or
+/// null `pylons`, and anything of another shape, gives an empty list and never
+/// an error, for the reason `store_names` gives.
+pub fn pylon_clsids(pylons: Option<&Value>) -> Vec<String> {
+    let entries: Vec<&Value> = match pylons {
+        Some(Value::Array(list)) => list.iter().collect(),
+        Some(Value::Object(map)) => {
+            let mut numbered: Vec<(u32, &Value)> =
+                map.iter().filter_map(|(key, entry)| key.trim().parse().ok().map(|n| (n, entry))).collect();
+            numbered.sort_by_key(|(number, _)| *number);
+            numbered.into_iter().map(|(_, entry)| entry).collect()
+        }
+        _ => return Vec::new(),
+    };
+    entries
+        .into_iter()
+        .filter_map(|entry| entry.get("CLSID")?.as_str())
+        .map(str::trim)
+        .filter(|clsid| !clsid.is_empty() && !clsid.eq_ignore_ascii_case(EMPTY_PYLON))
+        .map(str::to_string)
+        .collect()
+}
+
+/// A CLSID without its braces: `{ABC}` and `ABC` are the same store.
+fn unbraced(clsid: &str) -> &str {
+    let clsid = clsid.strip_prefix('{').unwrap_or(clsid);
+    clsid.strip_suffix('}').unwrap_or(clsid)
+}
+
+/// The DCS display name of a CLSID, or `None` when the table does not have it.
+///
+/// An exact match comes first. A CLSID that differs only in its braces or its
+/// letter case (DCS files spell the same store both ways) is then matched on
+/// that alone, and is taken only when every such entry gives one name: where
+/// they disagree it is not known which store was meant, so it is not known.
+pub fn clsid_name(clsid: &str) -> Option<&'static str> {
+    lookup(CLSID_NAMES, clsid)
+}
+
+/// `clsid_name` over any table sorted by CLSID (the tests give it their own).
+fn lookup(table: &'static [(&'static str, &'static str)], clsid: &str) -> Option<&'static str> {
+    let clsid = clsid.trim();
+    if let Ok(at) = table.binary_search_by(|(known, _)| (*known).cmp(clsid)) {
+        return Some(table[at].1);
+    }
+    let wanted = unbraced(clsid);
+    let mut names =
+        table.iter().filter(|(known, _)| unbraced(known).eq_ignore_ascii_case(wanted)).map(|(_, name)| *name);
+    let first = names.next()?;
+    names.all(|name| name == first).then_some(first)
+}
+
+/// A CLI jet's loadout: every air-to-ground store on its pylons, one line per
+/// weapon, built exactly as a link's is (`loadout_from_payload`) once each CLSID
+/// has its DCS name. A CLSID with no name on file stays on the loadout, flagged
+/// as a store the tool does not know, under the CLSID itself.
+pub fn loadout_from_pylons(pylons: Option<&Value>, db: &RefData) -> Vec<ImportedStore> {
+    let stores = pylon_clsids(pylons).into_iter().map(|clsid| match clsid_name(&clsid) {
+        Some(name) => Store::Named(name.to_string()),
+        None => Store::Unknown(clsid),
+    });
+    merge_stores(stores, db)
 }
 
 /// The rule that best describes a store name, if any: the most tokens, then the
@@ -1252,6 +1355,228 @@ mod tests {
         let payload = json!(["AIM-9M Sidewinder IR AAM", null, "Fuel tank 370 gal", "AN/AAQ-28 LITENING - Targeting Pod"]);
         assert!(loadout_from_payload(Some(&payload), reference()).is_empty());
         assert!(loadout_from_payload(None, reference()).is_empty());
+    }
+
+    // ---- CLI pylons (CLSIDs) -------------------------------------------
+
+    /// A loadout as (weapon id, name, quantity) lines.
+    fn lines(loadout: &[ImportedStore]) -> Vec<(Option<&str>, &str, u32)> {
+        loadout.iter().map(|l| (l.weapon_id.as_deref(), l.name.as_str(), l.quantity)).collect()
+    }
+
+    /// `lookup` binary-searches, so a table out of order loses entries silently,
+    /// and a duplicate CLSID would answer with whichever copy the search hit.
+    /// The generator sorts and de-duplicates; this is what keeps a hand edit or
+    /// a bad regeneration from slipping through.
+    #[test]
+    fn the_clsid_table_is_sorted_by_clsid_with_no_duplicates() {
+        assert!(CLSID_NAMES.len() > 2000, "the table is the pydcs list plus the A-4E-C mod's");
+        for pair in CLSID_NAMES.windows(2) {
+            assert!(pair[0].0 < pair[1].0, "{:?} must come before {:?}", pair[0].0, pair[1].0);
+        }
+        // No empty keys or names, and no CLI placeholder for an empty pylon.
+        for (clsid, name) in CLSID_NAMES {
+            assert!(!clsid.trim().is_empty() && !name.trim().is_empty(), "{clsid:?} -> {name:?}");
+            assert!(!clsid.eq_ignore_ascii_case(EMPTY_PYLON), "an empty pylon is not a store");
+        }
+    }
+
+    /// DCS spells its CLSIDs three ways: a GUID in braces, a readable name in
+    /// braces, and a readable name with none. The A-4E-C names are rebuilt from
+    /// the mod's Lua, and carry the counts the rack names do.
+    #[test]
+    fn a_clsid_in_each_of_dcs_spellings_gives_its_dcs_name() {
+        let cases = [
+            // A GUID.
+            ("{DB769D48-67D7-42ED-A2BE-108D566C8B1E}", "GBU-12 - 500lb Laser Guided Bomb"),
+            ("{BCE4E030-38E9-423E-98ED-24BE3DA87C32}", "Mk-82 - 500lb GP Bomb LD"),
+            // A readable name, with and without braces.
+            ("{HB_F4E_MK-82_6x}", "6x Mk-82 - 500lb GP Bomb LD (MER)"),
+            ("{HB_F4E_CBU-87_MER_4x}", "4x CBU-87 - 202 x CEM Cluster Bomb (MER)"),
+            ("LAU-115_2*LAU-127_AIM-120C", "LAU-115: 2 x LAU-127 - 2 x AIM-120C AMRAAM - Active Radar AAM"),
+            ("{LAU_34_AGM_45A}", "AGM-45A Shrike ARM (LAU-34)"),
+            // Built by the A-4E-C mod's Lua, not in pydcs.
+            ("{Mk-82_TER_3_C}", "3 x Mk-82 - 500lb GP Bomb LD (TER)"),
+            ("{Mk-81_MER_5_L}", "5 x Mk-81 - 250lb GP Bomb LD (MER)"),
+            ("{C_A4E_AGM-45B_LAU34}", "AGM-45B Shrike ARM (LAU-34)"),
+            ("{DFT-300gal}", "Fuel Tank 300 gallons"),
+            ("{A4E-ASQ-T50-ON-ADAPTER}", "LAU-7 with AN/ASQ-T50 TCTS Pod - ACMI Pod"),
+        ];
+        for (clsid, name) in cases {
+            assert_eq!(clsid_name(clsid), Some(name), "{clsid}");
+        }
+        for unknown in ["", "{NOT_A_REAL_STORE}", "<CLEAN>", "AIM-9Z"] {
+            assert_eq!(clsid_name(unknown), None, "{unknown:?}");
+        }
+    }
+
+    /// The same store written with other braces or other case still finds its
+    /// name, but only through the exact match failing first.
+    #[test]
+    fn a_clsid_missing_its_braces_or_in_other_case_still_finds_its_name() {
+        let guid = Some("AIM-120C AMRAAM - Active Radar AAM");
+        assert_eq!(clsid_name("{40EF17B7-F508-45de-8566-6FFECC0C1AB8}"), guid);
+        assert_eq!(clsid_name("40EF17B7-F508-45de-8566-6FFECC0C1AB8"), guid);
+        assert_eq!(clsid_name("{40ef17b7-f508-45DE-8566-6ffecc0c1ab8}"), guid);
+        assert_eq!(clsid_name("  {40EF17B7-F508-45de-8566-6FFECC0C1AB8}  "), guid);
+        // A name the table keeps without braces is found with them, too.
+        assert_eq!(clsid_name("{LAU-115_2*LAU-127_AIM-120C}"), clsid_name("LAU-115_2*LAU-127_AIM-120C"));
+        assert!(clsid_name("LAU-115_2*LAU-127_AIM-120C").is_some());
+        assert_eq!(clsid_name("hb_f4e_mk-82_6x"), Some("6x Mk-82 - 500lb GP Bomb LD (MER)"));
+    }
+
+    /// Where two table entries differ only in braces or case, an inexact CLSID
+    /// is only matched when they agree on the name. Otherwise it is not known
+    /// which was meant, so it is not known at all. The exact spelling always wins.
+    #[test]
+    fn a_clsid_that_two_entries_claim_with_different_names_is_unknown() {
+        static TABLE: &[(&str, &str)] = &[
+            ("AGREE", "Same name"),
+            ("DISAGREE", "First name"),
+            ("{AGREE}", "Same name"),
+            ("{DISAGREE}", "Second name"),
+            ("{ONLY}", "One name"),
+        ];
+        assert_eq!(lookup(TABLE, "agree"), Some("Same name"));
+        assert_eq!(lookup(TABLE, "{Agree}"), Some("Same name"));
+        assert_eq!(lookup(TABLE, "only"), Some("One name"));
+        assert_eq!(lookup(TABLE, "disagree"), None, "two entries, two names");
+        assert_eq!(lookup(TABLE, "{disagree}"), None);
+        assert_eq!(lookup(TABLE, "DISAGREE"), Some("First name"), "an exact match is never in doubt");
+        assert_eq!(lookup(TABLE, "{DISAGREE}"), Some("Second name"));
+    }
+
+    /// The shapes `pylons` takes, and what is not a store.
+    #[test]
+    fn pylon_clsids_reads_the_cli_array_in_pylon_order_and_leaves_out_empty_pylons() {
+        let numbered = json!([
+            { "number": 1, "CLSID": "{AAA}", "settings": {} },
+            { "number": 3, "CLSID": "<CLEAN>", "settings": {} },
+            { "number": 4, "CLSID": " {BBB} ", "settings": [] },
+            { "number": 5, "CLSID": "", "settings": {} },
+            { "number": 6, "settings": {} },
+            { "number": 7, "CLSID": 12 },
+            "{NOT_AN_OBJECT}",
+            null,
+            { "number": 9, "CLSID": "<clean>" },
+            { "number": 10, "CLSID": "LAU-115_2*LAU-127_AIM-120C" }
+        ]);
+        assert_eq!(
+            pylon_clsids(Some(&numbered)),
+            vec!["{AAA}".to_string(), "{BBB}".to_string(), "LAU-115_2*LAU-127_AIM-120C".to_string()]
+        );
+        // No `number` at all: array order is the pylon order.
+        let plain = json!([{ "CLSID": "{B}" }, { "CLSID": "{A}" }]);
+        assert_eq!(pylon_clsids(Some(&plain)), vec!["{B}".to_string(), "{A}".to_string()]);
+    }
+
+    /// A map keyed by pylon number is read in numeric order ("10" after "2",
+    /// not before it), and a key that is not a number is not a pylon.
+    #[test]
+    fn pylon_clsids_reads_a_map_keyed_by_pylon_number_in_numeric_order() {
+        let map = json!({
+            "10": { "CLSID": "{TEN}" },
+            "2": { "CLSID": "{TWO}" },
+            "1": { "CLSID": "<CLEAN>" },
+            "x": { "CLSID": "{NOT_A_PYLON}" },
+            "9": { "CLSID": "{NINE}" }
+        });
+        assert_eq!(pylon_clsids(Some(&map)), vec!["{TWO}".to_string(), "{NINE}".to_string(), "{TEN}".to_string()]);
+    }
+
+    /// Like `store_names`: a shape we did not expect costs the jet its loadout,
+    /// never the import.
+    #[test]
+    fn pylons_that_are_not_a_list_give_no_stores_and_no_error() {
+        assert!(pylon_clsids(None).is_empty(), "a missing payload");
+        assert!(pylon_clsids(Some(&json!(null))).is_empty(), "pylons: null");
+        assert!(pylon_clsids(Some(&json!([]))).is_empty(), "pylons: []");
+        assert!(pylon_clsids(Some(&json!({}))).is_empty(), "pylons: {{}}");
+        assert!(pylon_clsids(Some(&json!(12))).is_empty());
+        assert!(pylon_clsids(Some(&json!("{AAA}"))).is_empty());
+        assert!(pylon_clsids(Some(&json!(["{AAA}", 7]))).is_empty(), "link-style names are not CLI pylons");
+        assert!(loadout_from_pylons(None, reference()).is_empty());
+        assert!(loadout_from_pylons(Some(&json!(null)), reference()).is_empty());
+        assert!(loadout_from_pylons(Some(&json!([{ "CLSID": "<CLEAN>" }])), reference()).is_empty());
+    }
+
+    /// The loadout is built by the same merge as a link's: one line per weapon,
+    /// summed, in order of first appearance, under the reference row's name; air-
+    /// to-air, tanks and pods dropped; a store with no row kept under its DCS name.
+    #[test]
+    fn a_cli_loadout_merges_pylons_the_way_a_links_does() {
+        let pylons = json!([
+            { "CLSID": "{40EF17B7-F508-45de-8566-6FFECC0C1AB8}" },
+            { "CLSID": "{HB_F4E_MK-82_6x}" },
+            { "CLSID": "{DB769D48-67D7-42ED-A2BE-108D566C8B1E}" },
+            { "CLSID": "<CLEAN>" },
+            { "CLSID": "{F376DBEE-4CAE-41BA-ADD9-B2910AC95DEC}" },
+            { "CLSID": "{BCE4E030-38E9-423E-98ED-24BE3DA87C32}" },
+            { "CLSID": "{LAU_34_AGM_45A}" },
+            { "CLSID": "{DB769D48-67D7-42ED-A2BE-108D566C8B1E}" },
+            { "CLSID": "{LAU_34_AGM_45A}" },
+            { "CLSID": "{HB_ALQ-131_ON_ADAPTER_IN_AERO7}" }
+        ]);
+        let loadout = loadout_from_pylons(Some(&pylons), reference());
+        assert_eq!(
+            lines(&loadout),
+            vec![
+                (Some("mk82"), "Mk-82 LDGP", 7),
+                (Some("gbu12"), "GBU-12 Paveway II", 2),
+                (None, "AGM-45A Shrike ARM (LAU-34)", 2),
+            ],
+            "6 + 1 Mk-82 across two CLSID styles, the Shrike twice, and nothing for the AIM-120, tank and pod"
+        );
+    }
+
+    /// The point of sharing the merge: a CLI jet and a link jet carrying the same
+    /// stores arrive with the same loadout. Each CLSID gives its DCS name, and
+    /// the link's names go through `loadout_from_payload`.
+    #[test]
+    fn a_cli_loadout_equals_the_links_for_the_same_stores() {
+        let clsids = [
+            "{DB769D48-67D7-42ED-A2BE-108D566C8B1E}",
+            "{HB_F4E_MK-82_6x}",
+            "{Mk-82_TER_3_C}",
+            "{5335D97A-35A5-4643-9D9B-026C75961E52}",
+            "{LAU_34_AGM_45A}",
+            "{F376DBEE-4CAE-41BA-ADD9-B2910AC95DEC}",
+            "{HB_F4E_AIM-7M}",
+            "{C_A4E_AGM-45B_LAU34}",
+            "{Mk-81_MER_5_L}",
+            "{HB_F4E_CBU-87_MER_4x}",
+        ];
+        let cli = json!(clsids.iter().map(|c| json!({ "CLSID": c })).collect::<Vec<_>>());
+        let link = json!(clsids.iter().map(|c| clsid_name(c).expect("a table CLSID")).collect::<Vec<_>>());
+        let from_cli = loadout_from_pylons(Some(&cli), reference());
+        assert_eq!(from_cli, loadout_from_payload(Some(&link), reference()));
+        assert!(from_cli.len() >= 6, "the comparison is not an empty one: {from_cli:?}");
+    }
+
+    /// A CLSID the table does not have is never dropped and never guessed at. It
+    /// is not classified, even when its letters look like a skipped store ("AIM")
+    /// or a weapon ("MK-82"): a name made up from them could hide a bomb or load
+    /// one that is not there. It stays on the loadout under the CLSID itself,
+    /// merged with itself, and unflagged as a weapon row.
+    #[test]
+    fn an_unknown_clsid_stays_on_the_loadout_under_its_own_name_unclassified() {
+        let pylons = json!([
+            { "CLSID": "{NEW_MODULE_AIM-9Z}" },
+            { "CLSID": "{NEW_MODULE_MK-82_PACK}" },
+            { "CLSID": "{DB769D48-67D7-42ED-A2BE-108D566C8B1E}" },
+            { "CLSID": "{NEW_MODULE_AIM-9Z}" },
+            { "CLSID": "{NEW_MODULE_FUEL_TANK}" }
+        ]);
+        let loadout = loadout_from_pylons(Some(&pylons), reference());
+        assert_eq!(
+            lines(&loadout),
+            vec![
+                (None, "{NEW_MODULE_AIM-9Z}", 2),
+                (None, "{NEW_MODULE_MK-82_PACK}", 1),
+                (Some("gbu12"), "GBU-12 Paveway II", 1),
+                (None, "{NEW_MODULE_FUEL_TANK}", 1),
+            ]
+        );
     }
 
     // ---- Real links ----------------------------------------------------

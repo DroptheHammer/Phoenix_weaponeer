@@ -50,8 +50,9 @@ reference-data tests, where `private_fixture!` works:
    `weaponType` stays the row name, so old saves and older app versions still
    match.
 
-The CLI/`.miz` path (pylon CLSIDs) gets an empty loadout for now, as a
-follow-up.
+The CLI/`.miz` path (pylon CLSIDs) arrived with an empty loadout until
+Session 3 (2026-11-13, below), which names each CLSID and feeds the names
+through the same rules.
 
 ## Mapping rules
 
@@ -317,3 +318,53 @@ The seven gaps listed above are closed, and `KNOWN_CLASS_GAPS` is empty.
   (one 2.75" FFAR, not eight S-5s); `Mk-84 AIR * 2` is a retarded bomb with no
   `air` in the drag words, so it loads as the low-drag Mk-84.
 - The four captured links carry none of these forms: no count there changed.
+
+### Session 3 (built 2026-11-13): loadouts from a CLI/.miz import
+
+- **The CLI writes CLSIDs, not names.** A jet's `payload.pylons` is an array
+  (`null` for most AI units, `[]` for several players) of
+  `{number?, CLSID, settings}` objects, in pylon order; `number` is in the
+  newer CLI's files and not the older one's, and a gap in it is only an empty
+  pylon. `"<CLEAN>"` is an empty pylon. CLSIDs come as GUIDs
+  (`{40EF17B7-…}`), readable names in braces (`{HB_F4E_MK-82_6x}`) and
+  readable names with none (`LAU-115_2*LAU-127_AIM-120C`). A map keyed by
+  pylon number is read too, in numeric order, though no file seen writes one.
+- **A generated table, `parsers/clsid_data.rs`** (`npm run gen-clsids`,
+  `scripts/gen-clsids.mjs`): 2,290 CLSID → DCS display name pairs, sorted for
+  a binary search, nothing typed by hand. Sources, each pinned: pydcs
+  `dcs/weapons_data.py` (2,143 stores, commit
+  `5ddcc63a2dcd661e16b14f7aa43219b93044855d`) and the A-4E-C community mod's
+  weapon file (147 stores pydcs lacks, commit
+  `34c1ef439581234ee24d4bde2e13a54999ebaa5a`). The mod builds many names in
+  Lua, so the generator rebuilds the shapes it can (literal stores, bombs on
+  TER and MER racks, rocket pods on a TER, cluster dispensers alone and on a
+  TER, the Shrike and the TCTS pod) and reads the aircraft's own pylon lists as
+  a check: all 190 CLSIDs the mod lists end up named. The mod's
+  `make_cbu_a4e_multi` racks and bomblet groups are not rebuilt (its aircraft
+  file lists neither). pydcs and the mod never disagreed on a CLSID.
+- **The whole table is kept**, about 164 KB of source and, compiled, about
+  150 KB in the wasm build the phone app ships (about 30 KB gzipped). Dropping
+  the stores the rules skip would have made every AIM-9 and fuel tank show as
+  an unknown store, so none is dropped.
+- **Same rules, same merge.** `loadout_from_pylons` (beside
+  `loadout_from_payload`) looks each CLSID up, then hands the DCS names to the
+  one merge both imports use. A CLSID is found exactly first; failing that, with
+  or without its braces and in any letter case, but only when every such
+  table entry gives one name. `<CLEAN>` and blank CLSIDs are nothing.
+- **An unknown CLSID is kept and never classified.** It becomes an unrecognised
+  line under the CLSID itself (two pylons of one unknown CLSID are one line of
+  two). It is not run through the name rules: `{NEW_MODULE_AIM-9Z}` would be
+  taken for an air-to-air missile and dropped, `{NEW_MODULE_MK-82_PACK}` for a
+  bomb it may not be.
+- **Tests:** a public synthetic CLI mission,
+  `test-data/nevada_SYNTHETIC_cli_loaded_jets.json`; the table's order and
+  spellings; the pylon shapes; CLI loadout equals the link's for the same
+  stores; unknown CLSIDs; and, on the private NTTR mission, that every CLSID on
+  a player jet is named and the F-4E jets arrive with their Mk-82, CBU-87 and
+  Shrikes. The four captured links are unchanged.
+- **Unmet, found on the way** (all on the roadmap, none new in kind): the
+  table holds the names the rocket counter and the marker skip get wrong
+  (`M257 IL`, `M156 SM`, `BRU-42: 2 x LAU-131 - 7 x …`), and two names with a
+  count glued to the weapon (`2xGBU-12`) are unrecognised.
+- `dcs_weapon_name` was left alone: the generator did not need it, and its
+  refdata test still says it is null on the name-only rows.

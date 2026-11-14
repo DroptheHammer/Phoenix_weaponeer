@@ -7,6 +7,7 @@
 
 pub mod airfields;
 mod airfields_data;
+mod clsid_data;
 pub mod coordinate_conversion;
 pub mod fragorders;
 pub mod store_mapping;

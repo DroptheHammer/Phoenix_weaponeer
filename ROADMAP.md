@@ -52,10 +52,14 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
       carry Mk-82 values that auto-build applies to bombs only. Needs
       per-rocket numbers from the manuals.
-- [ ] **Loadout from a CLI/.miz import.** A FragOrders link import fills the
-      loadout (see Unreleased). The CLI/.miz path carries DCS CLSIDs, needs a
-      CLSID → weapon table, and still arrives with an empty loadout.
-      Session 3.
+- [x] **Loadout from a CLI/.miz import** (2026-11-13, Session 3, on `main`,
+      unreleased). The CLI writes pylons as DCS CLSIDs; a generated table
+      (`scripts/gen-clsids.mjs` → `crates/core/src/parsers/clsid_data.rs`, from
+      pydcs and the A-4E-C mod, both pinned) names each one, and the names go
+      through the same rules and merge as a link's. A CLSID the table does not
+      have is kept under the CLSID itself. Checked: the captured NTTR mission's
+      F-4Es arrive with their Mk-82, CBU-87 and Shrikes; every CLSID on its
+      player jets is named. Not yet checked on screen.
 - [ ] Store names the link import does not place yet. Russian and Chinese
       air-to-air missiles, and pods outside the skip list, show as "not in
       the weapon table" where they should be dropped. Rockets are mapped for
@@ -70,6 +74,11 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
     `2 LAU-10 - 4 ZUNI MK 71` reads 1.
   - `ORO-57K - S-5M1 HE-FRAG FFAR x 8` loads as one 2.75" FFAR. It is eight
     57 mm S-5s, which have no row.
+  - A count written glued to the name, `2xGBU-12 - 500lb Laser Guided Bomb`
+    (two pydcs names) is not read: the tokenizer makes `2xgbu` one token, so
+    it is unrecognised. `2xAGM-114K` (the OH-58D) has no row and counts one.
+  - Since Session 3 a CLI import reaches all of these through the CLSID table,
+    which holds every one of those names.
 - [ ] **Pilot verification of the 62 seed profiles.** All are ESTIMATED; none
       is `verified: true` yet.
 - [ ] Weather. It is parsed at import but not used.
@@ -176,6 +185,13 @@ waypoint list on 2026-10-03).
   `MAK79 3 Mk-82`, a leading `2 Mk-81`, a trailing `GBU-12 * 2` and the Mirage
   F1's `AUF2 GBU-12 x 2` load as the right number of bombs, not one. A rack's
   own number (`BRU-42 Mk-82`) is never a count.
+- **A CLI/.miz import fills each jet's loadout** (2026-11-13). The FragOrders
+  CLI writes a jet's pylons as DCS CLSIDs (`{HB_F4E_MK-82_6x}`), which the
+  import now turns into DCS store names with a table generated from the public
+  pydcs list and the A-4E-C mod, then loads exactly as it loads a link's. An
+  empty pylon (`<CLEAN>`) is nothing, air-to-air, tanks and pods are dropped,
+  and a CLSID with no name on file stays on the loadout under the CLSID,
+  marked "not in the weapon table". Regenerate with `npm run gen-clsids`.
 
 ### v0.3.3 — 2026-10-03
 - **Jets arrive loaded.** After a FragOrders link import each pilot's loadout

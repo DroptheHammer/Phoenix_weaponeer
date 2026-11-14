@@ -217,7 +217,9 @@ impl Callsign {
 /// Aircraft payload
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Payload {
-    /// Pylons can be either an array or a map in different DCS versions
+    /// Pylons can be either an array or a map in different DCS versions. A CLI
+    /// jet's are `{"number"?, "CLSID", "settings"}` objects (see
+    /// `store_mapping::pylon_clsids`); a link's are display names.
     #[serde(default)]
     pub pylons: Option<serde_json::Value>,
     #[serde(default)]
@@ -363,8 +365,8 @@ pub struct ProcessedUnit {
     pub callsign: String,
     pub onboard_num: Option<String>,
     /// The air-to-ground stores the mission author loaded, one line per weapon.
-    /// Empty when the jet carries none, and always for a CLI import (its pylons
-    /// are CLSIDs, which are not mapped yet).
+    /// Empty when the jet carries none. A link gives DCS display names and a CLI
+    /// import gives CLSIDs, which `store_mapping` turns into names first.
     #[serde(default)]
     pub loadout: Vec<ImportedStore>,
 }
@@ -375,7 +377,8 @@ pub struct ImportedStore {
     /// The reference weapon this is, or `None` when the store is air-to-ground
     /// but not one the reference data knows.
     pub weapon_id: Option<String>,
-    /// The reference weapon's name, or the DCS display name when unrecognised.
+    /// The reference weapon's name, or the DCS display name when unrecognised
+    /// (the CLSID itself, for a CLI store whose CLSID has no name on file).
     pub name: String,
     pub quantity: u32,
 }

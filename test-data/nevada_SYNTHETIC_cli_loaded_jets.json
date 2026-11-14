@@ -1,0 +1,110 @@
+{
+  "theatre": "Nevada",
+  "coalition": {
+    "blue": {
+      "bullseye": { "x": -400000, "y": -20000 },
+      "country": [
+        {
+          "id": 2,
+          "name": "USA",
+          "plane": {
+            "group": [
+              {
+                "name": "Cobra 1",
+                "groupId": 1,
+                "route": {
+                  "points": [
+                    { "name": "TAKEOFF", "type": "TakeOff", "action": "From Parking Area", "x": 65500, "y": 10100, "alt": 1400, "speed": 130 },
+                    { "name": "TGT", "type": "Turning Point", "action": "Turning Point", "x": -20000, "y": 105000, "alt": 3048, "speed": 280 }
+                  ]
+                },
+                "units": [
+                  {
+                    "name": "Cobra 1-1", "unitId": 101, "type": "F-16C_50", "x": 65500, "y": 10100, "skill": "Client",
+                    "callsign": { "name": "Cobra", "1": 1, "2": 1, "3": 1 }, "onboard_num": "101",
+                    "payload": {
+                      "fuel": 3249,
+                      "pylons": [
+                        { "number": 1, "CLSID": "{40EF17B7-F508-45de-8566-6FFECC0C1AB8}", "settings": {} },
+                        { "number": 2, "CLSID": "{DB769D48-67D7-42ED-A2BE-108D566C8B1E}", "settings": {} },
+                        { "number": 3, "CLSID": "<CLEAN>", "settings": {} },
+                        { "number": 4, "CLSID": "{AB8B8299-F1CC-4359-89B5-2172E0CF4A5A}", "settings": {} },
+                        { "number": 5, "CLSID": "{F376DBEE-4CAE-41BA-ADD9-B2910AC95DEC}", "settings": {} },
+                        { "number": 7, "CLSID": "{DB769D48-67D7-42ED-A2BE-108D566C8B1E}", "settings": {} },
+                        { "number": 9, "CLSID": "{6CEB49FC-DED8-4DED-B053-E1F033FF72D3}", "settings": {} }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "Cobra 1-2", "unitId": 102, "type": "F-4E-45MC", "x": 65540, "y": 10140, "skill": "Client",
+                    "callsign": { "name": "Cobra", "1": 1, "2": 2, "3": 1 }, "onboard_num": "102",
+                    "payload": {
+                      "pylons": [
+                        { "CLSID": "{LAU_34_AGM_45A}", "settings": {} },
+                        { "CLSID": "{HB_F4E_MK-82_6x}", "settings": {} },
+                        { "CLSID": "{F4_SARGENT_TANK_370_GAL}", "settings": {} },
+                        { "CLSID": "{ZZ_SYNTHETIC_UNKNOWN_STORE}", "settings": {} },
+                        { "CLSID": "{HB_F4E_CBU-87_MER_4x}", "settings": {} },
+                        { "CLSID": "{BCE4E030-38E9-423E-98ED-24BE3DA87C32}", "settings": {} },
+                        { "CLSID": "{ZZ_SYNTHETIC_UNKNOWN_STORE}", "settings": {} },
+                        { "CLSID": "{HB_F4E_AIM-7M}", "settings": {} },
+                        { "CLSID": "<CLEAN>", "settings": {} },
+                        { "CLSID": "{HB_ALQ-131_ON_ADAPTER_IN_AERO7}", "settings": {} }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "Cobra 1-3", "unitId": 103, "type": "A-4E-C", "x": 65580, "y": 10180, "skill": "Client",
+                    "callsign": { "name": "Cobra", "1": 1, "2": 3, "3": 1 }, "onboard_num": "103",
+                    "payload": {
+                      "pylons": [
+                        { "number": 1, "CLSID": "{C_A4E_AGM-45B_LAU34}", "settings": {} },
+                        { "number": 2, "CLSID": "{Mk-81_MER_5_L}", "settings": {} },
+                        { "number": 3, "CLSID": "{Mk-82_TER_3_C}", "settings": {} },
+                        { "number": 4, "CLSID": "{A4E-ASQ-T50-ON-ADAPTER}", "settings": {} },
+                        { "number": 5, "CLSID": "{DFT-300gal}", "settings": {} }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "Cobra 1-4", "unitId": 104, "type": "F-16C_50", "x": 65620, "y": 10220, "skill": "Client",
+                    "callsign": { "name": "Cobra", "1": 1, "2": 4, "3": 1 }, "onboard_num": "104",
+                    "payload": { "fuel": 3249, "pylons": null }
+                  },
+                  {
+                    "name": "Cobra 1-5", "unitId": 105, "type": "FA-18C_hornet", "x": 65660, "y": 10260, "skill": "Client",
+                    "callsign": { "name": "Cobra", "1": 1, "2": 5, "3": 1 }, "onboard_num": "105",
+                    "payload": {
+                      "pylons": [
+                        { "number": 1, "CLSID": "LAU-115_2*LAU-127_AIM-120C", "settings": {} },
+                        { "number": 4, "CLSID": "{FPU_8A_FUEL_TANK}", "settings": {} },
+                        { "number": 9, "CLSID": "LAU-115_2*LAU-127_AIM-120C", "settings": {} }
+                      ]
+                    }
+                  },
+                  {
+                    "name": "Cobra 1-6", "unitId": 106, "type": "F-16C_50", "x": 65700, "y": 10300, "skill": "Client",
+                    "callsign": { "name": "Cobra", "1": 1, "2": 6, "3": 1 }, "onboard_num": "106",
+                    "payload": { "pylons": [] }
+                  },
+                  {
+                    "name": "Cobra 1-7", "unitId": 107, "type": "F-16C_50", "x": 65740, "y": 10340, "skill": "Client",
+                    "callsign": { "name": "Cobra", "1": 1, "2": 7, "3": 1 }, "onboard_num": "107"
+                  },
+                  {
+                    "name": "Cobra AI wingman", "unitId": 108, "type": "F-16C_50", "x": 65780, "y": 10380, "skill": "High",
+                    "payload": {
+                      "pylons": [
+                        { "number": 2, "CLSID": "{BCE4E030-38E9-423E-98ED-24BE3DA87C32}", "settings": {} }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

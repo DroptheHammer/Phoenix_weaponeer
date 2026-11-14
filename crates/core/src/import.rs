@@ -117,7 +117,7 @@ pub fn process_fragorders_json(
             if let Some(planes) = &country.plane {
                 for group in &planes.group {
                     if group.has_player() {
-                        if let Some(processed) = process_player_group(group, theater_params, &mut warnings) {
+                        if let Some(processed) = process_player_group(group, theater_params, db, &mut warnings) {
                             player_groups.push(processed);
                         }
                     }
@@ -127,7 +127,7 @@ pub fn process_fragorders_json(
             if let Some(helis) = &country.helicopter {
                 for group in &helis.group {
                     if group.has_player() {
-                        if let Some(processed) = process_player_group(group, theater_params, &mut warnings) {
+                        if let Some(processed) = process_player_group(group, theater_params, db, &mut warnings) {
                             player_groups.push(processed);
                         }
                     }
@@ -360,6 +360,7 @@ fn waypoint_name(pt: &parsers::fragorders::RoutePoint, index: usize, theater: &s
 fn process_player_group(
     group: &parsers::fragorders::Group,
     params: &parsers::TheaterCoordParams,
+    db: &RefData,
     warnings: &mut Vec<String>,
 ) -> Option<ProcessedPlayerGroup> {
     let name = group.name.clone().unwrap_or_else(|| "Unknown".to_string());
@@ -388,8 +389,12 @@ fn process_player_group(
                 .map(|c| c.to_string_representation())
                 .unwrap_or_default(),
             onboard_num: u.onboard_num.as_ref().map(|n| n.as_string()),
-            // The CLI's pylons are CLSIDs, which `store_mapping` does not read.
-            loadout: Vec::new(),
+            // The CLI's pylons are CLSIDs; `store_mapping` names them, then
+            // loads them the way a link's display names are.
+            loadout: parsers::store_mapping::loadout_from_pylons(
+                u.payload.as_ref().and_then(|p| p.pylons.as_ref()),
+                db,
+            ),
         })
         .collect();
 
@@ -1276,6 +1281,155 @@ mod tests {
             loadout_of(&units[6]),
             vec![(Some("gbu12"), "GBU-12 Paveway II", 1)],
             "the readable store in a payload with a stray number still loads"
+        );
+    }
+
+    // ---- CLI loadouts --------------------------------------------------
+    //
+    // The CLI's pylons are CLSIDs. `store_mapping::loadout_from_pylons` names
+    // them from the generated table and runs the same rules as a link's.
+
+    /// One flight of seven player jets and an AI wingman, from a public
+    /// synthetic file: a strike jet with GUID CLSIDs, a `<CLEAN>` pylon and
+    /// pylon numbers with gaps; an F-4E with readable CLSIDs, rack counts, a
+    /// CLSID no table has, and tanks, missiles and a pod to drop; an A-4E-C
+    /// with the mod's own CLSIDs; and four jets with nothing to load (`pylons`
+    /// null, empty, absent, or only air-to-air and tanks).
+    #[test]
+    fn a_cli_mission_with_loaded_jets_imports_each_jets_air_to_ground_stores() {
+        let json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test-data/nevada_SYNTHETIC_cli_loaded_jets.json"
+        ));
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, db).expect("the synthetic CLI mission must import");
+
+        assert_eq!(data.player_groups.len(), 1);
+        let units = &data.player_groups[0].units;
+        assert_eq!(units.len(), 7, "the AI wingman and its Mk-82 are not a player's jet");
+        assert_eq!(
+            loadout_of(&units[0]),
+            vec![(Some("gbu12"), "GBU-12 Paveway II", 2), (Some("mk84"), "Mk-84 LDGP", 1)],
+            "GUID CLSIDs: the AIM-120, AIM-9M and tank are dropped, <CLEAN> is nothing, two GBU-12 are one line"
+        );
+        assert_eq!(
+            loadout_of(&units[1]),
+            vec![
+                (None, "AGM-45A Shrike ARM (LAU-34)", 1),
+                (Some("mk82"), "Mk-82 LDGP", 7),
+                (None, "{ZZ_SYNTHETIC_UNKNOWN_STORE}", 2),
+                (Some("cbu87"), "CBU-87 CEM", 4),
+            ],
+            "six Mk-82 on a MER and one on a pylon are seven; an unknown CLSID stays, under its own name"
+        );
+        assert_eq!(
+            loadout_of(&units[2]),
+            vec![
+                (None, "AGM-45B Shrike ARM (LAU-34)", 1),
+                (Some("mk81"), "Mk-81 LDGP", 5),
+                (Some("mk82"), "Mk-82 LDGP", 3),
+            ],
+            "the A-4E-C mod's own CLSIDs: five Mk-81 on a MER, three Mk-82 on a TER; the TCTS pod and tank are dropped"
+        );
+        for unit in &units[3..] {
+            assert!(unit.loadout.is_empty(), "{}: nothing to load", unit.name);
+        }
+
+        // A recognised line carries its reference row's name, so the planner's
+        // weapon list and the loadout agree.
+        for line in units.iter().flat_map(|u| &u.loadout) {
+            if let Some(id) = &line.weapon_id {
+                assert_eq!(line.name, db.get_weapon_by_id(id).expect("a row").name);
+            }
+        }
+    }
+
+    /// The CLSIDs on a mission's player jets, in import order, from the raw file.
+    fn player_clsids_by_jet(json: &str) -> Vec<(String, Vec<String>)> {
+        let mission = parsers::parse_fragorders_json(json).expect("parses");
+        let mut jets = Vec::new();
+        for country in &mission.coalition.blue.expect("a blue side").country {
+            let assets = country.plane.iter().chain(country.helicopter.iter());
+            for group in assets.flat_map(|a| &a.group).filter(|g| g.has_player()) {
+                for unit in group.units.iter().filter(|u| u.is_player()) {
+                    let pylons = unit.payload.as_ref().and_then(|p| p.pylons.as_ref());
+                    jets.push((
+                        unit.unit_type.clone().unwrap_or_default(),
+                        parsers::store_mapping::pylon_clsids(pylons),
+                    ));
+                }
+            }
+        }
+        jets
+    }
+
+    /// The captured NTTR mission's player jets (a private file: the test skips
+    /// when it is absent). Every CLSID they carry is either named by the table or
+    /// listed here on purpose, and each jet's loadout says what its CLSIDs say.
+    /// Units are named by aircraft type only.
+    #[test]
+    fn the_nttr_cli_jets_arrive_loaded_from_their_clsids() {
+        use parsers::store_mapping::clsid_name;
+
+        /// CLSIDs on a player jet that the table has no name for, on purpose. None
+        /// today: add one only with a note on why it cannot be named.
+        const NOT_IN_THE_TABLE: &[&str] = &[];
+
+        let json = crate::private_fixture!("nttr_redflag_viper1.json");
+        let db = crate::refdata::reference();
+        let data = process_fragorders_json(json, db).expect("NTTR fixture must import");
+        let raw = player_clsids_by_jet(json);
+        let imported: Vec<&ProcessedUnit> = data.player_groups.iter().flat_map(|g| &g.units).collect();
+        assert_eq!(raw.len(), imported.len(), "every player jet is imported");
+        assert!(raw.iter().any(|(_, clsids)| !clsids.is_empty()), "the file carries player pylons");
+
+        for (aircraft, clsids) in &raw {
+            for clsid in clsids {
+                assert!(
+                    clsid_name(clsid).is_some() || NOT_IN_THE_TABLE.contains(&clsid.as_str()),
+                    "{aircraft} carries {clsid}, which the CLSID table cannot name"
+                );
+            }
+        }
+
+        let mut loaded_types = std::collections::BTreeSet::new();
+        let (mut mk82_jets, mut shrike_jets) = (0, 0);
+        for ((aircraft, clsids), jet) in raw.iter().zip(&imported) {
+            let count = |clsid: &str| clsids.iter().filter(|c| c.as_str() == clsid).count() as u32;
+            let line = |name: &str| jet.loadout.iter().find(|l| l.name == name);
+
+            // Six Mk-82 on each F-4E rack, and the Shrike a pylon at a time.
+            if count("{HB_F4E_MK-82_6x}") > 0 {
+                mk82_jets += 1;
+                let mk82 = line("Mk-82 LDGP").unwrap_or_else(|| panic!("{aircraft} lost its Mk-82"));
+                assert_eq!((mk82.weapon_id.as_deref(), mk82.quantity), (Some("mk82"), 6 * count("{HB_F4E_MK-82_6x}")));
+            }
+            if count("{LAU_34_AGM_45A}") > 0 {
+                shrike_jets += 1;
+                let shrike = line("AGM-45A Shrike ARM (LAU-34)").unwrap_or_else(|| panic!("{aircraft} lost its Shrike"));
+                assert_eq!((shrike.weapon_id.as_deref(), shrike.quantity), (None, count("{LAU_34_AGM_45A}")));
+            }
+
+            // The names are all DCS names: a CLSID would only be one if the table
+            // could not name it, and that was ruled out above.
+            for l in &jet.loadout {
+                assert!(!l.name.starts_with('{'), "{aircraft}: {l:?} is still a CLSID");
+            }
+            // A jet carrying only air-to-air missiles, tanks and pods has none.
+            let only_dropped = clsids.iter().all(|c| {
+                let name = clsid_name(c).expect("named");
+                matches!(parsers::store_mapping::classify_store(name), parsers::store_mapping::StoreClass::Skipped(_))
+            });
+            assert_eq!(jet.loadout.is_empty(), only_dropped, "{aircraft}: {clsids:?} -> {:?}", jet.loadout);
+            if !jet.loadout.is_empty() {
+                loaded_types.insert(aircraft.clone());
+            }
+        }
+        assert!(mk82_jets > 0 && shrike_jets > 0, "the F-4E jets carry Mk-82 racks and Shrikes");
+        assert!(loaded_types.contains("F-4E-45MC"), "the F-4Es arrive loaded: {loaded_types:?}");
+        assert!(
+            !loaded_types.contains("F-14B") && !loaded_types.contains("F-15ESE"),
+            "the Tomcats and Eagles carry only air-to-air and tanks: {loaded_types:?}"
         );
     }
 
