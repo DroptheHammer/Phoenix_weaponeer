@@ -61,9 +61,10 @@ export function Timeline({ scene, ticks }: TimelineProps) {
           className="w-full accent-dcs-accent cursor-pointer"
         />
         {/* The moments the card names, so the scrubber can be dropped straight on them. */}
-        {ticks.map((k) => (
+        {ticks.map((k, i) => (
           <span
-            key={`${k.label}${k.t_s}`}
+            // By position: two moments with the same label and time must not share a key.
+            key={i}
             title={`${k.label} ${fmtStrikeTime(k.t_s)}`}
             className="absolute bottom-0 w-px h-2 bg-gray-400"
             style={{ left: `${((k.t_s - snap.start) / span) * 100}%` }}

@@ -83,8 +83,9 @@ export function StatusNotes({ terrain, notes, restoring, software, onGround }: S
         </div>
         <p className="flex-1 min-w-0 text-gray-300">{restoring ? '3D view interrupted by the graphics driver: restoring…' : groundNote(terrain)}</p>
       </div>
-      {notes.map((n) => (
-        <p key={n} className="text-amber-300">⚠ {n}</p>
+      {notes.map((n, i) => (
+        // By position: the same warning twice (two jets, one theater) must not share a key.
+        <p key={i} className="text-amber-300">⚠ {n}</p>
       ))}
       {software && <p className="text-gray-400">This machine draws 3D in software, so playback may be slow.</p>}
       <p className="text-gray-500">{terrain?.credits ?? THREE_CREDIT}</p>

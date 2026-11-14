@@ -7031,3 +7031,56 @@ void (async () => {
     ok('playback view: the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }
+
+// ─── 0.4.0 playback B3: guards on the source tree ─────────────────────────────
+// Checks on where files sit and what they import, not on what they compute: the two ways a later
+// change could quietly step round a rule the checks above lean on. Each carries its mutation proof
+// (2026-11-14): one temporary edit to the real tree, geo-check run, the FAIL line copied (shortened
+// with …), the edit restored.
+{
+  try {
+    const entries = (dir: string) => readdirSync(dir, { withFileTypes: true });
+
+    // [G1] The scene's pure half is one flat folder. The purity check above reads the files directly
+    // in src/lib/playbackScene and nothing deeper, so a file in a subfolder would never be held to
+    // "no three.js, no React, no DOM" and could pull all three into the start-up bundle.
+    // Mutation proof: an empty folder src/lib/playbackScene/x/ created:
+    //   FAIL playback B3 [G1]: src/lib/playbackScene has no subfolder, so the purity check, … sees every file  subfolders: x
+    const subfolders = entries('src/lib/playbackScene').filter((d) => d.isDirectory() || d.isSymbolicLink()).map((d) => d.name);
+    ok('playback B3 [G1]: src/lib/playbackScene has no subfolder, so the purity check, which reads only the files directly in it, sees every file',
+       subfolders.length === 0, subfolders.length ? `subfolders: ${subfolders.join(', ')}` : 'flat');
+
+    // [G2] Playback never re-spaces a strike. respace (strikeDraft.ts) gives every jet an even
+    // time over target again, so one call from playback would wipe the times the planner set or the
+    // user has just dragged. A word in code counts, not only an import line: `sd.respace(…)` through
+    // a namespace import would do the same harm. Comments may say the word.
+    // Mutation proof: launch.ts gains `import { respace } from '../../lib/strikeDraft';`:
+    //   FAIL playback B3 [G2]: nothing under src/components/playback or src/lib/playbackScene uses respace, … planned with  uses it: src/components/playback/launch.ts
+    const sourceFiles = (dir: string): string[] =>
+      entries(dir).flatMap((d) => (d.isDirectory() ? sourceFiles(`${dir}/${d.name}`) : /\.(?:ts|tsx)$/.test(d.name) ? [`${dir}/${d.name}`] : []));
+    const codeOf = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+    const usesRespace = (s: string) => /\brespace\b/.test(codeOf(s));
+    const guarded = [...sourceFiles('src/components/playback'), ...sourceFiles('src/lib/playbackScene')];
+    const respacers = guarded.filter((f) => usesRespace(readFileSync(f, 'utf8')));
+    // A precondition: the walk reached the subfolders (dev, scene, terrain) as well as the top.
+    // Mutation proof: `sourceFiles` made to skip folders (`d.isDirectory() ? []`):
+    //   FAIL playback B3 [G2]: nothing under … planned with  18 files read, subfolders missed
+    const reached = ['dev', 'scene', 'terrain'].every((d) => guarded.some((f) => f.startsWith(`src/components/playback/${d}/`))) && guarded.some((f) => f.startsWith('src/lib/playbackScene/'));
+    ok('playback B3 [G2]: nothing under src/components/playback or src/lib/playbackScene uses respace, which would wipe the times a strike was planned with',
+       reached && respacers.length === 0, respacers.length ? `uses it: ${respacers.join(', ')}` : `${guarded.length} files read, subfolders ${reached ? 'included' : 'missed'}`);
+    // Its control, pinned on literals: each of these is caught, none of the clean ones is.
+    // Mutation proofs: `codeOf` returning its input unchanged (comments no longer stripped):
+    //   FAIL playback B3 [G2]: the respace patterns do catch …  missed [], false hits ["// respace is never imported by playback","/* respace\n   would wipe the times */\nconst a = 1;", …]
+    // `usesRespace` narrowed to `/import\s*\{\s*respace\b/`:
+    //   FAIL playback B3 [G2]: the respace patterns do catch …  missed ["import { newJet, respace as even } from …","export { respace } from …","import * as draft from … draft.respace(jets, 30);","const { respace } = await import(…)"], false hits []
+    const respaceDirty = [`import { respace } from '../../lib/strikeDraft';`, `import { newJet, respace as even } from '../../lib/strikeDraft';`, `export { respace } from '../../lib/strikeDraft';`,
+      `import * as draft from '../../lib/strikeDraft';\nconst moved = draft.respace(jets, 30);`, `const { respace } = await import('../../lib/strikeDraft');`];
+    const respaceClean = [`// respace is never imported by playback`, `/* respace\n   would wipe the times */\nconst a = 1;`, `const respaced = jets.length;`, `const respaceCount = 3;`,
+      `const url = 'https://example.test/a'; // respace`];
+    const respaceMissed = respaceDirty.filter((s) => !usesRespace(s)), respaceFalse = respaceClean.filter(usesRespace);
+    ok('playback B3 [G2]: the respace patterns do catch an import, a re-export, a renamed import, a namespace call and a dynamic import, and ignore comments and longer words (so the check above can fail)',
+       respaceMissed.length === 0 && respaceFalse.length === 0, `missed ${JSON.stringify(respaceMissed)}, false hits ${JSON.stringify(respaceFalse)}`);
+  } catch (e) {
+    ok('playback B3: the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
