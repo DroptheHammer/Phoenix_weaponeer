@@ -221,80 +221,55 @@ the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/
 not here — this section is a snapshot for resuming work, not a journal.
 
 
-**Last session:** 2026-11-13 UTC (Opus 5.5 orchestrating on the main Mac,
-Sonnet 5.5 builders). **Four of the five planned build sessions shipped to
-`main`; nothing released. `main` is v0.3.3 plus all of it, unreleased.**
-Gates at the last commit (`2490b84`): geo-check 618/0, core 153, desktop
-24 + 1 ignored, `npm run build`. Pages runs green through `0532f23`
-(`2490b84` was still running at the end — check it).
+**Last session:** 2026-11-13/14 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **Session 5 (loft) shipped to `main`: all five planned
+build sessions are done. Nothing released. `main` is v0.3.3 plus Sessions
+1–5, unreleased. The user wants to release 0.3.4 next session.** Gates at
+the last code commit (`27908a6`): geo-check 718/0, core 154, desktop 24 + 1
+ignored, `npm run build`. Pages run 43576259468 green on `c97d8da`.
 
-**What was built** (plans and status in `docs/BUILD_SESSIONS_PLAN.md`):
-- `1c64857` **Session 1, 13 more bomb rows** (Mk-81 and Snakeye, Mk-83 and
-  AIR, BR-250, BR-500, BLU-107 Durandal, CBU-103, CBU-105, BL-755, CBU-1/A,
-  CBU-2/A, CBU-2B/A), carriage from pydcs `5ddcc63` and the A-4E-C mod.
-  **The Durandal is offered level profiles only** (user's call:
-  `LEVEL_ONLY_WEAPON_IDS` in `src/lib/weaponClass.ts`, pinned in Rust and
-  geo-check), because the F1/F-15E high-drag default is a dive. "Mk-82
-  SnakeEye" now loads as the Snakeye. The tests' "no row" example is now the
-  AGM-45 Shrike.
-- `9428a2d` **Session 2, bare-number rack counts:** trailing `* N`, a leading
-  `N`, `MAK79 N`, a trailing `x N`. Checked over all 1,847 pydcs/A-4E-C names
-  (86 changed, all reviewed). The F1's "Snakeyes" and "Mk-84 AIR * 2" no
-  longer load as slick bombs.
-- `0532f23` **Session 3, CLI/.miz loadouts:** `scripts/gen-clsids.mjs`
-  generates `crates/core/src/parsers/clsid_data.rs` (2,290 CLSID → name,
-  pydcs `5ddcc63` + A-4E-C mod `34c1ef4`, ~30 KB gzipped in the web app). The
-  private NTTR CLI file's F-4Es arrive with Mk-82/CBU-87 + Shrikes.
-- `2490b84` **Session 4, weapon numbers,** every value approved by the user
-  in a table and cited in `notes`: weights for all 26 formerly name-only rows;
-  **Mk-83 frag floor 1,300 ft** (public USAF F-4 Dash-34); Durandal
-  250 ft / 620 KCAS; CBU-105 200–20,000 ft / 650 kt; CBU-103 max 40,000 ft.
-  The 1,380 ft Rockeye ceiling was **rejected**: a floor blocks saving
-  (memory `project-weapon-number-sources`).
-
-**On-screen checks:** cluster/SAMP rows and real-link loadouts passed on the
-desktop. Session 1's new rows were simulated against the app's own code (the
-user asked for that instead of looking) and the Durandal dive problem was
-found that way. The CLI loadouts have not been looked at on screen. **iPhone
-loadout check pinned** (no phone to hand).
-
-**Decided, don't re-raise:** target "Elev" is the waypoint's altitude, by
-design; authors zero target waypoints (memory
-`project-target-elevation-from-zeroed-waypoints`).
-
-**New on the roadmap:** rocket-pod import gaps (illumination Hydras load as
-HE, colon-style rack names count pods, ORO-57K); counts glued to the name
-(`2xGBU-12`); floors for the 22 bomb/cluster rows still without one; **audit
-the seed rows** (public Dash-34 gives Mk-82 ~1,100 ft and Mk-84 ~1,700 ft
-level release vs the seed's 3,000/4,500).
+**What was built** (sources and decisions: `docs/DELIVERY_PLANNING.md`,
+"Loft and LABS"; memory `project-loft-geometry`):
+- `e33e899` **The sourced loft model** (`src/lib/loftPlanning.ts`): a 4 G pull
+  built over 2 s, the climb trading speed for height, release at the loft
+  angle, and the bomb with one drag constant fitted to the public USAF F-4
+  weapons delivery manual's loft table (T.O. 1F-4C-34-1-1 Fig 5-9, M117).
+  All 13 rows are geo-check tests (range within 0.6%, range peak at 42°);
+  Heatblur's DCS Mk-82 example lands within 1%. A vacuum bomb lands 10–24%
+  long, so lofts can't use the pop-up's. Pull-up range and release
+  altitude are derived; the profiles' old unsourced numbers are gone.
+- `27908a6` **Picture, side view, editor (`LoftForm.tsx`), card, checks and
+  strikes.** The F-4E pull-up timer is in the card header ("TIMER nn.n s · set
+  before IP"), from the live IP. `c97d8da`: roadmap and plan updated.
+- **Decided by the user:** a loft runs straight from the IP (custom IP picks
+  another axis; no straight-in warning); lofts skip the release floors and
+  get a **warning** inside 0.5 nm of the target at bomb impact, plus one when
+  the IP is inside the pull-up range.
+- **On screen, checked by the user, no issues:** F-16 loft map picture, side
+  view, editor knobs, F-4E LABS card header.
+- **New on the roadmap (optional):** smooth side-view bomb arc; per-weapon
+  drag; the F-4E gyro (pitch) angle, about 6–8° above the planned
+  flight-path angle. `docs/BUILD_SESSIONS_PLAN.md` is finished and can move
+  to `docs/archive/`.
 
 ### START OF NEXT SESSION
 
-1. `git pull origin main`. Check the "Web app (GitHub Pages)" run for
-   `2490b84` went green (`gh run list --workflow pages.yml -L 3`).
-2. **Build Session 5 of `docs/BUILD_SESSIONS_PLAN.md`: loft geometry** (F-16
-   loft `f16c.loft.std`, F-4E LABS `f4e.loft.labs45`). Read that section
-   first; it has the file map. Order: a sourced loft section in
-   `docs/DELIVERY_PLANNING.md` and a toss-range model with a handbook worked
-   example as the first geo-check test → plan/geometry → map picture and side
-   view → **put picture options in front of the user in `npm run tauri dev`
-   (option branches) before polishing** → editor knobs, checks, card → un-hide
-   via `SUPPORTED_GEOMETRIES` last. May take two sittings; the first ends at
-   sourced geometry plus the picture on screen. Any floor proposed must be
-   explained as blocking saving.
-3. **Still open from 0.3.3:** the loadout screens on the iPhone. Ask only if
-   the user has the phone.
-4. **Releasing 0.3.4** (everything above) is the user's call. It would be the
-   first run of the web app's upload and publish steps on the Node 24 actions.
-5. **Phone web app:** a real Android phone check is still open
-   (`docs/MOBILE_WEB_PLAN.md`). Merge PRs from the Mac with `TZ=UTC`, never with
-   GitHub's phone button.
-6. **Never `cd` into a subfolder.** It once made the harness drop a `.claude`
-   folder that broke geo-check (memory `feedback-commands-that-dont-prompt`).
-7. **`git push` and `gh` must run outside the Bash sandbox**; inside it the
-   push fails with "could not read Username".
-8. **Look-and-feel work goes in front of the user in the real app first**,
-   before it is polished, documented or committed.
-9. **When the user asks to "simulate" a check instead of looking**, run the
-   app's own functions with the real data (a scratch esbuild script like
-   geo-check), and turn anything worth keeping into a geo-check test.
+1. `git pull origin main`.
+2. **Release 0.3.4** (the user asked for it): the full RELEASE CHECKLIST
+   above, through publishing, installers included. It carries Sessions 1–5
+   (13 bomb rows, bare rack counts, CLI/.miz loadouts, sourced weapon
+   numbers, loft/LABS). Release notes in plain language from the commits
+   since `v0.3.3`. It is the first run of the web app's upload and publish
+   steps on the Node 24 actions: watch that Pages run. Run the privacy scan
+   first (memory `reference-privacy-scan-scripts`).
+3. **Still open:** the 0.3.3 loadout screens on the iPhone (ask only if the
+   user has the phone); the CLI loadouts have never been looked at on screen;
+   a real Android phone check (`docs/MOBILE_WEB_PLAN.md`).
+4. **Never `cd` into a subfolder**, and edit files only with Edit/Write (memory
+   `feedback-commands-that-dont-prompt`). **`git push`, `gh` and `cargo` run
+   outside the Bash sandbox.** A command run outside it has a different
+   `$TMPDIR`: don't write a log there and read it back inside.
+5. **Look-and-feel work goes in front of the user in the real app first.**
+   "Simulate" means running the app's own functions on real data.
+6. **Research agents can litter the repo root** (this session left four copies
+   of the F-16 handbook's text there). Check `git status` before committing.

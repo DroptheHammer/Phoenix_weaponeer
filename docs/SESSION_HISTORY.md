@@ -2,6 +2,61 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Session:** 2026-11-13 UTC (Opus 5.5 orchestrating on the main Mac,
+Sonnet 5.5 builders). **Four of the five planned build sessions shipped to
+`main`; nothing released. `main` is v0.3.3 plus all of it, unreleased.**
+Gates at the last commit (`2490b84`): geo-check 618/0, core 153, desktop
+24 + 1 ignored, `npm run build`. Pages runs green through `0532f23`
+(`2490b84` was still running at the end — check it).
+
+**What was built** (plans and status in `docs/BUILD_SESSIONS_PLAN.md`):
+- `1c64857` **Session 1, 13 more bomb rows** (Mk-81 and Snakeye, Mk-83 and
+  AIR, BR-250, BR-500, BLU-107 Durandal, CBU-103, CBU-105, BL-755, CBU-1/A,
+  CBU-2/A, CBU-2B/A), carriage from pydcs `5ddcc63` and the A-4E-C mod.
+  **The Durandal is offered level profiles only** (user's call:
+  `LEVEL_ONLY_WEAPON_IDS` in `src/lib/weaponClass.ts`, pinned in Rust and
+  geo-check), because the F1/F-15E high-drag default is a dive. "Mk-82
+  SnakeEye" now loads as the Snakeye. The tests' "no row" example is now the
+  AGM-45 Shrike.
+- `9428a2d` **Session 2, bare-number rack counts:** trailing `* N`, a leading
+  `N`, `MAK79 N`, a trailing `x N`. Checked over all 1,847 pydcs/A-4E-C names
+  (86 changed, all reviewed). The F1's "Snakeyes" and "Mk-84 AIR * 2" no
+  longer load as slick bombs.
+- `0532f23` **Session 3, CLI/.miz loadouts:** `scripts/gen-clsids.mjs`
+  generates `crates/core/src/parsers/clsid_data.rs` (2,290 CLSID → name,
+  pydcs `5ddcc63` + A-4E-C mod `34c1ef4`, ~30 KB gzipped in the web app). The
+  private NTTR CLI file's F-4Es arrive with Mk-82/CBU-87 + Shrikes.
+- `2490b84` **Session 4, weapon numbers,** every value approved by the user
+  in a table and cited in `notes`: weights for all 26 formerly name-only rows;
+  **Mk-83 frag floor 1,300 ft** (public USAF F-4 Dash-34); Durandal
+  250 ft / 620 KCAS; CBU-105 200–20,000 ft / 650 kt; CBU-103 max 40,000 ft.
+  The 1,380 ft Rockeye ceiling was **rejected**: a floor blocks saving
+  (memory `project-weapon-number-sources`).
+
+**On-screen checks:** cluster/SAMP rows and real-link loadouts passed on the
+desktop. Session 1's new rows were simulated against the app's own code (the
+user asked for that instead of looking) and the Durandal dive problem was
+found that way. The CLI loadouts have not been looked at on screen. **iPhone
+loadout check pinned** (no phone to hand).
+
+**Decided, don't re-raise:** target "Elev" is the waypoint's altitude, by
+design; authors zero target waypoints (memory
+`project-target-elevation-from-zeroed-waypoints`).
+
+**New on the roadmap:** rocket-pod import gaps (illumination Hydras load as
+HE, colon-style rack names count pods, ORO-57K); counts glued to the name
+(`2xGBU-12`); floors for the 22 bomb/cluster rows still without one; **audit
+the seed rows** (public Dash-34 gives Mk-82 ~1,100 ft and Mk-84 ~1,700 ft
+level release vs the seed's 3,000/4,500).
+
+*Next-session list at the time:* build Session 5 (loft) — done 2026-11-14,
+see above; the 0.3.3 iPhone loadout check; releasing 0.3.4; a real Android
+phone check; never `cd` into a subfolder; `git push`/`gh` outside the
+sandbox; look-and-feel in the real app first; "simulate" means running the
+app's own functions on real data.
+
+---
+
 **Session:** 2026-10-03 UTC (Opus 5.5 orchestrating on the main Mac,
 Sonnet 5.5 builders). **Nothing released. `main` is v0.3.3 plus the cluster
 and SAMP bombs, unreleased.** Gates at the last code commit: geo-check 585,
