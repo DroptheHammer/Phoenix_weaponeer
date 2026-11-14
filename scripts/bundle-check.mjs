@@ -115,7 +115,8 @@ if (none) {
   const sane = (v) => Number.isInteger(v) && v > 0;
   // Proven able to fail: with the file missing, "Bundle check FAILED for dist: scripts/bundle-budget.json cannot be read (ENOENT)";
   // with eagerMaxBytes written as "big", "Bundle check FAILED for dist: scripts/bundle-budget.json must be { "baselineBytes": n, "eagerMaxBytes": n } with whole, positive numbers and ..."
-  if (!sane(budget.baselineBytes) || !sane(budget.eagerMaxBytes) || budget.eagerMaxBytes < budget.baselineBytes) {
+  // A file that parses to something other than an object (the word null, a number) is malformed too, not a crash.
+  if (budget === null || typeof budget !== 'object' || !sane(budget.baselineBytes) || !sane(budget.eagerMaxBytes) || budget.eagerMaxBytes < budget.baselineBytes) {
     fail('scripts/bundle-budget.json must be { "baselineBytes": n, "eagerMaxBytes": n } with whole, positive numbers and the ceiling at or above the baseline');
   }
   const growth = eagerBytes - budget.baselineBytes;

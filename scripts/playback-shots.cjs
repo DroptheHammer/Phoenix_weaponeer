@@ -283,15 +283,23 @@ async function checkScrub(page) {
 
 /**
  * Check 28: the speed buttons read exactly 1×, 2×, 4×, 8×, 16× (no ½×) with 1× pressed before any press;
- * pressing 16× marks it pressed and a second of play then moves the clock about 16 s (3 to 17: a
- * slow software renderer drops frames, and each frame counts for at most 0.1 s before the speed
- * multiplies it), and 1× is back to about a second per second (at most 1.2). Wall time is read in
- * the page, from the Play call to the Pause call, so the check's own round trips do not count.
+ * pressing 16× marks it pressed and a second of play then moves the clock far more than a second at
+ * 1× does (at least four times as far, and never over 17 s), and 1× is back to about a second per
+ * second (at most 1.2). Wall time is read in the page, from the Play call to the Pause call, so the
+ * check's own round trips do not count.
  *
- * Measured 2026-11-14 on the software renderer at 1400x900: 16× moved 8.27 s in 1.00 s wall, 1× 0.61 s.
- * Proven red 2026-11-14 by one temporary edit to src/lib/playbackScene/playClock.ts (`SPEEDS` =
- * `[1, 2, 4, 8]`, no 16):
- *   STEP FAIL 28 speed buttons 1×…16×, 16× plays about 16 s a second, 1× about 1 (1400x900) — buttons 1× 2× 4× 8×; pressed at open 1×, after 16× 1×, after 1× 1×; 16×: NaN s in NaN s wall (NaN/s, want 3 to 17); 1×: 0.52 s in 1.00 s wall (0.52/s, want ≤ 1.2)
+ * Why "four times as far" and not "about 16 s": the software renderer here draws a few frames a
+ * second, and each frame counts for at most 0.1 s before the speed multiplies it, so 16× moves
+ * 1.6 s a frame and what a second covers depends on how many frames it got (measured 2026-11-14
+ * at 1400x900: 6.8 to 8.3 s at 16×, 0.3 to 0.6 s at 1×). A floor in seconds would start failing as
+ * the scene grows heavier; the comparison with 1× in the same run does not. The exact arithmetic
+ * (16 s a second, the cap before the multiply) is pinned in geo-check, where no renderer is involved.
+ *
+ * Proven red 2026-11-14 by temporary edits to src/lib/playbackScene/playClock.ts, one at a time.
+ * With the speed ignored in `advance` (`* 1` in place of `* this.speed`):
+ *   STEP FAIL 28 speed buttons 1×…16×, 16× plays far faster than 1×, 1× about a second a second (1400x900) — buttons 1× 2× 4× 8× 16×; pressed at open 1×, after 16× 16×, after 1× 1×; 16×: 0.42 s in 1.00 s wall (0.4/s); 1×: 0.41 s in 1.00 s wall (0.41/s, want ≤ 1.2); 16× over 1×: 1.0 (want ≥ 4, and 16× ≤ 17 s)
+ * With `SPEEDS` = `[1, 2, 4, 8]` (no 16; seen with this check's first wording): the buttons read
+ * "1× 2× 4× 8×", 16× is never pressed and its reading is NaN, so the check fails on the words alone.
  */
 async function checkSpeeds(page, tag) {
   const group = '[role="dialog"] [role="group"][aria-label="Speed"] button';
@@ -327,10 +335,10 @@ async function checkSpeeds(page, tag) {
   const after1 = await pressed();
   const rate16 = fast.moved / fast.wall_s, rate1 = slow.moved / slow.wall_s;
   const wordsOk = shown.join(' ') === '1× 2× 4× 8× 16×' && !shown.some((s) => s.includes('½'));
-  step(`28 speed buttons 1×…16×, 16× plays about 16 s a second, 1× about 1 (${tag})`,
+  step(`28 speed buttons 1×…16×, 16× plays far faster than 1×, 1× about a second a second (${tag})`,
     wordsOk && atOpen.join() === '1×' && after16.join() === '16×' && after1.join() === '1×'
-      && fast.moved >= 3 && fast.moved <= 17 && rate1 <= 1.2 && slow.moved > 0,
-    `buttons ${shown.join(' ')}; pressed at open ${atOpen}, after 16× ${after16}, after 1× ${after1}; 16×: ${fast.moved.toFixed(2)} s in ${fast.wall_s.toFixed(2)} s wall (${rate16.toFixed(1)}/s, want 3 to 17); 1×: ${slow.moved.toFixed(2)} s in ${slow.wall_s.toFixed(2)} s wall (${rate1.toFixed(2)}/s, want ≤ 1.2)`);
+      && slow.moved > 0 && rate1 <= 1.2 && fast.moved >= 4 * slow.moved && fast.moved <= 17,
+    `buttons ${shown.join(' ')}; pressed at open ${atOpen}, after 16× ${after16}, after 1× ${after1}; 16×: ${fast.moved.toFixed(2)} s in ${fast.wall_s.toFixed(2)} s wall (${rate16.toFixed(1)}/s); 1×: ${slow.moved.toFixed(2)} s in ${slow.wall_s.toFixed(2)} s wall (${rate1.toFixed(2)}/s, want ≤ 1.2); 16× over 1×: ${(fast.moved / slow.moved).toFixed(1)} (want ≥ 4, and 16× ≤ 17 s)`);
 }
 
 /** Check 5: a lost WebGL context is rebuilt when it comes back, and the jet is drawn again. */

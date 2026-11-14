@@ -7065,7 +7065,7 @@ void (async () => {
   }
 }
 
-// ─── 0.4.0 playback B3: guards on the source tree ─────────────────────────────
+// ─── 0.4.0 playback B3 ────────────────────────────────────────────────────────
 // Checks on where files sit and what they import, not on what they compute: the two ways a later
 // change could quietly step round a rule the checks above lean on. Each carries its mutation proof
 // (2026-11-14): one temporary edit to the real tree, geo-check run, the FAIL line copied (shortened
