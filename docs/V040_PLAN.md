@@ -201,7 +201,8 @@ These are written for Qwen-Image, which renders English text well. Make
 > feather blades, thick dark outline, crisp edges. Limited palette: fiery
 > orange #F26A1B, deep red #C8281E, gold #F5B82E, on a solid deep navy #1A1A2E
 > background. The silhouette must stay recognisable at 32 pixels: no fine
-> detail, at most one subtle gradient. The bird fills about 80% of the square.
+> detail, at most one subtle gradient. The bird fills about 80% of the square,
+> with a clear margin on every side and nothing cropped at the edges.
 > No text, no letters, no border. Professional aviation app icon.
 
 Negative: *text, letters, words, watermark, signature, drink can, bottle,
@@ -225,7 +226,9 @@ in the centre with empty navy around it.
 > phoenix, a faint top-down green tactical map with a red dashed attack arrow
 > ending in a target ring. A curved banner across the top reads "PHOENIX
 > WEAPONEER". Gold merrowed border, visible thread texture, rich but clean
-> detail. The patch is about 65% of the image height.
+> detail. The patch is a perfect circle, about 65% of the image height, fully
+> inside the frame, with nothing breaking its border. Flat even lighting: no
+> drop shadow, no glow, no vignette, no texture on the background.
 
 Negative: *real military unit names, "Special Operations Command", national
 flags, national insignia, people, humanoid bird, uniform, room, desk,
@@ -234,6 +237,10 @@ interior, clutter, extra text, misspelled text, watermark, low resolution.*
 - **Optional:** a small motto banner at the bottom, in words the user
   chooses.
 - Check every letter on the patch. Generators misspell.
+- Why "a perfect circle, no shadow" (added 2026-11-14): a generator never
+  hits the window's exact navy, so D2 cuts the patch out with a circular mask
+  and sets it on the real `#1a1a2e`. A shadow or a broken border would leave
+  a visible edge.
 
 **Rules for any art that reaches the repo:**
 - No real unit names or insignia. The Sept 30 splash carried a real
