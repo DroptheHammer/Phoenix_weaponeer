@@ -3747,3 +3747,4 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   ok('card lighting: no lighting, an empty one, or one this build does not know gives Day',
      [undefined, null, '', 'banana', 'NIGHT', ' nvg'].every((l) => themeForLighting(l) === DAY_THEME));
 }
+import './landing-check';

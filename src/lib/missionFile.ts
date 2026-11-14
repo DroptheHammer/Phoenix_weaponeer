@@ -110,6 +110,16 @@ export async function openLocalMission(id: string): Promise<FileResult> {
   }
 }
 
+/**
+ * Commit a mission that already passed `validateMission`, exactly as Open does:
+ * into the store, and (when it came from a file) onto the recent list. The
+ * recent list is a no-op in the browser build, which keeps no file paths.
+ */
+export function adoptCheckedMission(mission: Mission, path: string | null): void {
+  useMissionStore.getState().loadMission(mission, path ?? undefined);
+  if (path) void useSettingsStore.getState().rememberRecentMission(path);
+}
+
 /** Loads a mission file already chosen — from the picker, or the recent list. */
 export async function openMissionAt(path: string): Promise<FileResult> {
   try {
@@ -120,8 +130,7 @@ export async function openMissionAt(path: string): Promise<FileResult> {
     if (!check.ok) {
       return { status: 'error', message: `Not a usable mission file — ${check.problems.join('; ')}` };
     }
-    useMissionStore.getState().loadMission(check.mission, path);
-    void useSettingsStore.getState().rememberRecentMission(path);
+    adoptCheckedMission(check.mission, path);
     return { status: 'ok', path };
   } catch (error) {
     return { status: 'error', message: String(error) };

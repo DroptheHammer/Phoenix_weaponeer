@@ -58,7 +58,9 @@ export function validateMission(raw: unknown): MissionCheck {
     });
   };
 
-  for (const key of ['id', 'name', 'theater']) text(raw, key, 'Mission');
+  // The desktop's Rust side already requires date, notes and the two timestamps; a
+  // mission pasted or dropped as text never passes through Rust, so it is checked here.
+  for (const key of ['id', 'name', 'theater', 'date', 'notes', 'createdAt', 'updatedAt']) text(raw, key, 'Mission');
   position(raw.bullseye, 'Mission bullseye');
 
   for (const [wp, n] of entries('waypoints')) {
