@@ -109,7 +109,7 @@ import { escapeHtml } from '../src/lib/html';
 import { runAttackChecks, hasErrors, noDataNote } from '../src/lib/attackChecks';
 import { readFileSync, readdirSync } from 'node:fs';
 import {
-  PlayClock, MAX_FRAME_DT_S, enuToThree, homePose, HOME_MARGIN, HOME_MIN_DIST_M, worldPerPixel, screenScale, nearPlaneFor, HOME_FOV,
+  PlayClock, MAX_FRAME_DT_S, SPEEDS, speedLabel, enuToThree, homePose, HOME_MARGIN, HOME_MIN_DIST_M, worldPerPixel, screenScale, nearPlaneFor, HOME_FOV,
   sceneSourceFrom, newSceneJetPose, newSceneBombPose, BG, MAX_DPR, ARROW_PX, JET_COLORS as SCENE_JET_COLORS, jetColor,
   terrainBoxOf, terrainGridOf, tileSpan, planDrape, planElevation, planTerrain, tilesOf, tilesNearestFirst, tileErrorOf,
   seaClamp, terrainTileValid, heightMosaic, sampleBilinear, gridLatLon, gridIndices, drapeUvs, buildTerrainMesh, onTriangles,
@@ -6083,6 +6083,39 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     ok('playback scene [P2]: the end stops play and tells the UI, Play at the end replays, seek and setRange clamp, and an ordinary frame changes no version and notifies no one',
        quiet && emitted && ended && replay && cLo && cHi && cRange && cInverted && unsubOk,
        `quiet ${quiet}, emit ${emitted}, ended ${ended} (${endState}), replay ${replay}, clamps ${cLo}/${cHi}/${cRange}/${cInverted}, unsubscribe ${unsubOk}`);
+
+    // [SP1] The speeds are 1×, 2×, 4×, 8×, 16× in that order, nothing slower, each button worded "N×",
+    // and a new clock starts at 1× (the default).
+    // Mutation proof: playClock.ts `SPEEDS = [1, 2, 4, 8, 16]` → `[0.5, 1, 2, 4, 8, 16]` (the old half speed back):
+    // (seen red 2026-11-14, the only failure):
+    //   FAIL playback scene [SP1]: the speeds are 1×, 2×, 4×, 8×, 16× in that order (no half speed), worded "N×", and a new clock starts at 1×  speeds [0.5,1,2,4,8,16], words 0.5× 1× 2× 4× 8× 16×, a new clock at 1 (snapshot 1)
+    const spClock = new PlayClock(0, 100);
+    const spWords = SPEEDS.map(speedLabel);
+    ok('playback scene [SP1]: the speeds are 1×, 2×, 4×, 8×, 16× in that order (no half speed), worded "N×", and a new clock starts at 1×',
+       JSON.stringify(SPEEDS) === '[1,2,4,8,16]' && spWords.join(' ') === '1× 2× 4× 8× 16×' && spClock.currentSpeed === 1 && spClock.getSnapshot().speed === 1,
+       `speeds ${JSON.stringify(SPEEDS)}, words ${spWords.join(' ')}, a new clock at ${spClock.currentSpeed} (snapshot ${spClock.getSnapshot().speed})`);
+
+    // [SP2] At 16× a frame still counts for at most 0.1 s before it is multiplied: 72 frames of 1/72 s
+    // (a second of wall time at 72 fps) move exactly 16 s, a single 0.25 s hitch only 1.6 s, and a
+    // paused clock stands still.
+    // Mutation proof: playClock.ts advance `Math.min(Math.max(wallDt_s, 0), MAX_FRAME_DT_S) * this.speed` →
+    // `Math.min(Math.max(wallDt_s, 0) * this.speed, MAX_FRAME_DT_S)` (cap after the multiply):
+    // (seen red 2026-11-14, with [P1] going red beside it):
+    //   FAIL playback scene [SP2]: at 16× 72 frames of 1/72 s move 16 s, one 0.25 s frame only 1.6 s (the frame is capped before the speed multiplies it), and paused 0  at 16×, 72 frames of 1/72 s moved 7.19999999999999 s (want 16), a 0.25 s frame moved 0.09999999999999964 s (want 1.6), paused moved 0
+    const sp16 = new PlayClock(0, 1000);
+    sp16.setSpeed(16);
+    sp16.play();
+    for (let i = 0; i < 72; i++) sp16.advance(1 / 72);
+    const spSecond = sp16.time;
+    sp16.advance(0.25);
+    const spHitch = sp16.time - spSecond;
+    sp16.pause();
+    const spPausedAt = sp16.time;
+    sp16.advance(1 / 72);
+    const spPaused = sp16.time - spPausedAt;
+    ok('playback scene [SP2]: at 16× 72 frames of 1/72 s move 16 s, one 0.25 s frame only 1.6 s (the frame is capped before the speed multiplies it), and paused 0',
+       Math.abs(spSecond - 16) < 1e-9 && Math.abs(spHitch - 1.6) < 1e-9 && spPaused === 0,
+       `at 16×, 72 frames of 1/72 s moved ${spSecond} s (want 16), a 0.25 s frame moved ${spHitch} s (want 1.6), paused moved ${spPaused}`);
 
     // [P5] and [R8] A pixel's size in the world, and the arrow's constant screen size with its floor at
     // true size: 28 px from orbit distance, its real 18 m close up. [P5]'s numbers: 10 km, 50° field of

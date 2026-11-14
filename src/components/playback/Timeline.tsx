@@ -1,5 +1,5 @@
 /**
- * Play, pause, the scrubber and the four speeds under the 3D view. The only
+ * Play, pause, the scrubber and the speeds under the 3D view. The only
  * part of playback that re-renders while it plays: it reads the scene's clock
  * through useSyncExternalStore, and the clock tells React at most about 12
  * times a second (the 3D itself moves every frame without React).
@@ -8,9 +8,10 @@
  * if it was playing, so the jet follows the finger instead of fighting it.
  */
 import { useSyncExternalStore } from 'react';
-import { SPEEDS, type Speed } from '../../lib/playbackScene';
+import { SPEEDS, speedLabel } from '../../lib/playbackScene';
 import { fmtStrikeTime } from '../../lib/strike';
 import type { PlaybackScene } from './scene/createScene';
+import { keepFocus, SEG } from './ui';
 
 /** A moment marked under the scrubber (IP push, pull-up, release, impact). */
 export interface TimelineTick {
@@ -23,8 +24,6 @@ interface TimelineProps {
   ticks: readonly TimelineTick[];
 }
 
-const SPEED_LABEL: Record<Speed, string> = { 0.5: '½×', 1: '1×', 2: '2×', 4: '4×' };
-
 export function Timeline({ scene, ticks }: TimelineProps) {
   const snap = useSyncExternalStore(scene.subscribe, scene.getSnapshot);
   const span = Math.max(snap.end - snap.start, 1e-6);
@@ -35,6 +34,7 @@ export function Timeline({ scene, ticks }: TimelineProps) {
       <button
         type="button"
         onClick={() => scene.toggle()}
+        onMouseDown={keepFocus}
         className="shrink-0 w-24 px-3 py-1.5 rounded text-sm bg-dcs-blue hover:bg-blue-800 text-white"
         aria-label={snap.playing ? 'Pause' : 'Play'}
         title={snap.playing ? 'Pause (Space)' : 'Play (Space)'}
@@ -78,11 +78,12 @@ export function Timeline({ scene, ticks }: TimelineProps) {
             key={s}
             type="button"
             onClick={() => scene.setSpeed(s)}
+            onMouseDown={keepFocus}
             aria-pressed={snap.speed === s}
-            className={`px-2 py-1.5 text-sm ${snap.speed === s ? 'bg-gray-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
-            title={`Play at ${SPEED_LABEL[s]} speed`}
+            className={`${SEG} ${snap.speed === s ? 'bg-gray-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+            title={`Play at ${speedLabel(s)} speed`}
           >
-            {SPEED_LABEL[s]}
+            {speedLabel(s)}
           </button>
         ))}
       </div>
@@ -90,6 +91,7 @@ export function Timeline({ scene, ticks }: TimelineProps) {
       <button
         type="button"
         onClick={() => scene.goHome()}
+        onMouseDown={keepFocus}
         className="shrink-0 px-3 py-1.5 rounded text-sm border border-gray-600 text-gray-200 hover:border-gray-400"
         title="Back to the view of the whole attack"
       >

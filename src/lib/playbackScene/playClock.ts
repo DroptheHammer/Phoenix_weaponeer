@@ -16,13 +16,27 @@
  * not re-render 60 times a second.
  */
 
-export const SPEEDS = [0.5, 1, 2, 4] as const;
+/**
+ * The speeds the buttons offer, strike seconds per wall second. 1× is the
+ * default; nothing runs slower. A frame is capped before it is multiplied (see
+ * `advance`), so a hitch at 16× moves 1.6 s of strike time and never leaps;
+ * under about 10 frames a second, 16× plays slower than 16×, by design.
+ */
+export const SPEEDS = [1, 2, 4, 8, 16] as const;
 export type Speed = (typeof SPEEDS)[number];
+
+/** The button's words: "1×" … "16×". */
+export function speedLabel(s: Speed): string {
+  return `${s}×`;
+}
 
 /** A frame longer than this (window hidden, debugger, GC) advances only this much: no leaps. */
 export const MAX_FRAME_DT_S = 0.1;
 
-/** While playing, the render loop emits a snapshot to the UI no more often than this (about 12 Hz). */
+/**
+ * While playing, the render loop emits a snapshot to the UI no more often than this (about 12 Hz).
+ * At 16× the readout and the scrubber thumb therefore jump about 1.3 s of strike time at a go.
+ */
 export const UI_EMIT_MS = 1000 / 12;
 
 export interface ClockSnapshot {

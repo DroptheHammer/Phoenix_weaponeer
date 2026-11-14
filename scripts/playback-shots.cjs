@@ -281,6 +281,58 @@ async function checkScrub(page) {
   step('6 50 scrubber drags keep one scene', after === before && moved, `sceneCreates ${before} → ${after}; times after every 10th drag: ${t.join(', ')}`);
 }
 
+/**
+ * Check 28: the speed buttons read exactly 1×, 2×, 4×, 8×, 16× (no ½×) with 1× pressed before any press;
+ * pressing 16× marks it pressed and a second of play then moves the clock about 16 s (3 to 17: a
+ * slow software renderer drops frames, and each frame counts for at most 0.1 s before the speed
+ * multiplies it), and 1× is back to about a second per second (at most 1.2). Wall time is read in
+ * the page, from the Play call to the Pause call, so the check's own round trips do not count.
+ *
+ * Measured 2026-11-14 on the software renderer at 1400x900: 16× moved 8.27 s in 1.00 s wall, 1× 0.61 s.
+ * Proven red 2026-11-14 by one temporary edit to src/lib/playbackScene/playClock.ts (`SPEEDS` =
+ * `[1, 2, 4, 8]`, no 16):
+ *   STEP FAIL 28 speed buttons 1×…16×, 16× plays about 16 s a second, 1× about 1 (1400x900) — buttons 1× 2× 4× 8×; pressed at open 1×, after 16× 1×, after 1× 1×; 16×: NaN s in NaN s wall (NaN/s, want 3 to 17); 1×: 0.52 s in 1.00 s wall (0.52/s, want ≤ 1.2)
+ */
+async function checkSpeeds(page, tag) {
+  const group = '[role="dialog"] [role="group"][aria-label="Speed"] button';
+  const labels = () => page.$$eval(group, (els) => els.map((e) => (e.textContent || '').trim()));
+  const pressed = () => page.$$eval(group, (els) => els.filter((e) => e.getAttribute('aria-pressed') === 'true').map((e) => (e.textContent || '').trim()));
+  // A second of play from the start of the range, paused again; the page measures its own wall time.
+  const playOneSecond = () => pbEval(page, async () => {
+    __pb.pause();
+    __pb.seek(__pb.snapshot().start);
+    const t0 = __pb.snapshot().t;
+    const w0 = performance.now();
+    __pb.play();
+    await new Promise((r) => setTimeout(r, 1000));
+    __pb.pause();
+    return { moved: __pb.snapshot().t - t0, wall_s: (performance.now() - w0) / 1000 };
+  });
+
+  // A missing button is a failed check with a reading, not a click that waits out its timeout.
+  const press = async (label) => {
+    const b = page.getByRole('button', { name: label, exact: true });
+    if ((await b.count()) === 0) return false;
+    await b.click();
+    return true;
+  };
+  const none = { moved: NaN, wall_s: NaN };
+
+  await pbEval(page, () => __pb.pause());
+  const shown = await labels();
+  const atOpen = await pressed();
+  const fast = (await press('16×')) ? await playOneSecond() : none;
+  const after16 = await pressed();
+  const slow = (await press('1×')) ? await playOneSecond() : none;
+  const after1 = await pressed();
+  const rate16 = fast.moved / fast.wall_s, rate1 = slow.moved / slow.wall_s;
+  const wordsOk = shown.join(' ') === '1× 2× 4× 8× 16×' && !shown.some((s) => s.includes('½'));
+  step(`28 speed buttons 1×…16×, 16× plays about 16 s a second, 1× about 1 (${tag})`,
+    wordsOk && atOpen.join() === '1×' && after16.join() === '16×' && after1.join() === '1×'
+      && fast.moved >= 3 && fast.moved <= 17 && rate1 <= 1.2 && slow.moved > 0,
+    `buttons ${shown.join(' ')}; pressed at open ${atOpen}, after 16× ${after16}, after 1× ${after1}; 16×: ${fast.moved.toFixed(2)} s in ${fast.wall_s.toFixed(2)} s wall (${rate16.toFixed(1)}/s, want 3 to 17); 1×: ${slow.moved.toFixed(2)} s in ${slow.wall_s.toFixed(2)} s wall (${rate1.toFixed(2)}/s, want ≤ 1.2)`);
+}
+
 /** Check 5: a lost WebGL context is rebuilt when it comes back, and the jet is drawn again. */
 async function checkContextLoss(page, tag) {
   const before = await pbEval(page, () => __pb.stats().sceneCreates);
@@ -398,6 +450,7 @@ async function runChecks(browser, base) {
     await checkFit(page, tag, w, h);
     if (w === 1400) {
       await checkScrub(page);
+      await checkSpeeds(page, tag);
       await checkContextLoss(page, tag);
       await checkOverlay(page);
       await checkOpenClose(page);
