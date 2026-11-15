@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { normalizeImportedCallsign } from '../lib/callsign';
 import { importNotes } from '../lib/importNotes';
 import { removeAttackFrom, moveAttackCustomIp } from '../lib/missionOps';
-import { saveStrikeTo, removeStrikeFrom } from '../lib/strike';
+import { saveStrikeTo, removeStrikeFrom, setStrikeOffsets as setStrikeOffsetsIn } from '../lib/strike';
 import type { CardLighting } from '../lib/cardTheme';
 import { COALESCE_MS, EMPTY_HISTORY, recordEdit, redoStep, undoStep } from '../lib/missionHistory';
 import { useUiStore } from './uiStore';
@@ -136,6 +136,11 @@ interface MissionState {
   ) => string[];
   /** Ungroup: members stay as plain attacks. */
   removeStrike: (id: string) => void;
+  /**
+   * Playback's Apply to plan: new TOT offsets (attack id → s) on a saved strike, re-based so whoever is first
+   * over the target leads at 0. One Undo step each time. An unknown strike changes nothing, and no step is made.
+   */
+  setStrikeOffsets: (strikeId: string, offsets: Record<string, number>) => void;
 
   // State management
   markClean: () => void;
@@ -420,6 +425,15 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const { mission } = get();
     if (!mission) return;
     edit({ ...removeStrikeFrom(mission, id), updatedAt: new Date().toISOString() });
+  },
+
+  // On the whole mission as stored (its hidden threats included), never a filtered copy: `edit` replaces it.
+  // No coalescing key, so each Apply is its own step for Undo.
+  setStrikeOffsets: (strikeId, offsets) => {
+    const { mission } = get();
+    if (!mission) return;
+    const next = setStrikeOffsetsIn(mission, strikeId, offsets);
+    if (next !== mission) edit({ ...next, updatedAt: new Date().toISOString() });
   },
 
   moveAttackCustomIp: (id, position) => {

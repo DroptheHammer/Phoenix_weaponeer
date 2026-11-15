@@ -124,7 +124,7 @@ function median(px) {
 const jetLike = (p) => p[2] > p[0] + 80 && p[1] > p[0] + 80 && Math.abs(p[1] - p[2]) < 70;
 
 // ── Page helpers.
-async function openPage(browser, url, w, h) {
+async function openPage(browser, url, w, h, waitForScene = true) {
   const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   const problems = [];
@@ -135,7 +135,7 @@ async function openPage(browser, url, w, h) {
     else if (/too many active webgl contexts/i.test(t)) problems.push(`console: ${t}`);
   });
   await page.goto(url);
-  await waitReady(page);
+  if (waitForScene) await waitReady(page);
   return { context, page, problems };
 }
 const waitReady = (page, timeout = 60000) => page.waitForFunction(() => window.__pb && window.__pb.ready, null, { timeout, polling: 100 });
@@ -2196,8 +2196,9 @@ async function checkWatchSeat(page, tag) {
 }
 
 /**
- * Check 14 (Apply from the editor): on the four-ship, with the theater note (the page whose small print is the
- * longest, four lanes and all) and the editor's way of writing the sliders replaced by a recorder.
+ * Check 14 (Apply from the editor): on the four-ship handed over as the attack editor hands one over (the page's
+ * door=editor), with the theater note (the page whose small print is the longest, four lanes and all) and the
+ * editor's way of writing the sliders replaced by a recorder. The attack list's Apply is the next check.
  * - As opened, nothing changed: "Apply to strike" is there and greyed (aria-disabled), pressing it writes nothing
  *   and shows no status line.
  * - #2's time typed as 25 (+15 s): Apply and Reset come on. Apply: the recorder holds one list, 0, 25, 40, 40 (each
@@ -2234,7 +2235,7 @@ async function checkWatchSeat(page, tag) {
  * What the check cannot see: in the editor the lead's time is always 0, so an Apply moves the strike's clock by
  * nothing and the playhead and the bar stay where they were. That the scene is handed the shift with the new
  * source was seen once with applyShift forced to 10 (not kept): "playhead -30.15 → -40.15, bar -50.15…80.00 →
- * -60.15…70.00". The attack list's Apply, whose shift is not 0, is where a check can hold it.
+ * -60.15…70.00". The attack list's Apply, whose shift is not 0, is where a check can hold it: check 34's second half.
  */
 async function checkApply(page, tag, w, h, problems) {
   const apply = page.locator('[role="dialog"] [data-apply]');
@@ -2322,6 +2323,235 @@ async function checkApply(page, tag, w, h, problems) {
   step(`14 Apply to strike writes the times to the editor's sliders, says so in one line, Reset then goes back to the applied times, and names the jets the cards will number differently (${tag})`, ok, parts.join('; '));
 }
 
+/**
+ * Check 14 (Apply from the attack list): on the four-ship handed over as the attack list hands a saved strike over
+ * (the plan as saved and the strike to play; the view builds the jets, and works out for itself what the cards go by
+ * when two jets share a time), with the theater note, and the plan's own store replaced by a recorder.
+ * - As opened, nothing changed: "Apply to plan" is there and greyed, with its tooltip, pressing it writes nothing and
+ *   shows no status line.
+ * - #2's time typed as 25 (+15 s): Apply and Reset come on. Apply: the recorder holds one record, each attack's time
+ *   by its id, 0, 25, 40, 40 (each less the earliest); the session holds 25 as both its plan and its time; Apply and Reset
+ *   are greyed again; the line under the footer is the one sentence "Applied to the plan: the cards now use these times.
+ *   To take it back, close playback and press Undo (⌘Z / Ctrl+Z), once for each Apply.", one row tall, its tooltip the
+ *   whole text; the playhead and the bar stay (the earliest is 0, so the strike's clock moves by nothing); Space still
+ *   plays and pauses; the canvas keeps its room (the floors of 7b).
+ * - #2 typed as 30: the line is gone, Apply and Reset on; Reset: #2 is 25 again (the times just applied), the line gone.
+ * - #3 typed as 5 (ahead of #2's 25), then Apply: the recorder's second record is 0, 25, 5, 40; the session's status names
+ *   the two jets the cards will number the other way round, the line says so ("The cards number jets in their order
+ *   over the target, so they now have #3 Viper 1-3 as #2 and #2 Viper 1-2 as #3. Playback keeps the numbers it opened
+ *   with."), still one row, and the canvas has its room.
+ * No page errors through it.
+ *
+ * Measured green 2026-11-15: the line is 16 px tall; the canvas 1400x576 and 1024x428 with it (floors 560 and 420).
+ *
+ * Proven red 2026-11-15, each by one temporary edit (the text is the part of the step's message that changes):
+ * - PlaybackView.tsx, the plan's `apply.write(written);` taken out (nothing reaches the plan; 34 goes red with it):
+ *   STEP FAIL 14 Apply to plan … (1400x900-strike4) — …; pressed: written [], session plan 25 and time 25, …; still written []; #3 at 5: written [], renumbered ["#3 Viper 1-3 as #2","#2 Viper 1-2 as #3"], …
+ * - PlaybackView.tsx, the `act({ type: 'applied', … })` call made `void ({ … })` (the session never told; 34 and the editor's 14 go red with it):
+ *   STEP FAIL 14 Apply to plan … — …; pressed: written [{"h-strike4-1":0,"h-strike4-2":25,…}], session plan 10 and time 25, status null/null, Apply on true, Reset on true, box 25, line none; …; Reset: #2 at 10 (want 25, the applied time), box 10, …; #3 at 5: written [{…},{"h-strike4-1":0,"h-strike4-2":10,"h-strike4-3":5,…}], renumbered null, line none; …
+ * - PlaybackView.tsx, buildView's `tie: launch.tie ?? (from && cardTie(…))` made `tie: launch.tie` (the list's jets have nothing to break a tie by, so none is said to be renumbered; only this check, the editor brings its own tie):
+ *   STEP FAIL 14 Apply to plan … (1400x900-strike4) — …; #3 at 5: written [{…},{"h-strike4-1":0,"h-strike4-2":25,"h-strike4-3":5,"h-strike4-4":40}], renumbered [], line ends "… playback and press Undo (⌘Z / Ctrl+Z), once for each Apply." 16 px tall; …
+ * - ui.ts, FOOTER_STATUS 'h-4' → 'h-12' (a status line three rows tall):
+ *   STEP FAIL 14 Apply to plan … (1400x900-strike4) — …; line "Applied to the plan: the cards now use these times. To take …" 48 px tall, …; canvas 1400x544 (want ≥ 1350x560); …
+ *   STEP FAIL 14 Apply to plan … (1024x768-strike4) — …; canvas 1024x396 (want ≥ 1000x420); …
+ */
+async function checkApplyPlan(page, tag, w, h, problems) {
+  const apply = page.locator('[role="dialog"] [data-apply]');
+  const reset = page.locator('[role="dialog"] [data-reset]');
+  const on = async (loc) => (await loc.getAttribute('aria-disabled')) === 'false';
+  const row = () => page.locator('[role="dialog"] [data-apply-status]');
+  const rowOf = async () => ((await row().count()) ? row().evaluate((e) => ({ text: e.textContent, title: e.getAttribute('title'), h: e.getBoundingClientRect().height, bottom: e.getBoundingClientRect().bottom })) : null);
+  const typeTime = async (n, v) => {
+    await boxOf(page, n).click();
+    await boxOf(page, n).fill(String(v));
+    await page.keyboard.press('Enter');
+    await settle(page, 300);
+  };
+  const [fw, fh] = LAYOUT_FLOOR[w];
+  const canvasOk = async () => {
+    const [cw, ch] = await page.$eval('[role="dialog"] canvas', (c) => [c.clientWidth, c.clientHeight]);
+    return { ok: cw >= fw && ch >= fh, text: `${cw}x${ch} (want ≥ ${fw}x${fh})` };
+  };
+  // The attack ids in seat order, and what a record of times looks like when the page writes it.
+  const ids = await pbEval(page, () => __pb.session().memberIds);
+  const rec = (...t) => JSON.stringify(Object.fromEntries(ids.map((id, i) => [id, t[i]])));
+  const applied = () => pbEval(page, () => JSON.stringify(__pb.applied));
+  const sess = () => pbEval(page, () => { const s = __pb.session(); const id = s.memberIds[1]; return { plan: s.plan_s[id], now: s.delays_s[id], renumbered: s.status ? s.status.renumbered : null, to: s.status ? s.status.to : null }; });
+  const parts = [];
+  let ok = true;
+  const note = (good, text) => { ok = ok && good; parts.push(text); };
+
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start + 20); });
+  await page.evaluate(() => document.querySelector('[role="dialog"]').focus());
+  await settle(page, 300);
+  // As opened.
+  const label = await apply.innerText();
+  const title = await apply.getAttribute('title');
+  const offAtOpen = !(await on(apply));
+  await apply.click({ force: true }); // Playwright will not click what is aria-disabled: force it, as a finger or a stray key would
+  await settle(page, 150);
+  const idle = { applied: await applied(), row: await rowOf() };
+  note(label === 'Apply to plan' && title === 'Write these times into the plan and the cards.' && offAtOpen && idle.applied === '[]' && idle.row === null,
+    `as opened: "${label}", greyed ${offAtOpen}, pressed: nothing written ${idle.applied}, line ${idle.row === null ? 'none' : 'showing'}`);
+
+  // +15 s on #2, then Apply.
+  await typeTime(2, 25);
+  const ready = { apply: await on(apply), reset: await on(reset), dirty: (await page.locator('[role="dialog"] [data-footer-dirty]').count()) === 1 };
+  const snap0 = await pbEval(page, () => __pb.snapshot());
+  await apply.click();
+  await settle(page, 400);
+  const snap1 = await pbEval(page, () => __pb.snapshot());
+  const first = { applied: await applied(), s: await sess(), apply: await on(apply), reset: await on(reset), row: await rowOf(), box: await boxOf(page, 2).inputValue() };
+  const focusOnPlayback = await page.evaluate(() => !!document.activeElement && document.activeElement.getAttribute('role') === 'dialog');
+  await page.keyboard.press(' ');
+  const played = await pbEval(page, () => __pb.snapshot().playing);
+  await page.keyboard.press(' ');
+  const paused = !(await pbEval(page, () => __pb.snapshot().playing));
+  await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start + 20); });
+  const room1 = await canvasOk();
+  await shot(page, `${tag}-14-plan-applied`);
+  const sentence = 'Applied to the plan: the cards now use these times. To take it back, close playback and press Undo (⌘Z / Ctrl+Z), once for each Apply.';
+  const stayed = Math.abs(snap1.t - snap0.t) < 0.01 && Math.abs(snap1.start - snap0.start) < 1e-6 && Math.abs(snap1.end - snap0.end) < 1e-6;
+  note(ready.apply && ready.reset && ready.dirty && first.applied === `[${rec(0, 25, 40, 40)}]` && first.s.plan === 25 && first.s.now === 25 && first.s.to === 'mission' && first.s.renumbered.length === 0 &&
+      !first.apply && !first.reset && first.box === '25' && !!first.row && first.row.text === sentence && first.row.title === first.row.text &&
+      first.row.h <= 17 && first.row.bottom <= h && stayed && focusOnPlayback && played && paused && room1.ok,
+    `#2 at 25: Apply on ${ready.apply}, Reset on ${ready.reset}, "changed" note ${ready.dirty}; pressed: written ${first.applied}, session plan ${first.s.plan} and time ${first.s.now}, status ${first.s.to}/${JSON.stringify(first.s.renumbered)}, Apply on ${first.apply}, Reset on ${first.reset}, box ${first.box}, ` +
+      `line ${first.row ? `"${first.row.text.slice(0, 60)}…" ${first.row.h.toFixed(0)} px tall, tooltip ${first.row.title === first.row.text ? 'the whole text' : 'not the whole text'}, bottom ${first.row.bottom.toFixed(0)}` : 'none'}; playhead ${snap0.t.toFixed(2)} → ${snap1.t.toFixed(2)}, bar ${snap0.start.toFixed(2)}…${snap0.end.toFixed(2)} → ${snap1.start.toFixed(2)}…${snap1.end.toFixed(2)}; focus kept ${focusOnPlayback}, Space ${played}/${paused}; canvas ${room1.text}`);
+
+  // Change again; Reset goes back to the applied times.
+  await typeTime(2, 30);
+  const changed = { row: await rowOf(), apply: await on(apply), reset: await on(reset) };
+  await reset.click();
+  await settle(page, 300);
+  const back = { now: (await sess()).now, box: await boxOf(page, 2).inputValue(), row: await rowOf(), apply: await on(apply), reset: await on(reset), written: await applied() };
+  note(changed.row === null && changed.apply && changed.reset && back.now === 25 && back.box === '25' && back.row === null && !back.apply && !back.reset && back.written === `[${rec(0, 25, 40, 40)}]`,
+    `#2 at 30: line ${changed.row === null ? 'gone' : 'still showing'}, Apply on ${changed.apply}, Reset on ${changed.reset}; Reset: #2 at ${back.now} (want 25, the applied time), box ${back.box}, line ${back.row === null ? 'gone' : 'showing'}, Apply on ${back.apply}, Reset on ${back.reset}, still written ${back.written}`);
+
+  // #3 ahead of #2: the cards will number them the other way round.
+  await typeTime(3, 5);
+  await apply.click();
+  await settle(page, 400);
+  const second = { applied: await applied(), s: await sess(), row: await rowOf() };
+  const room2 = await canvasOk();
+  await shot(page, `${tag}-14-plan-renumbered`);
+  const want = ['#3 Viper 1-3 as #2', '#2 Viper 1-2 as #3'];
+  const said = `The cards number jets in their order over the target, so they now have ${want[0]} and ${want[1]}. Playback keeps the numbers it opened with.`;
+  note(second.applied === `[${rec(0, 25, 40, 40)},${rec(0, 25, 5, 40)}]` && JSON.stringify(second.s.renumbered) === JSON.stringify(want) && !!second.row && second.row.text === `${sentence} ${said}` && second.row.h <= 17 && second.row.bottom <= h && room2.ok,
+    `#3 at 5: written ${second.applied}, renumbered ${JSON.stringify(second.s.renumbered)}, line ${second.row ? `ends "…${second.row.text.slice(-60)}" ${second.row.h.toFixed(0)} px tall` : 'none'}; canvas ${room2.text}`);
+
+  note(problems.length === 0, `page errors ${problems.length ? problems.slice(0, 4).join(' | ') : 'none'}`);
+  step(`14 Apply to plan writes the times into the plan by attack, says so in one line, Reset then goes back to the applied times, and names the jets the cards will number differently (${tag})`, ok, parts.join('; '));
+}
+
+/**
+ * Check 34 (the list's Apply moves the strike's clock): on the four-ship handed over as the attack list hands one
+ * over, at the default range, paused 2 s into the bar (nearer its start than the clock moves, see below). #2's time
+ * typed as -5 (15 s ahead of #1's 0, so it leads), then Apply to plan. The plan counts from whoever is first over the
+ * target, so each time is written less -5: the recorder holds 5, 0, 45, 45, and the strike's clock moves by -5 s. The
+ * playhead is on the same moment of the strike (it reads 5 s more than it did: t = old t - shift, 0.01), the time bar
+ * has moved with it (start and end 5 s on), the session holds 5, 0, 45, 45 as its plan and its times, #2's box says 0
+ * and #1's held time says T+0:05.
+ *
+ * Why 2 s in: the new bar starts 5 s later than the old one. A playhead more than 5 s into the old bar is inside the
+ * new bar too, so a writer that clamps the playhead into the new bar before the shift arrives (a third writer of the
+ * range) leaves it alone, and the check could not tell that from a shift that arrived correctly. Parked at 30 s in it
+ * stayed green under that very edit; 2 s in, the clamp moves it and the shift then carries it on from the wrong place.
+ *
+ * Measured green 2026-11-15, parked 2 s in: playhead -53.15 → -48.15, bar -55.15…80.00 → -50.15…85.00, exact to the
+ * digits shown.
+ *
+ * Proven red 2026-11-15, each by one temporary edit to PlaybackView.tsx:
+ * - an effect `useEffect(() => { sceneRef.current?.setRange(live); }, [live]);` added just before the setSource effect
+ *   (the range set whenever it changes: it clamps the playhead into the new bar before the shift reaches the scene):
+ *   STEP FAIL 34 the list's Apply moves the strike's clock: … (1400x900-strike4) — #2 at -5, Apply: written [{"h-strike4-1":5,"h-strike4-2":0,"h-strike4-3":45,"h-strike4-4":45}]; playhead -53.15 → -45.15 (want -48.15, off by 3.0e+0), bar -55.15…80.00 → -50.15…85.00 (off by 0.0e+0, 0.0e+0); …
+ *   (the drag half of 34 goes red with it too: "held at -50 s … range -100.15…80.00 vs -50.15…80.00 before (kept false)")
+ * - the setSource effect's `const shift_s = pendingShift.current;` made `const shift_s = 0;` (the scene is not told how far
+ *   the strike's clock moved: the bar goes with the new times, and the playhead is clamped into it where it stood):
+ *   STEP FAIL 34 the list's Apply moves the strike's clock: … — …; playhead -53.15 → -50.15 (want -48.15, off by -2.0e+0), bar -55.15…80.00 → -50.15…85.00 (off by 0.0e+0, 0.0e+0); session plan 5,0,45,45 times 5,0,45,45; …
+ * - the `act({ type: 'applied', … })` call made `void ({ … })` (the session never told, so the plan does not move either):
+ *   STEP FAIL 34 … — …; playhead -53.15 → -53.15 (want -48.15, off by -5.0e+0), bar -55.15…80.00 → -55.15…80.00 (off by -5.0e+0, -5.0e+0); session plan 0,10,40,40 times 0,-5,40,40; #2's box -5; …
+ */
+async function checkApplyShift(page, tag) {
+  const ids = await pbEval(page, () => __pb.session().memberIds);
+  const rec = (...t) => JSON.stringify(Object.fromEntries(ids.map((id, i) => [id, t[i]])));
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); });
+  await page.evaluate(() => document.querySelector('[role="dialog"]').focus());
+  await boxOf(page, 2).click();
+  await boxOf(page, 2).fill('-5');
+  await page.keyboard.press('Enter');
+  await settle(page, 400);
+  // 2 s into the bar, nearer its start than the clock moves (5 s): a playhead further in is inside the old bar and
+  // the new one alike, so clamping it into the new bar before the shift (a third writer of the range) changes nothing
+  // and could not be told from a shift that arrived correctly.
+  await pbEval(page, () => { __pb.seek(__pb.snapshot().start + 2); });
+  await settle(page, 300);
+  const before = await pbEval(page, () => __pb.snapshot());
+  await page.locator('[role="dialog"] [data-apply]').click();
+  await settle(page, 500);
+  const after = await pbEval(page, () => __pb.snapshot());
+  const s = await pbEval(page, () => { const x = __pb.session(); return { plan: x.memberIds.map((id) => x.plan_s[id]), now: x.memberIds.map((id) => x.delays_s[id]), written: JSON.stringify(__pb.applied) }; });
+  const box2 = await boxOf(page, 2).inputValue();
+  const cell1 = await page.locator('[role="dialog"] [data-readout="0"]').innerText();
+  const shift = -5;
+  const dt = after.t - (before.t - shift), ds = after.start - (before.start - shift), de = after.end - (before.end - shift);
+  step(`34 the list's Apply moves the strike's clock: the playhead stays on the same moment and the time bar goes with it (${tag})`,
+    Math.abs(dt) < 0.01 && Math.abs(ds) < 1e-6 && Math.abs(de) < 1e-6 && s.written === `[${rec(5, 0, 45, 45)}]` && s.plan.join() === '5,0,45,45' && s.now.join() === '5,0,45,45' && box2 === '0' && /T\+0:05/.test(cell1),
+    `#2 at -5, Apply: written ${s.written}; playhead ${before.t.toFixed(2)} → ${after.t.toFixed(2)} (want ${(before.t - shift).toFixed(2)}, off by ${dt.toExponential(1)}), bar ${before.start.toFixed(2)}…${before.end.toFixed(2)} → ${after.start.toFixed(2)}…${after.end.toFixed(2)} (off by ${ds.toExponential(1)}, ${de.toExponential(1)}); ` +
+      `session plan ${s.plan.join()} times ${s.now.join()}; #2's box ${box2}; #1's cell ${JSON.stringify(cell1)}`);
+}
+
+/**
+ * Check 38 (a lone attack played from the attack list): the pop-up handed over as the list hands over one attack's row (the
+ * plan as saved, with the attack in it as the planner's third, and the attack to play). The view builds the jet from the plan:
+ * the title plate says "Viper 1-1 · attack #3" (the callsign and the attack's own number, so the 3 does not read as a second
+ * seat number), there is one lane and no Apply (a lone attack has no times to move: "One jet: nothing to space."), the playback
+ * is watching its one jet, and it opens at the start of its time bar.
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, buildView's `const title = launch.title ?? (lone ? … : input.name);`
+ * made `const title = launch.title ?? input.name;` (the library's own name, "Viper 1-1 #3", which reads like a seat):
+ *   STEP FAIL 38 a lone attack played from the attack list … (1400x900-one-list) — title "Viper 1-1 #3" (want "Viper 1-1 · attack #3"); …
+ */
+async function checkLoneFromList(page, tag, problems) {
+  const want = 'Viper 1-1 · attack #3';
+  const plate = await page.$$eval('[role="dialog"] div.truncate', (els) => els.map((e) => e.textContent).filter((t) => /^Viper 1-1/.test(t || '')));
+  const s = await pbEval(page, () => { const x = __pb.session(); return { ids: x.memberIds, watched: x.watched }; });
+  const snap = await pbEval(page, () => __pb.snapshot());
+  const range = await pbEval(page, () => __pb.moments.range);
+  const lanes = await page.locator('[role="dialog"] [data-lane]').count();
+  const applyButtons = await page.locator('[role="dialog"] [data-apply]').count();
+  const single = await page.locator('[role="dialog"] [data-footer-single]').count();
+  step(`38 a lone attack played from the attack list: titled by callsign and attack number, one lane, no Apply (${tag})`,
+    plate.length === 1 && plate[0] === want && s.ids.join() === 'h-attack' && s.watched === 0 && lanes === 1 && applyButtons === 0 && single === 1 && Math.abs(snap.t - range.t0_s) < 0.05 && problems.length === 0,
+    `title ${plate.length === 1 ? JSON.stringify(plate[0]) : `${plate.length} plates`} (want ${JSON.stringify(want)}); members ${s.ids.join()}, watching seat ${s.watched}; ${lanes} lane, Apply buttons ${applyButtons}, "nothing to space" note ${single}; time ${snap.t.toFixed(2)} at the bar's start ${range.t0_s.toFixed(2)}; page errors ${problems.length ? problems.slice(0, 3).join(' | ') : 'none'}`);
+}
+
+/**
+ * Check 39 (a strike that is no longer in the plan, played from the attack list): the four-ship handed over as the list
+ * hands one over, but naming a strike the plan does not hold (as if it had been taken out after Play was pressed).
+ * Playback opens on its "Nothing to play" screen, which says "This strike or attack is no longer in the plan." and that
+ * the plan is unchanged; it draws no 3D, no lanes and no Apply, and its Close button shuts it. No page errors.
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, buildView's `message: from ? 'This strike or attack is no
+ * longer in the plan.' : 'Nothing could be built from this plan yet.'` made the second sentence alone (what a launch with no
+ * plan in it says):
+ *   STEP FAIL 39 a strike no longer in the plan, played from the attack list: says so, draws nothing, and closes (1400x900-strike4) — heading "Nothing to play", says it is gone false ("Nothing to play Nothing could be built from this plan yet. Your plan is unchanged, and the map and side view still show the attack"…); canvases 0, lanes 0, Apply buttons 0; closed; page errors none
+ */
+async function checkGoneFromList(browser, base) {
+  const { context, page, problems } = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&gone=1`, 1400, 900, false);
+  const dialog = page.locator('[role="dialog"]');
+  await dialog.locator('h3').first().waitFor({ timeout: 30000 });
+  const heading = await dialog.locator('h3').first().innerText();
+  const text = (await dialog.innerText()).replace(/\s+/g, ' ');
+  const gone = text.includes('This strike or attack is no longer in the plan. Your plan is unchanged');
+  const drawn = { canvases: await dialog.locator('canvas').count(), lanes: await dialog.locator('[data-lane]').count(), apply: await dialog.locator('[data-apply]').count() };
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialogGone(page);
+  step('39 a strike no longer in the plan, played from the attack list: says so, draws nothing, and closes (1400x900-strike4)',
+    heading === 'Nothing to play' && gone && drawn.canvases === 0 && drawn.lanes === 0 && drawn.apply === 0 && problems.length === 0,
+    `heading ${JSON.stringify(heading)}, says it is gone ${gone} (${JSON.stringify(text.slice(text.indexOf('Nothing to play'), text.indexOf('Nothing to play') + 130))}…); canvases ${drawn.canvases}, lanes ${drawn.lanes}, Apply buttons ${drawn.apply}; closed; page errors ${problems.length ? problems.slice(0, 3).join(' | ') : 'none'}`);
+  await context.close();
+}
+
 async function runStrikeChecks(browser, base) {
   for (const [w, h] of [[1400, 900], [1024, 768]]) {
     const tag = `${w}x${h}`;
@@ -2364,9 +2594,19 @@ async function runStrikeChecks(browser, base) {
     // tightest the rows get (a page of its own: the note takes a row from the pictures the checks above measure).
     const lay = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1`, w, h);
     await checkLayout(lay.page, `${tag}-strike4`, w, h, 4);
-    // 14 on the same page: it changes the times, and wants the tightest rows under the picture.
-    await checkApply(lay.page, `${tag}-strike4`, w, h, lay.problems);
+    // 14 on the same page, the attack list's way: it changes the times, and wants the tightest rows under the picture.
+    await checkApplyPlan(lay.page, `${tag}-strike4`, w, h, lay.problems);
     await lay.context.close();
+    // 14 again on a page of its own, the attack editor's way (the same four jets handed over as the editor hands them over).
+    const ed = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1&door=editor`, w, h);
+    await checkApply(ed.page, `${tag}-strike4-editor`, w, h, ed.problems);
+    await ed.context.close();
+    if (w === 1400) {
+      // 34's second half: a list Apply whose clock shift is not 0.
+      const sh = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4`, w, h);
+      await checkApplyShift(sh.page, `${tag}-strike4`);
+      await sh.context.close();
+    }
   }
   {
     const tag = '1400x900';
@@ -2381,6 +2621,10 @@ async function runStrikeChecks(browser, base) {
     const s3 = await openPage(browser, `${base}?tiles=synthetic&fixture=skip&watch=3`, 1400, 900);
     await checkChaseBySeat(s3.page, `${tag}-skip`);
     await s3.context.close();
+    const lone = await openPage(browser, `${base}?tiles=synthetic&fixture=one&door=list`, 1400, 900);
+    await checkLoneFromList(lone.page, `${tag}-one-list`, lone.problems);
+    await lone.context.close();
+    await checkGoneFromList(browser, base);
   }
 }
 

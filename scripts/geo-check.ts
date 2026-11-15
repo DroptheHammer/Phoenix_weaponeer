@@ -141,7 +141,7 @@ import {
   initSession, sessionReducer, isDirty, conflictBands, SEAT_TEXT, SEAT_ON_BG, SEAT_ON_TEXT, QUIET_TEXT, WARN_TEXT, type Session, type SessionAction, type ShowAction,
 } from '../src/lib/playbackScene';
 import { laneAxis, zoneBands, seatInConflict, seatConflictTitle, handleKeyStep, READOUT_TEXT, BOX_FILL, BOX_EDGE } from '../src/lib/playbackScene';
-import { editorOffsets, applyShift, cardOrder, renumbered, renumberedText, applyStatusLines, APPLY_WORDS } from '../src/lib/playbackScene';
+import { editorOffsets, planOffsets, applyShift, cardOrder, renumbered, renumberedText, applyStatusLines, APPLY_WORDS } from '../src/lib/playbackScene';
 import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle } from '../src/components/playback/laneText';
 import {
   LANE, LANES, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, LANE_SKIPPED, FOOTER_OK, FOOTER_MORE, FOOTER_WARN, FOOTER_REST,
@@ -153,7 +153,8 @@ import {
   ZOOM_SPEED, MAX_POLAR_DEG, TOP_POLAR_RAD, MIN_CAMERA_AGL_M, type ControlsConfig,
 } from '../src/lib/playbackScene';
 import { harnessLaunch } from '../src/components/playback/dev/fixture';
-import { playbackLaunchFromEditor, theaterNotes } from '../src/components/playback/launch';
+import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
+import { cardTie } from '../src/components/playback/cardTie';
 import { groundNote, REAL_GROUND_NOTE } from '../src/components/playback/StatusNotes';
 import { draftIpAnchor } from '../src/lib/attackDraft';
 import { useTheaterStore, type TheaterInfo } from '../src/stores/theaterStore';
@@ -8864,16 +8865,19 @@ void (async () => {
 
     // [A1] The editor's Apply writes each member's time less the first member's, in member order, to the
     // thousandth of a second: 20/0/40 → 0/−20/+20; a lead at 0 leaves the times as they are; a time that
-    // needs rounding is rounded (12.3456 → 12.346; 0.3 − 0.1 → 0.2, not 0.19999999999999998); a difference
-    // too small to show is 0 and not −0; no members, no times.
+    // needs rounding is rounded (12.3456 → 12.346; 0.3 − 0.1 → 0.2, not 0.19999999999999998); a member 0.0004 s
+    // ahead of the first (a difference too small to show, and below 0) is 0 and not −0; no members, no times.
     // Mutation proof (seen red 2026-11-15): apply.ts editorOffsets `const lead = delays[memberIds[0]]` → `const lead = Math.min(...memberIds.map((m) => delays[m]))` (subtracts the earliest, not the first):
     //   FAIL playback B3 [A1]: … 20/0/40: 20,0,40 (want 0,-20,20)
     // (A2 and A6 go red with it, below.)
+    // and apply.ts `const toMs = (s: number) => Math.round(s * 1000) / 1000 + 0;` without its `+ 0` (Math.round(−0.4) is −0; the case was
+    // first written with the member 0.0004 s behind, which can never give −0, and stayed green under this edit):
+    //   FAIL playback B3 [A1]: … a difference of −0.0004 s is −0 (want 0)
     const a1 = {
       shifted: editorOffsets(['m1', 'm2', 'm3'], { m1: 20, m2: 0, m3: 40 }),
       leadAtZero: editorOffsets(apIds, { 'b3-1': 0, 'b3-2': 10, 'b3-3': 40, 'b3-4': 40 }),
       round: editorOffsets(['a', 'b', 'c'], { a: 0, b: 12.3456, c: 0.3 - 0.1 }),
-      minusZero: editorOffsets(['a', 'b'], { a: 5, b: 5.0004 }),
+      minusZero: editorOffsets(['a', 'b'], { a: 5, b: 4.9996 }),
       none: editorOffsets([], {}),
     };
     const a1Bad: string[] = [];
@@ -8902,7 +8906,7 @@ void (async () => {
     for (const [name, delays] of a2Cases) {
       const e = apEditor(strike4, 'b3');
       const editorWay = apOffsetsOf(apSave(e, withTotOffsets(e.jets, editorOffsets(apIds, delays))).mission, 'b3', apIds);
-      const listWay = apOffsetsOf(setStrikeOffsets(strike4, 'b3', delaysToOffsets(s4Pb, delays)), 'b3', apIds);
+      const listWay = apOffsetsOf(setStrikeOffsets(strike4, 'b3', planOffsets(s4Pb, delays)), 'b3', apIds);
       if (JSON.stringify(editorWay) !== JSON.stringify(listWay)) a2Bad.push(`${name}: the editor stores ${JSON.stringify(editorWay)}, the attack list ${JSON.stringify(listWay)}`);
     }
     ok('playback B3 [A2]: Apply from the editor (written to its jets, then saved) and Apply from the attack list (setStrikeOffsets) leave the strike with the same times over target: lead first, a wingman first, three on one time',
@@ -8968,6 +8972,9 @@ void (async () => {
     // and launch.ts `attack && !attack.id.startsWith('draft-') ? attack.sequenceNumber : 1e9 + i` → `attack ? attack.sequenceNumber : 1e9 + i` (a draft takes the number it shows, which can sit below a saved attack's, not one after every saved attack):
     //   FAIL playback B3 [A6]: … a draft not saved yet on a tie with a saved attack of the same flight position and a higher number, the editor: cards [0,1,3,2], playback says [0,1,2,3]; … renumbered [] (want [[3,2],[2,3]])
     // (A1's mutation turns it red too: "a wingman first, the editor: cards [0,1,2,3], playback says [1,0,2,3]".)
+    // The attack list's side takes its tie from the view's own cardTie (cardTie.ts) and its times from planOffsets. Mutation proof (seen
+    // red 2026-11-15): cardTie.ts `pilot?.position ?? 9` → `9` (no flight position):
+    //   FAIL playback B3 [A6]: … flight positions reversed, a new tie, the attack list: cards [0,1,3,2], playback says [0,1,2,3]; flight positions reversed, a new tie, the attack list: renumbered [] (want [[3,2],[2,3]])
     type A6Case = { name: string; m: Mission; sid: string; bySeat: number[]; want: [number, number][]; unsaved?: number; editorOnly?: boolean };
     const a6Cases: A6Case[] = [
       { name: 'flight positions reversed, a new tie', m: apRev, sid: 'br', bySeat: [0, 10, 30, 30], want: [[3, 2], [2, 3]] },
@@ -8992,14 +8999,11 @@ void (async () => {
       // The attack list.
       const lpb = buildStrikePlayback(playbackInputFromMission(c.m, { strikeId: c.sid }, refWeapons as never)!);
       const lids = lpb.members.map((mb) => mb.id);
-      const off = delaysToOffsets(lpb, Object.fromEntries(lids.map((id, i) => [id, c.bySeat[i]])));
+      const off = planOffsets(lpb, Object.fromEntries(lids.map((id, i) => [id, c.bySeat[i]])));
       const lwritten = lids.map((id) => off[id]);
-      const ltie = lids.map((id): [number, number] => {
-        const a = c.m.attacks.find((x) => x.id === id)!;
-        return [c.m.flightMembers.find((f) => f.id === a.attackerId)?.position ?? 9, a.sequenceNumber];
-      });
+      // What the attack list's playback gives to break a tie: the view's own cardTie, over the saved plan.
       const lreal = strikeMembers(setStrikeOffsets(c.m, c.sid, off), c.sid).map((a) => lids.indexOf(a.id));
-      const lsaid = cardOrder(lwritten, ltie);
+      const lsaid = cardOrder(lwritten, cardTie(c.m, lids));
       if (JSON.stringify(lsaid) !== JSON.stringify(lreal)) a6Bad.push(`${c.name}, the attack list: cards ${JSON.stringify(lreal)}, playback says ${JSON.stringify(lsaid)}`);
       if (JSON.stringify(renumbered(lsaid)) !== JSON.stringify(c.want)) a6Bad.push(`${c.name}, the attack list: renumbered ${JSON.stringify(renumbered(lsaid))} (want ${JSON.stringify(c.want)})`);
     }
@@ -9045,6 +9049,102 @@ void (async () => {
     }
     ok('playback B3 [A7]: the applied times go to the editor\'s jets by index; a time that is not a number leaves that jet\'s alone; a list of the wrong length changes nothing (the same array)',
        a7Bad.length === 0, a7Bad.join('; ') || 'four times; NaN and Infinity keep; three, five and none leave the array alone');
+
+    // ── The attack list's Play and Apply (launch.ts playbackLaunchFromMission, missionStore setStrikeOffsets,
+    // apply.ts planOffsets, cardTie.ts). The plan sits in the real store, as the list reads it: the four-ship
+    // saved as a strike, with a threat its author hid.
+    const a4Store = useMissionStore;
+    const a4Hidden = { id: 'a4-hidden', systemId: 'sa11', position: tgt, status: 'active', source: 'mission', hiddenOnPlanner: true } as never as ThreatInstance;
+    const a4Times = (m: Mission) => JSON.stringify(Object.fromEntries(strikeMembers(m, 'b3').map((a) => [a.id, a.totOffset_s])));
+
+    // [A1b] The plan's Apply writes each member's time less the earliest, by attack id, to a thousandth of a second
+    // (the attack list prints its offsets raw, so no 0.1 + 0.2 noise may reach it): the earliest lands on 0
+    // exactly, a time 0.0004 s after it on 0, 12.3456 on 12.346 and 0.3 − 0.1 on 0.2. (No −0 clause: every time
+    // here is the earliest's gap to it, never below 0, so a −0 cannot arise; A1 holds it where it can.)
+    // Mutation proof (seen red 2026-11-15): apply.ts planOffsets `[id, toMs(s)]` → `[id, s]` (written as they come):
+    //   FAIL playback B3 [A1b]: … {"b3-1":0.0004,"b3-2":12.346,"b3-3":0.2004,"b3-4":0} (want {"b3-1":0,"b3-2":12.346,"b3-3":0.2,"b3-4":0})
+    const a1b = planOffsets(s4Pb, { 'b3-1': 0, 'b3-2': 12.3456, 'b3-3': 0.3 - 0.1, 'b3-4': -0.0004 });
+    const a1bOk = JSON.stringify(a1b) === '{"b3-1":0,"b3-2":12.346,"b3-3":0.2,"b3-4":0}';
+    ok('playback B3 [A1b]: the plan\'s Apply writes each member\'s time less the earliest, by attack id, to a thousandth of a second',
+       a1bOk, `${JSON.stringify(a1b)} (want {"b3-1":0,"b3-2":12.346,"b3-3":0.2,"b3-4":0})`);
+
+    // [A4] The store's Apply to plan, on the whole mission as stored. #2 sent 15 s ahead of the lead (the times given
+    // are not yet re-based: the store re-bases on whoever is first, so #2 leads at 0 and the rest move 15 s on): the
+    // hidden threat is still on the plan, the strike keeps its spacing, the times are what the planner's own save of
+    // that plan would make, and it is one step for Undo, which gives back the very mission it was. A second Apply is a
+    // second step. A strike that is not there, or no plan open, changes nothing and makes no step.
+    // Mutation proof (seen red 2026-11-15): missionStore.ts setStrikeOffsets `setStrikeOffsetsIn(mission, …)` → `setStrikeOffsetsIn({ ...mission, threats: [] }, …)`
+    // (the plan as a view without its hidden threats, which is what playback is handed):
+    //   FAIL playback B3 [A4]: … the hidden threat is gone from the plan (0 threats); an unknown strike made a step or changed the plan
+    // (the second clause is the same edit: the view is a new object whichever strike is named, so it is never "no change".)
+    a4Store.getState().loadMission({ ...strike4, threats: [a4Hidden] });
+    const a4Open = a4Store.getState().mission!;
+    a4Store.getState().setStrikeOffsets('b3', { 'b3-1': 5, 'b3-2': -15, 'b3-3': 45, 'b3-4': 45 });
+    const a4One = a4Store.getState();
+    const a4Bad: string[] = [];
+    if (a4One.mission!.threats.length !== 1 || a4One.mission!.threats[0] !== a4Hidden) a4Bad.push(`the hidden threat is gone from the plan (${a4One.mission!.threats.length} threats)`);
+    if (a4Times(a4One.mission!) !== '{"b3-2":0,"b3-1":20,"b3-3":60,"b3-4":60}') a4Bad.push(`times ${a4Times(a4One.mission!)} (want #2 first at 0, then 20, 60, 60)`);
+    if (a4One.past.length !== 1 || !a4One.isDirty) a4Bad.push(`${a4One.past.length} steps for Undo, unsaved ${a4One.isDirty} (want 1, true)`);
+    if (strikeOf(a4One.mission!, 'b3')?.spacing_s !== 10 || a4One.mission!.strikes !== a4Open.strikes) a4Bad.push('the strike was changed');
+    if (a4One.mission!.attacks.some((a, i) => a.profile !== a4Open.attacks[i].profile)) a4Bad.push('an attack lost its own profile object');
+    a4Store.getState().setStrikeOffsets('b3', { 'b3-1': 20, 'b3-2': 0, 'b3-3': 66, 'b3-4': 60 });
+    if (a4Store.getState().past.length !== 2 || a4Times(a4Store.getState().mission!) !== '{"b3-2":0,"b3-1":20,"b3-4":60,"b3-3":66}') a4Bad.push(`a second Apply: ${a4Store.getState().past.length} steps (want 2), times ${a4Times(a4Store.getState().mission!)}`);
+    a4Store.getState().undo();
+    a4Store.getState().undo();
+    if (a4Store.getState().mission !== a4Open || a4Store.getState().past.length !== 0) a4Bad.push('two Undos did not give back the plan as it was');
+    const a4Same = a4Store.getState().mission;
+    a4Store.getState().setStrikeOffsets('no-such-strike', { 'b3-1': 99 });
+    if (a4Store.getState().mission !== a4Same || a4Store.getState().past.length !== 0 || a4Store.getState().isDirty) a4Bad.push('an unknown strike made a step or changed the plan');
+    a4Store.getState().closeMission();
+    a4Store.getState().setStrikeOffsets('b3', { 'b3-1': 99 });
+    if (a4Store.getState().mission !== null || a4Store.getState().past.length !== 0) a4Bad.push('with no plan open it did something');
+    ok('playback B3 [A4]: Apply to plan re-bases the strike on whoever is first and keeps its hidden threats and its spacing; each Apply is one step for Undo, a strike not there or no plan open makes none',
+       a4Bad.length === 0, a4Bad.join('; ') || 'times 20/0/60/60 after #2 −15; 1 then 2 steps, two Undos give the plan back; hidden threat kept; unknown strike and no plan: nothing');
+
+    // [L4] The attack list's Play hands over the plan as saved (the very attacks and strikes the list shows) without
+    // its threats, the strike or attack to play, and the weapon table; Apply only for a strike, and it writes into
+    // the store's plan; the row's attack is the jet to watch; the theater notes come from the whole mission; with no
+    // plan open there is no launch. The jets the view builds from it are the four-ship's, as saved.
+    // Mutation proof (seen red 2026-11-15): launch.ts playbackLaunchFromMission `fromMission: { mission: { ...mission, threats: [] }, subject, weapons }` → `fromMission: { mission, subject, weapons }`:
+    //   FAIL playback B3 [L4]: … the plan goes in with 1 threats (want 0)
+    // and `apply: 'strikeId' in subject ? {` → `apply: subject ? {` (a lone attack offered Apply):
+    //   FAIL playback B3 [L4]: … a lone attack is offered Apply
+    // and `jetId: 'attackId' in subject ? subject.attackId : undefined,` → `jetId: undefined,` with `notes: theaterNotes(mission),` → `notes: theaterNotes({ ...mission, theater: 'nevada' }),`:
+    //   FAIL playback B3 [L4]: … jet to watch: strike undefined, row undefined (want none, b3-2); notes []
+    const l4Theater = (id: string, verified: boolean) => ({ dcs_name: id, id, display_name: id === 'nevada' ? 'Nevada' : 'Kola', supported: true, verified, default_center: tgt }) as TheaterInfo;
+    const l4Before = useTheaterStore.getState();
+    useTheaterStore.setState({ theaters: { nevada: l4Theater('nevada', true), kola: l4Theater('kola', false) }, loaded: true });
+    a4Store.getState().loadMission({ ...strike4, theater: 'kola' as never, threats: [a4Hidden] });
+    const l4Stored = a4Store.getState().mission!;
+    const l4Weapons = refWeapons as never;
+    const l4Strike = playbackLaunchFromMission({ strikeId: 'b3' }, l4Weapons);
+    const l4Attack = playbackLaunchFromMission({ attackId: 'b3-2' }, l4Weapons);
+    const l4From = l4Strike?.fromMission;
+    const l4Pb = l4From && buildStrikePlayback(playbackInputFromMission(l4From.mission, l4From.subject, l4From.weapons)!);
+    if (l4Strike?.apply?.to === 'mission') l4Strike.apply.write({ 'b3-1': 0, 'b3-2': 25, 'b3-3': 40, 'b3-4': 40 });
+    const l4Written = a4Times(a4Store.getState().mission!);
+    const l4Steps = a4Store.getState().past.length;
+    a4Store.getState().closeMission();
+    const l4None = playbackLaunchFromMission({ strikeId: 'b3' }, l4Weapons);
+    useTheaterStore.setState({ theaters: l4Before.theaters, loaded: l4Before.loaded });
+    const l4Bad: string[] = [];
+    if (!l4From) l4Bad.push('no plan in the launch');
+    else {
+      if (l4From.mission.threats.length !== 0) l4Bad.push(`the plan goes in with ${l4From.mission.threats.length} threats (want 0)`);
+      if (l4Stored.threats.length !== 1) l4Bad.push('the stored plan lost its threat');
+      if (l4From.mission.attacks !== l4Stored.attacks || l4From.mission.strikes !== l4Stored.strikes || l4From.mission.waypoints !== l4Stored.waypoints) l4Bad.push('the plan is not the one saved');
+      if (JSON.stringify(l4From.subject) !== '{"strikeId":"b3"}' || l4From.weapons !== l4Weapons) l4Bad.push('the subject or the weapon table was changed');
+    }
+    if (l4Strike?.input !== undefined) l4Bad.push('the list hands over jets already built');
+    if (l4Pb?.members.map((m) => m.id).join() !== s4Pb.members.map((m) => m.id).join() || JSON.stringify(l4Pb?.planDelays_s) !== JSON.stringify(s4Pb.planDelays_s)) l4Bad.push('the jets built from the launch are not the four-ship\'s');
+    if (l4Strike?.apply?.to !== 'mission') l4Bad.push(`a strike's Apply goes to ${l4Strike?.apply?.to} (want the plan)`);
+    if (l4Attack?.apply !== undefined) l4Bad.push('a lone attack is offered Apply');
+    if (l4Strike?.jetId !== undefined || l4Attack?.jetId !== 'b3-2') l4Bad.push(`jet to watch: strike ${l4Strike?.jetId}, row ${l4Attack?.jetId} (want none, b3-2)`);
+    if (l4Written !== '{"b3-1":0,"b3-2":25,"b3-3":40,"b3-4":40}' || l4Steps !== 1) l4Bad.push(`Apply wrote ${l4Written} in ${l4Steps} steps (want the times, 1 step)`);
+    if (l4Strike?.notes.length !== 1 || !/^Kola: coordinates unverified/.test(l4Strike.notes[0]) || l4Attack?.notes.join() !== l4Strike?.notes.join()) l4Bad.push(`notes ${JSON.stringify(l4Strike?.notes)}`);
+    if (l4None !== undefined) l4Bad.push('a launch with no plan open');
+    ok('playback B3 [L4]: the list\'s Play hands over the saved plan without its threats, the strike or attack and the weapons; Apply only for a strike and into the plan; the row\'s attack to watch; the theater notes; nothing with no plan open',
+       l4Bad.length === 0, l4Bad.join('; ') || 'plan as saved, 0 of 1 threats; strike: Apply to the plan, row: none, watching b3-2; notes 1; no plan: no launch');
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }

@@ -11,16 +11,20 @@
  * cards. Kept out of the editor so the editor keeps one import and
  * one element for playback. Small and free of three.js: it sits in the eager
  * desktop bundle, and only runs when the button is pressed.
+ *
+ * The attack list's Play hands over the plan as saved instead (a strike, or
+ * one attack), and for a strike a way to write the times into the plan itself.
  */
-import type { Attack, Mission } from '../../types';
+import type { Attack, DbWeapon, Mission } from '../../types';
 import type { IpAnchor } from '../../lib/ipAnchor';
 import type { ResolvedDraft } from '../../lib/attackDraft';
-import type { PlaybackInput, PlaybackJetInput, SkippedJet } from '../../lib/playback';
+import type { PlaybackInput, PlaybackJetInput, PlaybackSubject, SkippedJet } from '../../lib/playback';
 import { attackSpeedOf } from '../../lib/strike';
 import { getTheaterInfo } from '../../stores/theaterStore';
+import { useMissionStore } from '../../stores/missionStore';
 import { isRealWorld } from '../../lib/strikeNearMe';
 import { formatCallsign } from '../../lib/callsign';
-import type { PlaybackApply, PlaybackLaunch } from './types';
+import type { EditorLaunch, PlaybackApply, PlaybackLaunch } from './types';
 
 /** One jet as the editor holds it: the attack as it would save, and where its run-in starts. */
 export interface EditorDraft {
@@ -56,7 +60,7 @@ const NOT_READY = 'Not ready in the editor yet.';
  * button is disabled until every jet can save, so that is a safety net, not
  * the normal path.
  */
-export function playbackLaunchFromEditor(a: EditorLaunchArgs): PlaybackLaunch | undefined {
+export function playbackLaunchFromEditor(a: EditorLaunchArgs): EditorLaunch | undefined {
   const { mission, drafts, resolved, offsets, strikeName, selectedIndex, applyOffsets } = a;
   const jets: PlaybackJetInput[] = [];
   const skipped: SkippedJet[] = [];
@@ -93,6 +97,24 @@ export function playbackLaunchFromEditor(a: EditorLaunchArgs): PlaybackLaunch | 
   // Apply needs a strike to write into: two jets or more, and the editor's own way to set their sliders.
   const apply: PlaybackApply | undefined = strikeName !== undefined && applyOffsets && drafts.length >= 2 ? { to: 'editor', write: applyOffsets } : undefined;
   return { input, title, jetId: drafts[selectedIndex]?.attack?.id, notes: theaterNotes(mission), apply, tie };
+}
+
+/**
+ * The attack list's Play: a strike, or one attack, of the plan as it is saved now. The lazily loaded view
+ * builds the jets from it. The mission goes along without its threats: nothing in playback draws them yet,
+ * and a threat the author hid must not cross into the view. The theater notes come from the whole mission.
+ * Only a strike has times to apply: they go straight into the plan (one Undo step each), re-based on whoever
+ * is first over the target. Undefined when no plan is open.
+ */
+export function playbackLaunchFromMission(subject: PlaybackSubject, weapons: DbWeapon[]): PlaybackLaunch | undefined {
+  const { mission, setStrikeOffsets } = useMissionStore.getState();
+  if (!mission) return undefined;
+  return {
+    fromMission: { mission: { ...mission, threats: [] }, subject, weapons },
+    jetId: 'attackId' in subject ? subject.attackId : undefined,
+    notes: theaterNotes(mission),
+    apply: 'strikeId' in subject ? { to: 'mission', write: (offsets) => setStrikeOffsets(subject.strikeId, offsets) } : undefined,
+  };
 }
 
 /**

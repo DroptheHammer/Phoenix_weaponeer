@@ -43,10 +43,14 @@
  * and the lanes keep the scale they had; when it is let go the paths are
  * sampled finely again and both re-fit to the new earliest first action.
  *
- * When the plan has somewhere to keep the times (the attack editor's strike),
- * Apply writes them there. Reset then goes back to the times just applied, and
- * a line under the footer says what was done and which jets the cards will
- * number differently, until the times change again.
+ * When the plan has somewhere to keep the times (the attack editor's strike, or
+ * a strike played from the attack list), Apply writes them there: into the
+ * editor's sliders, or into the saved plan itself. Reset then goes back to the
+ * times just applied, and a line under the footer says what was done and which
+ * jets the cards will number differently, until the times change again.
+ *
+ * Played from the attack list, the view is given the plan as saved and builds
+ * the jets itself; a strike and a lone attack are told apart in the title.
  *
  * The clock's range has two writers and no more. Show › Whole run-in sets it
  * (and a rebuilt scene is handed the one in force); a committed change of times
@@ -63,10 +67,10 @@
  * after 5 s without it, offers Try again).
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { buildStrikePlayback, dangerZones, retime, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
+import { buildStrikePlayback, dangerZones, playbackInputFromMission, retime, type PlaybackInput, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
   APPLY_WORDS, applyShift, applyStatusLines, cardOrder, conflictBands, DRAG_PATH_STEP_S, editorOffsets, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks,
-  markerMoments, openingMode, PATH_STEP_S, playRange, renumbered, renumberedText, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
+  markerMoments, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
   type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TileSource,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
@@ -80,6 +84,7 @@ import { CanvasChips, SoftwareChip } from './CanvasChips';
 import { StatusNotes } from './StatusNotes';
 import { PlaybackUnavailable } from './PlaybackErrorBoundary';
 import { probeWebGL2 } from './webgl';
+import { cardTie } from './cardTie';
 import type { PlaybackLaunch, PlaybackViewProps } from './types';
 
 export interface PlaybackViewOwnProps extends PlaybackViewProps {
@@ -102,21 +107,32 @@ export interface PlaybackViewOwnProps extends PlaybackViewProps {
 /** How long a lost WebGL context may stay away before playback offers Try again. */
 const RESTORE_WAIT_MS = 5000;
 
-type BuiltOk = { ok: true; launch: PlaybackLaunch; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; title: string };
+type BuiltOk = {
+  ok: true; launch: PlaybackLaunch; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; title: string;
+  /** What breaks a tie in time over target on the cards, in seat order: the editor's, or worked out here from the saved plan. */
+  tie?: PlaybackLaunch['tie'];
+};
 type Built = BuiltOk | { ok: false; message: string; detail?: string };
 
 /** The plan as the scene draws it, worked out once per open. */
 function buildView(launch: PlaybackLaunch | undefined): Built {
   if (!launch) return { ok: false, message: 'Nothing could be built from this plan yet.' };
   try {
-    const pb = buildStrikePlayback(launch.input);
+    // The attack editor hands over its jets. The attack list hands over the plan as saved, and they are built here.
+    const from = launch.fromMission;
+    const input: PlaybackInput | undefined = launch.input ?? (from && playbackInputFromMission(from.mission, from.subject, from.weapons));
+    if (!input) return { ok: false, message: from ? 'This strike or attack is no longer in the plan.' : 'Nothing could be built from this plan yet.' };
+    const pb = buildStrikePlayback(input);
     if (pb.jets.length === 0) {
       const why = pb.skipped.map((s) => s.reason).join(' ');
       return { ok: false, message: `This attack can't be flown in 3D yet.${why ? ` ${why}` : ''}` };
     }
     const timing = retime(pb);
     const source = sceneSourceFrom(pb, timing);
-    return { ok: true, launch, pb, timing, source, title: launch.title ?? launch.input.name };
+    // A lone attack from the list is "Viper 1-1 · attack #3", so its number does not read as a second seat number.
+    const lone = from && !input.strikeId ? from.mission.attacks.find((a) => a.id === input.jets[0]?.id) : undefined;
+    const title = launch.title ?? (lone ? `${input.jets[0].callsign ?? 'Attack'} · attack #${lone.sequenceNumber}` : input.name);
+    return { ok: true, launch, pb, timing, source, title, tie: launch.tie ?? (from && cardTie(from.mission, pb.members.map((m) => m.id))) };
   } catch (e) {
     return { ok: false, message: 'The playback could not be worked out from this plan.', detail: e instanceof Error ? e.message : String(e) };
   }
@@ -300,24 +316,35 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   const setDelay = useCallback((id: string, value_s: number) => act({ type: 'delay', id, value_s }), [act]);
   const setDrag = useCallback((on: boolean) => act({ type: 'drag', on }), [act]);
   const reset = useCallback(() => act({ type: 'reset' }), [act]);
-  // Apply: the times go to where the plan keeps them, and the session takes them as the plan's own, so Reset now
-  // returns to them. The strike's clock moves by `shift` (the first member's time becomes 0): the setSource effect
+  // Apply: the times go to where the plan keeps them (the editor's sliders, or the saved plan itself), and the
+  // session takes them as the plan's own, so Reset now returns to them. The strike's clock moves by `shift` (the
+  // first member's time becomes 0 in the editor; whoever is earliest becomes 0 in the plan): the setSource effect
   // below hands that to the scene together with the new source, so the playhead stays on the same moment. The
   // cards number jets by their order over the target; the jets that order would renumber are named.
-  const { apply, tie } = built.launch;
+  const { apply } = built.launch;
+  const { tie } = built;
   const pendingShift = useRef(0);
   const applyTimes = useCallback(() => {
     if (!apply || !isDirty(session)) return;
     const { memberIds, delays_s } = session;
-    const offsets = editorOffsets(memberIds, delays_s);
-    apply.write(offsets);
+    // To the editor: one time for each jet in its order, less the first jet's. To the plan: each attack's time
+    // by its id, less the earliest. Either way `offsets` is the times as written, in seat order.
+    let offsets: number[];
+    if (apply.to === 'editor') {
+      offsets = editorOffsets(memberIds, delays_s);
+      apply.write(offsets);
+    } else {
+      const written = planOffsets(pb, delays_s);
+      apply.write(written);
+      offsets = memberIds.map((id) => written[id]);
+    }
     const others = tie?.length === memberIds.length ? renumbered(cardOrder(offsets, tie)) : [];
     pendingShift.current = applyShift(apply.to, memberIds, delays_s);
     act({
       type: 'applied', to: apply.to, shift_s: pendingShift.current,
       renumbered: others.map(([seat, card]) => renumberedText(seatLabels[seat], seatCallsigns[seat], card)),
     });
-  }, [apply, tie, session, act, seatLabels, seatCallsigns]);
+  }, [apply, tie, pb, session, act, seatLabels, seatCallsigns]);
   const statusLines = useMemo(() => (session.status ? applyStatusLines(session.status) : undefined), [session.status]);
   // DEV: nothing to report until the times have been changed once.
   const reTimeMs = useCallback(() => {

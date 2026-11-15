@@ -13,8 +13,16 @@
  *   live                 real OpenStreetMap and elevation tiles, fetched by the browser
  *   none                 flat ground, nothing fetched
  * Other parameters: ?open=0 starts closed; ?notes=1 adds an unverified-theater note
- * (the longest small print, for the 1024×768 fit check). The strikes also offer Apply
- * to strike, as the editor does: what it writes is recorded in __pb.applied.
+ * (the longest small print, for the 1024×768 fit check). The strikes also offer Apply,
+ * and what it writes is recorded in __pb.applied: the four-ship is handed over as the
+ * attack list hands over a saved strike (Apply to plan, each attack's time by its id);
+ * the others, and the four-ship with ?door=editor, as the attack editor does (Apply
+ * to strike, one time per jet in the editor's order). The lone pop-up, with
+ * ?fixture=one&door=list, is handed over as the attack list hands over a lone row.
+ * ?gone=1 (on a plan handed over like the attack list's) names a strike the plan
+ * does not hold, as if it had been taken out after Play was pressed: playback
+ * opens on its "Nothing to play" screen and never ready (the moments stay the
+ * real strike's).
  *
  * Underneath sits a small fake "editor": the opener, a sentinel button, an
  * Escape listener like the real editor's, and a click counter on the
@@ -34,9 +42,10 @@ import PlaybackView from '../PlaybackView';
 import { PlaybackOverlay } from '../PlaybackOverlay';
 import { PlaybackErrorBoundary } from '../PlaybackErrorBoundary';
 import { lastLeak, sceneCounts, type PlaybackScene } from '../scene/createScene';
-import { harnessFixtureLaunch, harnessMoments, type HarnessFixture } from './fixture';
+import { harnessFixtureLaunch, harnessMoments, type AppliedTimes, type HarnessFixture } from './fixture';
 import { COLOUR_SAMPLES, DRAPE_EAST, DRAPE_NORTH, DRAPE_WEST, HILL, hillHeight, syntheticTiles } from './syntheticTiles';
 import { liveTiles } from './liveTiles';
+import type { PlaybackLaunch } from '../types';
 
 const params = new URLSearchParams(location.search);
 const tilesMode = params.get('tiles') ?? 'synthetic';
@@ -45,10 +54,14 @@ const watchParam = params.get('watch');
 const notes = params.get('notes') === '1'
   ? ["Harness: coordinates unverified. This map's projection has not been checked against a known landmark, so the plan may sit offset over the ground drawn here."]
   : [];
-// What Apply wrote to the editor's sliders, one list of offsets (the editor's order) for each press.
-const applied: number[][] = [];
-const launch = harnessFixtureLaunch(fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined, (offsets) => applied.push(offsets));
-const moments = harnessMoments(launch);
+// What Apply wrote, for each press: to the editor's sliders a list of times (the editor's order), to the plan each attack's time by its id.
+const applied: AppliedTimes[] = [];
+const doorParam = params.get('door');
+const realLaunch = harnessFixtureLaunch(fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined, (times) => applied.push(times), doorParam === 'editor' || doorParam === 'list' ? doorParam : undefined);
+const launch: PlaybackLaunch = params.get('gone') === '1' && realLaunch.fromMission
+  ? { ...realLaunch, fromMission: { ...realLaunch.fromMission, subject: { strikeId: 'no-such-strike' } } }
+  : realLaunch;
+const moments = harnessMoments(realLaunch);
 // The same source the view builds, for the world positions the checks compare against.
 const source = sceneSourceFrom(moments.pb, moments.timing);
 
@@ -131,8 +144,12 @@ interface PbHandle {
   watched(): number | null;
   /** The session as the view holds it now (null until playback has opened). */
   session(): Session | null;
-  /** What Apply has written to the editor's sliders so far: one list of times (the editor's order) for each press. The strikes only. */
-  readonly applied: readonly (readonly number[])[];
+  /**
+   * What Apply has written so far, one entry for each press. Where the times go to the editor's sliders: a list of
+   * times in the editor's order. Where they go to the plan (the four-ship by default): each attack's time by its id.
+   * The strikes only.
+   */
+  readonly applied: readonly AppliedTimes[];
   /**
    * What each seat button beside the lanes shows, read off the page as drawn (page pixels), in seat
    * order, skipped seats included: its text, whether it is pressed or disabled, its label and box.

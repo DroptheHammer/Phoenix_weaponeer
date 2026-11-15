@@ -12,13 +12,18 @@ import type { PlaybackLaunch, PlayStrikeButtonProps } from './types';
 import { PlaybackOverlay } from './PlaybackOverlay';
 import { PlaybackErrorBoundary, PlaybackUnavailable } from './PlaybackErrorBoundary';
 import { probeWebGL2 } from './webgl';
+import { playbackLaunchFromMission } from './launch';
 
 export const PLAYBACK_AVAILABLE = true;
 
 /** Builds what Play hands the playback from the attack editor's drafts (see launch.ts). */
 export { playbackLaunchFromEditor } from './launch';
 
-export function PlayStrikeButton({ disabled, title, build }: PlayStrikeButtonProps) {
+/**
+ * The Play button. The attack editor gives it `build` (its drafts as they stand); the attack list gives it
+ * `fromMission` (a strike or an attack of the saved plan), and wants it as a small text button like Edit.
+ */
+export function PlayStrikeButton({ disabled, title, variant, build, fromMission }: PlayStrikeButtonProps) {
   // undefined: closed. { launch }: open, with what the planner gave at the press.
   const [open, setOpen] = useState<{ launch: PlaybackLaunch | undefined }>();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -32,11 +37,15 @@ export function PlayStrikeButton({ disabled, title, build }: PlayStrikeButtonPro
         onClick={(e) => {
           // In a list row this click must not also select the row.
           e.stopPropagation();
-          setOpen({ launch: build() });
+          setOpen({ launch: build ? build() : fromMission && playbackLaunchFromMission(fromMission.subject, fromMission.weapons) });
         }}
-        className={`px-3 py-2 rounded text-sm border transition-colors ${
-          disabled ? 'border-gray-700 text-gray-500 cursor-not-allowed' : 'border-gray-600 text-gray-200 hover:border-gray-400'
-        }`}
+        className={
+          variant === 'text'
+            ? `px-2 py-1 ${disabled ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-blue-400'}`
+            : `px-3 py-2 rounded text-sm border transition-colors ${
+                disabled ? 'border-gray-700 text-gray-500 cursor-not-allowed' : 'border-gray-600 text-gray-200 hover:border-gray-400'
+              }`
+        }
         title={title ?? (disabled ? 'Finish the plan to watch it fly in 3D' : 'Watch the strike fly in 3D')}
       >
         ▶ Play

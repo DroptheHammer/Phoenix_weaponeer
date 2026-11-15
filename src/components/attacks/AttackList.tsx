@@ -9,6 +9,7 @@ import { useVisibleMission } from '../../hooks/useVisibleMission';
 import { useProfileStore } from '../../stores/profileStore';
 import { copyAttackTo } from '../../lib/copyAttack';
 import { InfoButton } from '../common/InfoButton';
+import { PlayStrikeButton } from '@playback';
 import type { AttackProfileType, DbWeapon, FuzeOption, Attack, Strike } from '../../types';
 
 const PROFILE_LABELS: Record<AttackProfileType, string> = {
@@ -190,6 +191,7 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                       <span className="text-gray-400"> · {target?.name ?? 'no target'} · {item.members.length} jets · {item.strike.spacing_s} s spacing</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
+                      <PlayStrikeButton variant="text" title="Watch the strike fly in 3D" fromMission={{ subject: { strikeId: item.strike.id }, weapons }} />
                       <button onClick={() => handleEditAttack(item.members[0])} className="text-gray-400 hover:text-blue-400 px-2 py-1" title="Edit the whole strike">
                         Edit
                       </button>
@@ -278,6 +280,10 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* A strike's jets are played from the strike's header. Strafe, LALD and standoff are not flown in 3D. */}
+                  {!strikeBadge && !['high_angle_strafe', 'low_angle_low_drag', 'standoff'].includes(attack.profileType) && (
+                    <PlayStrikeButton variant="text" title="Watch this attack fly in 3D" fromMission={{ subject: { attackId: attack.id }, weapons }} />
+                  )}
                   {(mission?.flightMembers.length ?? 0) > 1 && (
                     <CopyMenu
                       open={copyMenuFor === attack.id}

@@ -9,6 +9,7 @@
  * differently, and playback says so rather than renumbering under the pilot.
  */
 
+import { delaysToOffsets, type StrikePlayback } from '../playback';
 import type { ApplyStatus } from './session';
 
 /** A time is written to a thousandth of a second: no 0.1 + 0.2 noise reaches a saved plan (the attack list prints its offsets raw). */
@@ -22,6 +23,15 @@ const toMs = (s: number) => Math.round(s * 1000) / 1000 + 0; // + 0 turns a −0
 export function editorOffsets(memberIds: readonly string[], delays: Readonly<Record<string, number>>): number[] {
   const lead = delays[memberIds[0]];
   return memberIds.map((id) => toMs(delays[id] - lead));
+}
+
+/**
+ * The attack list's Apply: every member's time over target (a member not flown included) less the earliest,
+ * by attack id, to a thousandth of a second. The plan counts from whoever is first over the target, and a
+ * time moved ahead of the lead makes that jet the lead; the plan's own re-base then finds nothing more to do.
+ */
+export function planOffsets(pb: StrikePlayback, delays: Readonly<Record<string, number>>): Record<string, number> {
+  return Object.fromEntries(Object.entries(delaysToOffsets(pb, { ...delays })).map(([id, s]) => [id, toMs(s)]));
 }
 
 /**
