@@ -60,16 +60,18 @@ export function Timeline({ scene, ticks }: TimelineProps) {
           onChange={(e) => scene.seek(e.currentTarget.valueAsNumber)}
           className="w-full accent-dcs-accent cursor-pointer"
         />
-        {/* The moments the card names, so the scrubber can be dropped straight on them. */}
-        {ticks.map((k, i) => (
-          <span
-            // By position: two moments with the same label and time must not share a key.
-            key={i}
-            title={`${k.label} ${fmtStrikeTime(k.t_s)}`}
-            className="absolute bottom-0 w-px h-2 bg-gray-400"
-            style={{ left: `${((k.t_s - snap.start) / span) * 100}%` }}
-          />
-        ))}
+        {/* The moments the card names, so the scrubber can be dropped straight on them. A moment before the bar's start (the IP crossing, when the bar starts at the first action) has no place on it. */}
+        {ticks.map((k, i) =>
+          k.t_s < snap.start || k.t_s > snap.end ? null : (
+            <span
+              // By position: two moments with the same label and time must not share a key.
+              key={i}
+              title={`${k.label} ${fmtStrikeTime(k.t_s)}`}
+              className="absolute bottom-0 w-px h-2 bg-gray-400"
+              style={{ left: `${((k.t_s - snap.start) / span) * 100}%` }}
+            />
+          ),
+        )}
       </div>
 
       <div className="shrink-0 flex rounded border border-gray-600 overflow-hidden" role="group" aria-label="Speed">
@@ -87,16 +89,6 @@ export function Timeline({ scene, ticks }: TimelineProps) {
           </button>
         ))}
       </div>
-
-      <button
-        type="button"
-        onClick={() => scene.goHome()}
-        onMouseDown={keepFocus}
-        className="shrink-0 px-3 py-1.5 rounded text-sm border border-gray-600 text-gray-200 hover:border-gray-400"
-        title="Back to the view of the whole attack"
-      >
-        Home view
-      </button>
     </div>
   );
 }

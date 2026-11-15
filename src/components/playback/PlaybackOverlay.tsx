@@ -70,6 +70,12 @@ export function PlaybackOverlay({ title, onClose, onTogglePlay, returnFocusTo, c
         // window listener) from closing the editor and losing its draft.
         e.stopPropagation();
         e.preventDefault();
+        // A panel left open over the picture (the Show menu) takes this Escape and closes itself: it is the thing on top.
+        const layer = rootRef.current?.querySelector<HTMLElement>('[data-esc-close]');
+        if (layer) {
+          layer.dispatchEvent(new Event('pb-esc'));
+          return;
+        }
         latest.current.onClose();
       } else if (e.key === 'Tab') {
         trapTab(e, rootRef.current!);

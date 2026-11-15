@@ -11,6 +11,7 @@
  * context back at once on free, so that costs nothing lasting.
  */
 import { memo, useEffect, useRef } from 'react';
+import type { StrikeWindow } from '../../lib/playback';
 import type { SceneSource, TileSource } from '../../lib/playbackScene';
 import { createPlaybackScene, type PlaybackScene, type TerrainStatus } from './scene/createScene';
 
@@ -22,6 +23,11 @@ export interface SceneHostProps {
   jet: number;
   /** The editor's colour for it (index into JET_COLORS). */
   colorIndex?: number;
+  /**
+   * The stretch of strike time the clock plays, as it stands when the scene is made. After a
+   * remount (a lost graphics context given back) the view hands over the range it holds now.
+   */
+  range?: StrikeWindow;
   /** Strike time to open at, s (kept across a remount). */
   startAt_s?: number;
   /** The scene once made, and null when it is freed. */
@@ -35,7 +41,7 @@ export interface SceneHostProps {
 export const SceneHost = memo(function SceneHost(props: SceneHostProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   // The callbacks are read through this at call time, so they are always the latest;
-  // the source, tiles, jet and start time are read once, at mount, on purpose.
+  // the source, tiles, jet, range and start time are read once, at mount, on purpose.
   const latest = useRef(props);
   latest.current = props;
 
@@ -47,6 +53,7 @@ export const SceneHost = memo(function SceneHost(props: SceneHostProps) {
       tiles: p.tiles,
       jet: p.jet,
       colorIndex: p.colorIndex,
+      range: p.range,
       startAt_s: p.startAt_s,
       onFatal: (e) => latest.current.onFatal(e),
       onTerrain: (s) => latest.current.onTerrain(s),

@@ -22,7 +22,7 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PerspectiveCamera, Vector3 } from 'three';
 import '../../../index.css';
-import { enuToThree, homePose, newSceneBombPose, sceneSourceFrom, type GroundMode } from '../../../lib/playbackScene';
+import { enuToThree, homePose, newSceneBombPose, sceneSourceFrom, type GroundMode, type ShowAction, type ShowState } from '../../../lib/playbackScene';
 import { JET_COLORS } from '../../../lib/jetColors';
 import PlaybackView from '../PlaybackView';
 import { PlaybackOverlay } from '../PlaybackOverlay';
@@ -48,6 +48,9 @@ const consoleProblems: string[] = [];
 
 // Filled in by the component below.
 let scene: PlaybackScene | null = null;
+// The Show choices as the view holds them, and the function its menu calls to change them.
+let showNow: ShowState | null = null;
+let showAct: ((a: ShowAction) => void) | null = null;
 let setOpenFn: (open: boolean) => void = () => {};
 let isOpen = false;
 let loseExt: WEBGL_lose_context | null = null;
@@ -86,7 +89,23 @@ interface PbHandle {
   restoreContext(): boolean;
   /** The bomb's last falling sample and the target, three.js axes, from the playback itself. */
   bombAtImpact(): { bomb: [number, number, number]; target: [number, number, number] };
-  readonly moments: { t0: number; t1: number; push?: number; pullUp?: number; release?: number; impact?: number; events: { kind: string; label: string; t_s: number }[] };
+  /**
+   * Show › Whole run-in, made the way a click on its box makes it (the view's own handler, so the
+   * clock's range moves with it): true = from the start of the whole run-in, false = from 10 s
+   * before the first action.
+   */
+  setRange(whole: boolean): void;
+  /** The Show choices as the view last held them (null until playback has opened). */
+  show(): ShowState | null;
+  /**
+   * t0 and t1: the library's window, the whole run-in. range and wholeRange: what the clock plays
+   * without and with Show › Whole run-in. firstAction: the lead's first action after the IP.
+   * All strike time.
+   */
+  readonly moments: {
+    t0: number; t1: number; range: { t0_s: number; t1_s: number }; wholeRange: { t0_s: number; t1_s: number }; firstAction: number;
+    push?: number; pullUp?: number; release?: number; impact?: number; events: { kind: string; label: string; t_s: number }[];
+  };
   readonly colours: { jet: string; west: string; north: string; east: string };
   readonly samples: typeof COLOUR_SAMPLES;
   readonly hill: typeof HILL & { heightAt(e_m: number, n_m: number): number };
@@ -153,9 +172,11 @@ const pb: PbHandle = {
     const t = source.targetOf(0);
     return { bomb: [b.x, b.y, b.z], target: [t.x, t.y, t.z] };
   },
+  setRange: (whole) => showAct?.({ type: 'wholeRunIn', on: whole }),
+  show: () => showNow,
   moments: {
-    t0: moments.window.t0_s, t1: moments.window.t1_s, push: moments.push, pullUp: moments.pullUp,
-    release: moments.release, impact: moments.impact, events: moments.events,
+    t0: moments.window.t0_s, t1: moments.window.t1_s, range: moments.range, wholeRange: moments.wholeRange, firstAction: moments.firstAction,
+    push: moments.push, pullUp: moments.pullUp, release: moments.release, impact: moments.impact, events: moments.events,
   },
   colours: { jet: JET_COLORS[0], west: DRAPE_WEST, north: DRAPE_NORTH, east: DRAPE_EAST },
   samples: COLOUR_SAMPLES,
@@ -177,6 +198,10 @@ function Harness() {
   }, []);
   const onScene = useCallback((s: PlaybackScene | null) => {
     scene = s;
+  }, []);
+  const onShow = useCallback((s: ShowState, act: (a: ShowAction) => void) => {
+    showNow = s;
+    showAct = act;
   }, []);
 
   setOpenFn = setOpen;
@@ -205,7 +230,7 @@ function Harness() {
       {open && (
         <PlaybackOverlay title="Strike playback" onClose={close} onTogglePlay={() => toggle.current?.()} returnFocusTo={openerRef.current}>
           <PlaybackErrorBoundary key={attempt} onRetry={() => setAttempt((a) => a + 1)} onClose={close}>
-            <PlaybackView launch={launch} onClose={close} bindTogglePlay={bind} tiles={tiles} onScene={onScene} />
+            <PlaybackView launch={launch} onClose={close} bindTogglePlay={bind} tiles={tiles} onScene={onScene} onShow={onShow} />
           </PlaybackErrorBoundary>
         </PlaybackOverlay>
       )}

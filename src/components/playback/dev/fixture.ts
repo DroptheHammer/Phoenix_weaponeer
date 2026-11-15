@@ -13,6 +13,7 @@ import { autoBuildAttack } from '../../../lib/autoBuildAttack';
 import { attackIpAnchor } from '../../../lib/ipAnchor';
 import { calculateDestination } from '../../../lib/coordinates';
 import { buildStrikePlayback, retime, strikeEvents, type PlaybackInput } from '../../../lib/playback';
+import { firstActionTau, playRange } from '../../../lib/playbackScene';
 import type { Attack, DbWeapon, DeliveryProfile, Mission, Waypoint } from '../../../types';
 import type { PlaybackLaunch } from '../types';
 
@@ -63,6 +64,12 @@ export function harnessMoments(launch: PlaybackLaunch) {
   return {
     pb, timing,
     window: timing.window,
+    /** The stretch the clock plays by default: 10 s before the first action to the window's end. */
+    range: playRange(pb, timing, false),
+    /** With Show › Whole run-in: the whole window. */
+    wholeRange: playRange(pb, timing, true),
+    /** The lead's first action after the IP, strike time. */
+    firstAction: timing.jets[0].shift_s + firstActionTau(pb.jets[0]).tau_s,
     push: at('push'),
     /** The pop-up's pull-up (the planner's commit event, "Pull up"). */
     pullUp: at('commit') ?? at('action'),

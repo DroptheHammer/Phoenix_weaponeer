@@ -4,23 +4,32 @@
  * press (the PlaybackLaunch), never the stores, so what plays is exactly what
  * the editor showed, and the dev harness can mount it with a made-up plan.
  *
- * Layout: the 3D scene fills the space; under it, the timeline (play, pause,
- * scrub, speeds) and the small print (what ground is drawn, the Real | Flat
- * switch, the theater warnings, the credits). Fits a 1024×768 window. The
- * overlay around it has the title bar and the Close button.
+ * Layout: the 3D scene fills the space, with the Home view and Show buttons
+ * over its top right; under it, the timeline (play, pause, scrub, speeds) and
+ * the small print (what ground is drawn, the Real | Flat switch, the theater
+ * warnings, the credits). Fits a 1024×768 window. The overlay around it has the
+ * title bar and the Close button.
+ *
+ * The time bar (the clock's range) starts 10 s before the earliest first action
+ * of the jets flown, not at the start of the whole run-in; Show › Whole run-in
+ * widens it. The Show choices live here, for as long as the playback is open.
  *
  * Failures stay inside playback: nothing to fly gives a plain sentence; a
  * frame or shader that breaks is thrown into the local error boundary; a lost
  * WebGL context is rebuilt from scratch when the driver gives it back (or,
  * after 5 s without it, offers Try again).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { buildStrikePlayback, retime, strikeEvents } from '../../lib/playback';
-import { sceneSourceFrom, type GroundMode, type SceneSource, type TileSource } from '../../lib/playbackScene';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { buildStrikePlayback, retime, strikeEvents, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
+import {
+  initShow, playRange, sceneSourceFrom, showReducer,
+  type GroundMode, type SceneSource, type ShowAction, type ShowState, type TileSource,
+} from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
 import { tauriTiles } from './terrain/tauriTiles';
 import { SceneHost } from './SceneHost';
 import { Timeline, type TimelineTick } from './Timeline';
+import { ViewToolbar } from './ViewToolbar';
 import { StatusNotes } from './StatusNotes';
 import { PlaybackUnavailable } from './PlaybackErrorBoundary';
 import { probeWebGL2 } from './webgl';
@@ -35,13 +44,18 @@ export interface PlaybackViewOwnProps extends PlaybackViewProps {
   tiles?: TileSource<CanvasImageSource> | null;
   /** The live scene, and null when it goes: for the dev harness's checks only. */
   onScene?: (scene: PlaybackScene | null) => void;
+  /**
+   * The Show choices whenever they change, with the very function the menu calls to change them
+   * (so a check can make the same choice a click would): for the dev harness's checks only.
+   */
+  onShow?: (show: ShowState, act: (a: ShowAction) => void) => void;
 }
 
 /** How long a lost WebGL context may stay away before playback offers Try again. */
 const RESTORE_WAIT_MS = 5000;
 
 type Built =
-  | { ok: true; source: SceneSource; ticks: TimelineTick[]; title: string }
+  | { ok: true; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; ticks: TimelineTick[]; title: string }
   | { ok: false; message: string; detail?: string };
 
 /** The plan as the scene draws it, worked out once per open. */
@@ -58,7 +72,7 @@ function buildView(launch: PlaybackLaunch | undefined): Built {
     // The spike draws one jet, the first: its four card moments go under the scrubber.
     const ticks = strikeEvents(pb, timing).events.filter((e) => e.jet === 0 && e.tick).map((e) => ({ t_s: e.t_s, label: e.label }));
     const jet = pb.jets[0];
-    return { ok: true, source, ticks, title: `${jet.callsign ?? launch.input.name} ${jet.label}` };
+    return { ok: true, pb, timing, source, ticks, title: `${jet.callsign ?? launch.input.name} ${jet.label}` };
   } catch (e) {
     return { ok: false, message: 'The playback could not be worked out from this plan.', detail: e instanceof Error ? e.message : String(e) };
   }
@@ -77,16 +91,22 @@ function FrameTime({ scene }: { scene: PlaybackScene }) {
   }, [scene]);
   if (!ms) return null;
   return (
-    <div className="absolute top-2 right-3 pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-xs font-mono text-gray-300">
+    // Bottom right: the top right belongs to the view's buttons.
+    <div className="absolute bottom-2 right-3 pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-xs font-mono text-gray-300">
       dev: {ms.toFixed(1)} ms a frame ({Math.round(1000 / ms)} fps)
     </div>
   );
 }
 
-export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, onScene }: PlaybackViewOwnProps) {
+export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, onScene, onShow }: PlaybackViewOwnProps) {
   const support = probeWebGL2(); // cached: free after the first call
   const built = useMemo(() => buildView(launch), [launch]);
   const tileSource = tiles === null ? undefined : (tiles ?? tauriTiles);
+
+  // What the Show menu has chosen. It outlives a rebuilt scene (it is not in it), and nothing saves it.
+  const [show, dispatchShow] = useReducer(showReducer, undefined, initShow);
+  // The clock's range as the Show choices stand: a rebuilt scene opens with the range in force now.
+  const range = useMemo(() => (built.ok ? playRange(built.pb, built.timing, show.wholeRunIn) : undefined), [built, show.wholeRunIn]);
 
   const [scene, setScene] = useState<PlaybackScene | null>(null);
   const [terrain, setTerrain] = useState<TerrainStatus>();
@@ -116,6 +136,12 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
     groundWanted.current = mode;
     sceneRef.current?.setGround(mode);
   }, []);
+  // The one way a Show choice is made, by the menu and by the dev harness alike. Whole run-in also
+  // moves the live clock's range, here and only here: a rebuilt scene takes the range as a prop instead.
+  const act = useCallback((a: ShowAction) => {
+    dispatchShow(a);
+    if (a.type === 'wholeRunIn' && built.ok) sceneRef.current?.setRange(playRange(built.pb, built.timing, a.on));
+  }, [built]);
 
   // A lost context that does not come back: offer Try again rather than a frozen picture.
   useEffect(() => {
@@ -136,6 +162,10 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
     return () => onScene(null);
   }, [scene, onScene]);
 
+  useEffect(() => {
+    onShow?.(show, act);
+  }, [show, act, onShow]);
+
   if (fatal) throw fatal; // into the local error boundary, which keeps the plan safe and offers Try again
 
   if (!support.ok) {
@@ -154,6 +184,7 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
           tiles={tileSource}
           jet={0}
           colorIndex={launch?.colorIndex ?? 0}
+          range={range}
           startAt_s={resumeAt.current}
           onReady={onReady}
           onFatal={onFatal}
@@ -162,7 +193,8 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
           onRemount={rebuild}
         />
         {/* On its own dark plate: behind it can be the navy sky, the pale haze or the map. */}
-        <div className="absolute top-2 left-3 pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
+        <div className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
+        {scene && <ViewToolbar scene={scene} show={show} dispatch={act} />}
         {import.meta.env.DEV && scene && <FrameTime scene={scene} />}
         {!scene && <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">Starting 3D…</div>}
         {lost === 'stuck' && (

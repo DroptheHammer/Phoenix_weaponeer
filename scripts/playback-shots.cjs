@@ -341,6 +341,177 @@ async function checkSpeeds(page, tag) {
     `buttons ${shown.join(' ')}; pressed at open ${atOpen}, after 16× ${after16}, after 1× ${after1}; 16×: ${fast.moved.toFixed(2)} s in ${fast.wall_s.toFixed(2)} s wall (${rate16.toFixed(1)}/s); 1×: ${slow.moved.toFixed(2)} s in ${slow.wall_s.toFixed(2)} s wall (${rate1.toFixed(2)}/s, want ≤ 1.2); 16× over 1×: ${(fast.moved / slow.moved).toFixed(1)} (want ≥ 4, and 16× ≤ 17 s)`);
 }
 
+/**
+ * Check 29: playback opens 10 s before the first action, not at the start of the whole run-in. At
+ * open the clock's start and the playhead are `moments.range.t0_s` (to 0.01 s) and its end is the
+ * window's; the fixture's range really is narrower than the whole run-in (else the check proves
+ * nothing). Ticking Show › Whole run-in with the mouse moves the start to the whole run-in's
+ * (`moments.t0`, the library's window) and leaves the playhead where it was; unticking it puts the
+ * start back, the playhead still where it was. The menu stays open through both choices. Run on the
+ * page as it opens, before anything has moved the playhead.
+ *
+ * Proven red 2026-11-14 by one temporary edit to PlaybackView.tsx, the range handed to the scene
+ * taken from `built.timing.window` instead of `playRange(…)` (the playback opens at the start of the whole run-in):
+ *   STEP FAIL 29 playback opens 10 s before the first action; Show › Whole run-in widens the time bar and back (1400x900) — range -50.15…40.00 (first action -40.15), whole run-in -151.15…40.00; at open start -151.15, t -151.15, end 40.00; ticked: start -151.15, t -151.15, shown true; unticked: start -50.15, t -50.15; …
+ */
+async function checkRange(page, tag) {
+  const m = await pbEval(page, () => __pb.moments);
+  const close = (a, b) => Math.abs(a - b) <= 0.01;
+  const snap = () => pbEval(page, () => __pb.snapshot());
+  const atOpen = await snap();
+  const narrower = m.range.t0_s > m.t0 + 1;
+  const openOk = close(atOpen.start, m.range.t0_s) && close(atOpen.t, atOpen.start) && close(atOpen.end, m.range.t1_s);
+
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  const whole = page.getByRole('checkbox', { name: /Whole run-in/ });
+  const boxOnShow = (await whole.count()) === 1 && (await whole.isChecked()) === false;
+  await whole.click();
+  const on = await snap();
+  const shown = await pbEval(page, () => __pb.show());
+  const stillOpen = (await page.locator('#pb-show').count()) === 1;
+  const onOk = close(on.start, m.t0) && close(on.end, m.t1) && close(on.t, atOpen.t) && shown.wholeRunIn === true;
+  await whole.click();
+  const off = await snap();
+  const offOk = close(off.start, m.range.t0_s) && close(off.t, atOpen.t) && (await pbEval(page, () => __pb.show())).wholeRunIn === false;
+  await page.getByRole('button', { name: 'Show ▾' }).click(); // closes it again
+  const closed = (await page.locator('#pb-show').count()) === 0;
+  await shot(page, `${tag}-29-range`);
+
+  const f = (v) => v.toFixed(2);
+  step(`29 playback opens 10 s before the first action; Show › Whole run-in widens the time bar and back (${tag})`,
+    narrower && openOk && boxOnShow && onOk && offOk && stillOpen && closed,
+    `range ${f(m.range.t0_s)}…${f(m.range.t1_s)} (first action ${f(m.firstAction)}), whole run-in ${f(m.t0)}…${f(m.t1)}; at open start ${f(atOpen.start)}, t ${f(atOpen.t)}, end ${f(atOpen.end)}; ticked: start ${f(on.start)}, t ${f(on.t)}, shown ${JSON.stringify(shown?.wholeRunIn)}; unticked: start ${f(off.start)}, t ${f(off.t)}; menu stayed open ${stillOpen}, closed by the button ${closed}`);
+}
+
+/**
+ * Check 30: Escape belongs to the Show panel while it is open. Opened with the mouse: Escape closes
+ * the panel and leaves playback open and the editor's own Escape untouched; the next Escape closes
+ * playback (and still never reaches the editor). A mouse open leaves the keyboard focus where it was,
+ * so Space still plays and pauses. Opened with the keyboard (Tab to Show, Enter): focus moves into
+ * the panel, and Escape closes it with focus back on the Show button. Playback is closed and opened
+ * again in the middle of the check; it is left open, panel shut.
+ *
+ * Proven red 2026-11-14 by one temporary edit to PlaybackOverlay.tsx, the `data-esc-close` branch taken out
+ * (Escape closes playback with the panel open, and the editor's Escape fires once playback is shut):
+ *   STEP FAIL 30 Escape closes the Show panel first and playback next, never the editor; … — mouse: opened true, Space played true then paused true; Escape → panel gone true, playback still open false, editor Escapes 0 → 0; Escape → playback closed true, editor Escapes → 1; keyboard: Tab reached Show true, Enter opened true, focus inside true; Escape → panel gone true, focus on Show false, playback still open false, editor Escapes → 1
+ * (The checks after it then find no playback and stop: the run ends with "STEP FAIL run — TypeError".)
+ *
+ * It also caught a real fault on its first run: the panel closed through a custom event, which React
+ * does not treat as urgent, so on a slow frame the panel was still on screen when the next Escape
+ * arrived and that one shut the panel again instead of leaving playback. ShowMenu now shuts it
+ * with flushSync, before the Escape returns.
+ */
+async function checkShowKeys(page) {
+  const c = () => pbEval(page, () => ({ ...__pb.counters }));
+  const panelOpen = async () => (await page.locator('#pb-show').count()) === 1;
+  const dialogOpen = async () => (await page.locator('[role="dialog"]').count()) === 1;
+  const playing = async () => (await pbEval(page, () => __pb.snapshot())).playing;
+
+  const e0 = (await c()).editorEscapes;
+  await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  const openByMouse = await panelOpen();
+  await page.keyboard.press(' ');
+  const spacePlays = await playing();
+  await page.keyboard.press(' ');
+  const spacePauses = !(await playing());
+  await page.keyboard.press('Escape');
+  const panelGoneFirst = !(await panelOpen());
+  const dialogStays = await dialogOpen();
+  const e1 = (await c()).editorEscapes;
+  await page.keyboard.press('Escape');
+  const closedSecond = await dialogGone(page).then(() => true, () => false);
+  const e2 = (await c()).editorEscapes;
+  if (!closedSecond) {
+    // A failed check must still leave the page usable for the checks after it.
+    await pbEval(page, () => __pb.close());
+    await dialogGone(page);
+  }
+
+  await page.click('[data-testid="opener"]');
+  await page.waitForSelector('[role="dialog"]');
+  await waitReady(page);
+  // Tab to the Show button the way a keyboard user gets there.
+  let onShow = false;
+  for (let i = 0; i < 40 && !onShow; i++) {
+    await page.keyboard.press('Tab');
+    onShow = await pbEval(page, () => document.activeElement?.getAttribute('aria-controls') === 'pb-show');
+  }
+  await page.keyboard.press('Enter');
+  const openByKey = await panelOpen();
+  const focusIn = await pbEval(page, () => !!document.querySelector('#pb-show')?.contains(document.activeElement));
+  await page.keyboard.press('Escape');
+  const panelGoneSecond = !(await panelOpen());
+  const focusOnShow = await pbEval(page, () => document.activeElement?.getAttribute('aria-controls') === 'pb-show');
+  const dialogStaysSecond = await dialogOpen();
+  const e3 = (await c()).editorEscapes;
+
+  step('30 Escape closes the Show panel first and playback next, never the editor; Space plays after a mouse open; Tab, Enter and Escape work by keyboard',
+    openByMouse && spacePlays && spacePauses && panelGoneFirst && dialogStays && e1 === e0 && closedSecond && e2 === e0 && openByKey && onShow && focusIn && panelGoneSecond && focusOnShow && dialogStaysSecond && e3 === e0,
+    `mouse: opened ${openByMouse}, Space played ${spacePlays} then paused ${spacePauses}; Escape → panel gone ${panelGoneFirst}, playback still open ${dialogStays}, editor Escapes ${e0} → ${e1}; Escape → playback closed ${closedSecond}, editor Escapes → ${e2}; keyboard: Tab reached Show ${onShow}, Enter opened ${openByKey}, focus inside ${focusIn}; Escape → panel gone ${panelGoneSecond}, focus on Show ${focusOnShow}, playback still open ${dialogStaysSecond}, editor Escapes → ${e3}`);
+}
+
+/**
+ * Check 31: with the Show panel open the view's own buttons fit. The panel lies inside the picture;
+ * the Home view and Show buttons lie inside it too and clear of the title plate (to its right); the
+ * dev frame-time box (bottom right, shown here because the checks run on the dev server; the check
+ * plays a second first so there is a frame time to show) does not touch them; and every button on
+ * the page lies inside the window. Run at both sizes; 1024×768 is the tight one.
+ *
+ * Proven red 2026-11-14, one temporary edit each, all three clauses:
+ * the frame-time box back at `top-2 right-3` in PlaybackView.tsx (it lands on the buttons):
+ *   STEP FAIL 31 Show open: panel inside the picture, buttons clear of the title and of the frame-time box (1024x768) — canvas [0,45,1024,605], panel [724,85,1012,151], buttons [868,53,1012,79], title [12,53,107,77], frame-time [787,53,1012,73]
+ * the toolbar's row `justify-start pl-3` in place of `justify-end pr-3` in ViewToolbar.tsx (the buttons land on the title):
+ *   STEP FAIL 31 … (1024x768) — canvas [0,45,1024,605], panel [724,85,1012,151], buttons [12,53,156,79], title [12,53,107,77], frame-time [787,577,1012,597]
+ * `right-[-60px]` in place of `right-3` in MENU_PANEL, ui.ts (the panel runs past the picture):
+ *   STEP FAIL 31 … (1024x768) — canvas [0,45,1024,605], panel [796,85,1084,151], buttons [868,53,1012,79], title [12,53,107,77], frame-time [787,577,1012,597]
+ * (Taking `max-h-[…]` out of MENU_PANEL cannot fail this check yet: the panel holds one choice and
+ * is short. It becomes a proof once the panel holds enough to need scrolling.)
+ */
+async function checkToolbarFit(page, tag, w, h) {
+  await pbEval(page, async () => {
+    __pb.pause();
+    __pb.seek(__pb.snapshot().start);
+    __pb.play();
+    await new Promise((r) => setTimeout(r, 1200));
+    __pb.pause();
+  });
+  await page.waitForTimeout(700); // the readout polls twice a second
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  await settle(page);
+  await shot(page, `${tag}-31-show-open`);
+  const r = await page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"]');
+    const box = (el) => {
+      if (!el) return null;
+      const b = el.getBoundingClientRect();
+      return { l: b.left, t: b.top, r: b.right, b: b.bottom };
+    };
+    const buttons = [...dialog.querySelectorAll('button')];
+    const byText = (s) => buttons.find((b) => (b.textContent || '').trim() === s);
+    const frame = [...dialog.querySelectorAll('div')].find((d) => d.children.length === 0 && /^dev: /.test((d.textContent || '').trim()));
+    return {
+      canvas: box(dialog.querySelector('canvas')),
+      panel: box(dialog.querySelector('#pb-show')),
+      home: box(byText('Home view')),
+      show: box(byText('Show ▾')),
+      title: box(dialog.querySelector('[class*="max-w-"]')),
+      frame: box(frame),
+      buttons: buttons.map((b) => ({ name: (b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 24), ...box(b) })),
+    };
+  });
+  await page.getByRole('button', { name: 'Show ▾' }).click(); // shut again
+  const inside = (a, o) => a && o && a.l >= o.l - 0.5 && a.t >= o.t - 0.5 && a.r <= o.r + 0.5 && a.b <= o.b + 0.5;
+  const touch = (a, o) => a.l < o.r && a.r > o.l && a.t < o.b && a.b > o.t;
+  const found = r.canvas && r.panel && r.home && r.show && r.title && r.frame;
+  const tool = found ? { l: Math.min(r.home.l, r.show.l), t: Math.min(r.home.t, r.show.t), r: Math.max(r.home.r, r.show.r), b: Math.max(r.home.b, r.show.b) } : null;
+  const outside = r.buttons.filter((b) => b.l < 0 || b.t < 0 || b.r > w + 0.5 || b.b > h + 0.5);
+  const ok = !!found && inside(r.panel, r.canvas) && inside(tool, r.canvas) && r.title.r < tool.l && !touch(r.frame, tool) && outside.length === 0;
+  const fmt = (b) => (b ? `[${[b.l, b.t, b.r, b.b].map(Math.round)}]` : 'missing');
+  step(`31 Show open: panel inside the picture, buttons clear of the title and of the frame-time box (${tag})`, ok,
+    `canvas ${fmt(r.canvas)}, panel ${fmt(r.panel)}, buttons ${tool ? fmt(tool) : 'missing'}, title ${fmt(r.title)}, frame-time ${fmt(r.frame)}${outside.length ? `; outside the window: ${outside.map((b) => b.name).join(', ')}` : ''}`);
+}
+
 /** Check 5: a lost WebGL context is rebuilt when it comes back, and the jet is drawn again. */
 async function checkContextLoss(page, tag) {
   const before = await pbEval(page, () => __pb.stats().sceneCreates);
@@ -360,7 +531,10 @@ async function checkContextLoss(page, tag) {
   if (remounted) await checkJet(page, `${tag}-rebuilt`, '5b after the rebuild, the jet arrow on screen');
 }
 
-/** Check 9: focus, Escape, Space, Tab and clicks stay inside playback. */
+/**
+ * Check 9: focus, Escape, Space, Tab and clicks stay inside playback. (9e's "Home view" is the
+ * button in the toolbar over the picture, beside Show.)
+ */
 async function checkOverlay(page) {
   const c = () => pbEval(page, () => ({ ...__pb.counters }));
   const inside = () => pbEval(page, () => {
@@ -452,10 +626,15 @@ async function runChecks(browser, base) {
     const tag = `${w}x${h}`;
     const { context, page, problems } = await openPage(browser, `${base}?tiles=synthetic&notes=1`, w, h);
     step(`ready (${tag})`, true, JSON.stringify(await pbEval(page, () => __pb.terrain())));
+    // First, on the page as it opens: 29 reads the range before anything moves the playhead, and 30
+    // needs the keyboard focus where playback left it (a scrub, later, puts it on the scrubber).
+    await checkRange(page, tag);
+    if (w === 1400) await checkShowKeys(page);
     await checkColours(page, tag);
     await checkJet(page, tag);
     await checkReal(page, tag);
     await checkFit(page, tag, w, h);
+    await checkToolbarFit(page, tag, w, h);
     if (w === 1400) {
       await checkScrub(page);
       await checkSpeeds(page, tag);

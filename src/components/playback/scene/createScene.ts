@@ -29,6 +29,7 @@
  * restored: one code path, the same one every open uses.
  */
 import { Color, Fog, NoToneMapping, SRGBColorSpace, Scene, Vector3, WebGLRenderer } from 'three';
+import type { StrikeWindow } from '../../../lib/playback';
 import {
   BG, MAX_DPR, PlayClock, UI_EMIT_MS, homePose, FOG_FAR_K,
   type ClockSnapshot, type GroundMode, type SceneSource, type Speed, type TileSource,
@@ -52,7 +53,14 @@ export interface SceneOptions {
   jet?: number;
   /** The editor's colour for that jet (index into JET_COLORS). Default: the jet's own index. */
   colorIndex?: number;
-  /** Strike time to open at, s. Default: the start of the window. */
+  /**
+   * The stretch of strike time the clock plays (and the time bar shows). Default: the whole window
+   * of the source. It is narrower than the window when playback opens just before the first action;
+   * the jets and their trails are still drawn from the window's start, so a jet scrubbed to the
+   * range's start is already well into its run-in.
+   */
+  range?: StrikeWindow;
+  /** Strike time to open at, s. Default: the start of the range. */
   startAt_s?: number;
   /** Something broke beyond repair (a frame threw, a shader failed): show the error view. Called at most once. */
   onFatal(err: unknown): void;
@@ -110,6 +118,11 @@ export interface PlaybackScene {
   resize(): void;
   /** The camera back to its home view. */
   goHome(): void;
+  /**
+   * Move the clock's range. The playhead stays where it is, kept inside the new range. Nothing
+   * happens when the range is the one already set.
+   */
+  setRange(range: StrikeWindow): void;
   stats(): SceneStats;
   /**
    * Where the jet, its falling bomb or its target ring is on screen, at the
@@ -170,7 +183,8 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   const fog = new Fog(BG, 1e6, 2e6); // the terrain layer moves it with the camera every frame
   scene.fog = fog;
 
-  const clock = new PlayClock(source.window.t0_s, source.window.t1_s, opts.startAt_s ?? source.window.t0_s);
+  const range = opts.range ?? source.window;
+  const clock = new PlayClock(range.t0_s, range.t1_s, opts.startAt_s ?? range.t0_s);
   let dirty = true;
   const invalidate = () => { dirty = true; };
 
@@ -349,7 +363,13 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       rig.goHome();
       invalidate();
     },
-    stats: () => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
+    setRange: (r) => {
+      const now = clock.getSnapshot();
+      if (r.t0_s === now.start && r.t1_s === now.end) return;
+      clock.setRange(r.t0_s, r.t1_s); // t is kept inside the new range; the clock tells the UI and asks for a frame
+      invalidate();
+    },
+    stats:() => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
     project(what) {
       if (disposed || contextLost || fatal || !jets) return undefined;
       if (dirty) {
