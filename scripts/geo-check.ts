@@ -120,7 +120,7 @@ import {
   seaClamp, terrainTileValid, heightMosaic, sampleBilinear, gridLatLon, gridIndices, drapeUvs, buildTerrainMesh, onTriangles,
   heightAt, shadeFromSlope, hillshade, TERRAIN_CREDITS, creditsFor, BOX_MARGIN_M, BOX_MIN_HALF_M, BOX_MAX_HALF_M, BOX_STEP_M,
   MAX_SEGMENTS, MIN_SPACING_M, TERRAIN_TILE_PX,
-  type TerrainBox, type TerrainGrid, type TerrainMesh, type TileRange, type Vec3,
+  type TerrainBox, type TerrainGrid, type TerrainMesh, type TileRange, type Vec3, type Pose,
 } from '../src/lib/playbackScene';
 import {
   bytesOf, float32Of, runPool, loadHeights, UploadPace, skirtHeight, fogRange, SKIRT_BELOW_M,
@@ -168,7 +168,7 @@ import {
   impactPhase, newImpactPhase, IMPACT_FLASH_GROW_WALL_S, IMPACT_FLASH_FULL_WALL_S, IMPACT_FLASH_END_WALL_S, IMPACT_RING_GROW_WALL_S,
   IMPACT_RING_HOLD_WALL_S, IMPACT_RING_END_WALL_S, FLASH_CORE, FLASH_RIM, type ImpactPhase,
 } from '../src/lib/playbackScene';
-import { harnessLaunch } from '../src/components/playback/dev/fixture';
+import { harnessLaunch, harnessFixtureLaunch, harnessMoments } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
 import { cardTie } from '../src/components/playback/cardTie';
 import { groundNote, REAL_GROUND_NOTE } from '../src/components/playback/StatusNotes';
@@ -5350,6 +5350,15 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
         ok('dive aim [BL16]: a missing or cleared release speed leaves the dive picture and side view finite, on the sight line', why === '', why || 'missing and cleared');
       }
 
+      // The dives the playback checks below fly (BL9 to BL14 and BL17 read this list).
+      const DIVES = [
+        { key: 'F-16C 30°', ac: 'f16c', id: 'f16c.dive.ccip30', w: 'mk82' },
+        { key: 'F-16C 45°', ac: 'f16c', id: 'f16c.dive.ccip45', w: 'mk82' },
+        { key: 'F-16C DTOS 20°', ac: 'f16c', id: 'f16c.dive.dtos20', w: 'mk82' },
+        { key: 'A-10C 30°', ac: 'a10c', id: 'a10c.dive.ccip30', w: 'mk82' },
+        { key: 'F-16C LALD 10°', ac: 'f16c', id: 'f16c.dive.lald10', w: 'mk82air' },
+      ];
+
       // [BL9]-[BL13] The playback, on the F-16C 30°, 45°, DTOS 20°, A-10C 30° and LALD 10° at IP 15.3 and 20 nm (plan layer).
       // [BL9] The bomb's model is 'vacuum' and it leaves with the jet's own velocity: its first 0.05 s within 3 kt and
       // 0.3° of the jet's 0.01 s before the release (measured +0.9 to +1.3 kt: the pop-up file's 1.69 ft/s per kt).
@@ -5376,13 +5385,6 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
       //   FAIL dive aim [BL13]: … F-16C 30°@15.3: 0.784 m off the straight line, its share of the way off its share of the fall by 1.2e-4   (and [AT1])
       {
         const MS_KT = 1852 / 3600;
-        const DIVES = [
-          { key: 'F-16C 30°', ac: 'f16c', id: 'f16c.dive.ccip30', w: 'mk82' },
-          { key: 'F-16C 45°', ac: 'f16c', id: 'f16c.dive.ccip45', w: 'mk82' },
-          { key: 'F-16C DTOS 20°', ac: 'f16c', id: 'f16c.dive.dtos20', w: 'mk82' },
-          { key: 'A-10C 30°', ac: 'a10c', id: 'a10c.dive.ccip30', w: 'mk82' },
-          { key: 'F-16C LALD 10°', ac: 'f16c', id: 'f16c.dive.lald10', w: 'mk82air' },
-        ];
         let b9 = '', b10 = '', b11 = '', b13 = '', worstOff = 0, played = 0;
         const mids: string[] = [], speeds: string[] = [];
         for (const c of DIVES) {
@@ -5470,6 +5472,127 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
         ok('dive aim [BL12b]: a bomb dive says vacuum, not sight line, and its impact is not marked estimated',
            j2?.bomb.model === 'vacuum' && codes2.includes('vacuumBomb') && !codes2.includes('sightLineBomb') && impact?.estimated === false,
            `${j2?.bomb.model} ${codes2.join(',')}, impact estimated ${impact?.estimated}`);
+      }
+
+      // [BL14] A pose is a pure function of the plan and the clock. The dive's bomb and its jet, on the display layer
+      // the scene draws, at 40 times from 2 s before the release to 2 s after the impact, are the same numbers
+      // whether they are asked for in ascending order, in a fixed shuffle, newest first (a scrub back), or from a
+      // second build of the same plan. The times before the release are on purpose: the bomb is held at its release
+      // there, and that is where a table position left over from the last call would show.
+      // Mutation proof: playback/sample.ts locate: delete `at.i = 0; at.u = 0;` (state left between calls):
+      //   FAIL dive aim [BL14]: … F-16C 30°: a different answer in a different order
+      //   (and `playback bounds`, `playback scene [P11]`, `playback B3 [FB6]`, `[FB7]` and `[FB9]`, and the B3 section throws:
+      //   they read the same states, which are no longer the same on every ask)
+      {
+        let bad = '', asked = 0;
+        for (const c of DIVES.slice(0, 3)) {
+          const { m, attack } = blBuild(c.ac, c.id, c.w);
+          const pbA = lone(m, attack!, refWeapon(c.w)), pbB = lone(m, attack!, refWeapon(c.w));
+          const tA = retime(pbA), tB = retime(pbB), tj = tA.jets[0];
+          const times: number[] = [];
+          for (let k = 0; k < 40; k++) times.push(tj.release_s - 2 + ((tj.impact_s + 2) - (tj.release_s - 2)) * (k / 39));
+          const read = (p: StrikePlayback, tm: typeof tA, x: number) => {
+            const b = sampleBomb(p, tm, 0, x, 'display', newBombState()), jt = sampleJet(p, tm, 0, x, 'display', newJetState());
+            return [b.stage, b.e_m, b.n_m, b.up_m, b.ve_mps, b.vn_mps, b.vu_mps, jt.e_m, jt.n_m, jt.up_m, jt.ve_mps, jt.vn_mps, jt.vu_mps].join(',');
+          };
+          const asc = times.map((x) => read(pbA, tA, x));
+          // A fixed shuffle (a seeded Fisher-Yates), so every run asks in the same order.
+          let seed = 12345;
+          const shuffle = times.map((_, i) => i);
+          for (let i = shuffle.length - 1; i > 0; i--) {
+            seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff;
+            const k = seed % (i + 1);
+            [shuffle[i], shuffle[k]] = [shuffle[k], shuffle[i]];
+          }
+          const shuffled: string[] = [], newest: string[] = [], again = times.map((x) => read(pbB, tB, x));
+          for (const i of shuffle) shuffled[i] = read(pbA, tA, times[i]);
+          for (let i = times.length - 1; i >= 0; i--) newest[i] = read(pbA, tA, times[i]);
+          asked += times.length * 4;
+          if (!shuffle.some((v, i) => v !== i)) bad ||= `${c.key}: the shuffle is the ascending order (the check asks nothing new)`;
+          if (asc.some((v, i) => v !== shuffled[i] || v !== newest[i])) bad ||= `${c.key}: a different answer in a different order`;
+          if (asc.some((v, i) => v !== again[i])) bad ||= `${c.key}: a second build gives a different answer`;
+        }
+        ok('dive aim [BL14]: the dive bomb and its jet at a given time are the same numbers in any order of asking and in a second build (no state is left between frames)', bad === '', bad || `${asked} readings on 3 dives`);
+      }
+
+      // [BL17] The arc can be seen in the default view. Playback opens at Home, which frames about 20 nm of
+      // approach, so the whole fall is only 30 to 44 px long there and its bow is small: a camera that stood farther
+      // back, or a wider lens, would turn it into a straight line again. This projects the dive bomb through the
+      // scene's own home pose at 1400×682, like a pinhole (not a rendered frame: it cannot see how the line is drawn),
+      // and holds how far it is from the jet's own dive line, in pixels: at least 4 px at mid-fall and 15 px at the
+      // end for the F-16C 30° (2.5 px and 9 px for the 45° and DTOS 20° dives).
+      // Mutation proof: playbackScene/cameraMath.ts `export const HOME_MARGIN = 1.25;` → `1.8;` (Home stands farther back):
+      //   FAIL dive aim [BL17]: … F-16C 30°: 3.9 px at mid-fall (want ≥ 4) and 14.8 px at the end (want ≥ 15) off the jet's dive line in Home at 1400×682
+      //   (and `playback scene: the home pose sits behind the run-in, …`, which pins the margin itself)
+      // Measured on the first green run: 5.1 / 19.1 px (F-16C 30°), 3.3 / 12.0 px (45°), 3.4 / 12.8 px (DTOS 20°), mid-fall / end.
+      {
+        const W = 1400, H = 682;
+        const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        const norm = (a: Vec3): Vec3 => { const l = Math.hypot(...a); return [a[0] / l, a[1] / l, a[2] / l]; };
+        // A pinhole at the pose's eye, looking at its look point, with its vertical field of view; up is +U.
+        const project = (p: Pose, q: Vec3): [number, number] => {
+          const fwd = norm(sub(p.look, p.eye)), right = norm(cross(fwd, [0, 0, 1])), up = cross(right, fwd);
+          const d = sub(q, p.eye), z = dot(d, fwd), tanV = Math.tan((p.fov_deg / 2) * (Math.PI / 180));
+          return [(W / 2) * (1 + dot(d, right) / z / (tanV * (W / H))), (H / 2) * (1 - dot(d, up) / z / tanV)];
+        };
+        const enu = (x: number, y: number, z: number): Vec3 => [x, -z, y]; // the scene's axes (x east, y up, z = −north) → ENU
+        let why = '';
+        const seen: string[] = [];
+        for (const [c, minMid, minEnd] of [[DIVES[0], 4, 15], [DIVES[1], 2.5, 9], [DIVES[2], 2.5, 9]] as const) {
+          const { m, attack } = blBuild(c.ac, c.id, c.w);
+          const pb = lone(m, attack!, refWeapon(c.w)), timing = retime(pb), src = sceneSourceFrom(pb, timing);
+          const box = homeBox(src, playRange(pb, timing, false));
+          const home = homePose({ box, axis: src.attackAxis, aspect: W / H });
+          const tRel = src.releaseOf(0), fall = src.impactOf(0) - tRel;
+          const first = newSceneBombPose(), jetAtRel = newSceneJetPose(), now = newSceneBombPose();
+          src.bombAt(0, tRel + 1e-3, first);
+          src.jetAt(0, tRel - 0.01, jetAtRel);
+          // The jet's own dive line: from the bomb's first point along the jet's velocity at the release.
+          const rel = enu(first.x, first.y, first.z), dir = norm(enu(jetAtRel.vx, jetAtRel.vy, jetAtRel.vz));
+          const A = project(home, rel), B = project(home, [rel[0] + dir[0] * 3000, rel[1] + dir[1] * 3000, rel[2] + dir[2] * 3000]);
+          const pxOff = (u: number) => {
+            src.bombAt(0, tRel + fall * u - (u === 1 ? 1e-3 : 0), now);
+            const Q = project(home, enu(now.x, now.y, now.z));
+            return Math.abs((B[0] - A[0]) * (Q[1] - A[1]) - (B[1] - A[1]) * (Q[0] - A[0])) / Math.hypot(B[0] - A[0], B[1] - A[1]);
+          };
+          const mid = pxOff(0.5), end = pxOff(1);
+          seen.push(`${c.key} ${mid.toFixed(1)} / ${end.toFixed(1)} px`);
+          if (!(mid >= minMid) || !(end >= minEnd)) why ||= `${c.key}: ${mid.toFixed(1)} px at mid-fall (want ≥ ${minMid}) and ${end.toFixed(1)} px at the end (want ≥ ${minEnd}) off the jet's dive line in Home at ${W}×${H}`;
+        }
+        ok('dive aim [BL17]: in Home at 1400×682 the dive bomb is at least 4 px (F-16C 30°; 2.5 px for the 45° and DTOS dives) off the jet\'s dive line at mid-fall and 15 px (9 px) at the end',
+           why === '', why || seen.join('; '));
+      }
+
+      // The dive4 harness fixture: four F-16C 30° CCIP dive bombs on one target 5 s apart, saved the
+      // editor's way and handed over the way the attack list hands over a strike (and, with door=editor, as the
+      // editor does). Nothing else runs it: the screenshot checks do not open it.
+      // Mutation proofs: dev/fixture.ts savedStrike's profile list loses `'f16c.dive.ccip30'` (auto-build then picks another profile):
+      //   FAIL dive aim: the dive4 harness fixture is four F-16C 30° CCIP dive bombs 5 s apart, handed over by both doors  the list door: not four F-16C 30° CCIP dive bombs falling as vacuum arcs
+      // and the dive4 times `[0, 5, 10, 15]` → `[0, 10, 20, 30]`:
+      //   FAIL dive aim: the dive4 harness fixture is …  the list door: times over target 0.00 / 10.00 / 20.00 / 30.00 s after the first, want 0 / 5 / 10 / 15
+      {
+        let why = '';
+        for (const door of ['list', 'editor'] as const) {
+          try {
+            const launch = harnessFixtureLaunch('dive4', [], undefined, undefined, door);
+            const from = launch.fromMission;
+            const input = launch.input ?? (from && playbackInputFromMission(from.mission, from.subject, from.weapons));
+            const mm = harnessMoments(launch);
+            const gaps = mm.timing.jets.map((t) => t.impact_s - mm.timing.jets[0].impact_s);
+            const diveOf4 = (j: PlaybackJetInput) => j.attack.profile as DiveCCIPProfile;
+            if (door === 'list' ? !from || launch.input : !launch.input || from) why ||= `the ${door} door: handed over the wrong way (fromMission ${!!from}, input ${!!launch.input})`;
+            if (mm.pb.jets.length !== 4 || mm.pb.jets.map((j) => j.label).join() !== '#1,#2,#3,#4') why ||= `the ${door} door: ${mm.pb.jets.length} jets flown, labels ${mm.pb.jets.map((j) => j.label).join()}`;
+            if (!input || input.jets.some((j) => j.attack.profileType !== 'dive_ccip' || j.attack.deliveryMode !== 'CCIP' || diveOf4(j).diveAngle_deg !== 30 || diveOf4(j).releaseAltitude_ft !== 4500 || j.weapon?.id !== 'mk82')
+              || mm.pb.jets.some((j) => j.family !== 'dive' || j.bomb.model !== 'vacuum')) why ||= `the ${door} door: not four F-16C 30° CCIP dive bombs falling as vacuum arcs`;
+            if (gaps.some((g, k) => Math.abs(g - 5 * k) > 0.01)) why ||= `the ${door} door: times over target ${gaps.map((g) => g.toFixed(2)).join(' / ')} s after the first, want 0 / 5 / 10 / 15`;
+            if (door === 'list' && from?.mission.strikes?.[0]?.spacing_s !== 5) why ||= `the ${door} door: the strike says ${from?.mission.strikes?.[0]?.spacing_s} s spacing, want 5`;
+          } catch (e) {
+            why ||= `the ${door} door: ${(e as Error).message}`;
+          }
+        }
+        ok('dive aim: the dive4 harness fixture is four F-16C 30° CCIP dive bombs 5 s apart, handed over by both doors', why === '', why || 'list and editor doors, 4 jets at 0 / 5 / 10 / 15 s');
       }
     }
 

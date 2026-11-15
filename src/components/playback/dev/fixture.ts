@@ -21,6 +21,10 @@
  * - skip: three pop-ups at 0/10/40 with #2's target pointed at a waypoint
  *   that does not exist, so #2 is skipped and #3 flies as the second jet.
  *   Handed over like the editor.
+ * - dive4: four F-16C 30° CCIP dive bombs on TGT1 at 0/5/10/15 s, saved the
+ *   editor's way and handed over as the attack list hands a saved strike over
+ *   (with door=editor, as the editor hands one over). It is there to look at
+ *   the dive's bomb, which falls in an arc from each jet's own dive line.
  *
  * The strikes also carry what the door gives a strike: a way to write times
  * back (the checks pass a recorder), and from the editor's what the cards go
@@ -110,27 +114,27 @@ function strikeMission(): Mission {
 type Seat = { who: string; target: string; profile: string; tot: number };
 
 /** A strike drafted the editor's way, flanks assigned, and saved: the mission and the new attack ids. */
-function savedStrike(m: Mission, strikeId: string, seats: Seat[]) {
-  const ctx: DraftContext = { mission: m, weapons, profiles: profiles.filter((p) => p.id === 'f16c.popup.std' || p.id === 'f16c.loft.std'), threatSystems: [] };
+function savedStrike(m: Mission, strikeId: string, seats: Seat[], spacing_s = 10) {
+  const ctx: DraftContext = { mission: m, weapons, profiles: profiles.filter((p) => p.id === 'f16c.popup.std' || p.id === 'f16c.loft.std' || p.id === 'f16c.dive.ccip30'), threatSystems: [] };
   const jets = assignFlanks(seats.map((s) => {
     const j = newJet(m, s.who, s.target, {});
     return { ...j, draft: { ...j.draft, weaponId: 'mk82', profileId: s.profile }, totOffset_s: s.tot };
   }), ctx);
   let seq = 0;
-  return saveStrikeTo(m, { id: strikeId, name: `${seats.length}-ship`, ip: {}, spacing_s: 10 },
+  return saveStrikeTo(m, { id: strikeId, name: `${seats.length}-ship`, ip: {}, spacing_s },
     jets.map((j, i) => ({ data: draftAttackData(j.draft, resolveDraft(j.draft, ctx), undefined, 1 + i)!, totOffset_s: j.totOffset_s })),
     () => `${strikeId}-${++seq}`);
 }
 
-export type HarnessFixture = 'one' | 'strike4' | 'late' | 'skip';
+export type HarnessFixture = 'one' | 'strike4' | 'late' | 'skip' | 'dive4';
 
 /** What Apply wrote: to the editor, a list of times in the editor's order; to the plan, each attack's time by its id. */
 export type AppliedTimes = number[] | Record<string, number>;
 
 /**
- * The launch for a fixture. The four-ship is handed over as the attack list hands a saved strike over (the plan
- * as saved and the strike to play, with Apply to the plan), unless `door` is 'editor': then, like the other two
- * strikes, as the attack editor hands one over (the jets built, with Apply to the strike and the cards' tie).
+ * The launch for a fixture. The four-ship and the four dives are handed over as the attack list hands a saved strike
+ * over (the plan as saved and the strike to play, with Apply to the plan), unless `door` is 'editor': then, like the
+ * other two strikes, as the attack editor hands one over (the jets built, with Apply to the strike and the cards' tie).
  * The lone pop-up is handed over as the attack editor hands one over, unless `door` is 'list': then as the
  * attack list hands over a lone attack's row.
  * `watch` is the seat number (1 = #1) playback opens watching; left out, the lead (or, for late, #2).
@@ -146,23 +150,25 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
     planned = lost;
     input = playbackInputFromMission(lost, { strikeId: 'h-skip' }, weapons);
   } else {
-    const s = savedStrike(m, 'h-strike4', [
-      { who: 'h-p1', target: 'h-tgt', profile: 'f16c.popup.std', tot: 0 },
-      { who: 'h-p2', target: 'h-tgt', profile: 'f16c.popup.std', tot: 10 },
-      { who: 'h-p3', target: 'h-tgt2', profile: 'f16c.popup.std', tot: 40 },
-      { who: 'h-p4', target: 'h-tgt', profile: 'f16c.loft.std', tot: 40 },
-    ]);
+    const s = fixture === 'dive4'
+      ? savedStrike(m, 'h-dive4', [0, 5, 10, 15].map((tot, i) => ({ who: `h-p${i + 1}`, target: 'h-tgt', profile: 'f16c.dive.ccip30', tot })), 5)
+      : savedStrike(m, 'h-strike4', [
+        { who: 'h-p1', target: 'h-tgt', profile: 'f16c.popup.std', tot: 0 },
+        { who: 'h-p2', target: 'h-tgt', profile: 'f16c.popup.std', tot: 10 },
+        { who: 'h-p3', target: 'h-tgt2', profile: 'f16c.popup.std', tot: 40 },
+        { who: 'h-p4', target: 'h-tgt', profile: 'f16c.loft.std', tot: 40 },
+      ]);
     planned = s.mission;
-    input = playbackInputFromMission(s.mission, { strikeId: 'h-strike4' }, weapons);
+    input = playbackInputFromMission(s.mission, { strikeId: fixture === 'dive4' ? 'h-dive4' : 'h-strike4' }, weapons);
     if (input && fixture === 'late') input = { ...input, jets: input.jets.map((j, i) => (i === 1 ? { ...j, totOffset_s: 300 } : j)) };
   }
   if (!input) throw new Error(`The harness ${fixture} fixture did not build`);
   // Every member in seat order, skipped ones included, so a seat number names the same member as the card.
   const ids = [...input.jets.map((j) => ({ id: j.id, label: j.label })), ...(input.skipped ?? []).map((j) => ({ id: j.id, label: j.label }))];
   const seat = watch ?? (fixture === 'late' ? 2 : 1);
-  if (fixture === 'strike4' && door !== 'editor') {
+  if ((fixture === 'strike4' || fixture === 'dive4') && door !== 'editor') {
     return {
-      fromMission: { mission: planned, subject: { strikeId: 'h-strike4' }, weapons }, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes,
+      fromMission: { mission: planned, subject: { strikeId: fixture === 'dive4' ? 'h-dive4' : 'h-strike4' }, weapons }, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes,
       apply: record && { to: 'mission', write: record },
     };
   }

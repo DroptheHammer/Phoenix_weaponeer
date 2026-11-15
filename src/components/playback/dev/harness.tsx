@@ -7,17 +7,18 @@
  * It mounts the real PlaybackView, inside the real PlaybackOverlay and error
  * boundary, on a made-up plan (fixture.ts) chosen by ?fixture=: one (the
  * default, a lone pop-up), strike4 (a four-ship), late (the four-ship with #2
- * at 300 s, watching #2) or skip (three jets, #2 skipped); ?watch=3 opens
+ * at 300 s, watching #2), skip (three jets, #2 skipped) or dive4 (four F-16C
+ * 30° dive bombs 5 s apart, to look at the bomb's arc); ?watch=3 opens
  * watching #3. Tiles are chosen by ?tiles=:
  *   synthetic (default)  a known hill and a two-colour map, offline, the same every run
  *   live                 real OpenStreetMap and elevation tiles, fetched by the browser
  *   none                 flat ground, nothing fetched
  * Other parameters: ?open=0 starts closed; ?notes=1 adds an unverified-theater note
  * (the longest small print, for the 1024×768 fit check). The strikes also offer Apply,
- * and what it writes is recorded in __pb.applied: the four-ship is handed over as the
- * attack list hands over a saved strike (Apply to plan, each attack's time by its id);
- * the others, and the four-ship with ?door=editor, as the attack editor does (Apply
- * to strike, one time per jet in the editor's order). The lone pop-up, with
+ * and what it writes is recorded in __pb.applied: the four-ship and the four dives are
+ * handed over as the attack list hands over a saved strike (Apply to plan, each attack's
+ * time by its id); the others, and those two with ?door=editor, as the attack editor does
+ * (Apply to strike, one time per jet in the editor's order). The lone pop-up, with
  * ?fixture=one&door=list, is handed over as the attack list hands over a lone row.
  * ?gone=1 (on a plan handed over like the attack list's) names a strike the plan
  * does not hold, as if it had been taken out after Play was pressed: playback
@@ -49,7 +50,7 @@ import type { PlaybackLaunch } from '../types';
 
 const params = new URLSearchParams(location.search);
 const tilesMode = params.get('tiles') ?? 'synthetic';
-const fixtureName = (['one', 'strike4', 'late', 'skip'] as const).find((f) => f === params.get('fixture')) ?? 'one';
+const fixtureName = (['one', 'strike4', 'late', 'skip', 'dive4'] as const).find((f) => f === params.get('fixture')) ?? 'one';
 const watchParam = params.get('watch');
 const notes = params.get('notes') === '1'
   ? ["Harness: coordinates unverified. This map's projection has not been checked against a known landmark, so the plan may sit offset over the ground drawn here."]
