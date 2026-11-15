@@ -38,7 +38,11 @@ export const BOMB_LEN_M = 2.4;
 export const LINE_CASING = BG;
 export const PATH_PX = 2;
 export const PATH_CASING_PX = 4;
-/** A jet drawn in its seat colour has its path mixed this far toward the background. */
+/**
+ * How far a path was mixed toward the background when it was drawn in the jet's seat colour. Nothing
+ * reads it now that the watched jet's lines wear the planner's colours; the shade for the jets that
+ * are not watched takes its place when they are drawn.
+ */
 export const PATH_SHADE = 0.45;
 /** The trail behind the jet: wider than the path, so the stretch just flown stands out. */
 export const TRAIL_PX = 3.5;

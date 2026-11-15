@@ -21,13 +21,14 @@
 import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { LABEL_STYLE, MARKER_COLOR } from '../../lib/attackPicture';
 import {
-  axisFraction, BAND_H_PX, BAND_OUTLINE, BAND_TOP_PX, CHIP_DOT_PX, CHIP_H_PX, CHIP_TEXT, chipWidth, DIAMOND_EDGE, IP_TEXT, laneChips, PIN_MARK_PX, pinnedGroup,
+  axisFraction, BAND_H_PX, BAND_OUTLINE, BAND_TOP_PX, CHIP_DOT_PX, CHIP_H_PX, CHIP_TEXT, chipWidth, DIAMOND_EDGE, DIAMOND_PX, IP_TEXT, laneChips,
+  PIN_CHIP_BG, PIN_CHIP_TEXT, PIN_GLYPH, PIN_MARK_PX, pinnedGroup,
   type ActionKind, type Axis, type LaneBand, type LaneMark, type SeatMarks,
 } from '../../lib/playbackScene';
 import { fmtStrikeTime } from '../../lib/strike';
 import type { PlaybackScene } from './scene/createScene';
 import { bandTitle, laneSummary, markTitle, pinnedTitle } from './laneText';
-import { bandBackground, CHIP, CHIP_LETTERS, LANE, READOUT, ROW_GRID } from './ui';
+import { bandBackground, CHIP, CHIP_LETTERS, LANE, LANE_LABEL, PIN_MARK, READOUT, ROW_GRID, SEAT_DOT } from './ui';
 
 /** One jet's lane. */
 export interface LaneInfo {
@@ -78,8 +79,8 @@ function Lane({ info, scene, axis, width }: { info: LaneInfo; scene: PlaybackSce
 
   return (
     <div data-lane={info.seat} className={ROW_GRID}>
-      <div className="flex min-w-0 items-center gap-1.5 text-xs text-gray-200">
-        <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: info.colour }} />
+      <div className={LANE_LABEL}>
+        <span aria-hidden className={SEAT_DOT} style={{ background: info.colour }} />
         <span className="truncate">{info.label}{info.callsign ? ` ${info.callsign}` : ''}</span>
       </div>
 
@@ -144,10 +145,13 @@ function Lane({ info, scene, axis, width }: { info: LaneInfo; scene: PlaybackSce
               className="absolute left-0 top-0 h-3"
               style={{ width: PIN_MARK_PX + chipWidth(group.letters) }}
             >
-              <span data-pinned-mark className="absolute left-0 top-0 text-[11px] leading-3 text-gray-300" style={{ width: PIN_MARK_PX }}>‹</span>
+              <span data-pinned-mark className={PIN_MARK} style={{ width: PIN_MARK_PX, color: PIN_GLYPH }}>‹</span>
               <span
-                className={`${CHIP} ${CHIP_LETTERS} ${group.ip ? '' : 'bg-gray-700 text-white'}`}
-                style={{ left: PIN_MARK_PX + chipWidth(group.letters) / 2, top: 0, width: chipWidth(group.letters), ...(group.ip ? chipLook(group.filled ? 'push' : 'cardPush') : {}) }}
+                className={`${CHIP} ${CHIP_LETTERS}`}
+                style={{
+                  left: PIN_MARK_PX + chipWidth(group.letters) / 2, top: 0, width: chipWidth(group.letters),
+                  ...(group.ip ? chipLook(group.filled ? 'push' : 'cardPush') : { background: PIN_CHIP_BG, color: PIN_CHIP_TEXT }),
+                }}
               >
                 {group.letters}
               </span>
@@ -161,7 +165,7 @@ function Lane({ info, scene, axis, width }: { info: LaneInfo; scene: PlaybackSce
               data-impact
               title={markTitle(impact)}
               className="absolute z-[5] -translate-x-1/2 -translate-y-1/2 rotate-45"
-              style={{ left: axisFraction(axis, impact.t_s) * width, top: BAND_TOP_PX + BAND_H_PX / 2, width: 9, height: 9, background: MARKER_COLOR.TGT, border: `1px solid ${DIAMOND_EDGE}` }}
+              style={{ left: axisFraction(axis, impact.t_s) * width, top: BAND_TOP_PX + BAND_H_PX / 2, width: DIAMOND_PX, height: DIAMOND_PX, background: MARKER_COLOR.TGT, border: `1px solid ${DIAMOND_EDGE}` }}
             />
           )}
 

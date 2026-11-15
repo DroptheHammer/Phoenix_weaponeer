@@ -54,6 +54,11 @@ export const ROW_GRID = 'grid grid-cols-[160px_minmax(0,1fr)_170px] items-center
  * scrubber's thumb travel has, so a time sits at the same x on both.
  */
 export const LANE = 'relative h-[30px] px-2';
+/** A lane's left cell: the jet's colour dot, then its seat and callsign. */
+export const LANE_LABEL = 'flex min-w-0 items-center gap-1.5 text-xs text-gray-200';
+export const SEAT_DOT = 'h-2 w-2 shrink-0 rounded-full';
+/** The "‹" before the marks that fall before the time bar starts; its colour is laneStyle's PIN_GLYPH. */
+export const PIN_MARK = 'absolute left-0 top-0 text-[11px] leading-3';
 /** A lane's right cell: its time over target and the card's push time. */
 export const READOUT = 'min-w-0 font-mono text-[11px] leading-tight text-gray-300';
 /** A chip on a lane: its width is set from its letters, its colours from the mark. */

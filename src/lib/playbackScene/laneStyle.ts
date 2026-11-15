@@ -10,7 +10,10 @@ import type { ActionKind } from './actionPoints';
 /** The bottom panel's colour (tailwind's dcs-navy): everything on the lanes sits on it. */
 export const PANEL = '#16213e';
 
-/** One lane is this tall: a row of chips above the band, the band, a row of chips below it. */
+/**
+ * One lane is this tall: a row of chips above the band, the band, a row of chips below it. The lane's
+ * class string (LANE in the components' ui.ts) spells the same height out; geo-check holds the two together.
+ */
 export const LANE_H_PX = 30;
 export const BAND_H_PX = 6;
 /** The band's top edge in the lane: the chips above it take the first 12 px. */
@@ -32,6 +35,16 @@ export const chipWidth = (letters: string) => CHIP_CHAR_PX * letters.length + 2 
 export const BAND_OUTLINE = '#d1d5db';
 /** The diamond at the time over target is the planner's red with this edge round it, for the same reason. */
 export const DIAMOND_EDGE = '#ffffff';
+/** The diamond's side before it is turned on its corner. */
+export const DIAMOND_PX = 9;
+/** The "‹" before the group of marks that fall before the time bar starts (tailwind gray-300). */
+export const PIN_GLYPH = '#d1d5db';
+/**
+ * That group's chip when it is a count of marks and not the IP's: white letters on tailwind gray-700.
+ * The fill is close to the panel's own colour, so the chip is read by its letters, not its shape.
+ */
+export const PIN_CHIP_BG = '#374151';
+export const PIN_CHIP_TEXT = '#ffffff';
 /** The letters of the filled IP chip, on the IP label's own blue. */
 export const IP_TEXT = '#ffffff';
 

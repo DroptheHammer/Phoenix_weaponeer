@@ -119,9 +119,15 @@ export class CalloutPlacer {
   private nBoxes = 0;
   private viewW = 0;
   private viewH = 0;
+  private px = 0;
+  private py = 0;
   /** The plate's top left after a successful place, CSS pixels. */
-  x = 0;
-  y = 0;
+  get x(): number {
+    return this.px;
+  }
+  get y(): number {
+    return this.py;
+  }
 
   /** Room for `capacity` boxes (blocked and placed together) and for slots 0 … capacity − 1. */
   constructor(capacity: number) {
@@ -140,7 +146,7 @@ export class CalloutPlacer {
     this.viewH = viewH;
   }
 
-  /** Something already on the picture (a jet's label, a target's tag) that no plate may cover. */
+  /** Something already on the picture (a jet's label, a target's disc and tag) that no plate may cover. */
   block(x: number, y: number, w: number, h: number): void {
     if (this.nBoxes >= this.bx.length) return;
     const i = this.nBoxes++;
@@ -154,8 +160,8 @@ export class CalloutPlacer {
   private spot(s: number, ax: number, ay: number, r: number, w: number, h: number): void {
     const o = (r + CALLOUT_GAP_PX) * Math.SQRT1_2;
     const right = s === 0 || s === 2 || s === 4;
-    this.x = right ? ax + o : ax - o - w;
-    this.y = s === 2 || s === 3 ? ay + o : ay - o - h - (s >= 4 ? h + CALLOUT_GAP_PX : 0);
+    this.px = right ? ax + o : ax - o - w;
+    this.py = s === 2 || s === 3 ? ay + o : ay - o - h - (s >= 4 ? h + CALLOUT_GAP_PX : 0);
   }
 
   private free(x: number, y: number, w: number, h: number): boolean {
@@ -174,8 +180,8 @@ export class CalloutPlacer {
       const s = k < 0 ? prev : k;
       if (s < 0 || (k >= 0 && s === prev)) continue;
       this.spot(s, ax, ay, r, w, h);
-      if (!this.free(this.x, this.y, w, h)) continue;
-      this.block(this.x, this.y, w, h);
+      if (!this.free(this.px, this.py, w, h)) continue;
+      this.block(this.px, this.py, w, h);
       this.last[slot] = s;
       return s;
     }

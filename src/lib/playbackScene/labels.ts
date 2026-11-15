@@ -70,23 +70,29 @@ export class LabelText {
 /**
  * Lays out `n` labels, in seat order: label i (w[i] × h[i]) beside its anchor (ax[i], ay[i]), tried
  * up-right, up-left, down-right, down-left, LABEL_OFFSET_PX from the anchor; the first that overlaps
- * no label already placed and lies wholly in the `viewW`×`viewH` view, else the one that overlaps and
- * leaves the view least. Top lefts go to outX, outY. Deterministic; allocates nothing.
+ * no label already placed and none of the `nBlocked` boxes already on the picture (a target's disc
+ * and its name), and lies wholly in the `viewW`×`viewH` view, else the one that overlaps and leaves
+ * the view least. Top lefts go to outX, outY. Deterministic; allocates nothing.
  */
 export function placeLabels(
   n: number, ax: Float32Array, ay: Float32Array, w: Float32Array, h: Float32Array,
   viewW: number, viewH: number, outX: Float32Array, outY: Float32Array,
+  nBlocked = 0, bx?: Float32Array, by?: Float32Array, bw?: Float32Array, bh?: Float32Array,
 ): void {
   const o = LABEL_OFFSET_PX;
+  const blocked = bx && by && bw && bh ? nBlocked : 0;
   for (let i = 0; i < n; i++) {
     let bestX = 0, bestY = 0, bestCost = Infinity;
     for (let c = 0; c < 4; c++) {
       const x = c === 0 || c === 2 ? ax[i] + o : ax[i] - o - w[i];
       const y = c < 2 ? ay[i] - o - h[i] : ay[i] + o;
-      // What it covers of the labels placed before it, plus what of it lies outside the view.
+      // What it covers of the labels placed before it and of the blocked boxes, plus what of it lies outside the view.
       let cost = w[i] * h[i] - Math.max(0, Math.min(x + w[i], viewW) - Math.max(x, 0)) * Math.max(0, Math.min(y + h[i], viewH) - Math.max(y, 0));
       for (let j = 0; j < i; j++) {
         cost += Math.max(0, Math.min(x + w[i], outX[j] + w[j]) - Math.max(x, outX[j])) * Math.max(0, Math.min(y + h[i], outY[j] + h[j]) - Math.max(y, outY[j]));
+      }
+      for (let j = 0; j < blocked; j++) {
+        cost += Math.max(0, Math.min(x + w[i], bx![j] + bw![j]) - Math.max(x, bx![j])) * Math.max(0, Math.min(y + h[i], by![j] + bh![j]) - Math.max(y, by![j]));
       }
       if (cost < bestCost) {
         bestCost = cost;

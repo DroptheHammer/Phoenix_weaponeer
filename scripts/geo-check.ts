@@ -134,9 +134,10 @@ import {
 } from '../src/lib/playbackScene';
 import {
   laneMarks, laneBands, laneChips, placeChips, pinnedGroup, axisFraction, axisTime, chipWidth, CHIP_GAP_PX, CHIP_TEXT, BAND_OUTLINE, DIAMOND_EDGE, IP_TEXT,
-  PANEL, HATCH_RGB, HATCH_ALPHA, MENU_BG, PIN_MARK_PX, type Axis, type SeatMarks,
+  PANEL, HATCH_RGB, HATCH_ALPHA, MENU_BG, PIN_MARK_PX, PIN_GLYPH, PIN_CHIP_BG, PIN_CHIP_TEXT, LANE_H_PX, BAND_TOP_PX, BAND_H_PX, CHIP_H_PX, type Axis, type SeatMarks,
 } from '../src/lib/playbackScene';
 import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary } from '../src/components/playback/laneText';
+import { LANE } from '../src/components/playback/ui';
 import { PHASES, PHASE_STYLE } from '../src/lib/playback';
 import {
   controlsFor, topDownPose, chasePose, yawDelta, targetEye, CHASE_BACK_M, CHASE_UP_M, CHASE_MIN_M, CHASE_MAX_M, CHASE_SWING_DEG,
@@ -7532,6 +7533,17 @@ void (async () => {
        LINE_CASING === BG && fb8.every((f) => f.worst >= 3),
        `casing ${LINE_CASING}; ` + fb8.map((f) => `${f.key} ${f.worst.toFixed(2)}`).join(', '));
 
+    // [LD1] The 3D lines draw every dashed stretch of a jet's path with one dash pattern, taken from the
+    // first dashed style (jetLayer.ts PATH_DASH). That is right only while the planner's dashed line
+    // styles a path can take all share one pattern; if one is ever given its own, this fails instead
+    // of the 3D quietly keeping the route's dashes on it.
+    // Mutation proof: attackPicture.ts LINE_STYLE.egressLeg dash [10, 10] → [4, 8], seen red 2026-11-15:
+    //   FAIL playback B3 [LD1]: … dashed styles: route 10,10; egressLeg 4,8
+    const ld1 = [...new Set(PHASES.map((p) => PHASE_STYLE[p]))].filter((k) => LINE_STYLE[k].dash).map((k) => ({ k, dash: LINE_STYLE[k].dash!.join() }));
+    ok('playback B3 [LD1]: every dashed line style a jet\'s path can take has the same dash pattern, the one the 3D lines draw them all with',
+       ld1.length > 0 && ld1.every((d) => d.dash === ld1[0].dash),
+       'dashed styles: ' + ld1.map((d) => `${d.k} ${d.dash}`).join('; '));
+
     // ── The timeline in attack colours (lanes.ts: each lane's marks, bands and chips; laneStyle.ts: the
     // sizes and colours that are not the planner's; laneText.ts: the words). Axis times are strike time.
     const lnMoments = (pb: StrikePlayback) => (k: number) => markerMoments(pb.jets[k]);
@@ -7795,6 +7807,8 @@ void (async () => {
     //   FAIL playback B3 [CT1]: … through their outlines  TRK letters on its chip 4.30 (text, want 4.5)
     // HATCH_ALPHA 0.5 → 0.35:
     //   FAIL playback B3 [CT1]: … through their outlines  hatch stripe over the panel 2.38 (graphic, want 3)
+    // PIN_CHIP_TEXT '#ffffff' → '#9ca3af' (the count chip's letters in grey), seen red 2026-11-15:
+    //   FAIL playback B3 [CT1]: … through their outlines  pinned count letters on its chip 4.02 (text, want 4.5)
     const tailwindNavy = /'dcs-navy':\s*'(#[0-9a-fA-F]{6})'/.exec(readFileSync('tailwind.config.js', 'utf8'))?.[1];
     const colour = (css: string) => parseColour(css)!;
     type Ct1 = { id: string; kind: 'graphic' | 'text'; fg: string; bg: string };
@@ -7805,6 +7819,11 @@ void (async () => {
       { id: 'IP letters on the filled chip', kind: 'text', fg: IP_TEXT, bg: LABEL_STYLE.ipBg },
       { id: 'card-push letters', kind: 'text', fg: LABEL_STYLE.ipBorder, bg: PANEL },
       { id: 'hatch stripe over the panel', kind: 'graphic', fg: `rgba(${HATCH_RGB}, ${HATCH_ALPHA})`, bg: PANEL },
+      // The group of marks before the time bar: its "‹", and the count chip, which is read by its letters
+      // (its grey fill is close to the panel's colour), so the letters are held on the fill and on the panel.
+      { id: 'pinned ‹ mark', kind: 'text', fg: PIN_GLYPH, bg: PANEL },
+      { id: 'pinned count letters on its chip', kind: 'text', fg: PIN_CHIP_TEXT, bg: PIN_CHIP_BG },
+      { id: 'pinned count letters over the panel', kind: 'text', fg: PIN_CHIP_TEXT, bg: PANEL },
       { id: 'menu text', kind: 'text', fg: '#e5e7eb', bg: MENU_BG },
       { id: 'menu hint', kind: 'text', fg: '#9ca3af', bg: MENU_BG },
       ...(['AP', 'ROLL', 'RUN', 'POP', 'PDP', 'TRK', 'REL'] as const).flatMap((k): Ct1[] => [
@@ -7817,6 +7836,17 @@ void (async () => {
     ok('playback B3 [CT1]: every colour the timeline draws stands off its background (the panel, tailwind\'s dcs-navy): 3:1 for graphics, 4.5:1 for text, in all three visions; the band, diamond and IP chip through their outlines',
        tailwindNavy?.toLowerCase() === PANEL && ct1Bad.length === 0,
        ct1Bad.length ? ct1Bad.map((p) => `${p.id} ${p.worst.toFixed(2)} (${p.kind}, want ${CONTRAST_FLOOR[p.kind]})`).join('; ') : `tailwind navy ${tailwindNavy} = the panel; ${ct1.length} pairs, worst graphic ${Math.min(...ct1.filter((p) => p.kind === 'graphic').map((p) => p.worst)).toFixed(2)}, worst text ${Math.min(...ct1.filter((p) => p.kind === 'text').map((p) => p.worst)).toFixed(2)}`);
+
+    // [LS1] A lane's height is written twice, as a number (laneStyle's LANE_H_PX, which the chip rows
+    // and the band add up to) and inside the lane's class string (ui.ts LANE, which the stylesheet
+    // needs spelt out): the two agree, so a restyle of one cannot leave the chips outside the lane.
+    // Mutation proofs (each seen red 2026-11-15): ui.ts LANE 'h-[30px]' → 'h-[28px]':
+    //   FAIL playback B3 [LS1]: … LANE "relative h-[28px] px-2", LANE_H_PX 30, rows 12 + 6 + 12 = 30
+    // laneStyle.ts BAND_H_PX 6 → 8:
+    //   FAIL playback B3 [LS1]: … LANE "relative h-[30px] px-2", LANE_H_PX 30, rows 12 + 8 + 12 = 32
+    ok('playback B3 [LS1]: a lane\'s class string spells out laneStyle\'s lane height, and the chip row above, the band and the chip row below add up to it',
+       LANE.split(' ').includes(`h-[${LANE_H_PX}px]`) && BAND_TOP_PX + BAND_H_PX + CHIP_H_PX === LANE_H_PX,
+       `LANE "${LANE}", LANE_H_PX ${LANE_H_PX}, rows ${BAND_TOP_PX} + ${BAND_H_PX} + ${CHIP_H_PX} = ${BAND_TOP_PX + BAND_H_PX + CHIP_H_PX}`);
 
     // ── The target mark (source.ts: seats and the distinct targets; targets.ts: grouping, the tag, the
     // post; callouts.ts: the letters' ink).
@@ -8149,6 +8179,24 @@ void (async () => {
        !lb3Overlap && lb3In && JSON.stringify(lb3) === JSON.stringify(lb3Again) && LABEL_OFFSET_PX === 14 &&
        lb3[0][0] === 214 && lb3[0][1] === 150 - 14 - 32 && lb3Corner[0] === 395 - 14 - 100 && lb3Corner[1] === 5 + 14,
        `four on one arrow: ${lb3.map((p) => `(${p[0]}, ${p[1]})`).join(' ')}, overlap ${lb3Overlap}, in view ${lb3In}; top right corner (${lb3Corner[0]}, ${lb3Corner[1]})`);
+
+    // [LB3b] A jet's label keeps off a target's disc and tag: with that box lying over the up-right
+    // spot the label goes up-left; with it over both upper spots, down-right; with every spot touched,
+    // the one that covers least of it. Without a box, up-right as before.
+    // Mutation proof: labels.ts placeLabels ignoring the boxes (`const blocked = 0`), seen red 2026-11-15:
+    //   FAIL playback B3 [LB3b]: … no box (214, 104); box up-right (214, 104) (want 86, 104); box over both upper spots (214, 104) (want 214, 164); every spot touched (214, 104) (want 86, 164)
+    const lb3b = (boxes: number[][]) => {
+      const outX = new Float32Array(1), outY = new Float32Array(1), col = (k: number) => Float32Array.from(boxes, (b) => b[k]);
+      placeLabels(1, Float32Array.of(200), Float32Array.of(150), Float32Array.of(100), Float32Array.of(32), 400, 300, outX, outY, boxes.length, col(0), col(1), col(2), col(3));
+      return [outX[0], outY[0]];
+    };
+    const lb3bNone = lb3b([]), lb3bRight = lb3b([[230, 100, 60, 30]]), lb3bUpper = lb3b([[60, 90, 300, 30]]);
+    // Up-right, up-left and down-right each lose 400 px² or more; down-left (86…186 × 164…196) loses 5 × 4 = 20.
+    const lb3bAll = lb3b([[60, 90, 300, 30], [214, 164, 100, 32], [181, 192, 20, 20]]);
+    const lb3bIs = (p: number[], x: number, y: number) => p[0] === x && p[1] === y;
+    ok('playback B3 [LB3b]: a jet\'s label takes the spot that leaves a target\'s disc and tag uncovered: up-left when the box is up-right, down-right when it lies over both upper spots, the least covering one when every spot touches a box',
+       lb3bIs(lb3bNone, 214, 104) && lb3bIs(lb3bRight, 86, 104) && lb3bIs(lb3bUpper, 214, 164) && lb3bIs(lb3bAll, 86, 164),
+       `no box (${lb3bNone.join(', ')}); box up-right (${lb3bRight.join(', ')}) (want 86, 104); box over both upper spots (${lb3bUpper.join(', ')}) (want 214, 164); every spot touched (${lb3bAll.join(', ')}) (want 86, 164)`);
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }

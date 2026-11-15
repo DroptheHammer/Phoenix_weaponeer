@@ -239,20 +239,23 @@ async function checkJet(page, tag, label = '2 jet arrow on screen') {
   // The moments include the whole run-in's start: the time bar must reach back that far (it does after
   // check 1, and after a rebuild, which keeps the choice; set again so the check stands on its own).
   await pbEval(page, () => __pb.setRange(true));
-  await overlay(page, false);
   const m = await pbEval(page, () => __pb.moments);
   const parts = [];
   let ok = true;
-  for (const [name, t] of [['start', m.t0], ['run-in', (m.t0 + m.pullUp) / 2], ['pull-up', m.pullUp]]) {
-    await pbEval(page, (tt) => __pb.seek(tt), t);
-    await settle(page);
-    const p = await pbEval(page, () => __pb.project(0, 'jet'));
-    const img = await shot(page, `${tag}-02-jet-${name}`);
-    const n = p ? patch(img, p.map(Math.round), ARROW_PATCH).filter(jetLike).length : 0;
-    ok = ok && n >= ARROW_MIN;
-    parts.push(`${name} t=${t.toFixed(1)} at ${p ? p.map(Math.round) : 'none'}: ${n} px`);
+  await overlay(page, false);
+  try {
+    for (const [name, t] of [['start', m.t0], ['run-in', (m.t0 + m.pullUp) / 2], ['pull-up', m.pullUp]]) {
+      await pbEval(page, (tt) => __pb.seek(tt), t);
+      await settle(page);
+      const p = await pbEval(page, () => __pb.project(0, 'jet'));
+      const img = await shot(page, `${tag}-02-jet-${name}`);
+      const n = p ? patch(img, p.map(Math.round), ARROW_PATCH).filter(jetLike).length : 0;
+      ok = ok && n >= ARROW_MIN;
+      parts.push(`${name} t=${t.toFixed(1)} at ${p ? p.map(Math.round) : 'none'}: ${n} px`);
+    }
+  } finally {
+    await overlay(page, true); // a step that throws must not leave the later checks without the overlay
   }
-  await overlay(page, true);
   step(`${label} (${tag})`, ok, `${parts.join('; ')} (need ${ARROW_MIN})`);
 }
 
@@ -742,8 +745,12 @@ async function checkColourCode(page, tag) {
   await pbEval(page, (tt) => __pb.seek(tt), m.pullUp + 3);
   await settle(page, 300);
   await overlay(page, false);
-  const img = await shot(page, `${tag}-23-colour-code`);
-  await overlay(page, true);
+  let img;
+  try {
+    img = await shot(page, `${tag}-23-colour-code`);
+  } finally {
+    await overlay(page, true);
+  }
   const climbMid = pop && down ? [(pop[0] + down[0]) / 2, (pop[1] + down[1]) / 2] : null;
   const count = (a, b, mid, test) => (a && b && mid ? alongLine(img, a, b, mid, 20, 3, test) : 0);
   const climb = count(pop, down, climbMid, climbLike), climbJet = count(pop, down, climbMid, jetLike);
@@ -791,6 +798,21 @@ async function checkTargetMark(page, tag) {
   step(`24 the planner's red TGT disc on its post, tagged with the target and its seat (${tag})`,
     n >= TGT_MIN && !!t0 && t0.tag === 'TGT1 · #1' && drawnAt <= 1 && labels.targets.length === 1,
     `disc at ${p ? p.map(Math.round) : 'none'}: ${n} red px within 14 px (need ${TGT_MIN}); overlay ${labels ? labels.targets.length : 'none'} target(s), first ${t0 ? `"${t0.tag}" ${drawnAt.toFixed(2)} px from the projected point` : 'none'}`);
+
+  // 24b: at the release the jet is right beside its target on screen (Home), so its label takes the
+  // side of the arrow that leaves the target's disc and tag uncovered.
+  // Proven red 2026-11-15 by one temporary edit to src/lib/playbackScene/labels.ts (placeLabels ignoring
+  // the boxes, `const blocked = 0`):
+  //   STEP FAIL 24b at the release the jet's label leaves the target's disc and tag uncovered (1400x900) — label 143×32 at 932,267; target box 95×30 at 940,261; 2270 px² of it covered
+  //   STEP FAIL 24b … (1024x768) — label 143×32 at 689,202; target box 95×30 at 690,196; 2256 px² of it covered
+  await pbEval(page, () => __pb.seek(__pb.moments.release));
+  await settle(page, 300);
+  const at = await pbEval(page, () => __pb.debugLabels());
+  await shot(page, `${tag}-24b-label-off-target`);
+  const jb = at && at.jets[0], tb = at && at.targets[0] && at.targets[0].box;
+  const covered = jb && tb ? Math.max(0, Math.min(jb.x + jb.w, tb[0] + tb[2]) - Math.max(jb.x, tb[0])) * Math.max(0, Math.min(jb.y + jb.h, tb[1] + tb[3]) - Math.max(jb.y, tb[1])) : NaN;
+  step(`24b at the release the jet's label leaves the target's disc and tag uncovered (${tag})`, covered === 0,
+    jb && tb ? `label ${Math.round(jb.w)}×${Math.round(jb.h)} at ${Math.round(jb.x)},${Math.round(jb.y)}; target box ${Math.round(tb[2])}×${Math.round(tb[3])} at ${Math.round(tb[0])},${Math.round(tb[1])}; ${Math.round(covered)} px² of it covered` : 'no jet label or no target on the overlay');
 }
 
 /**

@@ -25,7 +25,8 @@
  *   is left out that frame (its disc stays): it never covers another label.
  * - Each jet's label beside its arrow: "#1 Viper 1-1" in the jet's colour,
  *   and, with Show › Labels on, its altitude and speed as the planner prints
- *   them.
+ *   them. It takes the side of the arrow that leaves a target's disc and tag
+ *   uncovered (the jet passes right by its target at release).
  *
  * The backing store follows the canvas's CSS size times the scene's capped
  * device pixel ratio, so text is sharp on a Retina screen without costing
@@ -47,7 +48,8 @@ import type { TargetLayer } from './targetLayer';
 
 /** What was drawn on the last frame, CSS pixels from the canvas's top left. For the screenshot checks. */
 export interface LabelDebug {
-  targets: { key: string; x: number; y: number; tag: string }[];
+  /** Each target's disc centre and tag, and the box round the two (left, top, width, height) that labels and plates keep clear of. */
+  targets: { key: string; x: number; y: number; tag: string; box: [number, number, number, number] }[];
   /** The action points' discs and the IP disc. */
   markers: { key: string; x: number; y: number }[];
   /** Every callout showing at all (alpha above 0), placed or dropped for want of room; the plate's top left and size. */
@@ -89,6 +91,9 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
   let tags: string[] = [];
   let tagW = new Float32Array(0);
   let tx = new Float32Array(0), ty = new Float32Array(0), tOn = new Uint8Array(0);
+  // The box round each target on screen this frame, its disc and its tag together: no jet's label and no plate covers it.
+  let tbx = new Float32Array(0), tby = new Float32Array(0), tbw = new Float32Array(0), tbh = new Float32Array(0);
+  let shownTargets = 0;
   let jetText: LabelText[] = [];
   // Per jet layer, each frame: anchor, plate size and place, whether shown, the second line shown.
   const nJ = o.jets.length;
@@ -119,6 +124,10 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     tx = new Float32Array(tags.length);
     ty = new Float32Array(tags.length);
     tOn = new Uint8Array(tags.length);
+    tbx = new Float32Array(tags.length);
+    tby = new Float32Array(tags.length);
+    tbw = new Float32Array(tags.length);
+    tbh = new Float32Array(tags.length);
     jetText = o.jets.map((jl) => new LabelText(s.labelOf(jl.jet), s.callsignOf(jl.jet)));
     watched = -1; // the discs and callouts are made again for this source
   }
@@ -260,6 +269,7 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
       // ── Where everything goes.
       // The targets' discs and tags.
       const tEdge = TARGET_R_PX + DISC_EDGE_PX + DISC_RIM_PX;
+      shownTargets = 0;
       for (let i = 0; i < tags.length; i++) {
         tOn[i] = 0;
         if (!toScreen(v.copy(o.targets.markTop(i)), ctx.camera, ctx)) continue;
@@ -267,6 +277,11 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
         tOn[i] = 1;
         tx[i] = v.x;
         ty[i] = v.y;
+        const b = shownTargets++;
+        tbx[b] = v.x - tEdge;
+        tby[b] = v.y - tEdge;
+        tbw[b] = 2 * tEdge + LABEL_GAP_PX + tagW[i] + 2 * LABEL_PAD_PX;
+        tbh[b] = 2 * tEdge;
       }
 
       // The jets' labels, beside their arrows.
@@ -284,7 +299,7 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
         jw[n] = Math.max(text.width(1, measureLabel), l2 === undefined ? 0 : text.width(2, measureLabel)) + 2 * LABEL_PAD_PX;
         jh[n] = (l2 === undefined ? 1 : 2) * LABEL_LINE_PX;
       }
-      placeLabels(shownJets, jax, jay, jw, jh, w, h, jx, jy);
+      placeLabels(shownJets, jax, jay, jw, jh, w, h, jx, jy, shownTargets, tbx, tby, tbw, tbh);
 
       // The watched jet's discs.
       showPoints = ctx.actionPoints !== 'off' && watched >= 0 && watched < ctx.source.jetCount;
@@ -312,7 +327,7 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
         if (fader.step(ctx.dt, cTarget, nCallouts)) ctx.again = true;
         placer.begin(w, h);
         for (let n = 0; n < shownJets; n++) placer.block(jx[n], jy[n], jw[n], jh[n]);
-        for (let i = 0; i < tags.length; i++) if (tOn[i]) placer.block(tx[i] + tEdge + LABEL_GAP_PX, ty[i] - LABEL_LINE_PX / 2, tagW[i] + 2 * LABEL_PAD_PX, LABEL_LINE_PX);
+        for (let b = 0; b < shownTargets; b++) placer.block(tbx[b], tby[b], tbw[b], tbh[b]);
         cPlaced.fill(0);
         // Those meant to show first, then those fading out.
         for (let pass = 0; pass < 2; pass++) {
@@ -407,8 +422,11 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
 
     debugLabels() {
       const targets: LabelDebug['targets'] = [];
+      let b = 0;
       (src?.targets ?? []).forEach((t, i) => {
-        if (tOn[i]) targets.push({ key: t.key, x: tx[i], y: ty[i], tag: tags[i] });
+        if (!tOn[i]) return;
+        targets.push({ key: t.key, x: tx[i], y: ty[i], tag: tags[i], box: [tbx[b], tby[b], tbw[b], tbh[b]] });
+        b++;
       });
       const markers: LabelDebug['markers'] = [];
       if (showPoints) discKey.forEach((key, i) => {
