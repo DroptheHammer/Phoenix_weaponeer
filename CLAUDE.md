@@ -223,8 +223,9 @@ not here — this section is a snapshot for resuming work, not a journal.
 
 **Last session:** 2026-11-14/15 UTC (Fable 5.2 directing on the main Mac,
 with Opus and Sonnet agents). **0.4.0 "Polish and Playback" is under way.
-The one-jet playback is built through stage 8 and waits for the user's
-first look; the build carries on behind it.** Nothing of 0.4.0 is on `main`
+The playback is built through stage 11 (a strike in the editor now flies
+every jet) and waits for the user's look; the build carries on behind
+it.** Nothing of 0.4.0 is on `main`
 except documents. The brief, the user's decisions and
 each gate's outcome are in `docs/V040_PLAN.md`.
 
@@ -237,21 +238,28 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   geo-check 901/0, tsc, build with the bundle check, the web check, core 154,
   desktop 34 + 2 ignored. Headless checks: `scripts/playback-shots.cjs`.
 - `v040-playback-full`, cut from `v040-playback`: **the full playback, being
-  built stage by stage** (21 stages, 0 to 20). **Stages 0 to 8 are built,
-  reviewed and pushed, tip `409a787`.** What the one-jet playback does now:
+  built stage by stage** (21 stages, 0 to 20). **Stages 0 to 11 are built,
+  reviewed and pushed, tip `06088e6`.** What the playback does now:
   opens following the jet 10 s before the first action; Orbit, Top-down,
   Chase, From target and Home view; speeds 1× to 16×; the planner's colours
   on the 3D path, the trail and the bomb's fall; a lane under the time bar
   in the same colours with lettered chips; the red TGT disc with the
   target's name; lettered discs on posts at each action point with the
   planner's own words coming up 3 s before and going 2 s after; a label
-  beside the jet with altitude and speed; a Show menu (Labels, Action
-  points: Off / As they come / Always, Whole run-in). Gates at the tip:
-  geo-check 945/0, tsc, build with the bundle check, the web check, 56
+  beside each jet with altitude and speed; a Show menu (Labels, Action
+  points: Off / As they come / Always, Attack colours: Watched jet / All
+  jets, Whole run-in). **Play in the attack editor flies every jet of the
+  strike** at the times the sliders hold: the jet being edited wears the
+  planner's colours and the cameras follow it; the others fly thinner, in
+  their seat colours, with small discs. A jet that is not ready keeps its
+  seat and is not flown. Gates at the tip:
+  geo-check 948/0, tsc, build with the bundle check, the web check, 75
   screenshot checks at two window sizes, core 154, desktop 34 + 2 ignored.
-  Start-up JS is 169 bytes over the 0.3.4 baseline. The main Mac's checkout
-  is on this branch. **Stages 9 to 11 (every jet drawn, the editor plays the
-  whole strike) were building when these notes were written**; a stage is
+  Start-up JS is 713 bytes over the 0.3.4 baseline (the build warns past
+  1,024 and fails past 1,536). The main Mac's checkout
+  is on this branch. **Stages 12 and 13 (a lane per jet with a jet to
+  watch, dragging a time over target) were building when these notes were
+  written**; a stage is
   one commit, and anything not pushed is not reviewed yet.
 - `v040-landing-data`, one commit `3127c41` on an older `main`: the front
   page's data layer (`src/lib/landing/`, 143 checks). Nothing in the app
@@ -289,7 +297,7 @@ on the main Mac (`Other Items/`):
    built stage settled; it overrides the rest). Each stage is built by one
    agent, reviewed by a second that makes every new check fail once, then
    read by the director, who fixes the review's notes, runs every gate and
-   the Rust tests, and pushes. **Next: stages 9 to 11, then 12 to 20**
+   the Rust tests, and pushes. **Next: stages 12 and 13, then 14 to 20**
    (a lane per jet and a jet to watch, dragging a time over target, Apply,
    the attack list, notes, the side view, threats by system, the frag
    cloud, the final proof). The user looks after stages 8, 11, 13, 15, 17,
@@ -298,7 +306,9 @@ on the main Mac (`Other Items/`):
    folder, because the folder is mid-build between stages: after a
    look-point is pushed, `npm run tauri build -- --bundles app`, then copy
    the `.app` into `Other Items/v040-builds/` under a plain name. **"Playback
-   look 1.app" there is stage 8** (`409a787`). He has not looked yet.
+   look 1.app" there is stage 8** (`409a787`, one jet) **and "Playback look
+   2.app" is stage 11** (`06088e6`, the whole strike). He has not said
+   anything about either yet; look 2 holds everything look 1 does.
 3. **Second-round mockup of the EFB draft**, desktop and iPhone, is finished
    and was shown to him as private pages (the links are in the memory
    system, never in the repo). Sources: `Other Items/v040-mockups/efb2.html`
@@ -321,13 +331,16 @@ on the main Mac (`Other Items/`):
   answers, the new overview screen says nothing about hidden threats, the
   existing lines stay, and the playback builds its count line behind one
   constant so either answer is a one-line change.
-- **His first look at the playback** ("Playback look 1.app"). Things to ask
+- **His look at the playback** ("Playback look 2.app"). Things to ask
   him there: whether "first action" means the first planner marker after
   the IP (the reading the build uses) or the IP itself; the dark casing
   under the coloured path; how the dashed route reads far from the camera
   in Chase; the tall posts close to the eye in From target; the two IP
   chips on the lane with Whole run-in on (the card's push time, dashed, and
-  the 3D crossing, filled); three sets of words at most at once.
+  the 3D crossing, filled); three sets of words at most at once; and, with
+  a strike, whether the other jets read clearly enough in their seat
+  colours (thin, no outline, small discs) and whether seat #4's amber is
+  too close to the climb's yellow.
 - His verdict on the second-round mockup, and what else he wants from the
   other drafts.
 - The icon and splash images (prompts in `docs/V040_PLAN.md`, Track D; picks
