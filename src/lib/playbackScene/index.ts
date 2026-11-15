@@ -15,8 +15,10 @@
  * actionPoints (each jet's first action, the moments that carry the
  * planner's words, the stretch of the clock that is played), homeView (what
  * Home frames, which camera opens), show (what the 3D view shows: the Show
- * menu's state), lanes (the timeline's axis, each jet's phase bands and
- * lettered marks, where the chips go), laneStyle (the timeline's sizes and
+ * menu's state), session (what the open playback remembers: the jet watched,
+ * the camera, the Show choices, every member's time over target), lanes (the
+ * timeline's axis, each jet's phase bands and lettered marks, where the chips
+ * go, the stretches of frag conflict), laneStyle (the timeline's sizes and
  * the colours that are not the planner's), terrain (box, tiles, heights, mesh,
  * credits), tileLoading (the loader's rules: reply bytes, the request pool,
  * all-or-nothing heights, the drape's upload pace, the skirt and the haze).
@@ -32,6 +34,7 @@ export * from './labels';
 export * from './actionPoints';
 export * from './homeView';
 export * from './show';
+export * from './session';
 export * from './lanes';
 export * from './laneStyle';
 export * from './terrain';

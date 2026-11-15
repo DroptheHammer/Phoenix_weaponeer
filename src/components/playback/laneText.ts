@@ -21,6 +21,13 @@ export const PHASE_WORDS: Record<PlaybackPhase, string> = {
   extension: 'Egress, past the drawn leg',
 };
 
+/**
+ * What a lane's times cell says when you rest on it, in a strike of more than one jet: the editor's own
+ * line over the same figures, so the two places read alike. A lone jet's times are the plan's own and
+ * need no such explaining.
+ */
+export const READOUT_TITLE = "times est., relative to the lead's TOT";
+
 /** A mark's tooltip: the planner's words for a marker, ours for the IP marks and the impact; "(est.)" where the time is an estimate. */
 export function markTitle(m: LaneMark): string {
   const t = fmtStrikeTime(m.t_s);

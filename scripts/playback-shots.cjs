@@ -328,6 +328,14 @@ async function checkFit(page, tag, w, h) {
  * row" clause holds the merge instead (the credits' top level with the summary's, within 6 px).
  * The floors become the tight ones once four lanes and an Apply line stand under the picture.
  *
+ * Also run on the four-ship with the theater note (four lanes, the line of frag warnings under them, and
+ * the note), at both sizes. Measured 2026-11-15: canvas 1400×592 and 1024×444 (floors 560 and 420); the one
+ * lane with its warnings line, 1400×682 and 1024×534.
+ *
+ * Proven red on the four-ship 2026-11-15 by two temporary edits to ui.ts, each lane 40 px tall and the box
+ * of lanes allowed 160 px (`LANE` 'h-[40px]', `LANES` 'max-h-[160px]': the canvas 40 px shorter):
+ *   STEP FAIL 7b canvas at least 1000x420 with all 4 lanes, the warnings line and every control inside 1024x768; … (1024x768-strike4) — canvas 1024x404 (want ≥ 1000x420); 4 lanes (want 4); 25 controls; credits at 728, sources at 728 (left 896) (one row true); software line a chip on the picture
+ *
  * Proven red 2026-11-14 by one temporary edit to StatusNotes.tsx, the credits row's wrapper
  * `flex flex-wrap items-start gap-x-3 text-gray-500` taken back to a plain `text-gray-500` block (the
  * credits and the summary on two rows; the canvas 16 px shorter):
@@ -335,7 +343,7 @@ async function checkFit(page, tag, w, h) {
  *   STEP FAIL 7b … (1024x768) — canvas 1024x554 (want ≥ 1000x420); 1 lane; 20 controls; credits at 728, sources at 744 (left 16) (one row false); …
  */
 const LAYOUT_FLOOR = { 1024: [1000, 420], 1400: [1350, 560] };
-async function checkLayout(page, tag, w, h) {
+async function checkLayout(page, tag, w, h, lanesWanted = 1) {
   await pbEval(page, () => __pb.pause());
   await settle(page);
   const r = await page.evaluate(() => {
@@ -362,9 +370,9 @@ async function checkLayout(page, tag, w, h) {
   const outside = r.controls.filter((b) => b.l < 0 || b.t < 0 || b.r > w + 0.5 || b.b > h + 0.5);
   const oneRow = !!r.credits && !!r.sources && Math.abs(r.credits.t - r.sources.t) <= 6 && r.sources.l >= r.credits.l;
   const chipOnPicture = r.softRow === 0 && (!r.softChip || (r.softChip.l >= r.canvas.l && r.softChip.r <= r.canvas.r && r.softChip.t >= r.canvas.t && r.softChip.b <= r.canvas.b));
-  step(`7b canvas at least ${fw}x${fh} with the lane and every control inside ${w}x${h}; credits and sources on one row; the software line on the picture (${tag})`,
-    r.lanes === 1 && r.controls.length > 0 && outside.length === 0 && cw >= fw && ch >= fh && oneRow && chipOnPicture,
-    `canvas ${Math.round(cw)}x${Math.round(ch)} (want ≥ ${fw}x${fh}); ${r.lanes} lane; ${r.controls.length} controls${outside.length ? `, outside: ${outside.map((b) => b.name).join(', ')}` : ''}; credits at ${r.credits ? Math.round(r.credits.t) : 'none'}, sources at ${r.sources ? `${Math.round(r.sources.t)} (left ${Math.round(r.sources.l)})` : 'none'} (one row ${oneRow}); software line ${r.softChip ? 'a chip on the picture' : 'not shown'}${r.softRow ? ', and also a row under it' : ''}`);
+  step(`7b canvas at least ${fw}x${fh} with ${lanesWanted === 1 ? 'the lane' : `all ${lanesWanted} lanes`}, the warnings line and every control inside ${w}x${h}; credits and sources on one row; the software line on the picture (${tag})`,
+    r.lanes === lanesWanted && r.controls.length > 0 && outside.length === 0 && cw >= fw && ch >= fh && oneRow && chipOnPicture,
+    `canvas ${Math.round(cw)}x${Math.round(ch)} (want ≥ ${fw}x${fh}); ${r.lanes} lane${r.lanes === 1 ? '' : 's'} (want ${lanesWanted}); ${r.controls.length} controls${outside.length ? `, outside: ${outside.map((b) => b.name).join(', ')}` : ''}; credits at ${r.credits ? Math.round(r.credits.t) : 'none'}, sources at ${r.sources ? `${Math.round(r.sources.t)} (left ${Math.round(r.sources.l)})` : 'none'} (one row ${oneRow}); software line ${r.softChip ? 'a chip on the picture' : 'not shown'}${r.softRow ? ', and also a row under it' : ''}`);
 }
 
 /**
@@ -442,6 +450,11 @@ async function checkLaneColours(page, tag) {
  * px narrower each side: the line is 8 px out at the start and the end, and only 0.4 px at the middle,
  * so the diamond at the time over target alone would not have caught it):
  *   STEP FAIL 19 the lane's time over target and clock line sit on the scrubber's thumb (1400x900) — start: thumb 196.0, line 204.5 (8.5 px); time over target: thumb 751.2, line 750.8 (0.4 px), diamond 750.3 (0.9 px); end: thumb 1194.0, line 1186.5 (7.5 px); band edges differ from the scrubber's band by 8.0 and 8.0 px
+ *
+ * It also holds that a strike of one has no tooltip on its times cell. Proven red 2026-11-15 by one temporary
+ * edit to JetLanes.tsx, the condition turned round (`lanes.length >= 2 ? READOUT_TITLE : undefined` →
+ * `lanes.length >= 2 ? undefined : READOUT_TITLE`, which also takes the title off the four-ship's cells):
+ *   STEP FAIL 19 the lane's time over target and clock line sit on the scrubber's thumb (1400x900) — start: thumb 196.0, line 196.5 (0.5 px); …; times cell title "times est., relative to the lead's TOT" (want none)
  */
 async function checkLaneTime(page, tag) {
   const wasWhole = await pbEval(page, () => __pb.show().wholeRunIn);
@@ -479,6 +492,10 @@ async function checkLaneTime(page, tag) {
     : [NaN, NaN];
   ok = ok && edges.every((e) => e <= 3);
   parts.push(`band edges differ from the scrubber's band by ${edges.map((e) => e.toFixed(1)).join(' and ')} px`);
+  // A strike of one has its times cell without a tooltip (the plan's own times need no explaining).
+  const titles = await page.$$eval('[role="dialog"] [data-readout]', (els) => els.map((e) => e.getAttribute('title')));
+  ok = ok && titles.length === 1 && titles[0] === null;
+  parts.push(`times cell title ${titles.length === 1 ? JSON.stringify(titles[0]) : `${titles.length} cells`} (want none)`);
   step(`19 the lane's time over target and clock line sit on the scrubber's thumb (${tag})`, ok, parts.join('; '));
   await pbEval(page, (whole) => __pb.setRange(whole), wasWhole);
 }
@@ -501,6 +518,27 @@ async function checkScrub(page) {
   const after = await pbEval(page, () => __pb.stats().sceneCreates);
   const moved = new Set(t).size > 1;
   step('6 50 scrubber drags keep one scene', after === before && moved, `sceneCreates ${before} → ${after}; times after every 10th drag: ${t.join(', ')}`);
+}
+
+/**
+ * Check 37: Space plays after the time bar has been used. A press on the scrubber leaves it focused, and a
+ * range does nothing with Space itself, so Space there plays and pauses the scene instead of being swallowed
+ * as a key a control wants.
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackOverlay.tsx, the key's skip list taking every
+ * input again (`input:not([type="range"])` → `input`): the range is the focus and Space does nothing:
+ *   STEP FAIL 37 Space plays and pauses with the time bar focused — the range had the focus true; Space played false, then paused true
+ */
+async function checkSpaceAfterScrub(page) {
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); });
+  const box = await page.locator('[role="dialog"] input[type="range"]').boundingBox();
+  await page.mouse.click(box.x + box.width * 0.3, box.y + box.height / 2);
+  const onRange = await page.evaluate(() => !!document.activeElement && document.activeElement.getAttribute('type') === 'range');
+  await page.keyboard.press(' ');
+  const playing = await pbEval(page, () => __pb.snapshot().playing);
+  await page.keyboard.press(' ');
+  const paused = !(await pbEval(page, () => __pb.snapshot().playing));
+  step('37 Space plays and pauses with the time bar focused', onRange && playing && paused, `the range had the focus ${onRange}; Space played ${playing}, then paused ${paused}`);
 }
 
 /**
@@ -1720,6 +1758,212 @@ async function checkLateOpening(page, tag) {
     `pressed ${JSON.stringify(pressed)}; "isn't in the picture" chip ${chip}; watched seat ${watched}`);
 }
 
+/**
+ * Check 19 (four lanes): every lane shares the time bar's axis. On the four-ship at the default range,
+ * with the playhead at each time over target in turn (#1 at 0 s, #2 at 10 s, #3 and #4 together at 40 s),
+ * the white line in every one of the four lanes is within 3 px of the scrubber's thumb (worked out from the
+ * input's box and the clock's place, the way a 16 px thumb moves), and so is the diamond of each seat whose
+ * time it is.
+ *
+ * Measured green 2026-11-15 at both sizes: every line 0.5 px from the thumb, every diamond 0.0 px.
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, every lane given the lead's marks
+ * (`marks: marks[seat]` → `marks: marks[0]` in the lanes' memo: each diamond sits at #1's time over target,
+ * so #2, #3 and #4 are off the thumb at their own):
+ *   STEP FAIL 19 four lanes: … (1400x900-strike4) — at 0 s (thumb 580.6): #1 line 0.5, diamond 0.0; #2 line 0.5; #3 line 0.5; #4 line 0.5 | at 10 s (thumb 657.2): #1 line 0.5; #2 line 0.5, diamond 76.7; #3 line 0.5; #4 line 0.5 | at 40 s (thumb 887.3): #1 line 0.5; #2 line 0.5; #3 line 0.5, diamond 306.7; #4 line 0.5, diamond 306.7
+ *
+ * It also holds that, in a strike of more than one jet, every lane's times cell says what its figures are
+ * ("times est., relative to the lead's TOT", the editor's own line). Proven red 2026-11-15 by one temporary edit
+ * to JetLanes.tsx, the condition turned round (`lanes.length >= 2 ? READOUT_TITLE : undefined` → `lanes.length >= 2
+ * ? undefined : READOUT_TITLE`: the four-ship's cells lose the title, a strike of one's gain it):
+ *   STEP FAIL 19 four lanes: … (1400x900-strike4) — …; times cells' titles [null] on 4 cells (want "times est., relative to the lead's TOT" on 4)
+ */
+async function checkLaneTimeFour(page, tag) {
+  const wasWhole = await pbEval(page, () => __pb.show().wholeRunIn);
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); });
+  const jets = await pbEval(page, () => __pb.moments.jets);
+  const input = await page.locator('[role="dialog"] input[type="range"]').boundingBox();
+  const parts = [];
+  let ok = true;
+  const times = [...new Set(jets.map((j) => j.impact))].sort((a, b) => a - b);
+  for (const t of times) {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 150);
+    const snap = await pbEval(page, () => __pb.snapshot());
+    const lanes = await pbEval(page, () => __pb.lanes());
+    const f = (snap.t - snap.start) / (snap.end - snap.start);
+    const thumb = input.x + 8 + (input.width - 16) * f;
+    const mine = jets.filter((j) => j.impact === t).map((j) => j.seat);
+    const bits = lanes.map((l) => {
+      const nowX = l.now ? (l.now.l + l.now.r) / 2 : NaN;
+      const dNow = Math.abs(nowX - thumb);
+      let s = `#${l.seat + 1} line ${dNow.toFixed(1)}`;
+      ok = ok && dNow <= 3;
+      if (mine.includes(l.seat)) {
+        const dx = l.impact ? Math.abs((l.impact.l + l.impact.r) / 2 - thumb) : NaN;
+        ok = ok && dx <= 3;
+        s += `, diamond ${dx.toFixed(1)}`;
+      }
+      return s;
+    });
+    ok = ok && lanes.length === jets.length && lanes.length === 4;
+    parts.push(`at ${t.toFixed(0)} s (thumb ${thumb.toFixed(1)}): ${bits.join('; ')}`);
+  }
+  // In a strike of more than one jet every lane's times cell says what its figures are, in the editor's words.
+  const titles = await page.$$eval('[role="dialog"] [data-readout]', (els) => els.map((e) => e.getAttribute('title')));
+  const wantTitle = "times est., relative to the lead's TOT";
+  ok = ok && titles.length === 4 && titles.every((t) => t === wantTitle);
+  parts.push(`times cells' titles ${JSON.stringify([...new Set(titles)])} on ${titles.length} cells (want ${JSON.stringify(wantTitle)} on 4)`);
+  step(`19 four lanes: every lane's clock line and each jet's time over target sit on the scrubber's thumb, every times cell titled (${tag})`, ok, parts.join(' | '));
+  await pbEval(page, (whole) => __pb.setRange(whole), wasWhole);
+}
+
+/**
+ * Check 13 (stripes): the time bar carries the frag conflicts. On the four-ship (#2 over the target inside
+ * #1's frag from 10 s to 30 s, #4 inside #3's from 40 s to 70 s) there is one stripe element for each
+ * conflict the plan has, its edges within 3 px of the thumb's place at the conflict's start and end, and
+ * along its middle there are both amber pixels (the stripes, amber over the panel) and panel pixels
+ * between them.
+ *
+ * Measured green 2026-11-15: both stripes' edges 0.0 px off, 66 / 101 amber and 85 / 127 panel pixels along
+ * them at 1400×900, 39 / 63 and 55 / 79 at 1024×768 (the floors of 4 and 4 sit well under, with room for the
+ * software renderer).
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, no conflicts handed to the time bar
+ * (`conflicts={conflicts}` → `conflicts={[]}`: no stripe at all):
+ *   STEP FAIL 13 the time bar's stripes mark each frag conflict: one for each, on its own times, striped (1400x900-strike4) — 0 stripes for 2 conflicts
+ */
+async function checkConflictHatch(page, tag) {
+  const wasWhole = await pbEval(page, () => __pb.show().wholeRunIn);
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); });
+  await settle(page, 300);
+  const img = await shot(page, `${tag}-13-stripes`);
+  const snap = await pbEval(page, () => __pb.snapshot());
+  const want = await pbEval(page, () => __pb.moments.conflicts);
+  const input = await page.locator('[role="dialog"] input[type="range"]').boundingBox();
+  const stripes = await page.$$eval('[role="dialog"] [data-conflict]', (els) => els.map((e) => {
+    const b = e.getBoundingClientRect();
+    return { l: b.left, r: b.right, t: b.top, b: b.bottom };
+  }));
+  const at = (t) => input.x + 8 + (input.width - 16) * ((Math.min(Math.max(t, snap.start), snap.end) - snap.start) / (snap.end - snap.start));
+  const amberOnPanel = (p) => p[0] > 100 && p[1] > 90 && p[0] > p[2] + 40;
+  const parts = [];
+  let ok = want.length > 0 && stripes.length === want.length;
+  stripes.forEach((s, i) => {
+    const w = want[i];
+    if (!w) return;
+    const dl = Math.abs(s.l - at(w.t0_s)), dr = Math.abs(s.r - at(w.t1_s));
+    const y = (s.t + s.b) / 2;
+    let amber = 0, panel = 0;
+    for (let x = Math.ceil(s.l) + 1; x < s.r - 1; x++) {
+      const p = img.at(x, y);
+      if (amberOnPanel(p)) amber++;
+      else if (near(p, hex('#16213e'), 3)) panel++;
+    }
+    ok = ok && dl <= 3 && dr <= 3 && amber >= 4 && panel >= 4;
+    parts.push(`${w.second} inside ${w.first}'s frag ${w.t0_s.toFixed(0)}…${w.t1_s.toFixed(0)} s: edges ${dl.toFixed(1)} / ${dr.toFixed(1)} px off, ${amber} amber and ${panel} panel pixels along it`);
+  });
+  step(`13 the time bar's stripes mark each frag conflict: one for each, on its own times, striped (${tag})`, ok,
+    `${stripes.length} stripes for ${want.length} conflicts${parts.length ? `; ${parts.join('; ')}` : ''}`);
+  await pbEval(page, (whole) => __pb.setRange(whole), wasWhole);
+}
+
+/**
+ * Check 36: the seat buttons move the watch. On the four-ship at Home, paused at the start of the time bar:
+ * - opened as it is: #1's button pressed alone, the time bar's own band spanning #1's lane band (3 px), #1's
+ *   action-point discs full size and the others' small;
+ * - #3's button pressed: it alone is pressed, the view watches seat 3, "Chase #3" is the toolbar's camera
+ *   button, the time bar's band spans #3's lane band (and no longer #1's), #3's discs are full size and #1's
+ *   small (so the colour code moved with it), and the press did not take the keyboard focus (Space still plays
+ *   and pauses);
+ * - in Chase, with both jets in the picture, the camera looks at #3's jet (3 m), and pressing #1's button
+ *   moves it to #1's jet (3 m).
+ * The camera is put back to Orbit at Home watching #1, for the checks after.
+ *
+ * Measured green 2026-11-15 at both sizes: the band 0.0 px off the lane it follows, 306.7 / 191.2 px off the
+ * other jet's (#3's band is 40 s later), the camera 0.0 m from the jet it follows.
+ *
+ * Proven red 2026-11-15, each by one temporary edit:
+ * - PlaybackView.tsx, the scene never told of the new watch (`if (s) s.setCamera(s.cameraMode(), jet);` taken
+ *   out of `watchSeat`): the buttons and the time bar's band move, the discs and the chase camera do not
+ *   (Chase #3 still follows #3, as that button names the jet itself, but pressing #1 leaves it there):
+ *   STEP FAIL 36 the seat buttons move the watch: … (1400x900-strike4) — as opened: pressed #1, band 0.0 px off #1's lane and 306.7 off #3's, discs #1 10 (5), #3 7 (5); #3 pressed: pressed #3, watched seat 3, Chase #3 button true, band 0.0 px off #3's lane and 306.7 off #1's, discs #1 10, #3 7 (5), focus kept true, Space played true then paused true; Chase at -20.9 s: looking 0.0 m from #3 (watching #3), then 4605.8 m from #1 once #1 is pressed
+ * - JetLanes.tsx, the seat button's `onMouseDown={keepFocus}` taken out: the focus lands on the button and
+ *   Space presses it instead of playing:
+ *   STEP FAIL 36 … (1400x900-strike4) — …; #3 pressed: pressed #3, watched seat 3, Chase #3 button true, band 0.0 px off #3's lane and 306.7 off #1's, discs #1 7, #3 10 (5), focus kept false, Space played false then paused true; Chase at -20.9 s: looking 0.0 m from #3 (watching #3), then 0.0 m from #1 once #1 is pressed
+ */
+async function checkWatchSeat(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.setSpeed(1); __pb.goHome(); __pb.seek(__pb.snapshot().start); });
+  await page.evaluate(() => document.querySelector('[role="dialog"]').focus());
+  await settle(page, 300);
+  const pressedSeats = async () => (await pbEval(page, () => __pb.seats())).filter((s) => s.pressed).map((s) => s.seat + 1).join();
+  const scrubEdges = () => page.$$eval('[role="dialog"] [data-scrub-band]', (els) => {
+    const b = els.map((e) => e.getBoundingClientRect());
+    return b.length ? [Math.min(...b.map((x) => x.left)), Math.max(...b.map((x) => x.right))] : [NaN, NaN];
+  });
+  const laneEdges = (seat) => pbEval(page, (s) => {
+    const l = __pb.lanes().find((q) => q.seat === s);
+    const b = l ? l.bands : [];
+    return b.length ? [Math.min(...b.map((x) => x.box.l)), Math.max(...b.map((x) => x.box.r))] : [NaN, NaN];
+  }, seat);
+  const off = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+  const discs = (jet) => pbEval(page, (k) => {
+    const mine = new Set(__pb.source().markers(k).map((m) => m.key));
+    const ms = __pb.debugLabels().markers.filter((m) => mine.has(m.key));
+    return { n: ms.length, r: [...new Set(ms.map((m) => m.r))].sort((a, b) => a - b).join('/') || 'none' };
+  }, jet);
+  const parts = [];
+  let ok = true;
+
+  const first = { seats: await pressedSeats(), scrub: await scrubEdges(), lane0: await laneEdges(0), lane2: await laneEdges(2), d0: await discs(0), d2: await discs(2) };
+  const firstOk = first.seats === '1' && off(first.scrub, first.lane0) <= 3 && off(first.scrub, first.lane2) > 3 && first.d0.n >= 3 && first.d0.r === `${DISC_R}` && first.d2.n >= 3 && first.d2.r === `${DISC_OTHER_R}`;
+  ok = ok && firstOk;
+  parts.push(`as opened: pressed #${first.seats}, band ${off(first.scrub, first.lane0).toFixed(1)} px off #1's lane and ${off(first.scrub, first.lane2).toFixed(1)} off #3's, discs #1 ${first.d0.r} (${first.d0.n}), #3 ${first.d2.r} (${first.d2.n})`);
+
+  await page.getByRole('button', { name: 'Watch #3 Viper 1-3', exact: true }).click();
+  await settle(page, 300);
+  const second = {
+    seats: await pressedSeats(), watched: await pbEval(page, () => __pb.watched()), chase3: (await page.getByRole('button', { name: 'Chase #3', exact: true }).count()) === 1,
+    scrub: await scrubEdges(), lane0: await laneEdges(0), lane2: await laneEdges(2), d0: await discs(0), d2: await discs(2),
+    focusOnPlayback: await page.evaluate(() => document.activeElement && document.activeElement.getAttribute('role') === 'dialog'),
+  };
+  await page.keyboard.press(' ');
+  const played = await pbEval(page, () => __pb.snapshot().playing);
+  await page.keyboard.press(' ');
+  const paused = !(await pbEval(page, () => __pb.snapshot().playing));
+  await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
+  const secondOk = second.seats === '3' && second.watched === 2 && second.chase3 && off(second.scrub, second.lane2) <= 3 && off(second.scrub, second.lane0) > 3 &&
+    second.d0.r === `${DISC_OTHER_R}` && second.d2.r === `${DISC_R}` && second.d2.n >= 3 && second.focusOnPlayback && played && paused;
+  ok = ok && secondOk;
+  parts.push(`#3 pressed: pressed #${second.seats}, watched seat ${second.watched === null ? 'none' : second.watched + 1}, Chase #3 button ${second.chase3}, band ${off(second.scrub, second.lane2).toFixed(1)} px off #3's lane and ${off(second.scrub, second.lane0).toFixed(1)} off #1's, discs #1 ${second.d0.r}, #3 ${second.d2.r} (${second.d2.n}), focus kept ${second.focusOnPlayback}, Space played ${played} then paused ${paused}`);
+
+  // Chase follows the watched jet: both jets are in the picture a few seconds into #3's run.
+  await page.getByRole('button', { name: 'Chase #3', exact: true }).click();
+  const t = await pbEval(page, () => {
+    const j = __pb.moments.jets;
+    const at = Math.max(j[0].firstAction, j[2].firstAction) + 3;
+    __pb.seek(at);
+    return at;
+  });
+  await settle(page, 400);
+  const lookingAt = (jet) => pbEval(page, (k) => {
+    const p = {};
+    __pb.source().jetAt(k, __pb.snapshot().t, p);
+    const c = __pb.camera().target;
+    return { visible: p.visible, d: Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z) };
+  }, jet);
+  const on3 = await lookingAt(2);
+  await page.getByRole('button', { name: 'Watch #1 Viper 1-1', exact: true }).click();
+  await settle(page, 400);
+  const on1 = await lookingAt(0);
+  const thirdOk = on3.visible && on1.visible && on3.d <= 3 && on1.d <= 3;
+  ok = ok && thirdOk;
+  parts.push(`Chase at ${t.toFixed(1)} s: looking ${on3.d.toFixed(1)} m from #3 (watching #3), then ${on1.d.toFixed(1)} m from #1 once #1 is pressed`);
+
+  await pbEval(page, () => { __pb.goHome(); __pb.seek(__pb.snapshot().start); });
+  step(`36 the seat buttons move the watch: the pressed button, the time bar's band, the colour code and the chase camera follow it (${tag})`, ok, parts.join('; '));
+}
+
 async function runStrikeChecks(browser, base) {
   for (const [w, h] of [[1400, 900], [1024, 768]]) {
     const tag = `${w}x${h}`;
@@ -1729,6 +1973,9 @@ async function runStrikeChecks(browser, base) {
     await checkFourLabels(page, `${tag}-strike4`);
     await checkTopDownTargets(page, `${tag}-strike4`);
     await checkAttackColours(page, `${tag}-strike4`);
+    await checkLaneTimeFour(page, `${tag}-strike4`);
+    await checkConflictHatch(page, `${tag}-strike4`);
+    await checkWatchSeat(page, `${tag}-strike4`);
     if (w === 1400) {
       await checkRetimes(page, `${tag}-strike4`);
       await page.keyboard.press('Escape'); // the open-and-close check starts with playback shut
@@ -1750,6 +1997,11 @@ async function runStrikeChecks(browser, base) {
     //   STEP FAIL 8 no page errors, skip variant (1400x900) — …
     step(`8 no page errors, four-ship (${tag})`, problems.length === 0, problems.length ? problems.slice(0, 8).join(' | ') : 'none');
     await context.close();
+    // 7b on the four-ship with its theater note: four lanes and the warnings line under the picture, the
+    // tightest the rows get (a page of its own: the note takes a row from the pictures the checks above measure).
+    const lay = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1`, w, h);
+    await checkLayout(lay.page, `${tag}-strike4`, w, h, 4);
+    await lay.context.close();
   }
   {
     const tag = '1400x900';
@@ -1798,6 +2050,7 @@ async function runChecks(browser, base) {
     if (w === 1400) await checkLaneColours(page, tag);
     if (w === 1400) {
       await checkScrub(page);
+      await checkSpaceAfterScrub(page);
       await checkSpeeds(page, tag);
       await checkContextLoss(page, tag);
       await checkOverlay(page);

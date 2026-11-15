@@ -11,7 +11,7 @@
  * is "pinned" at the left edge in one small group instead of being lost.
  */
 
-import { PHASES, PHASE_STYLE, type PhaseStyle, type PlaybackPhase, type StrikePlayback, type StrikeTiming } from '../playback';
+import { PHASES, PHASE_STYLE, type PhaseStyle, type PlaybackPhase, type StrikePlayback, type StrikeTiming, type TimedConflict } from '../playback';
 import type { ActionKind, MarkerMoment } from './actionPoints';
 import { CHIP_GAP_PX, chipWidth } from './laneStyle';
 
@@ -141,6 +141,33 @@ export function laneBands(pb: StrikePlayback, timing: StrikeTiming, axis: Axis):
     }
     return out;
   });
+}
+
+// ─── Frag conflicts ───────────────────────────────────────────────────────────
+
+/** A stretch of the strike clock to hatch on the time bar. */
+export interface Band {
+  /** `${first member id}-${second member id}`: a pair of members is one conflict at most. */
+  key: string;
+  t0_s: number;
+  t1_s: number;
+  /** What the stretch means, in words (the bar's stripes take no pointer, so nothing shows it as a tooltip). */
+  title: string;
+}
+
+/**
+ * One band per frag conflict the readout warns of: from the moment the second
+ * jet's bombs land to the moment the first jet's frag has cleared, exactly the
+ * library's own t0 and t1. A jet that is skipped still has its band, as it
+ * still has its warning.
+ */
+export function conflictBands(conflicts: readonly TimedConflict[]): Band[] {
+  return conflicts.map((c) => ({
+    key: `${c.firstId}-${c.secondId}`,
+    t0_s: c.t0_s,
+    t1_s: c.t1_s,
+    title: `⚠ ${c.second} over the target inside ${c.first}'s frag (est.)`,
+  }));
 }
 
 // ─── Chips ────────────────────────────────────────────────────────────────────

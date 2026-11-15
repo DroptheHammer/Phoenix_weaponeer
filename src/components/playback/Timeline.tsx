@@ -9,22 +9,27 @@
  *
  * Under the bar runs the watched jet's phase band in the planner's colours,
  * the same band its lane draws below, so the colour code reads on the bar
- * itself. The three columns are the lanes' own (ROW_GRID): Play and the clock
- * on the left, the bar in the middle, the speeds on the right.
+ * itself (it moves to another jet's when another is watched), and, along the
+ * bottom of the same strip, amber stripes over the times a jet would be over
+ * the target inside another's frag. The three columns are the lanes' own
+ * (ROW_GRID): Play and the clock on the left, the bar in the middle, the
+ * speeds on the right.
  */
 import { useSyncExternalStore } from 'react';
-import { SCRUB_BAND_H_PX, SPEEDS, speedLabel, type LaneBand } from '../../lib/playbackScene';
+import { axisFraction, SCRUB_BAND_H_PX, SPEEDS, speedLabel, type Band, type LaneBand } from '../../lib/playbackScene';
 import { fmtStrikeTime } from '../../lib/strike';
 import type { PlaybackScene } from './scene/createScene';
-import { bandBackground, keepFocus, ROW_GRID, SEG } from './ui';
+import { bandBackground, HATCH, keepFocus, ROW_GRID, SEG } from './ui';
 
 interface TimelineProps {
   scene: PlaybackScene;
   /** The watched jet's stretches on the bar's own axis. */
   bands: readonly LaneBand[];
+  /** Where a jet would be over the target inside another's frag, strike time. */
+  conflicts?: readonly Band[];
 }
 
-export function Timeline({ scene, bands }: TimelineProps) {
+export function Timeline({ scene, bands, conflicts = [] }: TimelineProps) {
   const snap = useSyncExternalStore(scene.subscribe, scene.getSnapshot);
   const endScrub = () => scene.endScrub();
 
@@ -71,6 +76,22 @@ export function Timeline({ scene, bands }: TimelineProps) {
                 style={{ left: `${b.f0 * 100}%`, width: `${(b.f1 - b.f0) * 100}%`, background: bandBackground(b.style) }}
               />
             ))}
+          </div>
+          <div className="absolute inset-x-0 bottom-0" style={{ height: SCRUB_BAND_H_PX }}>
+            {conflicts.map((c) => {
+              // On the bar's own axis (the clock's range), cut to it: a stretch partly off the bar shows its part.
+              const f0 = axisFraction({ t0_s: snap.start, t1_s: snap.end }, c.t0_s);
+              const f1 = axisFraction({ t0_s: snap.start, t1_s: snap.end }, c.t1_s);
+              if (!(f1 > f0)) return null;
+              return (
+                <span
+                  key={c.key}
+                  data-conflict={c.key}
+                  className="absolute inset-y-0"
+                  style={{ left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%`, background: HATCH }}
+                />
+              );
+            })}
           </div>
         </div>
       </div>

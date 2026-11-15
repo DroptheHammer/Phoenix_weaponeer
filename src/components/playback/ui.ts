@@ -50,13 +50,29 @@ export const MENU_HINT = 'text-gray-400';
  */
 export const ROW_GRID = 'grid grid-cols-[160px_minmax(0,1fr)_170px] items-center gap-x-3';
 /**
+ * The lanes sit one under another with no gap, four showing (4 × LANE_H_PX = 120 px); a strike of more
+ * than four (a shared mission file can carry them) scrolls.
+ */
+export const LANES = 'max-h-[120px] overflow-y-auto';
+/**
  * A lane's middle cell: 30 px tall, inset 8 px each side, the same inset the
  * scrubber's thumb travel has, so a time sits at the same x on both.
  */
 export const LANE = 'relative h-[30px] px-2';
-/** A lane's left cell: the jet's colour dot, then its seat and callsign. */
-export const LANE_LABEL = 'flex min-w-0 items-center gap-1.5 text-xs text-gray-200';
+/**
+ * A lane's left cell is the button that picks the jet to watch: the jet's colour dot, its seat and
+ * callsign, then a ◉ while it is the one watched. Its text and fills are laneStyle's SEAT_* and
+ * QUIET_TEXT (geo-check holds them against the panel, and holds each class below to the colour the
+ * constant carries): grey-200 on the panel, white on grey-700 when watched, grey-400 for a seat that is
+ * not flown.
+ */
+export const LANE_LABEL = 'flex min-w-0 w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs focus-visible:ring-2 focus-visible:ring-white';
+export const SEAT_OFF = 'text-gray-200 hover:bg-gray-700';
+export const SEAT_ON = 'bg-gray-700 text-white';
+export const SEAT_SKIPPED = 'text-gray-400 cursor-not-allowed';
 export const SEAT_DOT = 'h-2 w-2 shrink-0 rounded-full';
+/** What a lane says in place of its band when its jet is not flown (grey-400, QUIET_TEXT). */
+export const LANE_SKIPPED = 'flex h-full min-w-0 items-center text-xs text-gray-400';
 /** The "‹" before the marks that fall before the time bar starts; its colour is laneStyle's PIN_GLYPH. */
 export const PIN_MARK = 'absolute left-0 top-0 text-[11px] leading-3';
 /** A lane's right cell: its time over target and the card's push time. */
@@ -66,6 +82,16 @@ export const CHIP = 'absolute flex h-3 items-center justify-center overflow-hidd
 export const CHIP_LETTERS = 'font-mono text-[10px] leading-3 font-bold';
 /** The amber stripes over the times a jet would be over the target inside another's frag. */
 export { HATCH } from '../../lib/playbackScene';
+/**
+ * The line of small print under the lanes: the first frag or cone warning in amber (WARN_TEXT), or an
+ * all-clear in grey (QUIET_TEXT); the rest of the warnings fold under a text button that adds no height.
+ */
+export const FOOTER = 'flex items-center gap-3 text-xs';
+export const FOOTER_WARN = 'min-w-0 truncate text-amber-300';
+export const FOOTER_OK = 'min-w-0 truncate text-gray-400';
+export const FOOTER_MORE = 'shrink-0 whitespace-nowrap text-gray-400 hover:text-blue-400 px-1';
+/** The folded warnings, a few lines at most before they scroll. */
+export const FOOTER_REST = 'max-h-16 overflow-y-auto text-xs text-amber-300';
 /** The side view's panel: the editor's own pale background. */
 export const SIDE_BG = 'bg-[#F4F4EC]';
 

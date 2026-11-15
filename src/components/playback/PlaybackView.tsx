@@ -5,28 +5,35 @@
  * the editor showed, and the dev harness can mount it with a made-up plan.
  *
  * Layout: the 3D scene fills the space, with the camera buttons, Home view and
- * Show over its top right; under it, the timeline (play, pause, scrub, speeds),
- * the watched jet's lane (its phase band in the planner's colours with the
- * lettered marks) and the small print (what ground is drawn, the Real | Flat
- * switch, the theater warnings, the credits). Fits a 1024×768 window. The
- * overlay around it has the title bar and the Close button.
+ * Show over its top right; under it, the timeline (play, pause, scrub, speeds)
+ * with the amber stripes of any frag conflict along it, one lane for every jet
+ * of the strike (its phase band in the planner's colours with the lettered
+ * marks, and its times), a line about the frag and cone warnings, and the small
+ * print (what ground is drawn, the Real | Flat switch, the theater warnings,
+ * the credits). Fits a 1024×768 window. The overlay around it has the title
+ * bar and the Close button.
  *
  * The time bar (the clock's range) starts 10 s before the earliest first action
  * of the jets flown, not at the start of the whole run-in; Show › Whole run-in
- * widens it. The lane's axis is the same range. Show › Labels and Show ›
+ * widens it. The lanes' axis is the same range. Show › Labels and Show ›
  * Action points say what the 3D draws beside the jets and along the runs; Show ›
  * Attack colours whether the planner's colour code is on the watched jet only
- * or on every jet. The Show choices live here, for as long as the playback is
- * open.
+ * or on every jet.
  *
  * Every flown jet is drawn. One of them is watched: the jet the editor had
- * selected, else the first one flown. It carries the planner's colour code,
- * the cameras follow it and the lane under the time bar is its own.
+ * selected, else the first one flown, and the seat buttons beside the lanes
+ * move the watch. It carries the planner's colour code, the cameras follow it
+ * and the time bar's own band is its.
  *
  * It opens riding behind the watched jet (Chase) at the start of the time bar,
  * unless that jet is not in the picture yet then: it opens at Home instead,
- * rather than on empty sky (still watching it). The camera in use outlives a
- * rebuilt scene.
+ * rather than on empty sky (still watching it).
+ *
+ * What the open playback remembers (the watched seat, the camera in use, the
+ * Show choices and every member's time over target) is one pure session
+ * (src/lib/playbackScene/session.ts), held here for as long as the playback is
+ * open; it outlives a rebuilt scene, and nothing saves it. The times are the
+ * plan's for now: nothing changes them yet.
  *
  * Failures stay inside playback: nothing to fly gives a plain sentence; a
  * frame or shader that breaks is thrown into the local error boundary; a lost
@@ -36,14 +43,15 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { buildStrikePlayback, retime, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
-  initShow, jetColor, laneBands, laneMarks, markerMoments, openingMode, playRange, sceneSourceFrom, showReducer,
-  type CameraMode, type GroundMode, type SceneSource, type ShowAction, type ShowState, type TileSource,
+  conflictBands, initSession, jetColor, laneBands, laneMarks, markerMoments, openingMode, playRange, sceneSourceFrom, sessionReducer,
+  type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TileSource,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
 import { tauriTiles } from './terrain/tauriTiles';
 import { SceneHost } from './SceneHost';
 import { Timeline } from './Timeline';
 import { JetLanes, type LaneInfo } from './JetLanes';
+import { DelayFooter } from './DelayFooter';
 import { ViewToolbar } from './ViewToolbar';
 import { CanvasChips, SoftwareChip } from './CanvasChips';
 import { StatusNotes } from './StatusNotes';
@@ -61,26 +69,18 @@ export interface PlaybackViewOwnProps extends PlaybackViewProps {
   /** The live scene, and null when it goes: for the dev harness's checks only. */
   onScene?: (scene: PlaybackScene | null) => void;
   /**
-   * The Show choices whenever they change, with the very function the menu calls to change them
-   * (so a check can make the same choice a click would): for the dev harness's checks only.
+   * The session whenever it changes, with the very function every change to it goes through (the
+   * menu's choices, the seat buttons and the camera buttons make theirs this way, so a check can make
+   * the same change a click would): for the dev harness's checks only.
    */
-  onShow?: (show: ShowState, act: (a: ShowAction) => void) => void;
-  /** The watched seat (an index into the strike's members, skipped ones included): for the dev harness's checks only. */
-  onWatched?: (seat: number) => void;
+  onSession?: (session: Session, act: (a: SessionAction) => void) => void;
 }
 
 /** How long a lost WebGL context may stay away before playback offers Try again. */
 const RESTORE_WAIT_MS = 5000;
 
-/** The seat watched at open: the editor's selected jet when it is flown, else the first flown seat. */
-function openingSeat(pb: StrikePlayback, jetId: string | undefined): number {
-  const chosen = jetId === undefined ? -1 : pb.members.findIndex((m) => m.id === jetId && m.jet !== undefined);
-  return chosen >= 0 ? chosen : Math.max(0, pb.members.findIndex((m) => m.jet !== undefined));
-}
-
-type Built =
-  | { ok: true; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; title: string }
-  | { ok: false; message: string; detail?: string };
+type BuiltOk = { ok: true; launch: PlaybackLaunch; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; title: string };
+type Built = BuiltOk | { ok: false; message: string; detail?: string };
 
 /** The plan as the scene draws it, worked out once per open. */
 function buildView(launch: PlaybackLaunch | undefined): Built {
@@ -93,10 +93,21 @@ function buildView(launch: PlaybackLaunch | undefined): Built {
     }
     const timing = retime(pb);
     const source = sceneSourceFrom(pb, timing);
-    return { ok: true, pb, timing, source, title: launch.title ?? launch.input.name };
+    return { ok: true, launch, pb, timing, source, title: launch.title ?? launch.input.name };
   } catch (e) {
     return { ok: false, message: 'The playback could not be worked out from this plan.', detail: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * The session as playback opens: the editor's selected jet watched (else the first flown), in Chase
+ * behind it unless it is not in the picture when the time bar starts, then Home in Orbit.
+ */
+function openSession(built: BuiltOk): Session {
+  const { pb, timing, source, launch } = built;
+  const seat = initSession(pb, launch.jetId).watched;
+  const range = playRange(pb, timing, false);
+  return initSession(pb, launch.jetId, { mode: openingMode(source, range, pb.members[seat]?.jet ?? 0) });
 }
 
 /**
@@ -119,42 +130,56 @@ function FrameTime({ scene }: { scene: PlaybackScene }) {
   );
 }
 
-export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, onScene, onShow, onWatched }: PlaybackViewOwnProps) {
+export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, onScene, onSession }: PlaybackViewOwnProps) {
   const support = probeWebGL2(); // cached: free after the first call
   const built = useMemo(() => buildView(launch), [launch]);
+  if (!support.ok) {
+    return <PlaybackUnavailable heading="3D playback isn't available on this machine" message={support.reason} onClose={onClose} />;
+  }
+  if (!built.ok) {
+    return <PlaybackUnavailable heading="Nothing to play" message={built.message} detail={built.detail} onClose={onClose} />;
+  }
+  return <PlaybackStage built={built} software={support.software} onClose={onClose} bindTogglePlay={bindTogglePlay} tiles={tiles} onScene={onScene} onSession={onSession} />;
+}
+
+interface PlaybackStageProps extends Pick<PlaybackViewOwnProps, 'onClose' | 'bindTogglePlay' | 'tiles' | 'onScene' | 'onSession'> {
+  built: BuiltOk;
+  /** The machine draws 3D in software: a chip on the picture says so. */
+  software: boolean;
+}
+
+/** Everything that needs a plan to hold: the session, the lanes, the scene and its wiring. */
+function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScene, onSession }: PlaybackStageProps) {
+  const { pb, timing } = built;
   const tileSource = tiles === null ? undefined : (tiles ?? tauriTiles);
 
-  // The watched seat, picked once at open. The scene, the cameras and the side view take its jet (a
-  // playback index), never the seat itself: a skipped #2 leaves #3 flying as jet 1.
-  const [watched] = useState(() => (built.ok ? openingSeat(built.pb, launch?.jetId) : 0));
-  const watchedJet = built.ok ? (built.pb.members[watched]?.jet ?? 0) : 0;
-
-  // What the Show menu has chosen. It outlives a rebuilt scene (it is not in it), and nothing saves it.
-  const [show, dispatchShow] = useReducer(showReducer, undefined, initShow);
+  // The session: the watched seat, the camera in use, what the Show menu has chosen. It outlives a
+  // rebuilt scene (it is not in it), and nothing saves it. The scene and the cameras take the watched
+  // seat's jet (a playback index), never the seat itself: a skipped #2 leaves #3 flying as jet 1.
+  const [session, dispatch] = useReducer(sessionReducer, built, openSession);
+  const { show, watched } = session;
+  const watchedJet = pb.members[watched]?.jet ?? 0;
+  // The camera the scene is told about: the side view (not built yet) leaves the scene's own camera as it is.
+  const cameraMode: CameraMode = session.mode === 'side' ? 'orbit' : session.mode;
   // The clock's range as the Show choices stand: a rebuilt scene opens with the range in force now.
-  const range = useMemo(() => (built.ok ? playRange(built.pb, built.timing, show.wholeRunIn) : undefined), [built, show.wholeRunIn]);
-  // The camera in use, as the scene reports it. It opens in Chase when the watched jet is in the picture at
-  // the range's start, else at Home; a rebuilt scene opens in the mode in force.
-  const [mode, setMode] = useState<CameraMode>(() => (built.ok && range ? openingMode(built.source, range, watchedJet) : 'orbit'));
-  const camera = useMemo(() => ({ mode, jet: watchedJet }), [mode, watchedJet]);
+  const range = useMemo(() => playRange(pb, timing, show.wholeRunIn), [pb, timing, show.wholeRunIn]);
+  const camera = useMemo(() => ({ mode: cameraMode, jet: watchedJet }), [cameraMode, watchedJet]);
 
-  // The watched jet's lane, on the time bar's own axis: its phase bands and lettered marks, redone only
-  // when the plan or the range changes (never while it plays).
+  // One lane for every member, on the time bar's own axis: phase bands and lettered marks, redone only when
+  // the plan or the range changes (never while it plays).
+  const moments = useMemo(() => pb.jets.map((j) => markerMoments(j)), [pb]);
   const lanes = useMemo<LaneInfo[]>(() => {
-    if (!built.ok || !range) return [];
-    const { pb, timing } = built;
-    const k = pb.members[watched]?.jet;
-    if (k === undefined) return [];
-    const moments = pb.jets.map((j) => markerMoments(j));
-    const bands = laneBands(pb, timing, range)[watched];
-    const marks = laneMarks(pb, timing, range, (i) => moments[i])[watched];
-    const jet = pb.jets[k];
+    const bands = laneBands(pb, timing, range);
+    const marks = laneMarks(pb, timing, range, (k) => moments[k]);
     // The seat's colour, as the scene draws the jet (a skipped #2 leaves the next jet as #3, in #3's colour).
-    return [{
-      seat: watched, label: jet.label, callsign: jet.callsign, colour: jetColor(watched), marks, bands,
-      tot_s: timing.jets[k].tot_s, cardPush_s: timing.readout.pushes[watched]?.push_s,
-    }];
-  }, [built, range, watched]);
+    return pb.members.map((m, seat) => {
+      const base = { seat, label: m.label, colour: jetColor(seat), marks: marks[seat], bands: bands[seat], tot_s: timing.delays_s[m.id], cardPush_s: timing.readout.pushes[seat]?.push_s };
+      if (m.jet === undefined) return { ...base, skipped: pb.skipped.find((s) => s.id === m.id)?.reason ?? 'Not flown in 3D.' };
+      return { ...base, callsign: pb.jets[m.jet].callsign };
+    });
+  }, [pb, timing, range, moments]);
+  const watchedBands = useMemo(() => lanes.find((l) => l.seat === watched)?.bands ?? [], [lanes, watched]);
+  const conflicts = useMemo(() => conflictBands(timing.conflicts), [timing]);
 
   const [scene, setScene] = useState<PlaybackScene | null>(null);
   const [terrain, setTerrain] = useState<TerrainStatus>();
@@ -172,8 +197,18 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
     setScene(s);
   }, []);
   const onFatal = useCallback((e: unknown) => setFatal(e instanceof Error ? e : new Error(String(e))), []);
-  const onCamera = useCallback((m: CameraMode) => setMode(m), []);
+  const onCamera = useCallback((m: CameraMode) => dispatch({ type: 'mode', mode: m }), []);
   const pickCamera = useCallback((m: CameraMode) => sceneRef.current?.setCamera(m, watchedJet), [watchedJet]);
+  // A seat button: the watch moves to that seat's jet. The scene keeps its camera mode; Chase and From
+  // target start again on the new jet, and the planner's colour code moves with it. (The scene moves its
+  // watched jet only through setCamera, which also puts Top-down back to its first view.)
+  const watchSeat = useCallback((seat: number) => {
+    const jet = pb.members[seat]?.jet;
+    if (jet === undefined || seat === watched) return;
+    dispatch({ type: 'watch', seat });
+    const s = sceneRef.current;
+    if (s) s.setCamera(s.cameraMode(), jet);
+  }, [pb, watched]);
   const onTerrain = useCallback((s: TerrainStatus) => setTerrain(s), []);
   const onContextLost = useCallback(() => setLost('restoring'), []);
   const rebuild = useCallback(() => {
@@ -186,12 +221,13 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
     groundWanted.current = mode;
     sceneRef.current?.setGround(mode);
   }, []);
-  // The one way a Show choice is made, by the menu and by the dev harness alike. Whole run-in also
+  // The one way the session is changed, by the menu and by the dev harness alike. Whole run-in also
   // moves the live clock's range, here and only here: a rebuilt scene takes the range as a prop instead.
-  const act = useCallback((a: ShowAction) => {
-    dispatchShow(a);
-    if (a.type === 'wholeRunIn' && built.ok) sceneRef.current?.setRange(playRange(built.pb, built.timing, a.on));
-  }, [built]);
+  const act = useCallback((a: SessionAction) => {
+    dispatch(a);
+    if (a.type === 'show' && a.a.type === 'wholeRunIn') sceneRef.current?.setRange(playRange(pb, timing, a.a.on));
+  }, [pb, timing]);
+  const actShow = useCallback((a: ShowAction) => act({ type: 'show', a }), [act]);
 
   // A lost context that does not come back: offer Try again rather than a frozen picture.
   useEffect(() => {
@@ -213,12 +249,8 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
   }, [scene, onScene]);
 
   useEffect(() => {
-    onShow?.(show, act);
-  }, [show, act, onShow]);
-
-  useEffect(() => {
-    onWatched?.(watched);
-  }, [watched, onWatched]);
+    onSession?.(session, act);
+  }, [session, act, onSession]);
 
   // What the labels, the action points and the colour code show, handed to the scene whenever the choice
   // changes and to every scene made (a rebuilt one included), so a context loss keeps them.
@@ -233,13 +265,6 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
   }, [scene, show.attackColours]);
 
   if (fatal) throw fatal; // into the local error boundary, which keeps the plan safe and offers Try again
-
-  if (!support.ok) {
-    return <PlaybackUnavailable heading="3D playback isn't available on this machine" message={support.reason} onClose={onClose} />;
-  }
-  if (!built.ok) {
-    return <PlaybackUnavailable heading="Nothing to play" message={built.message} detail={built.detail} onClose={onClose} />;
-  }
 
   return (
     <div className="absolute inset-0 flex flex-col">
@@ -260,10 +285,10 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
         />
         {/* On its own dark plate: behind it can be the navy sky, the pale haze or the map. */}
         <div className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
-        {scene && <CanvasChips scene={scene} source={built.source} jet={watchedJet} mode={mode} />}
-        {support.software && <SoftwareChip />}
+        {scene && <CanvasChips scene={scene} source={built.source} jet={watchedJet} mode={cameraMode} />}
+        {software && <SoftwareChip />}
         {scene && (
-          <ViewToolbar scene={scene} show={show} dispatch={act} mode={mode} seat={built.source.labelOf(watchedJet)} onMode={pickCamera} />
+          <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={cameraMode} seat={built.source.labelOf(watchedJet)} onMode={pickCamera} />
         )}
         {import.meta.env.DEV && scene && <FrameTime scene={scene} />}
         {!scene && <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">Starting 3D…</div>}
@@ -277,9 +302,10 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
         )}
       </div>
       <div className="shrink-0 border-t border-gray-700 bg-dcs-navy px-4 py-2 space-y-1">
-        {scene ? <Timeline scene={scene} bands={lanes[0]?.bands ?? []} /> : <div className="h-8" />}
-        {range && <JetLanes scene={scene} axis={range} lanes={lanes} />}
-        <StatusNotes terrain={terrain} notes={launch?.notes ?? []} restoring={lost === 'restoring'} onGround={onGround} />
+        {scene ? <Timeline scene={scene} bands={watchedBands} conflicts={conflicts} /> : <div className="h-8" />}
+        <JetLanes scene={scene} axis={range} lanes={lanes} watched={watched} onWatch={watchSeat} />
+        <DelayFooter warnings={timing.readout.warnings} />
+        <StatusNotes terrain={terrain} notes={built.launch.notes} restoring={lost === 'restoring'} onGround={onGround} />
       </div>
     </div>
   );

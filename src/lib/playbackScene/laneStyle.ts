@@ -62,6 +62,18 @@ export const HATCH = `repeating-linear-gradient(45deg, rgba(${HATCH_RGB}, ${HATC
 export const DASH_PERIOD_PX = 10;
 export const DASH_ON_PX = 6;
 
+/**
+ * The seat buttons beside the lanes (tailwind classes in the components' ui.ts): grey-200 text on the panel,
+ * white on grey-700 for the jet watched, and the grey-400 that quiet text takes (a seat not flown, the footer's
+ * all-clear line). Warnings under the lanes are amber-300. The screen is drawn from those classes, not from
+ * these copies, so geo-check also holds each class string to the tailwind colour whose hex is written here.
+ */
+export const SEAT_TEXT = '#e5e7eb';
+export const SEAT_ON_BG = '#374151';
+export const SEAT_ON_TEXT = '#ffffff';
+export const QUIET_TEXT = '#9ca3af';
+export const WARN_TEXT = '#fcd34d';
+
 /** The Show panel's background (tailwind gray-900). */
 export const MENU_BG = '#111827';
 

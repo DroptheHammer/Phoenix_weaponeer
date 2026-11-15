@@ -25,8 +25,8 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../index.css';
 import {
-  jetColor, newSceneBombPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource, type ShowAction, type ShowState, type Speed,
-  type TileSource,
+  jetColor, newSceneBombPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource, type Session, type SessionAction,
+  type ShowState, type Speed, type TileSource,
 } from '../../../lib/playbackScene';
 import { retime } from '../../../lib/playback';
 import { JET_COLORS } from '../../../lib/jetColors';
@@ -65,11 +65,10 @@ const consoleProblems: string[] = [];
 
 // Filled in by the component below.
 let scene: PlaybackScene | null = null;
-// The Show choices as the view holds them, and the function its menu calls to change them.
-let showNow: ShowState | null = null;
-let showAct: ((a: ShowAction) => void) | null = null;
-// The seat the view watches.
-let watchedNow: number | null = null;
+// The session as the view holds it (the watched seat, the camera, the Show choices, every member's time),
+// and the function every change to it goes through, the one the menu and the seat buttons call.
+let sessionNow: Session | null = null;
+let sessionAct: ((a: SessionAction) => void) | null = null;
 let setOpenFn: (open: boolean) => void = () => {};
 let isOpen = false;
 let loseExt: WEBGL_lose_context | null = null;
@@ -133,6 +132,13 @@ interface PbHandle {
   tileRequests(): number;
   /** The seat the view watches (0 = #1), null until playback has opened. */
   watched(): number | null;
+  /** The session as the view holds it now (null until playback has opened). */
+  session(): Session | null;
+  /**
+   * What each seat button beside the lanes shows, read off the page as drawn (page pixels), in seat
+   * order, skipped seats included: its text, whether it is pressed or disabled, its label and box.
+   */
+  seats(): { seat: number; text: string; pressed: boolean; disabled: boolean; label: string; box: Box }[];
   /**
    * Show › Whole run-in, made the way a click on its box makes it (the view's own handler, so the
    * clock's range moves with it): true = from the start of the whole run-in, false = from 10 s
@@ -162,11 +168,13 @@ interface PbHandle {
    * t0 and t1: the library's window, the whole run-in. range and wholeRange: what the clock plays
    * without and with Show › Whole run-in. firstAction: the lead's first action after the IP.
    * All strike time. markers: the lead's action points as the scene places them (source.markers(0)),
-   * each with the planner's own lines and its strike time.
+   * each with the planner's own lines and its strike time. conflicts: the plan's frag conflicts, each
+   * from the moment the second jet's bombs land to the moment the first jet's frag has cleared.
    */
   readonly moments: {
     t0: number; t1: number; range: { t0_s: number; t1_s: number }; wholeRange: { t0_s: number; t1_s: number }; firstAction: number;
     markers: readonly SceneMarker[];
+    conflicts: { first: string; second: string; t0_s: number; t1_s: number }[];
     push?: number; pullUp?: number; release?: number; impact?: number; events: { kind: string; label: string; t_s: number }[];
     /** Each flown jet (playback index k): its seat, label, first action, release and impact, strike time. */
     jets: { seat: number; label: string; firstAction: number; release: number; impact: number }[];
@@ -244,10 +252,20 @@ const pb: PbHandle = {
     scene?.setSource(sceneSourceFrom(pbNow, retime(pbNow, d)));
   },
   tileRequests: () => tileRequests,
-  watched: () => watchedNow,
-  setRange: (whole) => showAct?.({ type: 'wholeRunIn', on: whole }),
-  setActionPoints: (mode) => showAct?.({ type: 'actionPoints', value: mode }),
-  show: () => showNow,
+  watched: () => sessionNow?.watched ?? null,
+  session: () => sessionNow,
+  seats: () =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [data-seat]')].map((b) => ({
+      seat: Number(b.getAttribute('data-seat')),
+      text: (b.textContent ?? '').trim(),
+      pressed: b.getAttribute('aria-pressed') === 'true',
+      disabled: b.disabled,
+      label: b.getAttribute('aria-label') ?? '',
+      box: boxOf(b),
+    })),
+  setRange: (whole) => sessionAct?.({ type: 'show', a: { type: 'wholeRunIn', on: whole } }),
+  setActionPoints: (mode) => sessionAct?.({ type: 'show', a: { type: 'actionPoints', value: mode } }),
+  show: () => sessionNow?.show ?? null,
   lanes: () =>
     [...document.querySelectorAll('[role="dialog"] [data-lane]')].map((lane) => {
       const axis = lane.querySelector('[data-lane-axis]')!;
@@ -268,6 +286,7 @@ const pb: PbHandle = {
   moments: {
     t0: moments.window.t0_s, t1: moments.window.t1_s, range: moments.range, wholeRange: moments.wholeRange, firstAction: moments.firstAction,
     markers: source.markers(0),
+    conflicts: moments.timing.conflicts.map((c) => ({ first: c.first, second: c.second, t0_s: c.t0_s, t1_s: c.t1_s })),
     push: moments.push, pullUp: moments.pullUp, release: moments.release, impact: moments.impact, events: moments.events,
     jets: moments.jets.map((j, k) => ({ seat: source.seatOf(k), label: j.label, firstAction: j.firstAction, release: j.release, impact: j.impact })),
   },
@@ -293,12 +312,9 @@ function Harness() {
   const onScene = useCallback((s: PlaybackScene | null) => {
     scene = s;
   }, []);
-  const onShow = useCallback((s: ShowState, act: (a: ShowAction) => void) => {
-    showNow = s;
-    showAct = act;
-  }, []);
-  const onWatched = useCallback((seat: number) => {
-    watchedNow = seat;
+  const onSession = useCallback((s: Session, act: (a: SessionAction) => void) => {
+    sessionNow = s;
+    sessionAct = act;
   }, []);
 
   setOpenFn = setOpen;
@@ -327,7 +343,7 @@ function Harness() {
       {open && (
         <PlaybackOverlay title="Strike playback" onClose={close} onTogglePlay={() => toggle.current?.()} returnFocusTo={openerRef.current}>
           <PlaybackErrorBoundary key={attempt} onRetry={() => setAttempt((a) => a + 1)} onClose={close}>
-            <PlaybackView launch={launch} onClose={close} bindTogglePlay={bind} tiles={tiles} onScene={onScene} onShow={onShow} onWatched={onWatched} />
+            <PlaybackView launch={launch} onClose={close} bindTogglePlay={bind} tiles={tiles} onScene={onScene} onSession={onSession} />
           </PlaybackErrorBoundary>
         </PlaybackOverlay>
       )}

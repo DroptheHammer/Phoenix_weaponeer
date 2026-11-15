@@ -4,7 +4,9 @@
  * code of the map and the card), with a lettered chip at each point where the
  * pilot acts (AP, POP, PDP, TRK, REL, the same letters and colours as the
  * planner's discs), the two IP marks, and a diamond at the time over target.
- * Beside it, the jet's seat and its times.
+ * Beside it, the jet's seat (a button: it picks the jet to watch) and its times.
+ * A seat that is not flown has a lane too, with the reason in place of the
+ * band, so the lanes stay in the card's seat order.
  *
  * Marks before the time bar starts (usually the IP crossing) sit at the left
  * edge in one small group, "‹ IP", instead of off the end of the bar. Chips
@@ -27,10 +29,13 @@ import {
 } from '../../lib/playbackScene';
 import { fmtStrikeTime } from '../../lib/strike';
 import type { PlaybackScene } from './scene/createScene';
-import { bandTitle, laneSummary, markTitle, pinnedTitle } from './laneText';
-import { bandBackground, CHIP, CHIP_LETTERS, LANE, LANE_LABEL, PIN_MARK, READOUT, ROW_GRID, SEAT_DOT } from './ui';
+import { bandTitle, laneSummary, markTitle, pinnedTitle, READOUT_TITLE } from './laneText';
+import {
+  bandBackground, CHIP, CHIP_LETTERS, keepFocus, LANE, LANE_LABEL, LANE_SKIPPED, LANES, PIN_MARK, READOUT, ROW_GRID, SEAT_DOT, SEAT_OFF, SEAT_ON,
+  SEAT_SKIPPED,
+} from './ui';
 
-/** One jet's lane. */
+/** One member's lane: a jet's, or a skipped member's (marks and bands empty, the reason given). */
 export interface LaneInfo {
   seat: number;
   /** The seat label, "#1". */
@@ -44,6 +49,8 @@ export interface LaneInfo {
   tot_s: number;
   /** When the card says to leave the IP, strike time; undefined when it has no figure. */
   cardPush_s: number | undefined;
+  /** Why the jet is not flown, when it is not: the lane says so instead of drawing a band. */
+  skipped?: string;
 }
 
 interface JetLanesProps {
@@ -51,6 +58,10 @@ interface JetLanesProps {
   scene: PlaybackScene | null;
   axis: Axis;
   lanes: readonly LaneInfo[];
+  /** The watched seat. */
+  watched: number;
+  /** A seat button was pressed (only a flown seat's can be). */
+  onWatch(seat: number): void;
 }
 
 /** The white line at the clock's time. The one part of a lane that listens to the clock (about 12 times a second). */
@@ -66,7 +77,52 @@ function chipLook(kind: LaneMark['kind']): { background: string; color: string; 
   return { background: MARKER_COLOR[kind as ActionKind], color: CHIP_TEXT[kind as ActionKind] };
 }
 
-function Lane({ info, scene, axis, width }: { info: LaneInfo; scene: PlaybackScene | null; axis: Axis; width: number }) {
+/** A lane's left cell: the button that picks the jet to watch. Pressed while it is the one watched; a seat not flown cannot be pressed. */
+function SeatButton({ info, watched, onWatch }: { info: LaneInfo; watched: boolean; onWatch(seat: number): void }) {
+  const who = `${info.label}${info.callsign ? ` ${info.callsign}` : ''}`;
+  const flown = info.skipped === undefined;
+  return (
+    <button
+      type="button"
+      data-seat={info.seat}
+      disabled={!flown}
+      aria-pressed={watched}
+      aria-label={`Watch ${who}`}
+      // The side view is not built yet, so the title does not say it follows the watch.
+      title={flown ?`Watch ${info.label}: Chase, From target and the planner's colours follow it` : 'Not flown in 3D'}
+      onClick={() => onWatch(info.seat)}
+      onMouseDown={keepFocus}
+      className={`${LANE_LABEL} ${!flown ? SEAT_SKIPPED : watched ? SEAT_ON : SEAT_OFF}`}
+    >
+      <span aria-hidden className={SEAT_DOT} style={{ background: info.colour }} />
+      <span className="min-w-0 truncate">{who}</span>
+      {watched && <span aria-hidden className="shrink-0">◉</span>}
+    </button>
+  );
+}
+
+/** A lane's right cell: the time over target and the card's push time. `title` explains them (left off for a strike of one). */
+function Readout({ info, title }: { info: LaneInfo; title?: string }) {
+  return (
+    <div data-readout={info.seat} className={READOUT} title={title}>
+      <div>TOT {fmtStrikeTime(info.tot_s)}</div>
+      <div>push IP {info.cardPush_s === undefined ? '—' : fmtStrikeTime(info.cardPush_s)}</div>
+    </div>
+  );
+}
+
+interface LaneProps {
+  info: LaneInfo;
+  scene: PlaybackScene | null;
+  axis: Axis;
+  width: number;
+  watched: boolean;
+  onWatch(seat: number): void;
+  /** The times cell's tooltip: given when the strike has more than one jet. */
+  readoutTitle?: string;
+}
+
+function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle }: LaneProps) {
   const { marks, bands } = info;
   const pinned = marks.pinnedStart;
   const group = pinnedGroup(marks);
@@ -77,12 +133,23 @@ function Lane({ info, scene, axis, width }: { info: LaneInfo; scene: PlaybackSce
   const extent = bands.length ? { f0: bands[0].f0, f1: bands[bands.length - 1].f1 } : undefined;
   const span = extent ? Math.max(extent.f1 - extent.f0, 1e-9) : 1;
 
+  if (info.skipped !== undefined) {
+    return (
+      <div data-lane-skipped={info.seat} className={ROW_GRID}>
+        <SeatButton info={info} watched={false} onWatch={onWatch} />
+        <div className={LANE}>
+          <div className={LANE_SKIPPED} title={info.skipped}>
+            <span className="truncate">not flown in 3D: {info.skipped}</span>
+          </div>
+        </div>
+        <Readout info={info} title={readoutTitle} />
+      </div>
+    );
+  }
+
   return (
     <div data-lane={info.seat} className={ROW_GRID}>
-      <div className={LANE_LABEL}>
-        <span aria-hidden className={SEAT_DOT} style={{ background: info.colour }} />
-        <span className="truncate">{info.label}{info.callsign ? ` ${info.callsign}` : ''}</span>
-      </div>
+      <SeatButton info={info} watched={watched} onWatch={onWatch} />
 
       <div className={LANE}>
         <div data-lane-axis role="img" aria-label={laneSummary(info.label, info.callsign, marks)} className="relative h-full">
@@ -173,15 +240,12 @@ function Lane({ info, scene, axis, width }: { info: LaneInfo; scene: PlaybackSce
         </div>
       </div>
 
-      <div className={READOUT}>
-        <div>TOT {fmtStrikeTime(info.tot_s)}</div>
-        <div>push IP {info.cardPush_s === undefined ? '—' : fmtStrikeTime(info.cardPush_s)}</div>
-      </div>
+      <Readout info={info} title={readoutTitle} />
     </div>
   );
 }
 
-export function JetLanes({ scene, axis, lanes }: JetLanesProps) {
+export function JetLanes({ scene, axis, lanes, watched, onWatch }: JetLanesProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   // The lanes are all the same width (the grid sees to that), so one observer on the first axis box tells them all.
   const [width, setWidth] = useState(0);
@@ -195,9 +259,10 @@ export function JetLanes({ scene, axis, lanes }: JetLanesProps) {
     return () => ro.disconnect();
   }, [lanes.length]);
 
+  const readoutTitle = lanes.length >= 2 ? READOUT_TITLE : undefined;
   return (
-    <div ref={rootRef}>
-      {lanes.map((l) => <Lane key={l.seat} info={l} scene={scene} axis={axis} width={width} />)}
+    <div ref={rootRef} role="group" aria-label="Jets: pick the one to watch" className={LANES}>
+      {lanes.map((l) => <Lane key={l.seat} info={l} scene={scene} axis={axis} width={width} watched={l.seat === watched} onWatch={onWatch} readoutTitle={readoutTitle} />)}
     </div>
   );
 }

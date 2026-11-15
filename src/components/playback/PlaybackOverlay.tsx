@@ -87,9 +87,10 @@ export function PlaybackOverlay({ title, onClose, onTogglePlay, returnFocusTo, c
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     if (e.key !== ' ' || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-    // Space on a control means that control (press the button, type the space).
+    // Space on a control means that control (press the button, type the space). A range does nothing with
+    // Space, and the time bar keeps the focus after a drag, so it is left out: Space plays from there.
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, select, textarea, [contenteditable="true"]')) return;
+    if (target.closest('button, input:not([type="range"]), select, textarea, [contenteditable="true"]')) return;
     e.preventDefault();
     latest.current.onTogglePlay?.();
   };

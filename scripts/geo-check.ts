@@ -108,6 +108,7 @@ import { isThreatVisible, visibleMission, probableThreats, hiddenCounts, type Hi
 import { escapeHtml } from '../src/lib/html';
 import { runAttackChecks, hasErrors, noDataNote } from '../src/lib/attackChecks';
 import { readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import {
   PlayClock, MAX_FRAME_DT_S, SPEEDS, speedLabel, enuToThree, homePose, HOME_MARGIN, HOME_MIN_DIST_M, worldPerPixel, screenScale, nearPlaneFor, HOME_FOV,
   sceneSourceFrom, newSceneJetPose, newSceneBombPose, BG, MAX_DPR, ARROW_PX, JET_COLORS as SCENE_JET_COLORS, jetColor,
@@ -136,8 +137,13 @@ import {
   laneMarks, laneBands, laneChips, placeChips, pinnedGroup, axisFraction, axisTime, chipWidth, CHIP_GAP_PX, CHIP_TEXT, BAND_OUTLINE, DIAMOND_EDGE, IP_TEXT,
   PANEL, HATCH_RGB, HATCH_ALPHA, MENU_BG, PIN_MARK_PX, PIN_GLYPH, PIN_CHIP_BG, PIN_CHIP_TEXT, LANE_H_PX, BAND_TOP_PX, BAND_H_PX, CHIP_H_PX, type Axis, type SeatMarks,
 } from '../src/lib/playbackScene';
+import {
+  initSession, sessionReducer, isDirty, conflictBands, SEAT_TEXT, SEAT_ON_BG, SEAT_ON_TEXT, QUIET_TEXT, WARN_TEXT, type Session, type SessionAction, type ShowAction,
+} from '../src/lib/playbackScene';
 import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary } from '../src/components/playback/laneText';
-import { LANE } from '../src/components/playback/ui';
+import {
+  LANE, LANES, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, LANE_SKIPPED, FOOTER_OK, FOOTER_MORE, FOOTER_WARN, FOOTER_REST,
+} from '../src/components/playback/ui';
 import { PHASES, PHASE_STYLE } from '../src/lib/playback';
 import {
   controlsFor, topDownPose, chasePose, yawDelta, targetEye, CHASE_BACK_M, CHASE_UP_M, CHASE_MIN_M, CHASE_MAX_M, CHASE_SWING_DEG,
@@ -7892,6 +7898,8 @@ void (async () => {
     //   FAIL playback B3 [CT1]: … through their outlines  hatch stripe over the panel 2.38 (graphic, want 3)
     // PIN_CHIP_TEXT '#ffffff' → '#9ca3af' (the count chip's letters in grey), seen red 2026-11-15:
     //   FAIL playback B3 [CT1]: … through their outlines  pinned count letters on its chip 4.02 (text, want 4.5)
+    // QUIET_TEXT '#9ca3af' → '#4b5563' (the grey of a seat not flown and of the all-clear line, one step too dark), seen red 2026-11-15:
+    //   FAIL playback B3 [CT1]: … through their outlines  quiet text (a seat not flown, the all-clear line) 2.09 (text, want 4.5)
     const tailwindNavy = /'dcs-navy':\s*'(#[0-9a-fA-F]{6})'/.exec(readFileSync('tailwind.config.js', 'utf8'))?.[1];
     const colour = (css: string) => parseColour(css)!;
     type Ct1 = { id: string; kind: 'graphic' | 'text'; fg: string; bg: string };
@@ -7909,6 +7917,12 @@ void (async () => {
       { id: 'pinned count letters over the panel', kind: 'text', fg: PIN_CHIP_TEXT, bg: PANEL },
       { id: 'menu text', kind: 'text', fg: '#e5e7eb', bg: MENU_BG },
       { id: 'menu hint', kind: 'text', fg: '#9ca3af', bg: MENU_BG },
+      // The seat buttons beside the lanes and the line of warnings under them (ui.ts SEAT_* and FOOTER_*).
+      { id: 'seat label', kind: 'text', fg: SEAT_TEXT, bg: PANEL },
+      { id: 'seat label on hover', kind: 'text', fg: SEAT_TEXT, bg: SEAT_ON_BG },
+      { id: 'watched seat label', kind: 'text', fg: SEAT_ON_TEXT, bg: SEAT_ON_BG },
+      { id: 'quiet text (a seat not flown, the all-clear line)', kind: 'text', fg: QUIET_TEXT, bg: PANEL },
+      { id: 'warning line', kind: 'text', fg: WARN_TEXT, bg: PANEL },
       ...(['AP', 'ROLL', 'RUN', 'POP', 'PDP', 'TRK', 'REL'] as const).flatMap((k): Ct1[] => [
         { id: `${k} chip`, kind: 'graphic', fg: MARKER_COLOR[k], bg: PANEL },
         { id: `${k} letters on its chip`, kind: 'text', fg: CHIP_TEXT[k], bg: MARKER_COLOR[k] },
@@ -7923,13 +7937,57 @@ void (async () => {
     // [LS1] A lane's height is written twice, as a number (laneStyle's LANE_H_PX, which the chip rows
     // and the band add up to) and inside the lane's class string (ui.ts LANE, which the stylesheet
     // needs spelt out): the two agree, so a restyle of one cannot leave the chips outside the lane.
+    // The lanes' box (ui.ts LANES) shows four lanes and scrolls after them: its max height is four lanes'.
     // Mutation proofs (each seen red 2026-11-15): ui.ts LANE 'h-[30px]' → 'h-[28px]':
     //   FAIL playback B3 [LS1]: … LANE "relative h-[28px] px-2", LANE_H_PX 30, rows 12 + 6 + 12 = 30
     // laneStyle.ts BAND_H_PX 6 → 8:
     //   FAIL playback B3 [LS1]: … LANE "relative h-[30px] px-2", LANE_H_PX 30, rows 12 + 8 + 12 = 32
-    ok('playback B3 [LS1]: a lane\'s class string spells out laneStyle\'s lane height, and the chip row above, the band and the chip row below add up to it',
-       LANE.split(' ').includes(`h-[${LANE_H_PX}px]`) && BAND_TOP_PX + BAND_H_PX + CHIP_H_PX === LANE_H_PX,
-       `LANE "${LANE}", LANE_H_PX ${LANE_H_PX}, rows ${BAND_TOP_PX} + ${BAND_H_PX} + ${CHIP_H_PX} = ${BAND_TOP_PX + BAND_H_PX + CHIP_H_PX}`);
+    // ui.ts LANES 'max-h-[120px]' → 'max-h-[100px]':
+    //   FAIL playback B3 [LS1]: … LANE "relative h-[30px] px-2", LANE_H_PX 30, rows 12 + 6 + 12 = 30; LANES "max-h-[100px] overflow-y-auto"
+    ok('playback B3 [LS1]: a lane\'s class string spells out laneStyle\'s lane height, the chip row above, the band and the chip row below add up to it, and the box of lanes holds four of them',
+       LANE.split(' ').includes(`h-[${LANE_H_PX}px]`) && BAND_TOP_PX + BAND_H_PX + CHIP_H_PX === LANE_H_PX && LANES.split(' ').includes(`max-h-[${4 * LANE_H_PX}px]`),
+       `LANE "${LANE}", LANE_H_PX ${LANE_H_PX}, rows ${BAND_TOP_PX} + ${BAND_H_PX} + ${CHIP_H_PX} = ${BAND_TOP_PX + BAND_H_PX + CHIP_H_PX}; LANES "${LANES}"`);
+
+    // [LS2] The seat buttons', the quiet text's and the warnings' colours reach the screen as tailwind
+    // classes (ui.ts), which [CT1] cannot see: it holds laneStyle's copies of those colours against the
+    // panel. So each class string must name the tailwind colour whose stock hex (read from tailwind's own
+    // table) is the one the matching constant carries; change either alone and this goes red.
+    // Mutation proofs (each seen red 2026-11-15): ui.ts FOOTER_OK 'text-gray-400' → 'text-gray-600' (2.09:1
+    // on the panel, the very grey [CT1] turns down for QUIET_TEXT; [CT1] itself stays green, as it never
+    // looked at the class):
+    //   FAIL playback B3 [LS2]: … FOOTER_OK text: class gives #4b5563, laneStyle holds #9ca3af
+    // ui.ts SEAT_OFF 'hover:bg-gray-700' → 'hover:bg-gray-100' (the hover fill read through its own prefix):
+    //   FAIL playback B3 [LS2]: … SEAT_OFF hover fill: class gives #f3f4f6, laneStyle holds #374151
+    const twColours = createRequire(`${process.cwd()}/`)('tailwindcss/colors') as Record<string, string | Record<string, string> | undefined>;
+    // A tailwind colour name ("gray-200", "white") as lower-case six-digit hex, or undefined when it is not one.
+    const twHex = (name: string): string | undefined => {
+      const [family, shade, ...more] = name.split('-');
+      const entry = twColours[family];
+      const v = more.length ? undefined : shade === undefined ? entry : typeof entry === 'object' ? entry[shade] : undefined;
+      const hex = typeof v === 'string' ? v.toLowerCase().replace(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/, '#$1$1$2$2$3$3') : undefined;
+      return hex !== undefined && /^#[0-9a-f]{6}$/.test(hex) ? hex : undefined;
+    };
+    // The one colour a class string sets with a prefix ("text", "bg", "hover:bg"); undefined when it sets none or several.
+    const classHex = (classes: string, prefix: string): string | undefined => {
+      const hits = classes.split(/\s+/).filter((c) => c.startsWith(`${prefix}-`)).map((c) => twHex(c.slice(prefix.length + 1))).filter((h): h is string => h !== undefined);
+      return hits.length === 1 ? hits[0] : undefined;
+    };
+    const ls2: [string, string | undefined, string][] = [
+      ['SEAT_OFF text', classHex(SEAT_OFF, 'text'), SEAT_TEXT],
+      ['SEAT_OFF hover fill', classHex(SEAT_OFF, 'hover:bg'), SEAT_ON_BG],
+      ['SEAT_ON fill', classHex(SEAT_ON, 'bg'), SEAT_ON_BG],
+      ['SEAT_ON text', classHex(SEAT_ON, 'text'), SEAT_ON_TEXT],
+      ['SEAT_SKIPPED text', classHex(SEAT_SKIPPED, 'text'), QUIET_TEXT],
+      ['LANE_SKIPPED text', classHex(LANE_SKIPPED, 'text'), QUIET_TEXT],
+      ['FOOTER_OK text', classHex(FOOTER_OK, 'text'), QUIET_TEXT],
+      ['FOOTER_MORE text', classHex(FOOTER_MORE, 'text'), QUIET_TEXT],
+      ['FOOTER_WARN text', classHex(FOOTER_WARN, 'text'), WARN_TEXT],
+      ['FOOTER_REST text', classHex(FOOTER_REST, 'text'), WARN_TEXT],
+    ];
+    const ls2Bad = ls2.filter(([, got, want]) => got !== want).map(([n, got, want]) => `${n}: class gives ${got ?? 'no one colour'}, laneStyle holds ${want}`);
+    ok('playback B3 [LS2]: every class string that sets the seat buttons\', the quiet text\'s or the warnings\' colour names the tailwind colour whose hex laneStyle carries (the one [CT1] holds against the panel)',
+       twHex('gray-200') === '#e5e7eb' && twHex('white') === '#ffffff' && twHex('xs') === undefined && ls2Bad.length === 0,
+       ls2Bad.join('; ') || `${ls2.length} class strings, each the colour [CT1] holds`);
 
     // ── The target mark (source.ts: seats and the distinct targets; targets.ts: grouping, the tag, the
     // post; callouts.ts: the letters' ink).
@@ -8345,6 +8403,235 @@ void (async () => {
     ok('playback B3 [P1]: shiftRange moves the range first, then steps t back by the shift inside the new range, in one change (t 110 in 0…120, shift −20 into 20…140 → 130); clamped to the new range; a non-number shift moves the range only',
        p1s.t === 130 && p1s.start === 20 && p1s.end === 140 && p1Changes === 1 && p1.getSnapshot().t === 130 && p1Clamp.time === 20 && p1Nan.time === 110,
        `t ${p1s.t} in ${p1s.start}…${p1s.end}, ${p1Changes} change(s), UI sees ${p1.getSnapshot().t}; shift 100 → ${p1Clamp.time}; shift NaN → ${p1Nan.time}`);
+
+    // ── The session (session.ts: what the open playback remembers) and the stripes of frag conflict on
+    // the time bar (lanes.ts), on the four-ship and the skip variant above. Pure.
+
+    const sesJson = (x: unknown) => JSON.stringify(x);
+    const sesRows = [{ systemId: 'sa6', defaultOn: true }, { systemId: 'p19', defaultOn: false }];
+    const sesGo = (s: Session, ...actions: SessionAction[]) => actions.reduce((acc, a) => sessionReducer(acc, a), s);
+    const sesTimes = (pb: StrikePlayback) => Object.fromEntries(pb.members.map((m) => [m.id, pb.planDelays_s[m.id]]));
+    const [sesA, sesB, sesC, sesD] = s4Pb.members.map((m) => m.id);
+    const sesBase = initSession(s4Pb);
+    const sesSkip = initSession(skipPb);
+    // The four-ship with its first seat not flown, for the fallback to the first flown seat (initSession reads only the members and the plan times).
+    const sesNoFirst = { ...s4Pb, members: s4Pb.members.map((m, i) => (i === 0 ? { ...m, jet: undefined } : m)) } as StrikePlayback;
+
+    // [SS1] A session opens complete and in the shape playback needs: every member's id in seat order,
+    // the flown seats, seat #1 locked, two separate complete maps of the plan's times (a skipped member's
+    // too), the camera in Chase unless told otherwise, the Show defaults, not dragging, no status. The jet
+    // watched is the member asked for when it flies, else the first flown seat (a skipped or unknown
+    // member falls back, and so does the first seat being skipped itself).
+    // Mutation proofs (each seen red 2026-11-15): session.ts `watched: chosen >= 0 ? chosen : (flownSeats[0] ?? 0)` → `watched: 0`:
+    //   FAIL playback B3 [SS1]: … mode chase (want chase); watched: no id 0 (want 0), #3 0 (want 2), an id nobody has 0 (want 0), skip variant #3 0 (want 2), the skipped #2 0 (want 0), first seat not flown 0 (want 1), first seat not flown, asking for it 0 (want 1); …
+    // `mode: opts.mode ?? 'chase'` → `mode: opts.mode ?? 'orbit'` (SS7 goes red with it, its first case being the camera it already had):
+    //   FAIL playback B3 [SS1]: … mode orbit (want chase); watched: no id 0 (want 0), #3 2 (want 2), …
+    const ss1Watch = [
+      { name: 'no id', s: sesBase, want: 0 },
+      { name: '#3', s: initSession(s4Pb, sesC), want: 2 },
+      { name: 'an id nobody has', s: initSession(s4Pb, 'nobody'), want: 0 },
+      { name: 'skip variant #3', s: initSession(skipPb, skipPb.members[2].id), want: 2 },
+      { name: 'the skipped #2', s: initSession(skipPb, skipPb.members[1].id), want: 0 },
+      { name: 'first seat not flown', s: initSession(sesNoFirst), want: 1 },
+      { name: 'first seat not flown, asking for it', s: initSession(sesNoFirst, sesA), want: 1 },
+    ].map((c) => ({ ...c, got: c.s.watched }));
+    const ss1Shape = (s: Session, pb: StrikePlayback) => sesJson(s.memberIds) === sesJson(pb.members.map((m) => m.id)) && s.locked === pb.members[0].id &&
+      sesJson(s.plan_s) === sesJson(sesTimes(pb)) && sesJson(s.delays_s) === sesJson(sesTimes(pb)) && s.plan_s !== s.delays_s &&
+      s.dragging === false && s.status === undefined && sesJson(s.show) === sesJson(initShow());
+    const ss1Show = initShow(sesRows);
+    ok('playback B3 [SS1]: a session opens complete (every member in seat order, the flown seats, seat #1 locked, separate maps of the plan\'s times with a skipped member\'s too), in Chase with the Show defaults unless told otherwise, watching the jet asked for when it flies, else the first flown seat',
+       ss1Shape(sesBase, s4Pb) && ss1Shape(sesSkip, skipPb) && sesJson(sesBase.flownSeats) === '[0,1,2,3]' && sesJson(sesSkip.flownSeats) === '[0,2]' &&
+       sesSkip.delays_s[skipPb.members[1].id] === 10 && sesBase.mode === 'chase' && initSession(s4Pb, undefined, { mode: 'top' }).mode === 'top' &&
+       initSession(s4Pb, undefined, { show: ss1Show }).show === ss1Show && ss1Watch.every((c) => c.got === c.want),
+       `mode ${sesBase.mode} (want chase); watched: ${ss1Watch.map((c) => `${c.name} ${c.got} (want ${c.want})`).join(', ')}; flown ${sesJson(sesBase.flownSeats)} and ${sesJson(sesSkip.flownSeats)}; locked ${sesBase.locked === sesA}`);
+
+    // [SS2] A time changes only the member it names, and only when it should: seat #1's (locked), an
+    // unknown member's, a value that is not a number and the value it already is give the same object
+    // back; a negative time, a skipped member's time and a seat's own are taken; the plan Reset goes back
+    // to is untouched; and the status an Apply left is cleared.
+    // Mutation proof (seen red 2026-11-15): session.ts the `a.id === s.locked ||` guard dropped:
+    //   FAIL playback B3 [SS2]: … the locked seat's time gave a new session
+    const sesApplied = sesGo(sesBase, { type: 'delay', id: sesB, value_s: -10 }, { type: 'applied', to: 'editor', shift_s: -10, renumbered: ['#2 Viper 1-2 as #1'] });
+    const ss2Same: [string, SessionAction][] = [
+      ['the locked seat\'s time', { type: 'delay', id: sesA, value_s: 5 }], ['an unknown member\'s', { type: 'delay', id: 'nobody', value_s: 5 }],
+      ['NaN', { type: 'delay', id: sesB, value_s: NaN }], ['Infinity', { type: 'delay', id: sesB, value_s: Infinity }], ['the time it already is', { type: 'delay', id: sesB, value_s: 10 }],
+    ];
+    const ss2Bad = ss2Same.filter(([, a]) => sessionReducer(sesBase, a) !== sesBase).map(([n]) => `${n} gave a new session`);
+    const ss2 = sessionReducer(sesBase, { type: 'delay', id: sesC, value_s: -5 });
+    if (ss2 === sesBase || ss2.delays_s[sesC] !== -5 || ss2.delays_s[sesB] !== 10 || ss2.delays_s[sesD] !== 40 || ss2.plan_s !== sesBase.plan_s || sesBase.delays_s[sesC] !== 40) ss2Bad.push(`#3 to -5: ${sesJson(ss2.delays_s)}, plan kept ${ss2.plan_s === sesBase.plan_s}, original's #3 ${sesBase.delays_s[sesC]}`);
+    const ss2Skip = sessionReducer(sesSkip, { type: 'delay', id: skipPb.members[1].id, value_s: 30 });
+    if (ss2Skip === sesSkip || ss2Skip.delays_s[skipPb.members[1].id] !== 30) ss2Bad.push('the skipped member\'s time was not taken');
+    if (sesApplied.status === undefined || sessionReducer(sesApplied, { type: 'delay', id: sesC, value_s: 99 }).status !== undefined) ss2Bad.push('the delay did not clear the status');
+    ok('playback B3 [SS2]: a delay moves only the member it names; seat #1, an unknown member, a number that is not one and the time it already is give the same session; negative and skipped members\' times are taken; Reset\'s plan stays; the status is cleared',
+       ss2Bad.length === 0, ss2Bad.join('; ') || 'five refusals the same object, three times taken, status cleared');
+
+    // [SS3] Reset puts every time back to the plan's, on a copy (a later change must not reach the
+    // plan), gives the same session when nothing differs, and after an Apply goes back to the applied times.
+    // Mutation proof (seen red 2026-11-15): session.ts `case 'reset'` returning `s`:
+    //   FAIL playback B3 [SS3]: … after two changes Reset left {"b3-1":0,"b3-2":25,"b3-3":40,"b3-4":0}, not the plan; after an Apply Reset gave {"b3-1":10,"b3-2":0,"b3-3":70,"b3-4":50}, not {"b3-1":10,"b3-2":0,"b3-3":50,"b3-4":50}
+    const ss3Edited = sesGo(sesBase, { type: 'delay', id: sesB, value_s: 25 }, { type: 'delay', id: sesD, value_s: 0 });
+    const ss3 = sessionReducer(ss3Edited, { type: 'reset' });
+    const ss3After = sessionReducer(ss3, { type: 'delay', id: sesB, value_s: 31 });
+    const ss3Ap = sessionReducer(sesGo(sesApplied, { type: 'delay', id: sesC, value_s: 70 }), { type: 'reset' });
+    const ss3Bad = [
+      ...(sesJson(ss3.delays_s) === sesJson(sesBase.plan_s) && !isDirty(ss3) && ss3.delays_s !== ss3.plan_s ? [] : [`after two changes Reset left ${sesJson(ss3.delays_s)}, not the plan`]),
+      ...(ss3After.plan_s[sesB] === 10 ? [] : [`a change after Reset reached the plan: ${sesJson(ss3After.plan_s)}`]),
+      ...(sessionReducer(sesBase, { type: 'reset' }) === sesBase ? [] : ['Reset on untouched times made a new session']),
+      ...(sesJson(ss3Ap.delays_s) === sesJson(sesApplied.plan_s) && sesApplied.plan_s[sesA] === 10 ? [] : [`after an Apply Reset gave ${sesJson(ss3Ap.delays_s)}, not ${sesJson(sesApplied.plan_s)}`]),
+    ];
+    ok('playback B3 [SS3]: Reset puts every time back to the plan\'s on a copy, gives the same session when nothing differs, and after an Apply goes back to the applied times',
+       ss3Bad.length === 0, ss3Bad.join('; ') || `back to ${sesJson(ss3.delays_s)}; after an Apply back to ${sesJson(ss3Ap.delays_s)}`);
+
+    // [SS4] An Apply moves every time, the plan's and the playhead's alike, by the same shift (the strike
+    // is re-based on whoever is first), leaves nothing to reset, and sets the status; a shift that is not
+    // a number moves nothing.
+    // Mutation proof (seen red 2026-11-15): session.ts `plan_s: moved(s.delays_s)` → `plan_s: s.plan_s`:
+    //   FAIL playback B3 [SS4]: … plan {"b3-1":0,"b3-2":10,"b3-3":40,"b3-4":40} delays {"b3-1":10,"b3-2":0,"b3-3":50,"b3-4":50} dirty true; …
+    const ss4Nan = sessionReducer(sesGo(sesBase, { type: 'delay', id: sesB, value_s: 20 }), { type: 'applied', to: 'mission', shift_s: NaN, renumbered: [] });
+    const ss4Want = { [sesA]: 10, [sesB]: 0, [sesC]: 50, [sesD]: 50 };
+    ok('playback B3 [SS4]: Apply subtracts its shift from the plan and from every time alike (seat #2 first by 10 s: 10/0/50/50), leaves nothing to reset and sets the status; a shift that is not a number moves nothing',
+       sesJson(sesApplied.plan_s) === sesJson(ss4Want) && sesJson(sesApplied.delays_s) === sesJson(ss4Want) && !isDirty(sesApplied) &&
+       sesJson(sesApplied.status) === sesJson({ to: 'editor', renumbered: ['#2 Viper 1-2 as #1'] }) &&
+       sesJson(ss4Nan.delays_s) === sesJson({ ...sesTimes(s4Pb), [sesB]: 20 }) && sesJson(ss4Nan.plan_s) === sesJson(ss4Nan.delays_s) && ss4Nan.status?.to === 'mission',
+       `plan ${sesJson(sesApplied.plan_s)} delays ${sesJson(sesApplied.delays_s)} dirty ${isDirty(sesApplied)}; status ${sesJson(sesApplied.status)}; NaN shift: times ${sesJson(ss4Nan.delays_s)}, plan ${sesJson(ss4Nan.plan_s)}`);
+
+    // [SS5] "Changed" is by value: a time dragged away and back is clean again, a fresh session is clean,
+    // and a skipped member's changed time counts.
+    // Mutation proof (seen red 2026-11-15): session.ts isDirty's `s.delays_s[id] !== s.plan_s[id]` → `s.delays_s !== s.plan_s` (by reference):
+    //   FAIL playback B3 [SS5]: … a fresh session dirty (want clean), #2 moved dirty, #2 moved and back dirty (want clean), the skipped #2 moved dirty
+    const ss5 = [
+      ['a fresh session', isDirty(sesBase), false],
+      ['#2 moved', isDirty(sessionReducer(sesBase, { type: 'delay', id: sesB, value_s: 20 })), true],
+      ['#2 moved and back', isDirty(sesGo(sesBase, { type: 'delay', id: sesB, value_s: 20 }, { type: 'delay', id: sesB, value_s: 10 })), false],
+      ['the skipped #2 moved', isDirty(sessionReducer(sesSkip, { type: 'delay', id: skipPb.members[1].id, value_s: 30 })), true],
+    ] as const;
+    ok('playback B3 [SS5]: the times are changed by value: a fresh session is clean, a moved time is dirty, a time moved away and back is clean again, a skipped member\'s moved time counts',
+       ss5.every(([, got, want]) => got === want), ss5.map(([n, got, want]) => `${n} ${got ? 'dirty' : 'clean'}${got === want ? '' : ` (want ${want ? 'dirty' : 'clean'})`}`).join(', '));
+
+    // [SS6] Only a flown seat can be watched: a skipped seat, a seat nobody has and the seat already
+    // watched give the same session; a flown seat moves the watch and nothing else.
+    // Mutation proof (seen red 2026-11-15): session.ts the `!s.flownSeats.includes(a.seat) ||` guard dropped:
+    //   FAIL playback B3 [SS6]: … the skipped seat 1 gave a new session; seat 9 gave a new session; seat -1 gave a new session; seat 1.5 gave a new session
+    const ss6Bad = ([[1, 'the skipped seat 1'], [9, 'seat 9'], [-1, 'seat -1'], [1.5, 'seat 1.5']] as const)
+      .filter(([seat]) => sessionReducer(sesSkip, { type: 'watch', seat }) !== sesSkip).map(([, n]) => `${n} gave a new session`);
+    if (sessionReducer(sesSkip, { type: 'watch', seat: 0 }) !== sesSkip) ss6Bad.push('the seat already watched gave a new session');
+    const ss6 = sessionReducer(sesSkip, { type: 'watch', seat: 2 });
+    if (ss6.watched !== 2 || ss6 === sesSkip || sesJson({ ...ss6, watched: 0 }) !== sesJson(sesSkip)) ss6Bad.push(`seat 2: watched ${ss6.watched}`);
+    ok('playback B3 [SS6]: only a flown seat can be watched (a skipped seat, an unknown seat and the seat already watched give the same session) and the watch moves nothing else',
+       ss6Bad.length === 0, ss6Bad.join('; ') || 'four refusals and the seat already watched the same object, seat 2 taken');
+
+    // [SS7] The camera, a drag and a Show choice change only what they name and give the same session back when it is already so.
+    // Mutation proof (seen red 2026-11-15): session.ts `case 'mode'` → `return { ...s, mode: a.mode }` (no same-object return):
+    //   FAIL playback B3 [SS7]: … the camera it already had gave a new session
+    const ss7Bad: string[] = [];
+    if (sessionReducer(sesBase, { type: 'mode', mode: 'chase' }) !== sesBase) ss7Bad.push('the camera it already had gave a new session');
+    const ss7Top = sessionReducer(sesBase, { type: 'mode', mode: 'top' });
+    if (ss7Top.mode !== 'top' || sessionReducer(ss7Top, { type: 'mode', mode: 'side' }).mode !== 'side') ss7Bad.push('a camera or the side view was not taken');
+    const ss7Drag = sessionReducer(sesBase, { type: 'drag', on: true });
+    if (!ss7Drag.dragging || sessionReducer(ss7Drag, { type: 'drag', on: true }) !== ss7Drag || sessionReducer(sesBase, { type: 'drag', on: false }) !== sesBase) ss7Bad.push('drag');
+    const ss7Show = sessionReducer(sesBase, { type: 'show', a: { type: 'labels', on: false } });
+    if (ss7Show.show.labels || ss7Show === sesBase || sessionReducer(sesBase, { type: 'show', a: { type: 'labels', on: true } }) !== sesBase) ss7Bad.push('a Show choice');
+    ok('playback B3 [SS7]: the camera, a drag and a Show choice change only what they name, and give the same session when it is already so',
+       ss7Bad.length === 0, ss7Bad.join('; ') || 'camera, side view, drag and a Show choice');
+
+    // [SH3] A Show choice never makes the times dirty (Reset and Apply are about times): every Show
+    // action leaves them clean and their maps the very same objects, and a delay still makes them dirty.
+    // Mutation proof (seen red 2026-11-15): session.ts isDirty `… || s.show.labels !== true` (the Show state compared too):
+    //   FAIL playback B3 [SH3]: … {"type":"labels","on":false} made the times dirty
+    // (and by reference, `s.delays_s !== s.plan_s`, all eight Show actions: SS3, SS4 and SS5 go red with it too)
+    const sh3S = initSession(s4Pb, undefined, { show: initShow(sesRows) });
+    const sh3Actions: ShowAction[] = [
+      { type: 'labels', on: false }, { type: 'actionPoints', value: 'always' }, { type: 'attackColours', value: 'all' }, { type: 'wholeRunIn', on: true },
+      { type: 'threat', key: 'p19', on: true }, { type: 'threat', key: 'sa6', on: false }, { type: 'threatsAll' }, { type: 'threatsNone' },
+    ];
+    const sh3Bad: string[] = [];
+    for (const a of sh3Actions) {
+      const next = sessionReducer(sh3S, { type: 'show', a });
+      if (next === sh3S) sh3Bad.push(`${sesJson(a)} changed nothing`);
+      else if (isDirty(next) || next.delays_s !== sh3S.delays_s || next.plan_s !== sh3S.plan_s) sh3Bad.push(`${sesJson(a)} made the times dirty`);
+    }
+    if (!isDirty(sessionReducer(sh3S, { type: 'delay', id: sesB, value_s: 11 }))) sh3Bad.push('a delay did not make them dirty');
+    ok('playback B3 [SH3]: no Show action makes the times dirty or touches them (labels, action points, colours, whole run-in, a threat on and off, all, none), and a delay still does',
+       sh3Bad.length === 0 && sh3Actions.length === 8, sh3Bad.join('; ') || `${sh3Actions.length} Show actions, all clean; a delay dirty`);
+
+    // [T1] Lane marks' keys are unique across every seat's lane together (the two marks #3 and #4 share
+    // a time over target, and each seat has its own IP, action points and impact), on the default time
+    // bar and on the whole run-in; and a second mark of one seat at the very moment of its first (two
+    // actions at once, built here by handing #1 a ROLL at its AP's time) is still a mark of its own.
+    // Mutation proofs (each seen red 2026-11-15): lanes.ts the mark's key `${m.id}:${kind}` → `${seat}${t_s}`
+    // (seat and time: the seat number keeps the seats apart, so only the two marks at one moment collide; [T2]
+    // and [LN1] go red with it for the member's id missing from the key):
+    //   FAIL playback B3 [T1]: … #3 and #4 share a time over target; default time bar: 29 keys unique of 29; whole run-in: 29 keys unique of 29; #1's ROLL at its AP's moment: 29 keys unique of 30; one seat's two marks at one moment true
+    // `${m.id}:${kind}` → `${kind}` (the member dropped):
+    //   FAIL playback B3 [T1]: … #3 and #4 share a time over target; default time bar: 8 keys unique of 29; whole run-in: 8 keys unique of 29; #1's ROLL at its AP's moment: 9 keys unique of 30; …
+    const t1Same = s4Timing.jets[2].impact_s === s4Timing.jets[3].impact_s;
+    // #1's marker moments with a ROLL at the time of the first of them (a kind it has none of), so two of its marks fall at once.
+    const t1Twin = (k: number) => {
+      const own = lnMoments(s4Pb)(k);
+      const kind = (['ROLL', 'RUN', 'AP', 'POP', 'PDP', 'TRK', 'REL'] as const).find((x) => !own.some((m) => m.kind === x));
+      return k === 0 && own.length > 0 && kind !== undefined ? [...own, { ...own[0], kind }] : own;
+    };
+    const t1Cases = [
+      { name: 'default time bar', whole: false, moments: lnMoments(s4Pb) },
+      { name: 'whole run-in', whole: true, moments: lnMoments(s4Pb) },
+      { name: '#1\'s ROLL at its AP\'s moment', whole: false, moments: t1Twin },
+    ];
+    const t1 = t1Cases.map((c) => {
+      const seats = laneMarks(s4Pb, s4Timing, playRange(s4Pb, s4Timing, c.whole), c.moments);
+      const keys = seats.flatMap((sm) => [...sm.pinnedStart, ...sm.marks, ...sm.pinnedEnd].map((m) => m.key));
+      const lead = [...seats[0].pinnedStart, ...seats[0].marks, ...seats[0].pinnedEnd].map((m) => m.t_s);
+      return { name: c.name, n: keys.length, unique: new Set(keys).size, atOnce: lead.length - new Set(lead).size };
+    });
+    ok('playback B3 [T1]: lane marks\' keys are unique across all four seats together (#3 and #4 share a time over target), on the default time bar and on the whole run-in, and when one seat has two marks at the very same moment',
+       t1Same && t1.every((c) => c.unique === c.n && c.n >= 28) && t1[2].n === t1[0].n + 1 && t1[2].atOnce >= 1,
+       `${t1Same ? '#3 and #4 share a time over target' : 'the fixture no longer shares one'}; ${t1.map((c) => `${c.name}: ${c.unique} keys unique of ${c.n}`).join('; ')}; one seat's two marks at one moment ${t1[2].atOnce >= 1}`);
+
+    // [T2] The marks are indexed by seat: one entry per member, a skipped seat's empty on all three
+    // lists, each flown seat's marks carrying its own seat number and its own jet's keys.
+    // Mutation proof (seen red 2026-11-15): lanes.ts laneMarks over only the flown members (`pb.members.filter((m) => m.jet !== undefined).map(…)`, indexed by jet):
+    //   FAIL playback B3 [T2]: … skip variant: 2 entries for 3 members  (and [LN1]: … the skipped seat has marks, or a flown seat has none)
+    const t2Marks = laneMarks(skipPb, retime(skipPb), retime(skipPb).window, lnMoments(skipPb));
+    const t2All = (sm: SeatMarks) => [...sm.pinnedStart, ...sm.marks, ...sm.pinnedEnd];
+    const t2Bad: string[] = [];
+    if (t2Marks.length !== 3) t2Bad.push(`skip variant: ${t2Marks.length} entries for 3 members`);
+    else {
+      if (t2All(t2Marks[1]).length) t2Bad.push('the skipped seat has marks');
+      for (const seat of [0, 2]) {
+        const mine = t2All(t2Marks[seat]);
+        if (!mine.length || mine.some((m) => m.seat !== seat || !m.key.startsWith(`${skipPb.members[seat].id}:`))) t2Bad.push(`seat ${seat + 1}'s marks are not its own`);
+      }
+    }
+    const t2Four = laneMarks(s4Pb, s4Timing, s4Timing.window, lnMoments(s4Pb));
+    if (t2Four.length !== 4 || t2Four.some((sm, seat) => t2All(sm).some((m) => m.seat !== seat || !m.key.startsWith(`${s4Pb.members[seat].id}:`)))) t2Bad.push('four-ship: a mark is on another seat\'s lane');
+    ok('playback B3 [T2]: the lane marks are indexed by seat (one entry per member), a skipped seat has none on any list and each flown seat\'s marks are its own',
+       t2Bad.length === 0, t2Bad.join('; ') || `skip variant: ${t2Marks.length} entries, the skipped one empty; four-ship ${t2Four.map((sm) => t2All(sm).length).join('/')} marks`);
+
+    // [T6] The time bar's stripes are one band per frag conflict the readout warns of, each from the
+    // moment the second jet's bombs land to the moment the first jet's frag has cleared (the library's
+    // own t0 and t1, whatever the gap), in the readout's order with unique keys, a skipped member's
+    // conflict included. On the four-ship, then with #2 moved to 5 s and #3 to 8 s (more conflicts), and
+    // on the skip variant with its skipped #2 moved onto the lead.
+    // Mutation proof (seen red 2026-11-15): lanes.ts conflictBands `t1_s: c.t1_s` → `t1_s: c.t0_s + c.gap_s`:
+    //   FAIL playback B3 [T6]: … four-ship: band 0 ends at 20 (want 30), "⚠ #2 over the target inside #1's frag (est.)"; four-ship: band 1 ends at 40 (want 70), …; skip variant, the skipped #2 at 2 s: band 0 ends at 4 (want 30), …
+    const t6Cases = [
+      { name: 'four-ship', conflicts: s4Timing.conflicts },
+      { name: 'four-ship, #2 at 5 s, #3 at 8 s', conflicts: retime(s4Pb, { [sesB]: 5, [sesC]: 8 }).conflicts },
+      { name: 'skip variant, the skipped #2 at 2 s', conflicts: retime(skipPb, { [skipPb.members[1].id]: 2 }).conflicts },
+    ];
+    const t6Bad: string[] = [];
+    for (const c of t6Cases) {
+      const bands = conflictBands(c.conflicts);
+      if (bands.length !== c.conflicts.length) t6Bad.push(`${c.name}: ${bands.length} bands for ${c.conflicts.length} conflicts`);
+      if (new Set(bands.map((b) => b.key)).size !== bands.length) t6Bad.push(`${c.name}: keys repeat`);
+      bands.forEach((b, i) => {
+        const w = c.conflicts[i];
+        if (b.t0_s !== w.t0_s || b.t1_s !== w.t1_s || b.key !== `${w.firstId}-${w.secondId}` || b.title !== `⚠ ${w.second} over the target inside ${w.first}'s frag (est.)`) t6Bad.push(`${c.name}: band ${i} ends at ${b.t1_s} (want ${w.t1_s}), "${b.title}"`);
+      });
+    }
+    const t6Skipped = t6Cases[2].conflicts.some((c) => c.firstJet === undefined || c.secondJet === undefined);
+    if (!t6Skipped) t6Bad.push('the skip variant has no conflict with its skipped member');
+    ok('playback B3 [T6]: the time bar has one band per frag conflict, from the second jet\'s bombs landing to the first jet\'s frag clearing (the library\'s own t0 and t1), keys unique, a skipped member\'s conflict included',
+       t6Bad.length === 0 && t6Cases[0].conflicts.length >= 1 && t6Cases[1].conflicts.length > t6Cases[0].conflicts.length, t6Bad.join('; ') || t6Cases.map((c) => `${c.name}: ${c.conflicts.length} bands`).join('; '));
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
