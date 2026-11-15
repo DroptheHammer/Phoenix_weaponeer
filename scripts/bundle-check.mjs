@@ -14,7 +14,8 @@
 // The ceiling is in scripts/bundle-budget.json: `baselineBytes` is the start-up
 // JS of the last build someone reviewed, `eagerMaxBytes` is the most the build
 // may reach (it started at the baseline plus 1,536; the Play buttons and what
-// they hand over, in the planner's lists and editor, took it to plus 3,072).
+// they hand over, in the planner's lists and editor, took it to plus 3,072;
+// the dive's aim-off, which is planner code, took it to plus 4,096).
 // Growth over 1,024 bytes is printed as a warning: it is worth a second look
 // in review. Raising the file is a change of its own, reviewed on its own,
 // never folded into the change that needed it.
