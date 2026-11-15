@@ -223,9 +223,12 @@ not here — this section is a snapshot for resuming work, not a journal.
 
 **Last session:** 2026-11-14/15 UTC (Fable 5.2 directing on the main Mac,
 with Opus and Sonnet agents). **0.4.0 "Polish and Playback" is under way.
-The playback is built through stage 13 (a strike in the editor flies every
-jet, and a jet's time over target can be dragged while it plays) and waits
-for the user's look; the build carries on behind it.** Nothing of 0.4.0 is
+The playback is built through stage 15 (a strike flies every jet, a jet's
+time over target can be dragged while it plays, and Apply writes the times
+back). The user has looked at stage 13 and asked for three things, which
+are designed and being built next: jets that roll as a pilot would fly
+them, a bomb you can see with a trace behind it, and an impact with its
+frag.** Nothing of 0.4.0 is
 on `main`
 except documents. The brief, the user's decisions and
 each gate's outcome are in `docs/V040_PLAN.md`.
@@ -239,8 +242,9 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   geo-check 901/0, tsc, build with the bundle check, the web check, core 154,
   desktop 34 + 2 ignored. Headless checks: `scripts/playback-shots.cjs`.
 - `v040-playback-full`, cut from `v040-playback`: **the full playback, being
-  built stage by stage** (21 stages, 0 to 20). **Stages 0 to 13 are built,
-  reviewed and pushed, tip `3da9085`.** What the playback does now:
+  built stage by stage** (stages 0 to 20, plus the stages added from the
+  user's look, below). **Stages 0 to 15 are built, reviewed and pushed, tip
+  `676b2f9`.** What the playback does now:
   opens following the jet 10 s before the first action; Orbit, Top-down,
   Chase, From target and Home view; speeds 1× to 16×; the planner's colours
   on the 3D path, the trail and the bomb's fall; a lane under the time bar
@@ -259,16 +263,27 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   (drag the diamond, the arrow keys, or type the seconds; seat #1 is held
   still): the frag and cone warnings under the lanes, amber stripes on the
   time bar and on each lane, and the 3D all follow as it moves, and Reset
-  puts the times back. Nothing is written to the plan yet: Apply is the
-  next stage. Gates at the tip:
-  geo-check 966/0, tsc, build with the bundle check, the web check, 87
+  puts the times back. **Apply writes the times back:** from the attack
+  editor into the strike's sliders ("Apply to strike"; saving the strike
+  keeps them), and from the attack list into the saved plan ("Apply to
+  plan", one Undo step each). **The attack list has a small Play button**
+  on a strike's header and on a lone attack's row. A line under the footer
+  says what an Apply did and which jets the cards will number differently.
+  The plan is handed to the 3D view without its threats until the threat
+  stages, so a hidden threat cannot reach it. Gates at the tip:
+  geo-check 975/0, tsc, build with the bundle check, the web check, 94
   screenshot checks at two window sizes, core 154, desktop 34 + 2 ignored.
-  Start-up JS is 909 bytes over the 0.3.4 baseline (the build warns past
-  1,024 and fails past 1,536; the director has accepted growth up to the
-  fail line for the Apply and attack-list wiring). The main Mac's checkout
-  is on this branch. **Stages 14 and 15 (Apply from the editor, then Play
-  and Apply from the attack list) were building when these notes were
-  written**; a stage is
+  **The screenshot run now takes over ten minutes and times out when the
+  Mac is busy with its own work** (Spotlight, media analysis): run it
+  alone, with a long limit, and if a step fails on a timeout, run the two
+  halves apart (the whole script, then the strike half with the scratch
+  runner named in the memory notes). Start-up JS is 2,304 bytes over the
+  0.3.4 baseline; the build fails past 3,072, a ceiling a fix round raised
+  from 1,536 for the attack list's Play buttons and the director accepted
+  (commit `7400208`). No stage may raise it again without stopping to ask.
+  The main Mac's checkout is on this branch. **The roll stages and the
+  first bomb stage (ATT-a, ATT-b, S10a, below) were building when these
+  notes were written**; a stage is
   one commit, and anything not pushed is not reviewed yet.
 - `v040-landing-data`, one commit `3127c41` on an older `main`: the front
   page's data layer (`src/lib/landing/`, 143 checks). Nothing in the app
@@ -296,6 +311,24 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   parked on the roadmap. Don't re-raise either.
 - Not answered, so the design's defaults stand: Reset after Apply goes back
   to the applied times; closing playback with unapplied times discards them.
+- **His look at stage 13 (2026-11-15): "it seems alright, we should
+  continue", and three things to change.**
+  1. **Colours:** he asked whether the kneeboard's phase colours match the
+     timeline and the planes exactly. They do, and nothing needs building:
+     one table (`LINE_STYLE`, `MARKER_COLOR` in `src/lib/attackPicture.ts`)
+     feeds the planner's map, the Day card, the timeline and the 3D path,
+     and a pixel count on the screenshots found each colour exact in both.
+     By design the arrow itself is the seat colour, and the jets not watched
+     are seat-coloured unless Show › Attack colours › All jets.
+  2. **Roll:** the jets "barely roll and look like they are flying mostly
+     with yaw inputs". Cause: the bank was worked out from the sideways turn
+     alone, so a pull in the vertical gave none.
+  3. **Bomb, impact, frag:** "I also cant see any sort of bomb being
+     dropped, it's explosion or any sort of blast radius or frag", and
+     later "i'd like the bomb to have a line it falls down as well … trace
+     behind it so we can see the path of the bomb".
+  Asked of him, defaults in force: the arrow keeps its seat colour; no G
+  figure on the label unless he asks.
 
 **Where the work stands.** The working papers are git-ignored and exist only
 on the main Mac (`Other Items/`):
@@ -306,10 +339,42 @@ on the main Mac (`Other Items/`):
    built stage settled; it overrides the rest). Each stage is built by one
    agent, reviewed by a second that makes every new check fail once, then
    read by the director, who fixes the review's notes, runs every gate and
-   the Rust tests, and pushes. **Next: stages 14 and 15, then 16 to 20**
-   (Apply, the attack list, notes, the side view, threats by system, the
-   frag cloud, the final proof). The user looks after stages 8, 11, 13, 15,
-   17, 18b and 19.
+   the Rust tests, and pushes.
+   **Stages added from his look at stage 13** have a design paper each in
+   the same folder, written, independently reviewed and revised:
+   `BUILD_SPEC_S10_ATTITUDE.md` and `BUILD_SPEC_S10_IMPACT.md`. **Section
+   10.8 of each is the director's rulings and overrides the rest of that
+   paper**; `BUILD_SPEC_S9.md` ruling 9.15.12 lists the stages and the
+   order:
+   - **ATT-a**: the roll comes from the lift the path needs (measured: a
+     check turn about 70°, a pop-up's pull-down about 150°, a dive's roll-in
+     about 117°, a loft's escape about 158°), never faster than 240° a
+     second, wings level at the release. The path, the release, the bomb and
+     the impact do not move. It is the one stage allowed to edit
+     `src/lib/playback/`. **ATT-b**: a taller fin, raised wings and a darker
+     underside so a roll can be read. **ATT-c** (a G figure on the label) is
+     on hold until he asks.
+   - **S10a**: a bigger bomb with an outline and a ring round it while it
+     falls. **S10t**: a solid trace behind the bomb that stays after the
+     impact. **S10b**: a flash at the impact, timed so it shows at 16×.
+     **S10c**: a ring at the weapon row's frag radius, true size, marked
+     "(est.)". **S10d**: Chase looks at the bomb from release to impact and
+     holds on the burst (From target is left alone). **Stage 19** (the frag
+     cloud) is rewritten there and moved up.
+   - **The order from here:** ATT-a, ATT-b, S10a, S10t, S10b, S10c, S10d,
+     19, then 16, 17, 18a, 18b, 20. **The user looks after S10t** (Apply,
+     the roll, the bomb and its trace: "look 4") **and after 19** (the
+     flash, the ring, the bomb camera, the frag: "look 5"), then after 17
+     and 18b as before.
+   - **To tell him at those looks:** the frag radius and frag height come
+     from the old weapon rows with no source on file (the roadmap already
+     lists them for audit), so they are drawn marked "(est.)". And the drawn
+     path asks for more G than the card in two places (about 5.7 G against
+     3.5 G through a pop-up's pull-down, and a spike for about a second
+     after every release, which the roll ignores): both come from how the
+     playback rounds the planner's path, and flying the path itself at
+     believable G would move it off the planner's picture, which is his
+     call.
 2. **The user's looks use a frozen copy of the app**, not the project
    folder, because the folder is mid-build between stages: after a
    look-point is pushed, `npm run tauri build -- --bundles app`, then copy
@@ -317,9 +382,9 @@ on the main Mac (`Other Items/`):
    look 1.app" there is stage 8** (`409a787`, one jet), **"Playback look
    2.app" is stage 11** (`06088e6`, the whole strike) **and "Playback look
    3.app" is stage 13** (`3da9085`, lanes, a jet to watch, times that can
-   be moved). Each holds everything the one before does. Of look 2 he has
-   said only that "it seems to work so far"; the questions below are still
-   open.
+   be moved). Each holds everything the one before does. He has looked at
+   look 3 (above). **No copy holds Apply yet: the next one is "look 4",
+   made after S10t.** The older questions below are still open.
 3. **Second-round mockup of the EFB draft**, desktop and iPhone, is finished
    and was shown to him as private pages (the links are in the memory
    system, never in the repo). Sources: `Other Items/v040-mockups/efb2.html`
@@ -342,8 +407,8 @@ on the main Mac (`Other Items/`):
   answers, the new overview screen says nothing about hidden threats, the
   existing lines stay, and the playback builds its count line behind one
   constant so either answer is a one-line change.
-- **His look at the playback** ("Playback look 3.app"). Things to ask
-  him there: whether "first action" means the first planner marker after
+- **Questions still open from his looks at the playback.** Things to ask
+  him: whether "first action" means the first planner marker after
   the IP (the reading the build uses) or the IP itself; the dark casing
   under the coloured path; how the dashed route reads far from the camera
   in Chase; the tall posts close to the eye in From target; the two IP
@@ -373,8 +438,10 @@ on the main Mac (`Other Items/`):
    there: it keeps its finished steps. Memory
    `project-v040-polish-and-playback` has the full state, the run ids and
    the private mockup links.
-3. **Order after that:** take his notes from the first look and the mockup;
-   carry the playback build on, with a frozen app copy at each look-point.
+3. **Order after that:** carry the playback build on in the order given
+   above (the roll and the bomb before the notes, the side view and the
+   threats), with a frozen app copy at each look-point; take his notes from
+   each look and from the mockup.
    The new UI is built only after he agrees a mockup. Merge to `main` only
    after he has seen each in the real app.
 4. **Still open from before 0.4.0:** the 0.3.3 loadout screens on the iPhone
