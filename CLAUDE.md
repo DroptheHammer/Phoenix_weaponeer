@@ -246,9 +246,9 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   desktop 34 + 2 ignored. Headless checks: `scripts/playback-shots.cjs`.
 - `v040-playback-full`, cut from `v040-playback`: **the full playback, being
   built stage by stage** (stages 0 to 20, plus the stages added from the
-  user's look, below). **Stages 0 to 15 and the first four stages from his
-  looks (ATT-a, ATT-b, S10a, S10t, S10b, LN-k) are built, reviewed and
-  pushed, tip `af6d81a`.**
+  user's look, below). **Stages 0 to 15 and ten stages from his looks
+  (ATT-a, ATT-b, S10a, S10t, S10b, LN-k, BAL-0, BAL-a, BAL-b, S10d) are
+  built, reviewed and pushed, tip `de735d7`** (2026-11-15 23:20 UTC).
   What the playback does now:
   opens following the jet 10 s before the first action; Orbit, Top-down,
   Chase, From target and Home view; speeds 1× to 16×; the planner's colours
@@ -290,22 +290,31 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   line still ahead of it; **a flash where each bomb lands, at its time
   over target, lasting as long to the eye at 16× as at 1×**; **a lane
   shows its amber stripes only while that jet's time is being set, and
-  the warning under the lanes starts with a striped key**. Gates at the
-  tip: geo-check 1002/0, tsc, build with the bundle check, the web check,
-  126 screenshot checks (the reviewer's full run on the tip's commit); the
+  the warning under the lanes starts with a striped key**; **a dive bomb
+  aims off past the target and falls in a true arc** (in the planner, on
+  the card and in the 3D: `src/lib/diveAim.ts`; gun and rocket passes keep
+  the straight sight line); **Chase turns to watch the bomb fall and land,
+  holds on the burst 2.5 s, then swings back to the jet** (Show › "Watch
+  the bomb land" turns it off; `src/lib/playbackScene/bombCam.ts`). The
+  dev harness has a four-dive strike (`?fixture=dive4`). Gates at the
+  tip: geo-check 1028/0, tsc, build with the bundle check, the web check,
+  130 screenshot step lines (the reviewer's full run on S10d's commit); the
   Rust side is untouched since stage 15 (core 154, desktop 34 + 2 ignored
   there).
   **The screenshot run takes 12 to 25 minutes** (the 3D is drawn in
   software): run it alone, in the background, with a long limit. It used
   to die on a busy Mac when a click or a screenshot passed the browser
   driver's 30 s; each page now allows 120 s (`e90a8af`), and the full run
-  passed on a loaded machine. Start-up JS is 2,304 bytes over the
-  0.3.4 baseline; the build fails past 3,072, a ceiling a fix round raised
-  from 1,536 for the attack list's Play buttons and the director accepted
-  (commit `7400208`). No stage may raise it again without stopping to ask.
-  The main Mac's checkout is on this branch. **The ballistic dive (BAL-0,
-  BAL-a, BAL-b) and then the bomb camera (S10d), all below, were building
-  when these notes were written**; a stage is
+  passed on a loaded machine. Start-up JS is 2,770 bytes over the
+  0.3.4 baseline (632,699); the build fails past 4,096 (634,025). The
+  ceiling was raised twice, each time in a commit of its own: for the
+  attack list's Play buttons (`7400208`) and for the dive's aim-off, which
+  is planner code (`f3d1595`). No builder may raise it: a stage that would
+  pass it stops and reports.
+  The main Mac's checkout is on this branch. **A build run was in hand
+  when these notes were written (2026-11-15 23:30 UTC): the card label fix
+  (LBL), then the first three frag stages (FRG-0, FRG-a, FRG-b), all
+  below**; a stage is
   one commit, and anything not pushed is not reviewed yet.
 - `v040-landing-data`, one commit `3127c41` on an older `main`: the front
   page's data layer (`src/lib/landing/`, 143 checks). Nothing in the app
@@ -488,8 +497,19 @@ on the main Mac (`Other Items/`):
      repaired automatically, later** ("we arent opening a lot of old saved
      missions in the normal ops"): not in this build, a roadmap item, and
      the release notes say to open and save again any dive attack made
-     before this version. **A real dive card before and after goes in
-     front of him before anything merges.**
+     before this version. **All three stages are built and pushed.** The
+     F-16C 30° dive card, before and after, was sent to his phone
+     (2026-11-15; copies in `Other Items/v040-work/b3/cards/`); he has not
+     commented yet. **On the new card two labels land badly** (the
+     "Release by" box sits far from REL and its leader crosses the attack
+     line; the "→ STPT" edge note sits on the north arrow). Both are the
+     card's label placer, older than the dive change. **Stage LBL fixes
+     them** (ruling 11.8.12 of the ballistic paper is its whole spec: a
+     label box takes the nearest clear spot on its side, not the first
+     found, in `src/lib/labelLayout.ts`; the edge note keeps off the north
+     arrow and the scale bar, in `src/lib/renderKneeboardCanvas.ts`). Its
+     report carries cards before and after: look at each, then send him
+     the fixed card.
    - **New work he asked for while settling that: the sight's mils must
      follow a customized attack.** Manual-dive cards print one fixed
      `SIGHT n mils` per profile today (an unsourced figure for a Mk-82 at
@@ -498,29 +518,48 @@ on the main Mac (`Other Items/`):
      His words: "It should change IF the pilot customizes the attack. It
      should look up the new MILs and make the alteration ... eitehr looked
      up or estimated based on the master operating tables for that jet."
-     A research run was finding each manual jet's own depression tables
-     (A-4E, F-4E, F-5E, Mirage F1) when these notes were written; its
-     paper is `SIGHT_MILS_DATA.md` in the same folder (finished only if it
-     has a section 7). Design and build come after it, and it is not yet
-     placed in the order of stages. He was asked whether the squadron has
-     its own tables to use first. **To do when BAL-a is on the branch: add
-     this and the old-saves repair to `ROADMAP.md` there** (BAL-a edits
-     that file, so not on `main`).
+     **The research is finished** (`SIGHT_MILS_DATA.md` in the same
+     folder, sections 0 to 7). What it found: **none of the eight sight
+     numbers on file traces to a table.** Whether the DCS F-5E drops like the real jet is not known (a few bombs dropped in the game would settle it). The Mirage F1 module manual covers only 10° and 20° dives with
+     the SAMP-250. Nothing for the F-4E (its module has a bombing
+     calculator in the game) or the A-4E-C's dives.  The
+     paper's suggested order: first stop printing the fixed number once
+     the attack is customized and give a box for the pilot's own figure;
+     then a real lookup for the F-5E Mk-82; flagged estimates elsewhere.
+     **No design paper is commissioned yet:** his answer on the
+     squadron's own tables decides the main data source. Both this and
+     the old-saves repair are open items in `ROADMAP.md` on the playback
+     branch (`de735d7`).
    - **The frag stages, from his decision above.** Two more papers in the
-     same folder: `BUILD_SPEC_S12_FRAG.md`, **written, reviewed and
-     revised but not yet ruled on by the director** (it was begun before
-     he decided: it still has a 2 s allowance after the burst and the old
-     rows' radii, which his decision and the research replace), and
-     `DCS_BLAST_DATA.md`, **finished**. What they found: over 150 measured
+     same folder: `BUILD_SPEC_S12_FRAG.md`, **written, reviewed, revised
+     to his decision and ruled on by the director (its section 12.8)**,
+     and `DCS_BLAST_DATA.md`, **finished**. The rulings: the blast test is
+     the default; **the old 30/35 s spacing rule stays as a choice on the
+     strike, off by default** (the director's call from the project's
+     keep-every-knob habit; he has not been told yet and may veto: say it
+     in one line when the frag stages are shown); no radius enters the
+     data file until he says yes to the values; terrain gets no credit;
+     the phone shows a note and cannot switch the rule. Stages: **FRG-0**
+     (three new fields on the weapon row, all empty), **FRG-a** (the rule
+     in the playback library, default still the old rule), **FRG-b** (the
+     playback's footer, bar and lanes follow the rule; a `ridge` test
+     fixture), **FRG-0b** (the approved radii enter; needs his yes),
+     **FRG-c** (the strike editor and the flip of the default; may ship
+     without the flip if he has not answered), then **S10c** and **19**
+     as rewritten. What the papers found: over 150 measured
      strikes the old time rule warns in 110 and a distance test at the
      burst in none (in his four-ship dive at 5 s the nearest jet is 7,344
      ft from the lead's burst); **DCS's published weapon files hold no
      blast radius for any bomb, only an explosive mass**, and the one
      measured test in public (a helicopter, by eye) gives about 250 ft for
      the Mk-82 and Mk-83 and about 360 ft for the Mk-84; the research
-     paper writes up a test he can fly himself. **Asked of him, not yet
-     answered: fly that test or not; which numbers until then; whether
-     weapons that share a warhead share a radius.** The frag paper covers
+     paper writes up a test he can fly himself. **Asked of him
+     2026-11-15 22:40 UTC as one choice, not yet answered:** (1) the
+     three tested bombs (Mk-82 250 ft, Mk-83 250 ft, Mk-84 360 ft) plus
+     the five whose warhead in the game's files is the same (Mk-82 AIR,
+     Mk-82 Snakeye and GBU-38 at 250; Mk-83 AIR at 250; GBU-31 at 360),
+     the director's recommendation; (2) only the three tested; (3) none
+     until he flies the test himself. The frag paper covers
      the test by distance at
      the burst in the planner and the playback, stages FRG-a onward, and
      **S10c and stage 19 rewritten: a ring at the tested radius at the
@@ -528,15 +567,13 @@ on the main Mac (`Other Items/`):
      ruling 9.15.14 of `BUILD_SPEC_S9.md`; where the frag paper still asks
      what he has already answered, that ruling is the answer. **S10c and
      19 are not to be built as the impact paper has them.**
-   - **The order from here:** BAL-0, BAL-a, BAL-b, S10d (one run, in
-     hand), then the frag
-     stages (FRG, S10c and 19 as rewritten) once their paper is ruled on
-     and the radii are settled, then 16, 17, 18a, 18b, 20 (these four do
-     not wait for the frag stages). **Look 4 is
-     out** (Apply, the roll, the bomb and its trace); **he looks again
-     once the flash, the bomb camera and the frag test are in** ("look
-     5"), then after 17 and 18b as before. A dive card before and after
-     goes in front of him with BAL-a.
+   - **The order from here:** LBL, FRG-0, FRG-a, FRG-b (one run, in
+     hand), then, on his yes to the radii, FRG-0b and FRG-c, then S10c
+     and 19 as rewritten, then 16, 17, 18a, 18b, 20 (these do not wait
+     for the frag stages and may run between). **Look 5 is built** (the
+     flash, the dive's arc, Chase watching the bomb land); **he has not
+     opened it yet**. He looks again after the frag test is in, then
+     after 17 and 18b as before.
    - **Picking up a paper that was cut short:** a design or research run
      writes its file as it goes. If a paper in that folder has no "Review
      record" section at its end (the research paper: no section 7), it was
@@ -560,7 +597,11 @@ on the main Mac (`Other Items/`):
    look 3 (above). **"Playback look 4.app" is built from `6f89063`:
    Apply, the roll, the new arrow, the bigger bomb with its ring, and the
    bomb's trace.** He looked at an earlier copy of it without the trace
-   (his two points are above). A build must not run while a stage is
+   (his two points are above). **"Playback look 5.app" is built from
+   `de735d7`: the flash where each bomb lands, the lane stripes that show
+   only while a time is set, the dive bomb's arc and the new dive
+   geometry, and Chase watching the bomb land.** He has not opened it
+   yet. A build must not run while a stage is
    being built: both write `dist/`. The older questions below are still
    open.
 3. **Second-round mockup of the EFB draft**, desktop and iPhone, is finished
@@ -580,14 +621,21 @@ on the main Mac (`Other Items/`):
 - **Ask him one thing at a time and show the thing itself** (the card's
   row as it would print, the map before and after), in plain words: he
   could not follow two of three questions sent together.
-- **Whether his squadron has its own sight (mils) tables** for the manual
-  jets, to use before the public manuals (asked).
-- **The blast radii:** fly the test in DCS or not; which numbers until
-  then; whether weapons sharing a warhead share a radius.
+- **The blast radii** (asked 2026-11-15, one choice of three, above):
+  the next thing he owes an answer on. FRG-0b and the flip in FRG-c wait
+  for it.
+- **Then, one at a time, the sight (mils) questions:** whether his
+  squadron has its own tables for the manual jets, to use before the
+  public manuals (asked once, not answered); whether he can drop a few
+  F-5E bombs at cells of the real table to see if the module follows it;
+  whether he can pull the F-4E bombing calculator's readings, the A-4E-C
+  kneeboard pages and the current Mirage F1 manual from his DCS install.
+- **To tell him, not ask:** the old 30/35 s frag rule stays as an
+  off-by-default choice on the strike (his to veto).
+- **His view of the F-16C 30° dive card, before and after** (on his
+  phone), and of the fixed card once LBL is built.
 - **Whether the roll reads** at the arrow's size in look 4, or the arrow
-  should be bigger.
-- **Whether the old 30/35 s frag rule stays** as an off-by-default switch
-  or goes.
+  should be bigger. **Look 5 is waiting for him on the main Mac.**
 - **Hidden threats.** He said "the hidden threats we dont tell to users
   unless they went into settings and allow it", but the planner today shows
   a "Probable Threats — location unknown" count by system
