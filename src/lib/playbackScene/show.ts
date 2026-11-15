@@ -18,6 +18,8 @@ export interface ShowState {
   readonly attackColours: AttackColours;
   /** A ring round each falling bomb, then a flash where it lands. Off: the bomb alone. */
   readonly impact: boolean;
+  /** Chase looks at the watched jet's bomb from its release until it lands, holds on the burst, then turns back. Off: it stays on the jet. */
+  readonly bombCam: boolean;
   /** Start the time bar before the IP instead of just before the first action. */
   readonly wholeRunIn: boolean;
   /** Every threat system the menu lists, in menu order, fixed for the open playback. */
@@ -31,6 +33,7 @@ export type ShowAction =
   | { type: 'actionPoints'; value: ActionPointsMode }
   | { type: 'attackColours'; value: AttackColours }
   | { type: 'impact'; on: boolean }
+  | { type: 'bombCam'; on: boolean }
   | { type: 'wholeRunIn'; on: boolean }
   | { type: 'threat'; key: string; on: boolean }
   | { type: 'threatsAll' }
@@ -38,7 +41,7 @@ export type ShowAction =
 
 /**
  * The menu as it opens: labels on, action points as they come, colours on the
- * watched jet, the ring round each falling bomb on, the time bar from just before the first action, and the
+ * watched jet, the ring round each falling bomb on, Chase watching the bomb land, the time bar from just before the first action, and the
  * threats whose rows say so switched on (weapons on, early-warning radars
  * off). The rows are typed by shape only, so this file needs nothing from the
  * threat code. A system listed twice keeps its first place.
@@ -51,7 +54,7 @@ export function initShow(rows: readonly { systemId: string; defaultOn: boolean }
     threatKeys.push(r.systemId);
     if (r.defaultOn) threatsOn.push(r.systemId);
   }
-  return { labels: true, actionPoints: 'coming', attackColours: 'watched', impact: true, wholeRunIn: false, threatKeys, threatsOn };
+  return { labels: true, actionPoints: 'coming', attackColours: 'watched', impact: true, bombCam: true, wholeRunIn: false, threatKeys, threatsOn };
 }
 
 export function isThreatOn(s: ShowState, key: string): boolean {
@@ -73,6 +76,8 @@ export function showReducer(s: ShowState, a: ShowAction): ShowState {
       return a.value === s.attackColours ? s : { ...s, attackColours: a.value };
     case 'impact':
       return a.on === s.impact ? s : { ...s, impact: a.on };
+    case 'bombCam':
+      return a.on === s.bombCam ? s : { ...s, bombCam: a.on };
     case 'wholeRunIn':
       return a.on === s.wholeRunIn ? s : { ...s, wholeRunIn: a.on };
     case 'threat': {

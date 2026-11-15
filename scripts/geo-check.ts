@@ -168,6 +168,7 @@ import {
   impactPhase, newImpactPhase, IMPACT_FLASH_GROW_WALL_S, IMPACT_FLASH_FULL_WALL_S, IMPACT_FLASH_END_WALL_S, IMPACT_RING_GROW_WALL_S,
   IMPACT_RING_HOLD_WALL_S, IMPACT_RING_END_WALL_S, FLASH_CORE, FLASH_RIM, type ImpactPhase,
 } from '../src/lib/playbackScene';
+import { aimWeight, lookDirection, AIM_IN_WALL_S, AIM_HOLD_WALL_S, AIM_OUT_WALL_S, type Look3 } from '../src/lib/playbackScene';
 import { harnessLaunch, harnessFixtureLaunch, harnessMoments } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
 import { cardTie } from '../src/components/playback/cardTie';
@@ -9210,7 +9211,7 @@ void (async () => {
     // (and by reference, `s.delays_s !== s.plan_s`, all eight Show actions: SS3, SS4 and SS5 go red with it too)
     const sh3S = initSession(s4Pb, undefined, { show: initShow(sesRows) });
     const sh3Actions: ShowAction[] = [
-      { type: 'labels', on: false }, { type: 'actionPoints', value: 'always' }, { type: 'attackColours', value: 'all' }, { type: 'impact', on: false }, { type: 'wholeRunIn', on: true },
+      { type: 'labels', on: false }, { type: 'actionPoints', value: 'always' }, { type: 'attackColours', value: 'all' }, { type: 'impact', on: false }, { type: 'bombCam', on: false }, { type: 'wholeRunIn', on: true },
       { type: 'threat', key: 'p19', on: true }, { type: 'threat', key: 'sa6', on: false }, { type: 'threatsAll' }, { type: 'threatsNone' },
     ];
     const sh3Bad: string[] = [];
@@ -9220,8 +9221,8 @@ void (async () => {
       else if (isDirty(next) || next.delays_s !== sh3S.delays_s || next.plan_s !== sh3S.plan_s) sh3Bad.push(`${sesJson(a)} made the times dirty`);
     }
     if (!isDirty(sessionReducer(sh3S, { type: 'delay', id: sesB, value_s: 11 }))) sh3Bad.push('a delay did not make them dirty');
-    ok('playback B3 [SH3]: no Show action makes the times dirty or touches them (labels, action points, colours, impact, whole run-in, a threat on and off, all, none), and a delay still does',
-       sh3Bad.length === 0 && sh3Actions.length === 9, sh3Bad.join('; ') || `${sh3Actions.length} Show actions, all clean; a delay dirty`);
+    ok('playback B3 [SH3]: no Show action makes the times dirty or touches them (labels, action points, colours, impact, watch the bomb land, whole run-in, a threat on and off, all, none), and a delay still does',
+       sh3Bad.length === 0 && sh3Actions.length === 10, sh3Bad.join('; ') || `${sh3Actions.length} Show actions, all clean; a delay dirty`);
 
     // [SH4] The ring round each falling bomb is a Show choice, on as the menu opens (with or without threat
     // rows): Impact off changes that one choice and nothing else and gives a new object, the same action
@@ -9245,6 +9246,27 @@ void (async () => {
     }
     ok('playback B3 [SH4]: Show opens with Impact on; Impact off changes only that choice and gives a new object, the same action again gives the same object back, and on restores it',
        sh4Bad.length === 0, sh4Bad.join('; ') || 'two openings (with and without threat rows), off, off again, on when on, back on');
+
+    // [SH5] Chase watching the bomb land is a Show choice too, on as the menu opens (with or without threat rows):
+    // off changes that one choice and nothing else and gives a new object, the same action again gives the same
+    // object back, and on restores the choices. Whether it leaves the times alone is SH3's, whose list holds it.
+    // Mutation proof (seen red 2026-11-15): show.ts showReducer `case 'bombCam'`: `{ ...s, bombCam: a.on }` → `{ ...s, impact: a.on }`:
+    //   FAIL playback B3 [SH5]: … Watch the bomb land off left bombCam true; Watch the bomb land off changed impact; Watch the bomb land off again gave a new object; …
+    // (SH3, whose list holds the same action, stays green: the times are not touched either way)
+    const sh5Bad: string[] = [];
+    for (const s0 of [initShow(), initShow(sh4Rows)]) {
+      if (s0.bombCam !== true) sh5Bad.push(`opens with bombCam ${s0.bombCam}`);
+      const off = showReducer(s0, { type: 'bombCam', on: false });
+      if (off === s0 || off.bombCam !== false) sh5Bad.push(`Watch the bomb land off ${off === s0 ? 'gave the same object' : `left bombCam ${off.bombCam}`}`);
+      const changed = (Object.keys(s0) as (keyof ShowState)[]).filter((k) => k !== 'bombCam' && JSON.stringify(off[k]) !== JSON.stringify(s0[k]));
+      if (changed.length > 0) sh5Bad.push(`Watch the bomb land off changed ${changed.join(', ')}`);
+      if (showReducer(off, { type: 'bombCam', on: false }) !== off) sh5Bad.push('Watch the bomb land off again gave a new object');
+      if (showReducer(s0, { type: 'bombCam', on: true }) !== s0) sh5Bad.push('Watch the bomb land on when on gave a new object');
+      const back = showReducer(off, { type: 'bombCam', on: true });
+      if (back === off || JSON.stringify(back) !== JSON.stringify(s0)) sh5Bad.push('Watch the bomb land back on did not restore the choices');
+    }
+    ok('playback B3 [SH5]: Show opens with Watch the bomb land on; off changes only that choice and gives a new object, the same action again gives the same object back, and on restores it',
+       sh5Bad.length === 0, sh5Bad.join('; ') || 'two openings (with and without threat rows), off, off again, on when on, back on');
 
     // [T1] Lane marks' keys are unique across every seat's lane together (the two marks #3 and #4 share
     // a time over target, and each seat has its own IP, action points and impact), on the default time
@@ -10721,6 +10743,250 @@ void (async () => {
          ix4.map((p) => `${p.id} ${p.c} on the dark ${p.bg.toFixed(2)}${p.bg >= 3 ? '' : ' (want 3)'}`).join('; ') + `; printed, not gated: on pale land ${ix4.map((p) => p.land.toFixed(2)).join(' / ')}`);
     } catch (e) {
       ok('playback B3 (the flash): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
+
+    // ─── Chase watches the bomb land (bombCam.ts aimWeight, lookDirection) ────────────────────────────────────────
+    // From the release Chase turns its look from the watched jet to its falling bomb, stays on the burst 2.5 real
+    // seconds after it lands, and turns back; From target is not turned. How far it turns is a pure function of the
+    // clock's time and speed setting; the look is a spherical blend of the two directions, never more than 80° below
+    // the horizon. Each check carries its mutation proof (2026-11-15): one temporary edit, geo-check run, the FAIL line
+    // copied (shortened with …), the edit restored.
+    try {
+      const caRel = popSrc.releaseOf(0), caImp = popSrc.impactOf(0);
+
+      // [CA1] How far the look is turned: 0 before the release (and exactly at it); rising, never falling, to 1 over
+      // 0.4 real seconds; 1 from there to 2.5 real seconds after the impact; falling, never rising, to 0 over 1 real
+      // second (half way at 3.0 s) and 0 from then on; on the lone pop-up's own release and impact at each speed 1, 2,
+      // 4, 8 and 16. The same in real seconds at every speed: for u from −0.5 to 6 real seconds in steps of 0.05, the
+      // weight at release + u × speed for a fall of 2.4 × speed strike seconds is the speed-1 weight at release + u for
+      // a fall of 2.4 s. A speed of 0, below 0, not a number or infinite is read as 1; a time that is not a finite
+      // number gives 0; never NaN, always within 0…1; 300 shuffled moments read twice agree.
+      // Mutation proof (seen red 2026-11-15): bombCam.ts aimWeight `AIM_HOLD_WALL_S * s` → `AIM_HOLD_WALL_S` (the hold in
+      // strike seconds, so at 16× it is gone in a sixteenth of the time; CA3 goes red with it at 4× and 16×):
+      //   FAIL playback B3 [CA1]: … at 2×, 2.72 s after the impact (between the turn in and the turn back): 0.9660567923668223 (want 1); at 2×, 2.97 s after the impact (between the turn in and the turn back): 0.8579786648378191 (want 1); …
+      const ca1Bad: string[] = [];
+      const ca1Add = (s: string) => { if (ca1Bad.length < 6) ca1Bad.push(s); };
+      let ca1Reads = 0;
+      if (AIM_IN_WALL_S !== 0.4 || AIM_HOLD_WALL_S !== 2.5 || AIM_OUT_WALL_S !== 1.0) ca1Add(`the display times are ${AIM_IN_WALL_S}, ${AIM_HOLD_WALL_S}, ${AIM_OUT_WALL_S} (want 0.4, 2.5, 1.0)`);
+      const ca1W = (t: number, s: number) => { ca1Reads++; return aimWeight(t, caRel, caImp, s); };
+      for (const s of SPEEDS) {
+        for (const [name, t] of [['10 s before the release', caRel - 10], ['1e-6 s before the release', caRel - 1e-6], ['at the release', caRel]] as const) {
+          const w = ca1W(t, s);
+          if (w !== 0) ca1Add(`at ${s}×, ${name}: ${w} (want 0)`);
+        }
+        let prev = 0;
+        for (let i = 0; i <= 40; i++) {
+          const w = ca1W(caRel + (i / 40) * AIM_IN_WALL_S * s, s);
+          if (w < prev) ca1Add(`at ${s}×, turning in: ${w} after ${prev} (it fell)`);
+          prev = w;
+        }
+        for (let i = 1; i < 50; i++) {
+          const a = caRel + AIM_IN_WALL_S * s, b = caImp + AIM_HOLD_WALL_S * s, t = a + ((b - a) * i) / 50;
+          const w = ca1W(t, s);
+          if (w !== 1) ca1Add(`at ${s}×, ${(t - caImp).toFixed(2)} s after the impact (between the turn in and the turn back): ${w} (want 1)`);
+        }
+        prev = 1;
+        for (let i = 0; i <= 40; i++) {
+          const w = ca1W(caImp + (AIM_HOLD_WALL_S + (i / 40) * AIM_OUT_WALL_S) * s, s);
+          if (w > prev) ca1Add(`at ${s}×, turning back: ${w} after ${prev} (it rose)`);
+          prev = w;
+        }
+        const half = ca1W(caImp + (AIM_HOLD_WALL_S + AIM_OUT_WALL_S / 2) * s, s);
+        if (Math.abs(half - 0.5) > 1e-9) ca1Add(`at ${s}×, ${(AIM_HOLD_WALL_S + AIM_OUT_WALL_S / 2) * s} s after the impact: ${half} (want 0.5)`);
+        for (const after of [AIM_HOLD_WALL_S + AIM_OUT_WALL_S, 4, 100]) {
+          const w = ca1W(caImp + after * s, s);
+          if (w !== 0) ca1Add(`at ${s}×, ${(after * s).toFixed(1)} s after the impact: ${w} (want 0)`);
+        }
+        for (let i = -10; i <= 120; i++) {
+          const u = i * 0.05;
+          const got = aimWeight(caRel + u * s, caRel, caRel + 2.4 * s, s), want = aimWeight(caRel + u, caRel, caRel + 2.4, 1);
+          ca1Reads += 2;
+          if (Math.abs(got - want) > 1e-12) ca1Add(`at ${s}×, ${u.toFixed(2)} real s after the release (a 2.4 real s fall): ${got.toFixed(4)} vs ${want.toFixed(4)} at 1×`);
+          if (!(got >= 0 && got <= 1)) ca1Add(`at ${s}×, ${u.toFixed(2)} real s: ${got} (not within 0…1)`);
+        }
+      }
+      for (const s of [0, -3, NaN, Infinity]) {
+        for (const dt of [-1, 0.1, 0.3, 1, 8.5, 10, 11.2, 12]) {
+          if (aimWeight(caRel + dt, caRel, caImp, s) !== aimWeight(caRel + dt, caRel, caImp, 1)) ca1Add(`speed ${s}, ${dt} s after the release: ${aimWeight(caRel + dt, caRel, caImp, s)} (read as 1: ${aimWeight(caRel + dt, caRel, caImp, 1)})`);
+        }
+      }
+      for (const [name, t, r, i] of [['a time that is not a number', NaN, caRel, caImp], ['time +infinity', Infinity, caRel, caImp], ['time −infinity', -Infinity, caRel, caImp],
+        ['a release that is not a number', caRel + 1, NaN, caImp], ['an impact that is not a number', caImp, caRel, NaN], ['an impact at infinity', caImp, caRel, Infinity]] as const) {
+        const w = aimWeight(t, r, i, 1);
+        if (w !== 0) ca1Add(`${name}: ${w} (want 0)`);
+      }
+      let ca1Seed = 20261115;
+      const ca1Rand = () => { ca1Seed = (ca1Seed * 1103515245 + 12345) % 2147483648; return ca1Seed / 2147483648; };
+      const ca1Speeds = [1, 2, 4, 8, 16, 0, -3, NaN];
+      const ca1Pairs = Array.from({ length: 300 }, () => [caRel - 5 + ca1Rand() * 70, ca1Speeds[Math.floor(ca1Rand() * ca1Speeds.length)]] as const);
+      const ca1First = ca1Pairs.map(([t, s]) => aimWeight(t, caRel, caImp, s));
+      for (let i = ca1Pairs.length - 1; i > 0; i--) {
+        const j = Math.floor(ca1Rand() * (i + 1));
+        [ca1Pairs[i], ca1Pairs[j]] = [ca1Pairs[j], ca1Pairs[i]];
+        [ca1First[i], ca1First[j]] = [ca1First[j], ca1First[i]];
+      }
+      ca1Pairs.forEach(([t, s], i) => { if (aimWeight(t, caRel, caImp, s) !== ca1First[i] && ca1Bad.length < 6) ca1Bad.push(`${t.toFixed(2)} s at ${s}×: ${aimWeight(t, caRel, caImp, s)} on the second reading, ${ca1First[i]} on the first`); });
+      ok('playback B3 [CA1]: Chase\'s turn toward the bomb: none before the release, rising to full over 0.4 real s, full until 2.5 real s after the impact, back to none over 1 real s; the same in real seconds at every speed; a bad speed read as 1, a bad time gives none; never NaN; stateless',
+         ca1Bad.length === 0, ca1Bad.join('; ') || `${ca1Reads} readings at 5 speeds on the lone pop-up (release ${caRel.toFixed(2)} s, impact ${caImp.toFixed(2)} s); 4 bad speeds, 6 bad times, 300 shuffled moments`);
+
+      // [CA2] The look: with the weight 0 it is the direction to the jet exactly, with 1 the direction to the aim; between,
+      // the angle from the jet's direction is the weight × the angle between the two (and the rest of the angle is left to
+      // the aim's), for 12 angles from 5° to 170° and weights 0 to 1 in steps of 0.05, so no step of the weight turns the
+      // look more than a twentieth of the turn (no sweep at the end); always a unit vector. The weight is held to 0…1 (not
+      // a number counts as 0). The aim straight opposite the jet gives the jet's direction, not NaN. The aim straight below
+      // the eye gives a look exactly 80° down on the jet's heading. The answer is written into the object given.
+      // Mutation proofs (each seen red 2026-11-15; CA2 the only check red in each): bombCam.ts `AIM_MAX_DOWN_DEG = 80` → `90`
+      // (no floor: straight down, whose heading means nothing):
+      //   FAIL playback B3 [CA2]: … the aim straight below the eye, weight 1: -90.000000° on heading 180.000000° (want −80° on the jet's 30.000000°); the aim straight below the eye, weight 0.95: -84.250000° on heading 30.000000° (want −80° on the jet's 30.000000°)
+      // and the spherical blend's second coefficient `Math.sin(k * th) / s` → `k` (the weight itself, as a straight-line blend has it):
+      //   FAIL playback B3 [CA2]: … 5°, weight 0.05: length 0.9999368580865797 (want 1); 5°, weight 0.05: 0.250° from the jet and 4.750° from the aim (want 0.250° and 4.750°); 5°, weight 0.10: length 0.9998746218065984 (want 1); …
+      const ca2Bad: string[] = [];
+      const ca2Add = (s: string) => { if (ca2Bad.length < 6) ca2Bad.push(s); };
+      const CA_D2R = Math.PI / 180;
+      const caDir = (pitch: number, heading: number): Look3 => ({ x: Math.cos(pitch * CA_D2R) * Math.sin(heading * CA_D2R), y: Math.sin(pitch * CA_D2R), z: -Math.cos(pitch * CA_D2R) * Math.cos(heading * CA_D2R) });
+      const caDot = (a: Look3, b: Look3) => a.x * b.x + a.y * b.y + a.z * b.z;
+      const caCross = (a: Look3, b: Look3): Look3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+      const caLen = (a: Look3) => Math.hypot(a.x, a.y, a.z);
+      const caAngle = (a: Look3, b: Look3) => Math.atan2(caLen(caCross(a, b)), caDot(a, b));
+      const caAt = (o: Look3, d: Look3, m: number): Look3 => ({ x: o.x + d.x * m, y: o.y + d.y * m, z: o.z + d.z * m });
+      const caSame = (a: Look3, b: Look3, tol: number) => Math.abs(a.x - b.x) <= tol && Math.abs(a.y - b.y) <= tol && Math.abs(a.z - b.z) <= tol;
+      const caFmt = (a: Look3) => `(${a.x.toFixed(4)}, ${a.y.toFixed(4)}, ${a.z.toFixed(4)})`;
+      const ca2Eye: Look3 = { x: 100, y: 500, z: -200 };
+      const ca2A = caDir(25, 30);
+      // The axis the aim is turned round: square to the jet's direction, in its vertical plane, so the aim sweeps round
+      // sideways and never drops more than 25° below the horizon.
+      const ca2N0: Look3 = { x: -ca2A.y * ca2A.x, y: 1 - ca2A.y * ca2A.y, z: -ca2A.y * ca2A.z };
+      const ca2N = { x: ca2N0.x / caLen(ca2N0), y: ca2N0.y / caLen(ca2N0), z: ca2N0.z / caLen(ca2N0) };
+      const ca2NxA = caCross(ca2N, ca2A);
+      const ca2Jet = caAt(ca2Eye, ca2A, 3000);
+      const ca2Out: Look3 = { x: 0, y: 0, z: 0 };
+      const ca2Angles = [5, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 170];
+      let ca2Reads = 0, ca2Lowest = 90;
+      for (const deg of ca2Angles) {
+        const th = deg * CA_D2R;
+        const b: Look3 = { x: ca2A.x * Math.cos(th) + ca2NxA.x * Math.sin(th), y: ca2A.y * Math.cos(th) + ca2NxA.y * Math.sin(th), z: ca2A.z * Math.cos(th) + ca2NxA.z * Math.sin(th) };
+        ca2Lowest = Math.min(ca2Lowest, Math.asin(b.y) / CA_D2R);
+        const aim = caAt(ca2Eye, b, 2000);
+        for (let i = 0; i <= 20; i++) {
+          const w = i * 0.05;
+          const d = lookDirection(ca2Eye, ca2Jet, aim, w, ca2Out);
+          ca2Reads++;
+          if (d !== ca2Out) { ca2Add('the look was not written into the object given'); break; }
+          if (Math.abs(caLen(d) - 1) > 1e-9) ca2Add(`${deg}°, weight ${w.toFixed(2)}: length ${caLen(d)} (want 1)`);
+          const fromJet = caAngle(ca2A, d), toAim = caAngle(d, b);
+          if (Math.abs(fromJet - w * th) > 1e-9 || Math.abs(toAim - (1 - w) * th) > 1e-9) {
+            ca2Add(`${deg}°, weight ${w.toFixed(2)}: ${(fromJet / CA_D2R).toFixed(3)}° from the jet and ${(toAim / CA_D2R).toFixed(3)}° from the aim (want ${(w * deg).toFixed(3)}° and ${((1 - w) * deg).toFixed(3)}°)`);
+          }
+        }
+        if (!caSame(lookDirection(ca2Eye, ca2Jet, aim, 0, ca2Out), ca2A, 1e-9)) ca2Add(`${deg}°, weight 0: ${caFmt(ca2Out)} (want the jet's ${caFmt(ca2A)})`);
+        if (!caSame(lookDirection(ca2Eye, ca2Jet, aim, 1, ca2Out), b, 1e-9)) ca2Add(`${deg}°, weight 1: ${caFmt(ca2Out)} (want the aim's ${caFmt(b)})`);
+        for (const [w, want, name] of [[-0.5, ca2A, 'the jet\'s'], [NaN, ca2A, 'the jet\'s'], [1.5, b, 'the aim\'s']] as const) {
+          if (!caSame(lookDirection(ca2Eye, ca2Jet, aim, w, ca2Out), want, 1e-9)) ca2Add(`${deg}°, weight ${w}: ${caFmt(ca2Out)} (want ${name})`);
+        }
+      }
+      if (ca2Lowest < -60) ca2Add(`the test aims reach ${ca2Lowest.toFixed(1)}° below the horizon (want above −60°, clear of the floor)`);
+      for (const w of [0.3, 0.5, 1]) {
+        const d = lookDirection(ca2Eye, ca2Jet, caAt(ca2Eye, ca2A, -1000), w, ca2Out);
+        if (!caSame(d, ca2A, 1e-9)) ca2Add(`the aim straight opposite the jet, weight ${w}: ${caFmt(d)} (want the jet's ${caFmt(ca2A)})`);
+      }
+      const ca2Heading = Math.atan2(ca2A.x, -ca2A.z);
+      for (const w of [1, 0.95]) {
+        const d = lookDirection(ca2Eye, ca2Jet, { x: ca2Eye.x, y: ca2Eye.y - 800, z: ca2Eye.z }, w, ca2Out);
+        const pitch = Math.asin(d.y) / CA_D2R, heading = Math.atan2(d.x, -d.z);
+        if (Math.abs(pitch + 80) > 1e-9 || Math.abs(heading - ca2Heading) > 1e-9 || Math.abs(caLen(d) - 1) > 1e-9) {
+          ca2Add(`the aim straight below the eye, weight ${w}: ${pitch.toFixed(6)}° on heading ${(heading / CA_D2R).toFixed(6)}° (want −80° on the jet's ${(ca2Heading / CA_D2R).toFixed(6)}°)`);
+        }
+      }
+      ok('playback B3 [CA2]: Chase\'s look turns from the jet toward the bomb by exactly the weight\'s share of the angle, as a unit vector, the weight held to 0…1; opposite gives the jet\'s direction; straight down is held at 80° on the jet\'s heading',
+         ca2Bad.length === 0, ca2Bad.join('; ') || `${ca2Reads} looks at ${ca2Angles.length} angles (the test aims no lower than ${ca2Lowest.toFixed(1)}°), clamped weights, opposite, straight below`);
+
+      // [CA3] The bomb stays in view: a model of the Chase camera as the rig flies it (its eye started where Chase
+      // starts at the time bar's start, then carried with the jet and swung round it by as much as it turned, at 60
+      // frames a second; no drag, no ground floor), looking as lookDirection says with the weight aimWeight gives, a
+      // 45° view in the opening canvas's shape (1400×682 and 1024×534). On the lone pop-up at 1×, 4× and 16× the bomb is
+      // in the picture on at least 98% of the frames of its fall, and on the four-ship's #4 (a loft, 29 s of fall) on 98%
+      // at 1× and 4× and 85% at 16×; the point where it lands is in the picture on every frame from the impact to 2.4 real
+      // seconds after it. With the weight held at 0, the bomb is in the picture on under 40% of the pop-up's fall. The real
+      // rig is held by screenshot check 57.
+      // Measured 2026-11-15, the same at both canvas shapes: the pop-up's bomb in the picture on 100% of its fall at 1×, 4×
+      // and 16×; the loft's on 100%, 100% and 92.7%; the landing on 144 of 144 frames everywhere; with the weight held at 0,
+      // 22.6% of the pop-up's fall.
+      // Mutation proof (seen red 2026-11-15): bombCam.ts `AIM_HOLD_WALL_S = 2.5` → `0` (no hold on the burst; CA1 goes red with it):
+      //   FAIL playback B3 [CA3]: … lone pop-up 1400×682 at 1×: the landing in the picture on 28 of 144 frames to 2.4 real s after it (want all); lone pop-up 1400×682 at 4×: the landing in the picture on 28 of 144 frames to 2.4 real s after it (want all); …
+      const ca3Bad: string[] = [];
+      const ca3Parts: string[] = [];
+      const ca3TanV = Math.tan((HOME_FOV / 2) * CA_D2R);
+      const ca3Run = (src: SceneSource, k: number, t0: number, speed: number, aspect: number, aimOn: boolean) => {
+        const rel = src.releaseOf(k), imp = src.impactOf(k), tg = src.targetOf(k);
+        const tanH = ca3TanV * aspect;
+        const pose = newSceneJetPose(), bomb = newSceneBombPose();
+        const eye: Look3 = { x: 0, y: 0, z: 0 }, jet: Look3 = { x: 0, y: 0, z: 0 }, aim: Look3 = { x: 0, y: 0, z: 0 }, d: Look3 = { x: 0, y: 0, z: 0 };
+        const velPrev: Vec3 = [0, 0, 0], velNow: Vec3 = [0, 0, 0];
+        const inFrame = (px: number, py: number, pz: number) => {
+          const vx = px - eye.x, vy = py - eye.y, vz = pz - eye.z;
+          const zc = vx * d.x + vy * d.y + vz * d.z;
+          if (!(zc > 0)) return false;
+          // The screen's right is the look × up, its up is right × the look.
+          const rl = Math.hypot(d.z, d.x), rx = -d.z / rl, rz = d.x / rl;
+          const ux = -rz * d.y, uy = rz * d.x - rx * d.z, uz = rx * d.y;
+          return Math.abs((vx * rx + vz * rz) / zc / tanH) <= 1 && Math.abs((vx * ux + vy * uy + vz * uz) / zc / ca3TanV) <= 1;
+        };
+        let fallIn = 0, fallN = 0, holdIn = 0, holdN = 0;
+        const tEnd = imp + 2.4 * speed;
+        for (let i = 0; ; i++) {
+          const t = t0 + (i * speed) / 60;
+          if (t > tEnd) break;
+          src.jetAt(k, t, pose);
+          velNow[0] = pose.vx; velNow[1] = -pose.vz; velNow[2] = pose.vy;
+          if (i === 0) {
+            const p = chasePose([pose.x, -pose.z, pose.y], [velNow[0], velNow[1], velNow[2]], pose.heading_deg);
+            const [ex, ey, ez] = enuToThree(p.eye);
+            eye.x = ex; eye.y = ey; eye.z = ez;
+          } else {
+            eye.x += pose.x - jet.x; eye.y += pose.y - jet.y; eye.z += pose.z - jet.z;
+            const yaw = yawDelta(velPrev, velNow);
+            if (yaw !== 0) {
+              // Turned round the jet about the up axis, anticlockwise seen from above (three's applyAxisAngle about +y).
+              const ox = eye.x - pose.x, oz = eye.z - pose.z, c = Math.cos(yaw), s = Math.sin(yaw);
+              eye.x = pose.x + ox * c + oz * s;
+              eye.z = pose.z - ox * s + oz * c;
+            }
+          }
+          jet.x = pose.x; jet.y = pose.y; jet.z = pose.z;
+          velPrev[0] = velNow[0]; velPrev[1] = velNow[1]; velPrev[2] = velNow[2];
+          src.bombAt(k, t, bomb);
+          if (bomb.visible) { aim.x = bomb.x; aim.y = bomb.y; aim.z = bomb.z; } else { aim.x = tg.x; aim.y = tg.y; aim.z = tg.z; }
+          lookDirection(eye, jet, aim, aimOn ? aimWeight(t, rel, imp, speed) : 0, d);
+          if (bomb.visible) { fallN++; if (inFrame(bomb.x, bomb.y, bomb.z)) fallIn++; }
+          if (t >= imp) { holdN++; if (inFrame(tg.x, tg.y, tg.z)) holdIn++; }
+        }
+        return { fall: fallN ? fallIn / fallN : 0, fallN, holdIn, holdN };
+      };
+      const ca3S4Range = playRange(s4Pb, s4Timing, false);
+      const ca3Cases = [
+        { name: 'lone pop-up', src: popSrc, k: 0, t0: popRange.t0_s, floors: [0.98, 0.98, 0.98] },
+        { name: 'four-ship #4 (loft)', src: s4Src, k: 3, t0: ca3S4Range.t0_s, floors: [0.98, 0.98, 0.85] },
+      ];
+      for (const [w, h] of [[1400, 682], [1024, 534]]) {
+        const aspect = w / h;
+        for (const c of ca3Cases) {
+          const row: string[] = [];
+          [1, 4, 16].forEach((speed, si) => {
+            const r = ca3Run(c.src, c.k, c.t0, speed, aspect, true);
+            row.push(`${speed}× ${(r.fall * 100).toFixed(1)}% of ${r.fallN}, landing ${r.holdIn}/${r.holdN}`);
+            if (!(r.fall >= c.floors[si]) || r.fallN === 0) ca3Bad.push(`${c.name} ${w}×${h} at ${speed}×: the bomb in the picture on ${(r.fall * 100).toFixed(1)}% of ${r.fallN} frames of its fall (want ${c.floors[si] * 100}%)`);
+            if (r.holdIn !== r.holdN || r.holdN === 0) ca3Bad.push(`${c.name} ${w}×${h} at ${speed}×: the landing in the picture on ${r.holdIn} of ${r.holdN} frames to 2.4 real s after it (want all)`);
+          });
+          ca3Parts.push(`${c.name} ${w}×${h}: ${row.join(', ')}`);
+        }
+        const off = ca3Run(popSrc, 0, popRange.t0_s, 1, aspect, false);
+        ca3Parts.push(`weight held at 0, pop-up ${w}×${h} 1×: ${(off.fall * 100).toFixed(1)}%`);
+        if (!(off.fall < 0.4)) ca3Bad.push(`with the weight held at 0 the pop-up's bomb is in the picture on ${(off.fall * 100).toFixed(1)}% of its fall at ${w}×${h} (want under 40%: then the model could not tell the turn from no turn)`);
+      }
+      ok('playback B3 [CA3]: in a model of the Chase camera the bomb stays in the picture through its fall (98% of frames; a loft at 16×, 85%) and its landing for 2.4 real s after it, at 1×, 4× and 16×; without the turn it leaves the picture early',
+         ca3Bad.length === 0, ca3Bad.slice(0, 6).join('; ') || ca3Parts.join('; '));
+    } catch (e) {
+      ok('playback B3 (Chase watches the bomb land): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));

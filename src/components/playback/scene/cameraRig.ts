@@ -10,7 +10,10 @@
  *   zoom toward the cursor.
  * - Chase: rides behind the watched jet, swung behind its right shoulder; it
  *   moves with the jet and swings round with it through turns, and the user
- *   can still drag to look round the jet and wheel closer or farther.
+ *   can still drag to look round the jet and wheel closer or farther. From
+ *   the release it may turn its look to the jet's falling bomb and the burst
+ *   where it lands, and back (the scene says how far, Follow.aimWeight); the
+ *   eye still rides with the jet and the controls still turn round the jet.
  * - From target: over the watched jet's target, looking up at the jet; the
  *   mouse does nothing until another mode is picked.
  * The motion eases out (damping) when let go. Changing mode is a cut, no
@@ -26,8 +29,8 @@
 import { MOUSE, PerspectiveCamera, TOUCH, Vector3 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
-  chasePose, controlsFor, enuToThree, maxOrbitFor, MAX_ORBIT_BOXES, MAX_POLAR_DEG, MIN_CAMERA_AGL_M, MIN_ORBIT_M, nearPlaneFor,
-  targetEye, topDownPose, yawDelta, type CameraMode, type EnuBox, type Pose, type Vec3,
+  chasePose, controlsFor, enuToThree, lookDirection, maxOrbitFor, MAX_ORBIT_BOXES, MAX_POLAR_DEG, MIN_CAMERA_AGL_M, MIN_ORBIT_M, nearPlaneFor,
+  targetEye, topDownPose, yawDelta, type CameraMode, type EnuBox, type Look3, type Pose, type Vec3,
 } from '../../../lib/playbackScene';
 
 // The orbit limits are pure (cameraMath.ts, where geo-check tests them); re-exported for readers of this file.
@@ -47,6 +50,10 @@ export interface Follow {
   /** Its target's planned point, and the drawn ground's height under it, m. */
   target: Vector3;
   targetGround: number;
+  /** Where Chase turns its look to: the jet's falling bomb, or where it lands once it has. */
+  aim: Vector3;
+  /** How far Chase's look is turned from the jet toward `aim`, 0…1 (bombCam.ts aimWeight). Always 0 outside Chase. */
+  aimWeight: number;
 }
 
 const UP = new Vector3(0, 1, 0);
@@ -70,6 +77,12 @@ export class CameraRig {
   // From target: the target and ground the eye was last worked out for.
   private readonly eyeTarget = new Vector3(NaN, NaN, NaN);
   private eyeGround = NaN;
+  // Chase watching the bomb: scratch for the look, made once so no frame allocates.
+  private readonly lookEye: Look3 = { x: 0, y: 0, z: 0 };
+  private readonly lookJet: Look3 = { x: 0, y: 0, z: 0 };
+  private readonly lookAim: Look3 = { x: 0, y: 0, z: 0 };
+  private readonly lookDir: Look3 = { x: 0, y: 0, z: 0 };
+  private readonly lookPoint = new Vector3();
 
   /**
    * `homeFor` gives the home pose in the playback's ENU metres for a canvas
@@ -225,6 +238,31 @@ export class CameraRig {
     return moved;
   }
 
+  /**
+   * Chase's look: at the jet, turned toward the bomb (or the burst) by as much as the scene's weight says.
+   * With a weight of 0 it is the plain look at the jet. Only the camera's direction changes; its position
+   * and the controls' point (the jet) do not, so leaving Chase or dragging round the jet are as before.
+   *
+   * The camera's world matrix is brought up to date at once: lookAt turns the camera but leaves the matrix
+   * as it was (from the controls' own look at the jet a moment before), and the 2D overlay projects its
+   * rings and labels through that matrix before the frame is drawn. Left stale, the overlay would be laid
+   * out as if Chase were still looking at the jet.
+   */
+  private lookAtFollow(follow: Follow): void {
+    const cam = this.camera;
+    if (!(follow.aimWeight > 0)) {
+      cam.lookAt(follow.jet);
+    } else {
+      const e = this.lookEye, j = this.lookJet, a = this.lookAim, d = this.lookDir;
+      e.x = cam.position.x; e.y = cam.position.y; e.z = cam.position.z;
+      j.x = follow.jet.x; j.y = follow.jet.y; j.z = follow.jet.z;
+      a.x = follow.aim.x; a.y = follow.aim.y; a.z = follow.aim.z;
+      lookDirection(e, j, a, follow.aimWeight, d);
+      cam.lookAt(this.lookPoint.set(e.x + d.x, e.y + d.y, e.z + d.z));
+    }
+    cam.updateMatrixWorld();
+  }
+
   /** The canvas changed shape: the current mode's limits again (and in Top-down, the pose for the new shape). */
   resize(aspect: number): void {
     this.camera.aspect = aspect;
@@ -242,7 +280,8 @@ export class CameraRig {
 
   /**
    * Once per rendered frame, after the jets have moved: follows the jet in
-   * Chase and From target, eases the controls, keeps the camera above the
+   * Chase and From target (Chase looking toward its bomb as far as
+   * follow.aimWeight says), eases the controls, keeps the camera above the
    * drawn ground, and sets the near plane. True while the camera is still
    * moving (the loop keeps rendering until it settles). `nearestTo(p)` is the
    * distance from p to the nearest thing the near plane must never cut off
@@ -286,13 +325,18 @@ export class CameraRig {
         }
       }
       if (c.update()) moved = true;
+      // The controls have just aimed at the jet; Chase may be turned from it toward the bomb. Nothing here
+      // needs another frame: the turn follows the clock, which asks for frames itself.
+      if (this.modeNow === 'chase') this.lookAtFollow(follow);
     }
 
     const ground = heightAt(cam.position.x, cam.position.z);
     const floor = ground + MIN_CAMERA_AGL_M;
     if (cam.position.y < floor) {
       cam.position.y = floor;
-      cam.lookAt(this.modeNow === 'target' ? follow.jet : c.target); // in Chase the controls' point is the jet itself
+      if (this.modeNow === 'target') cam.lookAt(follow.jet);
+      else if (this.modeNow === 'chase') this.lookAtFollow(follow); // the controls' point is the jet itself
+      else cam.lookAt(c.target);
       moved = true;
     }
     // In From target the controls' point is left over from the last mode: only the jet and its bomb count.

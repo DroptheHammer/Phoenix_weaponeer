@@ -152,6 +152,11 @@ interface PbHandle {
    * on). Null before the scene exists or for a jet with no layer.
    */
   trace(jet?: number): { points: number; drawn: number } | null;
+  /**
+   * How far the camera's look was turned from the watched jet toward its bomb on the last frame drawn, at the clock's time
+   * now: `weight`, 0…1, as the camera used it (0 in every mode but Chase). Null before the scene exists.
+   */
+  cameraAim(): { weight: number } | null;
   /** Where a point (playback metres east, north, up) is on the page, through the camera as it is now. */
   projectPoint(e_m: number, n_m: number, up_m: number): [number, number] | null;
   /** The box Home frames, ENU metres. */
@@ -274,6 +279,7 @@ const pb: PbHandle = {
     return { ...a, pose_bank_deg: p.bank_deg, load_g: p.load_g };
   },
   trace: (jet = 0) => scene?.debugTrace(jet) ?? null,
+  cameraAim: () => scene?.cameraAim() ?? null,
   projectPoint(e, n, up) {
     const p = scene?.projectPoint(e, up, -n); // three.js axes: x east, y up, z = −north
     return p ? toPage(p.x, p.y) : null;

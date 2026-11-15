@@ -1105,6 +1105,195 @@ async function checkFlashCost(page, tag) {
       `at 6.3 s ${shown} flashes drawn${switched ? '' : ' (Impact off did not take them away)'}: calls ${off.calls} → ${on.calls} (+${dCalls}, want ${wantCalls}), triangles ${off.triangles} → ${on.triangles} (+${dTris}, want ${wantTris})`);
 }
 
+// ── Chase watching the bomb land (checks 57 and 5d). Positions are read through the scene's own camera (`project`,
+// `projectPoint`), and how far the look was turned off `__pb.cameraAim()`, the weight the camera used on the last frame.
+/** A page point inside the canvas, at least 4% of its width and height in from every edge. */
+const insideMargin = (p, cv) => !!p && p[0] >= cv.l + 0.04 * cv.w && p[0] <= cv.l + 0.96 * cv.w && p[1] >= cv.t + 0.04 * cv.h && p[1] <= cv.t + 0.96 * cv.h;
+/** Jet `k`'s target point on the page through the camera now (the source's point, three.js axes, turned into east, north, up). */
+const targetOnPage = (page, k) => pbEval(page, (j) => {
+  const t = __pb.source().targetOf(j);
+  return __pb.projectPoint(t.x, -t.z, t.y);
+}, k);
+/** Show › Watch the bomb land, ticked on or off by a mouse click on its box on the real Show panel; the panel shut again after. */
+async function bombCamBox(page, on) {
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  const box = page.getByRole('checkbox', { name: /^Watch the bomb land/ });
+  const native = (await box.count()) === 1 && (await box.evaluate((e) => e.tagName === 'INPUT' && e.type === 'checkbox'));
+  if (native && (await box.isChecked()) !== on) await box.click();
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  const reached = await page.waitForFunction((o) => !!__pb.show() && __pb.show().bombCam === o, on, { timeout: 15000, polling: 100 }).then(() => true, () => false);
+  return native && reached;
+}
+
+/**
+ * Check 57: Chase watches the bomb land. The lone pop-up, flat ground, 1×, paused; Chase #1 pressed at the start of the time
+ * bar (where it starts when playback opens), then each moment sought and waited on until the scene stops drawing.
+ * - 1 s before the release the look is not turned (weight 0).
+ * - 1, 3, 5 and 7 s after the release the bomb (`project(0, 'bomb')`) is inside the canvas with a 4% margin, and at 3 s the
+ *   look is turned all the way (weight ≥ 0.95) and the 2D overlay's ring round the bomb is drawn within 1 px of it (the
+ *   overlay is laid out through the turned camera, not the one still looking at the jet).
+ * - 1 and 2 s after the impact the target (the landing) is inside the same margin.
+ * - Purity: from 3 s after the release, sought 30 s before the release and back again: the same weight, the bomb within
+ *   1 px of where it was, the camera within 1 m (the turn is the clock's, nothing eased).
+ * - Show › Watch the bomb land unticked on the real panel: 3 s after the release the look is not turned and the bomb is
+ *   outside the margin (Chase stays on the jet, which leaves the bomb behind); ticked again afterwards.
+ * - From target: the look is never turned, from the release to the impact (weight 0 throughout).
+ * At 1400×900 and 1024×768.
+ *
+ * Measured 2026-11-15 at both sizes: the bomb and the landing dead centre (700,386 and 512,320), weight 1.000 at 3 s, the
+ * ring 0.00 px off the bomb, 0.00 px and 0.00 m after the seek away and back; with the box unticked the bomb is below the
+ * canvas at 3 s (464,999 and 322,814).
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/createScene.ts, fillAim's weight `bombCam && rig.mode === 'chase' &&
+ * … ? aimWeight(…) : 0` → `0` (geo-check stays green):
+ *   STEP FAIL 57 Chase watches the bomb fall and land, … (1400x900) — Chase pressed true; 1 s before the release: weight 0; after the release: +1 s 664,503 in, +3 s 464,999 OUT, +5 s 184,1385 OUT, +7 s -267,1911 OUT; weight at +3 s 0.000 (want ≥ 0.95), the overlay's ring none px off the bomb (want ≤ 1); the landing: +1 s -3747,6897 OUT, +2 s none OUT; …
+ * and by one temporary edit to scene/cameraRig.ts, lookAtFollow's `cam.updateMatrixWorld();` taken out (the overlay laid
+ * out through the camera as the controls left it, looking at the jet):
+ *   STEP FAIL 57 … (1400x900) — …; after the release: +1 s 700,386 in, +3 s 700,386 in, +5 s 700,386 in, +7 s 700,386 in; weight at +3 s 1.000 (want ≥ 0.95), the overlay's ring none px off the bomb (want ≤ 1); …
+ * and by fillAim's `rig.mode === 'chase' &&` taken out (the weight filled in every camera):
+ *   STEP FAIL 57 … (1400x900) — …; From target pressed true: weights through the fall 0 1 1 1 1 1 1 1 1 1
+ */
+async function checkBombCam(page, tag) {
+  const { rel, imp } = await pbEval(page, () => ({ rel: __pb.moments.jets[0].release, imp: __pb.moments.jets[0].impact }));
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  const boxOn = await bombCamBox(page, true);
+  await page.getByRole('button', { name: 'Chase #1', exact: true }).click();
+  const chasePressed = (await pressedCamera(page)).join() === 'Chase #1';
+  const cv = await canvasBox(page);
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settleIdle(page, 300);
+  };
+  const weight = async () => { const a = await pbEval(page, () => __pb.cameraAim()); return a ? a.weight : NaN; };
+  const parts = [];
+  let ok = chasePressed && boxOn;
+
+  await at(rel - 1);
+  const w0 = await weight();
+  ok = ok && w0 === 0;
+  parts.push(`Chase pressed ${chasePressed}; 1 s before the release: weight ${w0}`);
+
+  const falls = [];
+  let w3 = NaN, ringOff = NaN;
+  for (const dt of [1, 3, 5, 7]) {
+    await at(rel + dt);
+    const p = await pbEval(page, () => __pb.project(0, 'bomb'));
+    if (dt === 3) {
+      w3 = await weight();
+      const ring = (await pbEval(page, () => __pb.debugLabels().bombs)).find((b) => b.jet === 0);
+      ringOff = ring && p ? Math.hypot(ring.x + cv.l - p[0], ring.y + cv.t - p[1]) : NaN;
+      await shot(page, `${tag}-57-chase-bomb`);
+    }
+    falls.push({ dt, p, inside: insideMargin(p, cv) });
+  }
+  ok = ok && falls.every((f) => f.inside) && w3 >= 0.95 && ringOff <= 1;
+  parts.push(`after the release: ${falls.map((f) => `+${f.dt} s ${fmtPt(f.p)} ${f.inside ? 'in' : 'OUT'}`).join(', ')}; weight at +3 s ${w3.toFixed(3)} (want ≥ 0.95), ` +
+    `the overlay's ring ${Number.isFinite(ringOff) ? ringOff.toFixed(2) : 'none'} px off the bomb (want ≤ 1)`);
+
+  const lands = [];
+  for (const dt of [1, 2]) {
+    await at(imp + dt);
+    const p = await targetOnPage(page, 0);
+    if (dt === 1) await shot(page, `${tag}-57-chase-landing`);
+    lands.push({ dt, p, inside: insideMargin(p, cv) });
+  }
+  ok = ok && lands.every((f) => f.inside);
+  parts.push(`the landing: ${lands.map((f) => `+${f.dt} s ${fmtPt(f.p)} ${f.inside ? 'in' : 'OUT'}`).join(', ')}`);
+
+  // Purity: away and back.
+  await at(rel + 3);
+  const a = { w: await weight(), p: await pbEval(page, () => __pb.project(0, 'bomb')), cam: await pbEval(page, () => __pb.camera()) };
+  await at(rel - 30);
+  await at(rel + 3);
+  const b = { w: await weight(), p: await pbEval(page, () => __pb.project(0, 'bomb')), cam: await pbEval(page, () => __pb.camera()) };
+  const dp = a.p && b.p ? Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1]) : NaN;
+  const dc = a.cam && b.cam ? Math.hypot(a.cam.x - b.cam.x, a.cam.y - b.cam.y, a.cam.z - b.cam.z) : NaN;
+  ok = ok && a.w === b.w && dp <= 1 && dc <= 1;
+  parts.push(`away and back: weight ${a.w} → ${b.w}, bomb ${dp.toFixed(2)} px, camera ${dc.toFixed(2)} m`);
+
+  // The real box off: Chase stays on the jet.
+  const boxOff = await bombCamBox(page, false);
+  await at(rel + 3);
+  const offW = await weight();
+  const offP = await pbEval(page, () => __pb.project(0, 'bomb'));
+  await shot(page, `${tag}-57-chase-off`);
+  const boxBack = await bombCamBox(page, true);
+  ok = ok && boxOff && offW === 0 && !insideMargin(offP, cv) && boxBack;
+  parts.push(`Watch the bomb land unticked ${boxOff}: weight ${offW}, bomb ${fmtPt(offP)} ${insideMargin(offP, cv) ? 'in (want out)' : 'out'}; ticked again ${boxBack}`);
+
+  // From target: never turned.
+  await page.getByRole('button', { name: 'From target', exact: true }).click();
+  const targetW = [];
+  for (let t = rel; t < imp; t += 1) {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 150);
+    targetW.push(await weight());
+  }
+  await pbEval(page, (tt) => __pb.seek(tt), imp - 0.05);
+  await settle(page, 150);
+  targetW.push(await weight());
+  const targetPressed = (await pressedCamera(page)).join() === 'From target';
+  ok = ok && targetPressed && targetW.every((w) => w === 0);
+  parts.push(`From target pressed ${targetPressed}: weights through the fall ${targetW.join(' ')}`);
+
+  await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  step(`57 Chase watches the bomb fall and land, holds, and leaves it with Watch the bomb land off; From target never turns (${tag})`, ok, parts.join('; '));
+}
+
+/**
+ * Check 5d: a rebuilt scene keeps Show › Impact and Show › Watch the bomb land as they were chosen. The lone pop-up, 1×,
+ * paused, Chase #1: both switched off through the session (`act`), the context lost and given back, and in the rebuilt
+ * scene (still in Chase) 3 s after the release the look is not turned and 0.3 s after the impact no flash is drawn; both
+ * switched on again, the rebuilt scene turns the look (weight ≥ 0.95) and draws the flash (so it was the choices that held).
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, the `scene?.setImpact(show.impact)` effect's deps
+ * `[scene, show.impact]` → `[show.impact]` (a rebuilt scene is not told, and opens with Impact on):
+ *   STEP FAIL 5d after a rebuild: Show › Impact and Watch the bomb land are kept as chosen (1400x900) — both off: weight 0, flash false; rebuilt true (sceneCreates 6 → 8), pressed ["Chase #1"], choices impact false / watch false: weight 0, flash true; both on again: weight 1, flash true
+ * and the same for `scene?.setBombCam(show.bombCam)`, `[scene, show.bombCam]` → `[show.bombCam]`:
+ *   STEP FAIL 5d … — both off: weight 0, flash false; rebuilt true (sceneCreates 6 → 8), pressed ["Chase #1"], choices impact false / watch false: weight 1, flash false; both on again: weight 1, flash true
+ */
+async function checkShowKept(page, tag) {
+  const { rel, imp } = await pbEval(page, () => ({ rel: __pb.moments.jets[0].release, imp: __pb.moments.jets[0].impact }));
+  const was = await pbEval(page, () => __pb.show().wholeRunIn);
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  await page.getByRole('button', { name: 'Chase #1', exact: true }).click();
+  await pbEval(page, () => {
+    __pb.act({ type: 'show', a: { type: 'impact', on: false } });
+    __pb.act({ type: 'show', a: { type: 'bombCam', on: false } });
+  });
+  await page.waitForFunction(() => !!__pb.show() && !__pb.show().impact && !__pb.show().bombCam, null, { timeout: 15000, polling: 100 });
+  const read = async () => {
+    await pbEval(page, (t) => __pb.seek(t), rel + 3);
+    await settleIdle(page, 300);
+    const a = await pbEval(page, () => __pb.cameraAim());
+    await pbEval(page, (t) => __pb.seek(t), imp + 0.3);
+    await settle(page, 300);
+    const e = await impactFx(page, 0);
+    return { w: a ? a.weight : NaN, flash: !!e && e.flashShown };
+  };
+  const before = await read();
+  const r = await loseAndRestore(page);
+  await settle(page, 300);
+  const pressed = await pressedCamera(page);
+  const kept = await pbEval(page, () => ({ impact: __pb.show().impact, bombCam: __pb.show().bombCam }));
+  const after = r.remounted ? await read() : { w: NaN, flash: true };
+  await pbEval(page, () => {
+    __pb.act({ type: 'show', a: { type: 'impact', on: true } });
+    __pb.act({ type: 'show', a: { type: 'bombCam', on: true } });
+  });
+  await page.waitForFunction(() => !!__pb.show() && __pb.show().impact && __pb.show().bombCam, null, { timeout: 15000, polling: 100 });
+  const back = r.remounted ? await read() : { w: NaN, flash: false };
+  await pbEval(page, (w) => { __pb.setRange(w); __pb.goHome(); }, was);
+  step(`5d after a rebuild: Show › Impact and Watch the bomb land are kept as chosen (${tag})`,
+    before.w === 0 && !before.flash && r.remounted && pressed.join() === 'Chase #1' && kept.impact === false && kept.bombCam === false &&
+      after.w === 0 && !after.flash && back.w >= 0.95 && back.flash,
+    `both off: weight ${before.w}, flash ${before.flash}; rebuilt ${r.remounted} (sceneCreates ${r.before} → ${r.after}), pressed ${JSON.stringify(pressed)}, ` +
+      `choices impact ${kept.impact} / watch ${kept.bombCam}: weight ${after.w}, flash ${after.flash}; both on again: weight ${back.w}, flash ${back.flash}`);
+}
+
 /**
  * Check 3: real ground: the hill's sunward (north-west) flank is brighter; the bomb's last sample sits on the ring.
  *
@@ -3757,6 +3946,7 @@ async function runChecks(browser, base) {
     await checkFlashSwitch(page, tag);
     await checkFlashFast(page, tag);
     await checkFlashPure(page, tag);
+    await checkBombCam(page, tag);
     await checkReal(page, tag);
     await checkFit(page, tag, w, h);
     await checkLayout(page, tag, w, h);
@@ -3769,6 +3959,7 @@ async function runChecks(browser, base) {
       await checkSpaceAfterScrub(page);
       await checkSpeeds(page, tag);
       await checkContextLoss(page, tag);
+      await checkShowKept(page, tag);
       await checkOverlay(page);
       await checkOpenClose(page);
     }

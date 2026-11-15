@@ -31,7 +31,7 @@
 import { Color, Fog, NoToneMapping, SRGBColorSpace, Scene, Vector3, WebGLRenderer } from 'three';
 import type { StrikeWindow } from '../../../lib/playback';
 import {
-  BG, MAX_DPR, PlayClock, UI_EMIT_MS, homeBox, homePose, newSceneJetPose, FOG_FAR_K,
+  BG, MAX_DPR, PlayClock, UI_EMIT_MS, aimWeight, homeBox, homePose, newSceneJetPose, FOG_FAR_K,
   type ActionPointsMode, type AttackColours, type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TileSource,
 } from '../../../lib/playbackScene';
 import { CameraRig, type Follow } from './cameraRig';
@@ -163,6 +163,11 @@ export interface PlaybackScene {
   /** The ring round each falling bomb and the flash where it lands (Show › Impact); off leaves the bomb alone. */
   setImpact(on: boolean): void;
   /**
+   * Chase looks at the watched jet's bomb from its release until it lands, holds on the burst, then turns back to the
+   * jet (Show › Watch the bomb land); off, it stays on the jet. The other cameras are not affected.
+   */
+  setBombCam(on: boolean): void;
+  /**
    * The strike re-timed: a new source for the same jets (the same playback, other delays). Nothing
    * happens when it is the source already shown. Every jet's path and trail follow it; the terrain and
    * the targets never move. With `range`, the clock's range moves too, and the playhead steps back by
@@ -201,6 +206,11 @@ export interface PlaybackScene {
    * screenshot checks.
    */
   debugTrace(jet?: number): { points: number; drawn: number } | null;
+  /**
+   * How far the camera's look was turned from the watched jet toward its bomb on the last frame drawn (a pending change is
+   * drawn first), 0…1, as the camera used it: 0 in every mode but Chase. Null when the scene is gone. For the screenshot checks.
+   */
+  cameraAim(): { weight: number } | null;
   /** Where a point (three.js axes: x east, y up, z = −north, m) is on screen through the camera as it is now. Undefined behind it. For the screenshot checks. */
   projectPoint(x: number, y: number, z: number): ScreenPoint | undefined;
   /** The box Home frames, ENU m (a copy). For the checks. */
@@ -341,8 +351,10 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     watched: camJet, attackColours: 'watched', focusPxPerM: 1,
     speed: clock.currentSpeed, labels: true, actionPoints: 'coming', impact: true, again: false,
   };
-  const follow: Follow = { jet: new Vector3(), vel: new Vector3(), heading_deg: 0, target: new Vector3(), targetGround: 0 };
+  const follow: Follow = { jet: new Vector3(), vel: new Vector3(), heading_deg: 0, target: new Vector3(), targetGround: 0, aim: new Vector3(), aimWeight: 0 };
   const camPose = newSceneJetPose();
+  // Show › Watch the bomb land: on as the menu opens, so a rebuilt scene's first frame is already right.
+  let bombCam = true;
   function fillFollow(p: SceneJetPose) {
     follow.jet.set(p.x, p.y, p.z);
     follow.vel.set(p.vx, p.vy, p.vz);
@@ -351,6 +363,20 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     const tg = source.targetOf(camJet);
     follow.target.set(tg.x, tg.y, tg.z);
     follow.targetGround = terrain.heightAt(tg.x, tg.z);
+  }
+  /**
+   * Where Chase looks, filled after the layers have moved: how far it turns from the watched jet (from the clock's
+   * time and speed alone, so nothing eases from one frame to the next) toward that jet's bomb while it falls, or the
+   * point where it lands (the higher of the planned target and the drawn ground) before and after. Only that jet's
+   * bomb moves the camera; in every other mode the weight is 0.
+   */
+  function fillAim() {
+    follow.aimWeight = bombCam && rig.mode === 'chase' && source.jetCount > 0
+      ? aimWeight(ctx.t, source.releaseOf(camJet), source.impactOf(camJet), ctx.speed)
+      : 0;
+    const bomb = jets[camJet]?.bombPosition();
+    if (bomb) follow.aim.copy(bomb);
+    else follow.aim.set(follow.target.x, Math.max(follow.target.y, follow.targetGround), follow.target.z);
   }
   /** The watched jet at the clock's time now, straight from the source (outside a frame). */
   const followNow = () => {
@@ -400,6 +426,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     for (const l of layers) l.update(ctx); // 1. everything moves to time t
     // 2. the camera follows the watched jet (Chase, From target), eases, stays above ground; keep drawing while it settles.
     if (source.jetCount > 0) fillFollow(jets[camJet] ? jets[camJet].pose : source.jetAt(camJet, ctx.t, camPose));
+    fillAim();
     if (rig.update(terrain.heightAt, nearestTo, follow)) dirty = true;
     for (const l of layers) l.afterCamera?.(ctx); // 3. sizes on screen, read off the final camera
     if (ctx.again) dirty = true; // a layer is still easing something (a callout fading): one more frame
@@ -549,6 +576,10 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       ctx.impact = on;
       invalidate();
     },
+    setBombCam: (on) => {
+      bombCam = on;
+      invalidate();
+    },
     setSource: (next, o) => {
       if (next === source) return;
       source = next;
@@ -610,6 +641,13 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
         try { draw(0); } catch (err) { fail(err); return null; }
       }
       return jets[j].debugTrace();
+    },
+    cameraAim() {
+      if (disposed || contextLost || fatal) return null;
+      if (dirty) {
+        try { draw(0); } catch (err) { fail(err); return null; }
+      }
+      return { weight: follow.aimWeight };
     },
     projectPoint(x, y, z) {
       if (disposed || contextLost || fatal) return undefined;
