@@ -63,7 +63,7 @@ export interface SceneOptions {
   /**
    * The camera to open in and the jet it follows (a playback index, never a seat), set before the
    * first frame (Chase starts behind that jet at the opening time). Every flown jet is drawn; this
-   * one is the watched jet. Default: Orbit at the home view, watching jet 0, the lead.
+   * one is the watched jet. Default: Orbit at the home view, watching jet 0, the first flown jet.
    */
   camera?: { mode: CameraMode; jet: number };
   /** The camera's mode changed (a mode chosen, or Home view, which is Orbit): the toolbar shows it. */
@@ -153,7 +153,7 @@ export interface PlaybackScene {
   source(): SceneSource;
   stats(): SceneStats;
   /**
-   * Where jet `jet`'s (a playback index, default 0, the lead) arrow, its falling bomb, its target's
+   * Where jet `jet`'s (a playback index, default 0, the first flown jet) arrow, its falling bomb, its target's
    * ring centre or its target's TGT disc is on screen, at the clock's current time (a pending change
    * is drawn first). Undefined when that thing is not shown or is behind the camera. For the
    * screenshot checks.

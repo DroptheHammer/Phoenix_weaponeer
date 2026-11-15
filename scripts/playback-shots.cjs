@@ -1419,7 +1419,8 @@ async function spreadMoment(page) {
  * The floor of 70 sits between, with room for the software renderer, so the count is the arrow's.
  *
  * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts, every jet coloured as seat 0
- * (`jetColor(0)` for `jetColor(o.colorIndex ?? src.seatOf(jet))`):
+ * (`jetColor(0)` for `jetColor(src.seatOf(jet))`; run again the same day after the layer lost its
+ * colour option, the same lines):
  *   STEP FAIL 10 every jet of the four-ship drawn, each in its seat's colour (1400x900-strike4) — 4 jets; t -1.2 (arrows 89 px apart at the closest); #1 at 872,354: 188 px; #2 at 784,341: 0 px; #3 at 704,387: 0 px; #4 at 623,439: 0 px (need 70)
  *   STEP FAIL 10 … (1024x768-strike4) — …; #1 at 641,293: 185 px; #2 at 575,283: 0 px; #3 at 515,318: 0 px; #4 at 454,357: 0 px (need 70)
  * and by the arrow-shrink edit above (at a floor of 40 then: #2 34, #3 37, #4 23 px, red).
@@ -1511,6 +1512,93 @@ async function checkTopDownTargets(page, tag) {
 }
 
 /**
+ * Check 10b: Show › Attack colours moves the planner's colour code. The four-ship watching #1, Top-down,
+ * paused at the start of the time bar (no arrow or trail on #2's climb yet), the choice made on the real
+ * menu so the view's hand-over to the scene is part of what is tested:
+ * - Watched jet (as it opens): #1's discs are full size (DISC_R), every other jet's are small
+ *   (DISC_OTHER_R); #2's climb, between its pull-up and pull-down discs, is #2's magenta, not the
+ *   climb's yellow.
+ * - All jets: every disc full size; the same stretch is the climb's yellow, with no magenta left.
+ * - Watched jet again: the small discs are back.
+ * The 2D overlay is hidden for the two shots (the discs lie over the lines).
+ *
+ * OTHER_CLIMB_MIN: measured 2026-11-15 on the first green run. Along 41 px of #2's climb: 41 magenta
+ * and 0 yellow px with Watched jet, 0 magenta and 65 yellow with All jets at 1400×900; 39 and 0, then
+ * 0 and 64, at 1024×768 (the other jets' line is thinner, so fewer pixels). The floor sits at about
+ * half of the smaller count, room for the software renderer. Neither test matches a drape colour, its
+ * hillshade or the navy background.
+ *
+ * Proven red 2026-11-15, each by one temporary edit:
+ * - PlaybackView.tsx, the choice never handed to the scene (`scene?.setAttackColours(…)` taken out):
+ *     STEP FAIL 10b Show › Attack colours: the colour code and the full-size discs on the watched jet, or on every jet (1400x900-strike4) — #2's climb (745,422)→(657,519); Watched jet: #1's discs 10 px, the others' 12 at 7 px, climb 41 magenta and 0 yellow px; All jets: #1's 10 px, the others' 12 at 7 px, climb 41 magenta and 0 yellow px (need 20 of the one, ≤ 5 of the other); Watched jet again: the others' 12 at 7 px
+ *     STEP FAIL 10b … (1024x768-strike4) — …; All jets: #1's 10 px, the others' 12 at 7 px, climb 39 magenta and 0 yellow px …
+ * - scene/jetLayer.ts, the lines deaf to the choice (`wantCoded` without `ctx.attackColours === 'all'`):
+ *   the discs change and the lines do not, so the pixel half fails on its own:
+ *     STEP FAIL 10b … (1400x900-strike4) — …; All jets: #1's 10 px, the others' 13 at 10 px, climb 41 magenta and 0 yellow px …
+ *     STEP FAIL 10b … (1024x768-strike4) — …; All jets: #1's 10 px, the others' 13 at 10 px, climb 39 magenta and 0 yellow px …
+ * - scene/labelLayer.ts, the discs deaf to the choice (`isCoded` without `mode === 'all'`): the lines
+ *   change and the discs do not, so the disc half fails on its own:
+ *     STEP FAIL 10b … (1400x900-strike4) — …; All jets: #1's 10 px, the others' 12 at 7 px, climb 0 magenta and 65 yellow px …
+ *     STEP FAIL 10b … (1024x768-strike4) — …; All jets: #1's 10 px, the others' 12 at 7 px, climb 0 magenta and 64 yellow px …
+ */
+const DISC_R = 10, DISC_OTHER_R = 7; // MARKER_R_PX and MARKER_OTHER_R_PX in sceneStyle.ts
+const OTHER_CLIMB_MIN = 20;
+async function checkAttackColours(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.goHome(); __pb.seek(__pb.snapshot().start); });
+  await page.getByRole('button', { name: 'Top-down', exact: true }).click();
+  await settle(page, 300);
+  const climb = await pbEval(page, () => {
+    const ms = __pb.source().markers(1);
+    const at = (kind) => {
+      const m = ms.find((q) => q.kind === kind);
+      return m ? __pb.projectPoint(m.x, -m.z, m.y) : null;
+    };
+    return { pop: at('POP'), pdp: at('PDP') };
+  });
+  const mid = climb.pop && climb.pdp ? [(climb.pop[0] + climb.pdp[0]) / 2, (climb.pop[1] + climb.pdp[1]) / 2] : null;
+  const choose = async (name) => {
+    await page.getByRole('button', { name: 'Show ▾' }).click();
+    await page.getByRole('button', { name, exact: true }).click();
+    await page.getByRole('button', { name: 'Show ▾' }).click(); // shut it again: the panel lies over the picture
+    await settle(page, 300);
+  };
+  const discs = () => pbEval(page, () => {
+    const s = __pb.source();
+    const mine = new Set(s.markers(0).map((m) => m.key));
+    for (const p of s.labelPoints(0)) if (p.kind === 'ip') mine.add(p.key);
+    const ms = __pb.debugLabels().markers;
+    const radii = (list) => [...new Set(list.map((m) => m.r))].sort((a, b) => a - b).join('/') || 'none';
+    const others = ms.filter((m) => !mine.has(m.key));
+    return { watched: radii(ms.filter((m) => mine.has(m.key))), others: radii(others), nOthers: others.length };
+  });
+  const lines = async (name) => {
+    await overlay(page, false);
+    let img;
+    try {
+      img = await shot(page, `${tag}-10b-colours-${name}`);
+    } finally {
+      await overlay(page, true);
+    }
+    const n = (test) => (mid ? alongLine(img, climb.pop, climb.pdp, mid, 20, 3, test) : 0);
+    return { seat: n(magentaLike), climb: n(climbLike) };
+  };
+  const w = { ...(await discs()), ...(await lines('watched')) };
+  await choose('All jets');
+  const a = { ...(await discs()), ...(await lines('all')) };
+  await choose('Watched jet');
+  const b = await discs();
+  const fmt = (q) => (q ? `(${q.map(Math.round)})` : 'none');
+  step(`10b Show › Attack colours: the colour code and the full-size discs on the watched jet, or on every jet (${tag})`,
+    w.watched === `${DISC_R}` && w.others === `${DISC_OTHER_R}` && w.nOthers >= 3 && w.seat >= OTHER_CLIMB_MIN && w.climb <= 5 &&
+      a.watched === `${DISC_R}` && a.others === `${DISC_R}` && a.nOthers >= w.nOthers && a.climb >= OTHER_CLIMB_MIN && a.seat <= 5 &&
+      b.watched === `${DISC_R}` && b.others === `${DISC_OTHER_R}` && b.nOthers === w.nOthers,
+    `#2's climb ${fmt(climb.pop)}→${fmt(climb.pdp)}; Watched jet: #1's discs ${w.watched} px, the others' ${w.nOthers} at ${w.others} px, climb ${w.seat} magenta and ${w.climb} yellow px; ` +
+      `All jets: #1's ${a.watched} px, the others' ${a.nOthers} at ${a.others} px, climb ${a.seat} magenta and ${a.climb} yellow px (need ${OTHER_CLIMB_MIN} of the one, ≤ 5 of the other); ` +
+      `Watched jet again: the others' ${b.nOthers} at ${b.others} px`);
+  await pbEval(page, () => __pb.goHome());
+}
+
+/**
  * Check 12 (re-times): a re-time swaps the source in the live scene, never rebuilds it. Paused at #2's
  * first action, #2 delayed 20 s more moves its arrow on screen (at least 20 px) while the clock stands
  * still; 30 re-times of #2 in a row; back to the plan, #2's arrow is where it was (1 px). Through it
@@ -1553,7 +1641,8 @@ async function checkRetimes(page, tag) {
  * colour), at least SEAT_MIN px round it with the overlay hidden.
  *
  * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts, the colour taken from the playback
- * index instead of the seat (`jetColor(o.colorIndex ?? jet)`: #3 flies as jet 1, so magenta):
+ * index instead of the seat (`jetColor(jet)` for `jetColor(src.seatOf(jet))`: #3 flies as jet 1, so
+ * magenta; run again the same day after the layer lost its colour option, the same line):
  *   STEP FAIL 20 a skipped #2 is not drawn; #3 flies in #3's lime (1400x900-skip) — flown #1 #3; labels #1 #3; a third arrow none; t -49.2; #3 at 174,538: 0 lime px (need 70)
  * (green: 161 lime px; the lines alone, arrow shrunk, 24.)
  */
@@ -1639,6 +1728,7 @@ async function runStrikeChecks(browser, base) {
     await checkFourArrows(page, `${tag}-strike4`);
     await checkFourLabels(page, `${tag}-strike4`);
     await checkTopDownTargets(page, `${tag}-strike4`);
+    await checkAttackColours(page, `${tag}-strike4`);
     if (w === 1400) {
       await checkRetimes(page, `${tag}-strike4`);
       await page.keyboard.press('Escape'); // the open-and-close check starts with playback shut
@@ -1651,6 +1741,13 @@ async function runStrikeChecks(browser, base) {
       await checkOpenClose(page, `4b open and close the four-ship 20 times, nothing left behind (${tag})`);
     }
     // #3 and #4 share a time over target: nothing on the page may complain about it.
+    // Check 8 on the strike fixtures (here, and the late wingman and the skip variant below), proven
+    // red 2026-11-15 by one temporary edit to scene/jetLayer.ts, a layer for seat #3 or later writing
+    // to the console as it is made (`if (src.seatOf(jet) >= 2) console.error('mutation: a wingman layer complains')`):
+    //   STEP FAIL 8 no page errors, four-ship (1400x900) — console error: mutation: a wingman layer complains | …
+    //   STEP FAIL 8 no page errors, four-ship (1024x768) — …
+    //   STEP FAIL 8 no page errors, late wingman (1400x900) — …
+    //   STEP FAIL 8 no page errors, skip variant (1400x900) — …
     step(`8 no page errors, four-ship (${tag})`, problems.length === 0, problems.length ? problems.slice(0, 8).join(' | ') : 'none');
     await context.close();
   }

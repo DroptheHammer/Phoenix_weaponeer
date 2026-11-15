@@ -55,8 +55,8 @@ import type { TargetLayer } from './targetLayer';
 export interface LabelDebug {
   /** Each target's disc centre and tag, and the box round the two (left, top, width, height) that labels and plates keep clear of. */
   targets: { key: string; x: number; y: number; tag: string; box: [number, number, number, number] }[];
-  /** The action points' discs and the IP disc. */
-  markers: { key: string; x: number; y: number }[];
+  /** The action points' discs and the IP disc, each with its radius in px (smaller on a jet that does not wear the colour code). */
+  markers: { key: string; x: number; y: number; r: number }[];
   /** Every callout showing at all (alpha above 0), placed or dropped for want of room; the plate's top left and size. */
   callouts: { key: string; lines: readonly string[]; alpha: number; x: number; y: number; w: number; h: number; placed: boolean }[];
   /** Each jet's label: its lines as shown, and its plate. */
@@ -469,7 +469,7 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
       });
       const markers: LabelDebug['markers'] = [];
       if (showPoints) discKey.forEach((key, i) => {
-        if (discOn[i]) markers.push({ key, x: discX[i], y: discY[i] });
+        if (discOn[i]) markers.push({ key, x: discX[i], y: discY[i], r: discR[i] });
       });
       const callouts: LabelDebug['callouts'] = [];
       for (let p = 0; p < nCandidates; p++) {
