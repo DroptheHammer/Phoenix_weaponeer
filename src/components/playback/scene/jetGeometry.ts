@@ -5,25 +5,17 @@
  * strike-editor colour on top and a darker shade underneath.
  */
 import { BufferGeometry, CylinderGeometry, Float32BufferAttribute } from 'three';
-import { ARROW_LEN_M, BOMB_LEN_M } from '../../../lib/playbackScene';
+import { BOMB_LEN_M, arrowFaces } from '../../../lib/playbackScene';
 
 /**
- * The jet arrow: a flat delta ARROW_LEN_M (18 m) long and 12 m wide, nose
- * along local −Z, wings along ±X, with a small fin on top (+Y) so pitch and
- * bank read from the side. Four triangle groups, not indexed: top, underside
- * and the fin. Vertex shade: top 1.0, fin 0.8, underside 0.55.
+ * The jet arrow, built from the shape in src/lib/playbackScene/arrowShape.ts (a flat delta with a tall
+ * fin and raised wings, so a roll reads): the shape's triangles, not indexed, each vertex carrying its
+ * face's shade as a grey vertex colour.
  */
 export function arrowGeometry(): BufferGeometry {
-  const half = ARROW_LEN_M / 2; // 9 m: nose at −9, tail at +9
-  const h = 0.4; // half its thickness, m
-  const N = [0, 0, -half], L = [-6, 0, half], R = [6, 0, half], K = [0, 0, half - 4]; // nose, tail corners, the notch
-  const tri = (a: number[], b: number[], c: number[], dy: number) => [a[0], a[1] + dy, a[2], b[0], b[1] + dy, b[2], c[0], c[1] + dy, c[2]];
-  const pos = [
-    ...tri(N, L, K, h), ...tri(N, K, R, h), // top
-    ...tri(N, K, L, -h), ...tri(N, R, K, -h), // underside
-    0, h, 1, 0, h, half, 0, 3.5, half - 1, // fin
-  ];
-  const shade = [...Array(6).fill(1), ...Array(6).fill(0.55), ...Array(3).fill(0.8)].flatMap((s: number) => [s, s, s]);
+  const faces = arrowFaces();
+  const pos = faces.flatMap((f) => f.v.flatMap((p) => [p[0], p[1], p[2]]));
+  const shade = faces.flatMap((f) => f.v.flatMap(() => [f.shade, f.shade, f.shade]));
   const g = new BufferGeometry();
   g.setAttribute('position', new Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new Float32BufferAttribute(shade, 3));

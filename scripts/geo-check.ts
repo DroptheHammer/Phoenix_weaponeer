@@ -113,7 +113,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import {
   PlayClock, MAX_FRAME_DT_S, SPEEDS, speedLabel, enuToThree, homePose, HOME_MARGIN, HOME_MIN_DIST_M, worldPerPixel, screenScale, nearPlaneFor, HOME_FOV,
-  sceneSourceFrom, newSceneJetPose, newSceneBombPose, BG, MAX_DPR, ARROW_PX, JET_COLORS as SCENE_JET_COLORS, jetColor,
+  sceneSourceFrom, newSceneJetPose, newSceneBombPose, BG, MAX_DPR, ARROW_PX, ARROW_LEN_M, JET_COLORS as SCENE_JET_COLORS, jetColor,
   terrainBoxOf, terrainGridOf, tileSpan, planDrape, planElevation, planTerrain, tilesOf, tilesNearestFirst, tileErrorOf,
   seaClamp, terrainTileValid, heightMosaic, sampleBilinear, gridLatLon, gridIndices, drapeUvs, buildTerrainMesh, onTriangles,
   heightAt, shadeFromSlope, hillshade, TERRAIN_CREDITS, creditsFor, BOX_MARGIN_M, BOX_MIN_HALF_M, BOX_MAX_HALF_M, BOX_STEP_M,
@@ -154,6 +154,8 @@ import {
   controlsFor, topDownPose, chasePose, yawDelta, targetEye, CHASE_BACK_M, CHASE_UP_M, CHASE_MIN_M, CHASE_MAX_M, CHASE_SWING_DEG,
   ZOOM_SPEED, MAX_POLAR_DEG, TOP_POLAR_RAD, MIN_CAMERA_AGL_M, type ControlsConfig,
 } from '../src/lib/playbackScene';
+import { arrowFaces, ARROW_HALF_SPAN_M, ARROW_DIHEDRAL_DEG, ARROW_TOP_SHADE, ARROW_FIN_SHADE, ARROW_UNDER_SHADE } from '../src/lib/playbackScene';
+import { arrowGeometry } from '../src/components/playback/scene/jetGeometry';
 import { harnessLaunch } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
 import { cardTie } from '../src/components/playback/cardTie';
@@ -9569,6 +9571,99 @@ void (async () => {
          at13Bad.length === 0, at13Bad.join('; ') || `10 g east: ${at13Pull.roll_deg.toFixed(2)}° at ${at13Pull.load_g.toFixed(2)} g`);
     } catch (e) {
       ok('playback B3 (attitude): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
+
+    // ─── The jet arrow's shape (arrowShape.ts, built into a geometry by scene/jetGeometry.ts) ────────
+    // The arrow has to show a roll in a picture about 28 px long: a tall fin on its back and raised wings,
+    // and an underside darker than the top. Each check carries its mutation proof (2026-11-15): one
+    // temporary edit, geo-check run, the FAIL line copied (shortened with …), the edit restored.
+    try {
+      // [AR1] The shape is the footprint the size rule is built for (nose at −9, tail at +9, wing tips at ±6,
+      // so ARROW_LEN_M 18 still maps to ARROW_PX 28), with the fin standing in the plane x = 0 at least
+      // 6.4 m above the deck, both wing tips 6·tan 12° (± 0.01) above the nose and the notch and level with
+      // each other, the notch on the deck, every top face's normal pointing up and every underside's down
+      // (not inside out), the shades top 1.0, fin 0.70 and underside at most 0.45, and, for each of the
+      // four seat colours, the top, the fin and the underside as the renderer draws them (three multiplies
+      // the seat colour by the shade in linear light, then encodes to sRGB) still pass that seat's own
+      // colour test from the screenshot script (jetLike, magentaLike, limeLike, amberLike, copied here)
+      // by at least 10 on every inequality, so the checks that find an arrow by its colour still can. The
+      // geometry the scene draws is the shape's triangles and shades, number for number.
+      // Mutation proofs (each seen red 2026-11-15):
+      // arrowShape.ts `ARROW_FIN_M = 6.5` → `3.5` (the old fin's height):
+      //   FAIL playback B3 [AR1]: …  fin apex (0.00, 3.50, 8.50) (want x = 0 and y ≥ 6.4)
+      // arrowShape.ts `ARROW_UNDER_SHADE = 0.4` → `0.55` (the old underside): AR1 again, by the shade arm (and shot 61, below it):
+      //   FAIL playback B3 [AR1]: …  underside shade 0.55 (want ≤ 0.45)
+      // jetGeometry.ts `[f.shade, f.shade, f.shade]` → `[1, 1, 1]` (the geometry ignores the shapes' shades): AR1 by its geometry arm only:
+      //   FAIL playback B3 [AR1]: …  the geometry's colours are not the shape's shades (first at vertex 6: 1 vs 0.4)
+      // In each run AR1 was the only check red.
+      const arFaces = arrowFaces();
+      const arVerts = arFaces.flatMap((f) => f.v);
+      const arBad: string[] = [];
+      const arZ = [Math.min(...arVerts.map((p) => p[2])), Math.max(...arVerts.map((p) => p[2]))];
+      const arX = [Math.min(...arVerts.map((p) => p[0])), Math.max(...arVerts.map((p) => p[0]))];
+      if (arZ[0] !== -9 || arZ[1] !== 9 || ARROW_LEN_M !== 18 || ARROW_PX !== 28) arBad.push(`z extent ${arZ.join(' … ')}, ARROW_LEN_M ${ARROW_LEN_M}, ARROW_PX ${ARROW_PX} (want −9 … 9, 18, 28)`);
+      if (arX[0] !== -ARROW_HALF_SPAN_M || arX[1] !== ARROW_HALF_SPAN_M || ARROW_HALF_SPAN_M !== 6) arBad.push(`x extent ${arX.join(' … ')} (want ±6)`);
+      const arFins = arFaces.filter((f) => f.part === 'fin');
+      const arApex = arFins.flatMap((f) => f.v).reduce((best, p) => (p[1] > best[1] ? p : best), [0, -Infinity, 0] as readonly number[]);
+      if (arFins.length !== 1 || arFins[0].v.some((p) => p[0] !== 0) || !(arApex[0] === 0 && arApex[1] >= 6.4)) {
+        arBad.push(`fin apex (${arApex.map((n) => n.toFixed(2)).join(', ')}) (want x = 0 and y ≥ 6.4)`);
+      }
+      const arTops = arFaces.filter((f) => f.part === 'top'), arUnders = arFaces.filter((f) => f.part === 'under');
+      const arTopV = arTops.flatMap((f) => f.v);
+      const arNose = arTopV.find((p) => p[2] === -9)!, arNotch = arTopV.find((p) => p[0] === 0 && p[2] !== -9)!;
+      const arTipL = arTopV.find((p) => p[0] === -6)!, arTipR = arTopV.find((p) => p[0] === 6)!;
+      const arRise = (arTipL[1] + arTipR[1]) / 2 - arNose[1], arWantRise = 6 * Math.tan((12 * Math.PI) / 180);
+      if (ARROW_DIHEDRAL_DEG !== 12 || Math.abs(arRise - arWantRise) > 0.01 || Math.abs(arTipL[1] - arTipR[1]) > 1e-9 || arNotch[1] !== arNose[1]) {
+        arBad.push(`wing tips ${(arTipL[1] - arNose[1]).toFixed(3)} / ${(arTipR[1] - arNose[1]).toFixed(3)} m above the nose, the notch ${(arNotch[1] - arNose[1]).toFixed(3)} (want ${arWantRise.toFixed(3)} ± 0.01 both, 0)`);
+      }
+      const arNormalY = (f: { v: readonly (readonly number[])[] }) => {
+        const [a, b, c] = f.v;
+        return (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]); // y of (b − a) × (c − a)
+      };
+      const arUp = arTops.map(arNormalY), arDown = arUnders.map(arNormalY);
+      if (arTops.length !== 2 || arUnders.length !== 2 || arUp.some((n) => !(n > 0)) || arDown.some((n) => !(n < 0))) {
+        arBad.push(`normals' y: top ${arUp.map((n) => n.toFixed(1)).join('/')} (want > 0), underside ${arDown.map((n) => n.toFixed(1)).join('/')} (want < 0)`);
+      }
+      if (arTops.some((f) => f.shade !== 1) || arFins.some((f) => Math.abs(f.shade - 0.7) > 1e-9) || ARROW_TOP_SHADE !== 1 || Math.abs(ARROW_FIN_SHADE - 0.7) > 1e-9) arBad.push(`top shade ${ARROW_TOP_SHADE}, fin shade ${ARROW_FIN_SHADE} (want 1.0 and 0.70)`);
+      if (arUnders.some((f) => !(f.shade <= 0.45)) || !(ARROW_UNDER_SHADE <= 0.45)) arBad.push(`underside shade ${ARROW_UNDER_SHADE} (want ≤ 0.45)`);
+      // The renderer's colour: the seat's sRGB hex to linear, times the shade, back to sRGB, rounded to a pixel value.
+      const arLin = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+      const arEnc = (l: number) => Math.round(255 * (l <= 0.0031308 ? 12.92 * l : 1.055 * Math.pow(l, 1 / 2.4) - 0.055));
+      const arDrawn = (hex: string, shade: number) => [1, 3, 5].map((i) => arEnc(arLin(parseInt(hex.slice(i, i + 2), 16) / 255) * shade));
+      // Each seat's test in playback-shots.cjs (jetLike, magentaLike, limeLike, amberLike) as the margin by which each of its inequalities holds.
+      const arMargins: ((p: number[]) => number[])[] = [
+        (p) => [p[2] - p[0] - 80, p[1] - p[0] - 80, 70 - Math.abs(p[1] - p[2])],
+        (p) => [p[0] - p[1] - 60, p[2] - p[1] - 60],
+        (p) => [p[1] - p[2] - 100, p[1] - p[0] - 30],
+        (p) => [p[0] - p[2] - 120, p[1] - p[2] - 80, p[0] - p[1]],
+      ];
+      const arSeatRows: string[] = [];
+      for (let seat = 0; seat < arMargins.length; seat++) {
+        let worst = Infinity, worstAt = '';
+        for (const [part, shade] of [['top', ARROW_TOP_SHADE], ['fin', ARROW_FIN_SHADE], ['underside', ARROW_UNDER_SHADE]] as const) {
+          const px = arDrawn(SCENE_JET_COLORS[seat], shade);
+          const m = Math.min(...arMargins[seat](px));
+          if (m < worst) { worst = m; worstAt = `${part} (${px.join(', ')})`; }
+        }
+        arSeatRows.push(`#${seat + 1} ${worst} at the ${worstAt}`);
+        if (!(worst >= 10)) arBad.push(`seat #${seat + 1}'s ${worstAt} passes its colour test by only ${worst} (want ≥ 10)`);
+      }
+      // The geometry the scene draws: the shape's triangles and shades, number for number (positions to float32).
+      const arGeo = arrowGeometry();
+      const arPos = arGeo.getAttribute('position').array as Float32Array, arCol = arGeo.getAttribute('color').array as Float32Array;
+      if (arPos.length !== arVerts.length * 3 || arCol.length !== arVerts.length * 3) arBad.push(`the geometry has ${arPos.length / 3} vertices (want ${arVerts.length})`);
+      else {
+        const arShades = arFaces.flatMap((f) => f.v.map(() => f.shade));
+        const iPos = arVerts.findIndex((p, i) => p.some((n, k) => Math.abs(arPos[i * 3 + k] - n) > 1e-6));
+        const iCol = arShades.findIndex((s, i) => [0, 1, 2].some((k) => Math.abs(arCol[i * 3 + k] - s) > 1e-6));
+        if (iPos >= 0) arBad.push(`the geometry's positions are not the shape's (first at vertex ${iPos})`);
+        if (iCol >= 0) arBad.push(`the geometry's colours are not the shape's shades (first at vertex ${iCol}: ${arCol[iCol * 3]} vs ${arShades[iCol]})`);
+      }
+      arGeo.dispose();
+      ok('playback B3 [AR1]: the jet arrow keeps its 18 m × 12 m footprint and gains a fin at least 6.4 m tall, wings raised 12°, tops facing up and undersides down, shades 1.0 / 0.70 / ≤ 0.45 that every seat colour survives (≥ 10 on the screenshot tests), built into the scene\'s geometry as they are',
+         arBad.length === 0, arBad.join('; ') || `fin apex (${arApex.map((n) => n.toFixed(2)).join(', ')}), wing tips ${(arRise).toFixed(3)} m up; worst margin by seat: ${arSeatRows.join('; ')}`);
+    } catch (e) {
+      ok('playback B3 (arrow shape): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));

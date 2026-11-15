@@ -23,7 +23,8 @@
  *   are refilled in place and the trail is worked out again, even paused.
  * - The arrow points along the displayed velocity, not the heading number
  *   (meridians converge away from the target, and velocity is what the eye
- *   follows), and banks with the display's bank estimate.
+ *   follows), and rolls about the nose by the lift roll (the roll a pilot would hold to fly the drawn
+ *   path, from the playback library's attitude).
  * - The arrow and the bomb keep a constant size on screen (about 28 px and
  *   10 px) so they read at 50 km, but never shrink below their real size
  *   close up.
@@ -227,6 +228,20 @@ function putPhase(l: CodedLine, x0: number, y0: number, z0: number, x1: number, 
   putSegment(PHASE_DASHED[phase] ? l.dashed : l.solid, x0, y0, z0, x1, y1, z1, PHASE_RGB, phase * 3, d0, d1);
 }
 
+/** The arrow as the scene really has it now, read off its mesh (for the screenshot checks). */
+export interface ArrowDebug {
+  /** The arrow is drawn now (its jet is in the picture). */
+  visible: boolean;
+  /**
+   * The roll the mesh really has: the signed angle of its up side about its nose, from the vertical plane
+   * through the nose, right wing down positive, wrapped to (−180, 180]. The pose's own roll is not wrapped.
+   */
+  bank_deg: number;
+  /** The nose and the up side of the mesh as unit vectors, three.js axes. */
+  nose: [number, number, number];
+  up: [number, number, number];
+}
+
 export interface JetLayer extends Layer {
   /** The playback index of the jet drawn. */
   readonly jet: number;
@@ -242,6 +257,8 @@ export interface JetLayer extends Layer {
   jetPosition(): Vector3 | undefined;
   /** Where the bomb is now, or undefined unless it is falling. */
   bombPosition(): Vector3 | undefined;
+  /** The arrow's nose, up side and roll as its mesh has them now. Allocates, so only for the checks, never per frame. */
+  debugArrow(): ArrowDebug;
 }
 
 /**
@@ -421,6 +438,24 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
     arrow.quaternion.multiply(qRoll);
   }
 
+  /**
+   * The roll the mesh really has, worked out from where its nose and its up side point, so a wrong sign or
+   * a dropped roll in placeArrow shows. U is "up" made perpendicular to the nose, R = nose × U is the side
+   * the right wing is on, and the roll is the angle of the mesh's up side from U toward R.
+   */
+  function debugArrow(): ArrowDebug {
+    const nose = new Vector3(0, 0, -1).applyQuaternion(arrow.quaternion);
+    const up = new Vector3(0, 1, 0).applyQuaternion(arrow.quaternion);
+    const u = new Vector3(0, 1, 0).addScaledVector(nose, -nose.y).normalize();
+    const r = new Vector3().crossVectors(nose, u);
+    return {
+      visible: arrow.visible,
+      bank_deg: Math.atan2(up.dot(r), up.dot(u)) / D2R,
+      nose: [nose.x, nose.y, nose.z],
+      up: [up.x, up.y, up.z],
+    };
+  }
+
   function updateTrail(t: number) {
     // Sample k is the trail k steps back from the jet; the segment from sample k−1 to sample k takes
     // the phase of its earlier end, sample k (a sample's phase is that of the stretch after it).
@@ -489,6 +524,7 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
 
     jetPosition: () => (arrow.visible ? arrow.position : undefined),
     bombPosition: () => (bomb.visible ? bomb.position : undefined),
+    debugArrow,
 
     dispose() {
       o.parent.remove(...drawn);

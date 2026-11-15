@@ -34,7 +34,7 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../index.css';
 import {
-  jetColor, newSceneBombPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource, type Session, type SessionAction,
+  jetColor, newSceneBombPose, newSceneJetPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource, type Session, type SessionAction,
   type ShowState, type Speed, type TileSource,
 } from '../../../lib/playbackScene';
 import { JET_COLORS } from '../../../lib/jetColors';
@@ -88,6 +88,9 @@ let setOpenFn: (open: boolean) => void = () => {};
 let isOpen = false;
 let loseExt: WEBGL_lose_context | null = null;
 
+/** Scratch for `arrow`: the pose the scene's source gives for the arrow's moment (the harness is dev only, so a shared one is fine). */
+const arrowPose = newSceneJetPose();
+
 const canvas = () => document.querySelector<HTMLCanvasElement>('[role="dialog"] canvas');
 
 /** CSS pixels on the page from the canvas's own CSS pixels. */
@@ -123,6 +126,13 @@ interface PbHandle {
   project(jet?: number, what?: 'jet' | 'bomb' | 'target' | 'targetMark'): [number, number] | null;
   /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the callouts, the jets' labels. */
   debugLabels(): ReturnType<PlaybackScene['debugLabels']> | null;
+  /**
+   * Jet `jet`'s arrow (default the lead) at the clock's time now, read off its mesh: `visible` (it is drawn), `bank_deg`
+   * (the roll the mesh really has, wrapped to (−180, 180], right wing down positive), `nose` and `up` (unit vectors, three.js
+   * axes), and from the scene's source for the same moment `pose_bank_deg` (the roll the pose asks for, not wrapped) and
+   * `load_g`. Null before the scene exists or for a jet with no layer. A check compares the two rolls modulo 360°.
+   */
+  arrow(jet?: number): (NonNullable<ReturnType<PlaybackScene['debugArrow']>> & { pose_bank_deg: number; load_g: number }) | null;
   /** Where a point (playback metres east, north, up) is on the page, through the camera as it is now. */
   projectPoint(e_m: number, n_m: number, up_m: number): [number, number] | null;
   /** The box Home frames, ENU metres. */
@@ -230,6 +240,12 @@ const pb: PbHandle = {
     return p ? toPage(p.x, p.y) : null;
   },
   debugLabels: () => scene?.debugLabels() ?? null,
+  arrow(jet = 0) {
+    const a = scene?.debugArrow(jet);
+    if (!scene || !a) return null;
+    const p = scene.source().jetAt(jet, scene.clock.time, arrowPose);
+    return { ...a, pose_bank_deg: p.bank_deg, load_g: p.load_g };
+  },
   projectPoint(e, n, up) {
     const p = scene?.projectPoint(e, up, -n); // three.js axes: x east, y up, z = −north
     return p ? toPage(p.x, p.y) : null;

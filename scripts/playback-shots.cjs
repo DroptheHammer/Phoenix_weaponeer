@@ -228,8 +228,11 @@ async function checkColours(page, tag) {
  * same mutation reads 0 / 0 / 0 px at both sizes, and green is 170 / 140 / 128 and 168 / 138 / 122.
  * Since the 2D overlay carries the action points (2026-11-14) the pull-up's disc covers the arrow at
  * the pull-up moment (0 px there), so the overlay is hidden for these shots: the check is the 3D's arrow.
- * Green with it hidden: 172 / 138 / 130 px at 1400×900, 171 / 138 / 127 at 1024×768. Proven red again
- * by the arrow-shrink mutation:
+ * Green with it hidden: 172 / 138 / 130 px at 1400×900, 171 / 138 / 127 at 1024×768. Measured again
+ * 2026-11-15 once the arrow had its tall fin, raised wings and darker underside: 169 / 135 / 124 at
+ * 1400×900 and 168 / 134 / 123 at 1024×768 (a few pixels fewer, not more: the darker underside still
+ * passes jetLike, the fin adds little seen from this far, and the raised wings foreshorten the top),
+ * so the floor stays 90. Proven red again by the arrow-shrink mutation:
  *   STEP FAIL 2 jet arrow on screen (1400x900) — start t=-151.2 at 159,563: 0 px; run-in t=-94.0 at 586,438: 0 px; pull-up t=-36.8 at 896,352: 0 px (need 90)
  *   STEP FAIL 5b after the rebuild, the jet arrow on screen (1400x900-rebuilt) — … 0 px; … 0 px; … 0 px (need 90)
  */
@@ -257,6 +260,123 @@ async function checkJet(page, tag, label = '2 jet arrow on screen') {
     await overlay(page, true); // a step that throws must not leave the later checks without the overlay
   }
   step(`${label} (${tag})`, ok, `${parts.join('; ')} (need ${ARROW_MIN})`);
+}
+
+/**
+ * Check 60: the arrow in the scene is rolled as the pose says. Paused, seek to five moments along the
+ * lone pop-up (strike time, from the lead's action points): AP + 0.3 s (in the check turn), POP + 2 s (the
+ * pull-up), midway between PDP and TRK (over the top of the pull-down), REL − 1 s, and REL + 7 s (in the
+ * egress arc; not REL + 4, which sits beside where an unclipped roll would swing). At each, the arrow is
+ * drawn, the roll its mesh really has (`__pb.arrow().bank_deg`, read off the mesh's quaternion) is the
+ * pose's (`pose_bank_deg`) to within 0.5° with the sign, compared modulo 360° (the pose's roll is not
+ * wrapped, the mesh's is), and the pose's roll is where the plan puts it: 60° to 80° right in the check
+ * turn, within 1° of level in the pull-up and 1 s before the release (wings level there), 120° or more
+ * to the left over the top, and 80° to 110° right in the egress arc.
+ *
+ * Measured 2026-11-15 on the first green run, at both window sizes: the pose's roll 70.0°, 0.0°, −151.0°,
+ * 0.0°, 98.3° at the five moments, the mesh's the same, off by 0.00° each time.
+ *
+ * Proven red (2026-11-15) by one temporary edit to scene/jetLayer.ts placeArrow, the roll's sign flipped
+ * (`qRoll.setFromAxisAngle(Z_AXIS, -pose.bank_deg * D2R)` → `(Z_AXIS, pose.bank_deg * D2R)`): the mesh
+ * rolls the other way, so the check fails on its own (check 61 stays green: an arrow over the top shows
+ * its underside either way, 131 solid px there):
+ *   STEP FAIL 60 the arrow is rolled as the pose says: … (1400x900) — check turn t=-39.9: drawn, pose 70.0° (want 60…80°), mesh -70.0°, off by -140.07°; pull-up t=-34.8: drawn, pose 0.0° (want ±1°), mesh -0.0°, off by -0.04°; over the top t=-17.5: drawn, pose -151.0° (want ≤ −120°), mesh 151.0°, off by -58.01°; … egress arc t=-1.5: drawn, pose 98.3° (want 80…110°), mesh -98.3°, off by 163.48° (mesh within 0.5° of the pose)
+ * and by the roll dropped in the scene (`(Z_AXIS, 0)`), which fails 60 and 61 both:
+ *   STEP FAIL 60 the arrow is rolled as the pose says: … (1400x900) — check turn t=-39.9: drawn, pose 70.0° (want 60…80°), mesh 0.0°, off by -70.03°; …; over the top t=-17.5: drawn, pose -151.0° (want ≤ −120°), mesh -0.0°, off by 150.99°; …; egress arc t=-1.5: drawn, pose 98.3° (want 80…110°), mesh 0.0°, off by -98.26° (mesh within 0.5° of the pose)
+ *   (and the same at 1024x768)
+ */
+const ROLL_TOLERANCE_DEG = 0.5;
+const wrap360 = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+async function checkArrowRoll(page, tag) {
+  await pbEval(page, () => __pb.pause());
+  const ms = await pbEval(page, () => __pb.source().markers(0).map((m) => ({ kind: m.kind, t: m.t_s })));
+  const at = (kind) => ms.find((m) => m.kind === kind)?.t;
+  const [ap, pop, pdp, trk, rel] = ['AP', 'POP', 'PDP', 'TRK', 'REL'].map(at);
+  const moments = [
+    { name: 'check turn', t: ap + 0.3, want: (r) => r >= 60 && r <= 80, words: '60…80°' },
+    { name: 'pull-up', t: pop + 2, want: (r) => Math.abs(r) <= 1, words: '±1°' },
+    { name: 'over the top', t: (pdp + trk) / 2, want: (r) => r <= -120, words: '≤ −120°' },
+    { name: 'before release', t: rel - 1, want: (r) => Math.abs(r) <= 1, words: '±1°' },
+    { name: 'egress arc', t: rel + 7, want: (r) => r >= 80 && r <= 110, words: '80…110°' },
+  ];
+  const parts = [];
+  let ok = [ap, pop, pdp, trk, rel].every((t) => Number.isFinite(t));
+  for (const m of moments) {
+    await pbEval(page, (t) => __pb.seek(t), m.t);
+    await settle(page);
+    const a = await pbEval(page, () => __pb.arrow());
+    const diff = a ? wrap360(a.bank_deg - a.pose_bank_deg) : NaN;
+    const good = !!a && a.visible && Math.abs(diff) <= ROLL_TOLERANCE_DEG && m.want(a.pose_bank_deg);
+    ok = ok && good;
+    parts.push(`${m.name} t=${m.t.toFixed(1)}: ${a ? `${a.visible ? 'drawn' : 'NOT drawn'}, pose ${a.pose_bank_deg.toFixed(1)}° (want ${m.words}), mesh ${a.bank_deg.toFixed(1)}°, off by ${diff.toFixed(2)}°` : 'no arrow'}`);
+  }
+  step(`60 the arrow is rolled as the pose says: check turn, pull-up, over the top, before release, egress arc (${tag})`, ok, `${parts.join('; ')} (mesh within ${ROLL_TOLERANCE_DEG}° of the pose)`);
+}
+
+/**
+ * Check 61: the roll is visible in pixels. Top-down, the 2D overlay hidden (the discs and plates lie over
+ * the arrow; try/finally, as checks 2, 5b and 23), count the SOLID underside pixels within 12 px of the
+ * arrow: a pixel counts when it and its eight neighbours all pass `undersideLike`, the colour seat #1's
+ * underside is drawn in (shade 0.40 of #22d3ee, (19, 140, 158); the top, the fin, the planner's line
+ * colours, the drape and the background all fail it). The solid-block rule keeps the anti-aliased edge of
+ * the lit top over the dark casing, a blend that can pass the colour test alone, out of the count: an
+ * edge is one pixel wide and cannot fill a 3 × 3 block. Over the top of the pop-up's pull-down (midway
+ * between PDP and TRK, the roll about −151°, the arrow all but upside down) the arrow shows its underside
+ * to a camera above it: at least UNDERSIDE_MIN solid pixels. In the straight climb 8 s after POP (wings
+ * level) it shows only its top: at most UNDERSIDE_MAX.
+ *
+ * UNDERSIDE_MIN and UNDERSIDE_MAX: measured 2026-11-15 on the first green run. Over the top, 109 solid
+ * underside px at 1400×900 and 106 at 1024×768; in the straight climb 0 at both. The minimum is half of the
+ * smaller count (53), the maximum is 2 (the climb reads 0; an edge cannot fill a 3 × 3 block).
+ *
+ * Proven red (2026-11-15) by one temporary edit to src/lib/playbackScene/arrowShape.ts, the underside
+ * given no shade of its own (`ARROW_UNDER_SHADE = 0.4` → `1.0`; check 60 stays green):
+ *   STEP FAIL 61 the roll shows in pixels: Top-down, the underside over the top of the pull-down, none in the straight climb (1400x900) — over the top t=-17.5 (roll -151°) at 276,500: 0 solid underside px (need ≥ 53); straight climb t=-28.8 (roll 0.0°): 0 (need ≤ 2)
+ *   STEP FAIL 61 … (1024x768) — over the top t=-17.5 (roll -151°) at 202,395: 0 solid underside px (need ≥ 53); …
+ * and by the roll dropped in the scene (check 60's second edit), which turns the same arm red:
+ *   STEP FAIL 61 … (1400x900) — over the top t=-17.5 (roll -151°) at 276,500: 0 solid underside px (need ≥ 53); straight climb t=-28.8 (roll 0.0°): 0 (need ≤ 2)
+ * (geo-check AR1 turns red under the same shade edit too, by its shade arm.)
+ */
+const UNDERSIDE_PATCH = 12;
+const UNDERSIDE_MIN = 53;
+const UNDERSIDE_MAX = 2;
+const undersideLike = (p) => p[0] < 60 && p[1] > 125 && p[1] < 160 && p[2] > 140 && p[2] < 180;
+function solidUnderside(img, [cx, cy], r) {
+  let n = 0;
+  for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) {
+    if (x < 1 || y < 1 || x >= img.width - 1 || y >= img.height - 1) continue;
+    let solid = true;
+    for (let dy = -1; dy <= 1 && solid; dy++) for (let dx = -1; dx <= 1; dx++) if (!undersideLike(img.at(x + dx, y + dy))) { solid = false; break; }
+    if (solid) n++;
+  }
+  return n;
+}
+async function checkArrowUnderside(page, tag) {
+  await pbEval(page, () => __pb.pause());
+  const ms = await pbEval(page, () => __pb.source().markers(0).map((m) => ({ kind: m.kind, t: m.t_s })));
+  const at = (kind) => ms.find((m) => m.kind === kind)?.t;
+  const apexT = (at('PDP') + at('TRK')) / 2, climbT = at('POP') + 8;
+  await page.getByRole('button', { name: 'Top-down', exact: true }).click();
+  const count = async (name, t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+    const p = await pbEval(page, () => __pb.project(0, 'jet'));
+    const roll = await pbEval(page, () => { const a = __pb.arrow(); return a ? a.pose_bank_deg : NaN; });
+    await overlay(page, false);
+    let img;
+    try {
+      img = await shot(page, `${tag}-61-underside-${name}`);
+    } finally {
+      await overlay(page, true);
+    }
+    return { p, roll, n: p ? solidUnderside(img, p.map(Math.round), UNDERSIDE_PATCH) : 0 };
+  };
+  const apex = await count('apex', apexT);
+  const climb = await count('climb', climbT);
+  step(`61 the roll shows in pixels: Top-down, the underside over the top of the pull-down, none in the straight climb (${tag})`,
+    apex.n >= UNDERSIDE_MIN && climb.n <= UNDERSIDE_MAX,
+    `over the top t=${apexT.toFixed(1)} (roll ${apex.roll.toFixed(0)}°) at ${apex.p ? apex.p.map(Math.round) : 'none'}: ${apex.n} solid underside px (need ≥ ${UNDERSIDE_MIN}); straight climb t=${climbT.toFixed(1)} (roll ${climb.roll.toFixed(1)}°): ${climb.n} (need ≤ ${UNDERSIDE_MAX})`);
+  await pbEval(page, () => __pb.goHome());
 }
 
 /**
@@ -665,8 +785,9 @@ const offCentre = (p, cv) => (p ? [(p[0] - (cv.l + cv.w / 2)) / cv.w, (p[1] - (c
  * jet's cyan too: 138 px at 1400×900 and 111 px at 1024×768, the lines alone 59 / 59 px, floor 85.
  * Measured again the same day once they wore the planner's colours: 122 and 86 px, and with the
  * arrow shrunk to nothing (jetLayer.ts afterCamera, scale × 1e-6) 0 / 0 px, so the count is the
- * arrow's alone. The floor came down to 60, between 0 and 86 with room for the software renderer;
- * that mutation turns it red:
+ * arrow's alone. The floor came down to 60, between 0 and 86 with room for the software renderer.
+ * Measured again 2026-11-15 with the tall fin, raised wings and darker underside: 123 and 86 px, so the
+ * floor stays 60. That mutation turns it red:
  *   STEP FAIL 21 opens in Chase behind #1 at the start of the time bar (1400x900) — t -50.15 (range start -50.15); pressed ["Chase #1"]; arrow at 700,391, -0.0% / 0.0% off the middle, 0 px (need 60)
  *
  * Proven red 2026-11-14 by one temporary edit to PlaybackView.tsx, the camera's opening mode 'orbit'
@@ -1451,7 +1572,9 @@ async function spreadMoment(page) {
  * colour test: cyan #1, magenta #2, lime #3, amber #4.
  *
  * SEAT_MIN: measured 2026-11-15. Green: 188 / 112 / 145 / 131 px (#1…#4) at 1400×900, 185 / 111 / 145 /
- * 134 at 1024×768, and #3 on the skip variant (check 20) 161. With every arrow shrunk to nothing
+ * 134 at 1024×768, and #3 on the skip variant (check 20) 161 (again 2026-11-15, with the tall fin and
+ * raised wings: 159 / 117 / 157 / 128 and 162 / 114 / 150 / 133, and 164 on the skip variant; the
+ * floor stays 70). With every arrow shrunk to nothing
  * (jetLayer.ts afterCamera, the arrow's scale × 1e-6) the lines alone give 0 / 34 / 37 / 23 and 0 / 34 /
  * 32 / 25 (the other jets' trails run into their arrows in the seat colour), and 24 on the skip variant.
  * The floor of 70 sits between, with room for the software renderer, so the count is the arrow's.
@@ -1564,7 +1687,10 @@ async function checkTopDownTargets(page, tag) {
  * and 0 yellow px with Watched jet, 0 magenta and 65 yellow with All jets at 1400×900; 39 and 0, then
  * 0 and 64, at 1024×768 (the other jets' line is thinner, so fewer pixels). The floor sits at about
  * half of the smaller count, room for the software renderer. Neither test matches a drape colour, its
- * hillshade or the navy background.
+ * hillshade or the navy background. Re-run 2026-11-15 after the arrow took its fin and raised wings: no
+ * arrow lies on that stretch (the clock is at the start of the range), the count is the line's alone and
+ * the arrow's shape cannot move it: 37 magenta and 0 yellow, then 0 and 62 at 1400×900; 43 and 0, then 0
+ * and 67 at 1024×768 (the stretch is a different one since the range moved, as is the discs' count).
  *
  * Proven red 2026-11-15, each by one temporary edit:
  * - PlaybackView.tsx, the choice never handed to the scene (`scene?.setAttackColours(…)` taken out):
@@ -2660,6 +2786,8 @@ async function runChecks(browser, base) {
     await checkCameras(page, tag);
     await checkColours(page, tag);
     await checkJet(page, tag);
+    await checkArrowRoll(page, tag);
+    await checkArrowUnderside(page, tag);
     await checkReal(page, tag);
     await checkFit(page, tag, w, h);
     await checkLayout(page, tag, w, h);

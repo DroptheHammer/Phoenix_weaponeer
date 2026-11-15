@@ -7,7 +7,8 @@
  *
  * File map: playClock (play, pause, seek, speed), cameraMath (home pose,
  * pixel size, arrow scale, near plane, the four camera modes' limits and
- * poses), sceneStyle (colours and sizes),
+ * poses), sceneStyle (colours and sizes), arrowShape (the jet arrow's triangles and shades: a fin and
+ * raised wings so a roll reads),
  * source (the only file that knows the playback library's sampling names),
  * targets (one mark per distinct target, its tag, its post), callouts (the
  * letters on the discs, when the planner's words show, where their plates go,
@@ -30,6 +31,7 @@
 export * from './playClock';
 export * from './cameraMath';
 export * from './sceneStyle';
+export * from './arrowShape';
 export * from './source';
 export * from './targets';
 export * from './callouts';

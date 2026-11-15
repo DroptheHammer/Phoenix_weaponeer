@@ -36,7 +36,7 @@ import {
 } from '../../../lib/playbackScene';
 import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
-import { createJetLayer, type JetLayer } from './jetLayer';
+import { createJetLayer, type ArrowDebug, type JetLayer } from './jetLayer';
 import { createLabelLayer, type LabelDebug, type LabelLayer } from './labelLayer';
 import type { FrameCtx, Layer } from './layer';
 import { createTargetLayer, type TargetLayer } from './targetLayer';
@@ -161,6 +161,12 @@ export interface PlaybackScene {
   project(what: 'jet' | 'bomb' | 'target' | 'targetMark', jet?: number): ScreenPoint | undefined;
   /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels). For the screenshot checks. */
   debugLabels(): LabelDebug;
+  /**
+   * Jet `jet`'s (a playback index, default 0) arrow as its mesh has it at the clock's current time (a pending
+   * change is drawn first): drawn or not, its roll read off the mesh, its nose and up side. Null when the scene
+   * is gone or the jet has no layer. For the screenshot checks.
+   */
+  debugArrow(jet?: number): ArrowDebug | null;
   /** Where a point (three.js axes: x east, y up, z = −north, m) is on screen through the camera as it is now. Undefined behind it. For the screenshot checks. */
   projectPoint(x: number, y: number, z: number): ScreenPoint | undefined;
   /** The box Home frames, ENU m (a copy). For the checks. */
@@ -531,6 +537,13 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       return toScreen(probe.copy(p));
     },
     debugLabels: () => labels.debugLabels(),
+    debugArrow(j = 0) {
+      if (disposed || contextLost || fatal || j < 0 || j >= jets.length) return null;
+      if (dirty) {
+        try { draw(0); } catch (err) { fail(err); return null; }
+      }
+      return jets[j].debugArrow();
+    },
     projectPoint(x, y, z) {
       if (disposed || contextLost || fatal) return undefined;
       if (dirty) {
