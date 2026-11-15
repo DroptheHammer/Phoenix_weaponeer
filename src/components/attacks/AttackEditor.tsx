@@ -12,7 +12,7 @@ import { JetStrip, JET_COLORS } from './JetStrip';
 import { AttackPreviewMap, type PreviewAttack } from '../map/AttackPreviewMap';
 import { PlayStrikeButton, playbackLaunchFromEditor } from '@playback';
 import { draftAttackData, draftFromAttack, draftIpAnchor, resolveDraft, setIp, type DraftContext, type ResolvedDraft } from '../../lib/attackDraft';
-import { newJet, newStrike, jetsOfStrike, respace, sortJets, setStrikeIp, strikeIpOf, syncJetIp, assignFlanks, leadSideOf, type Jet } from '../../lib/strikeDraft';
+import { newJet, newStrike, jetsOfStrike, respace, sortJets, setStrikeIp, strikeIpOf, syncJetIp, assignFlanks, leadSideOf, withTotOffsets, type Jet } from '../../lib/strikeDraft';
 import { attackSpeedOf, coneGrade, fmtStrikeTime, strikeFlank, strikeOf, strikeReadout, type StrikeJet } from '../../lib/strike';
 import { buildAttackPicture } from '../../lib/attackPicture';
 import { resolveEgressHeading } from '../../lib/attackGeometry';
@@ -333,7 +333,10 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
             {/* 3D playback of the whole strike (every jet), built from the drafts and times as they are now (unsaved edits included). */}
             <PlayStrikeButton
               disabled={!allSavable}
-              build={() => playbackLaunchFromEditor({ mission, drafts, resolved, offsets: jets.map((j) => j.totOffset_s), strikeName: strike?.name, selectedIndex })}
+              build={() => playbackLaunchFromEditor({
+                mission, drafts, resolved, offsets: jets.map((j) => j.totOffset_s), strikeName: strike?.name, selectedIndex,
+                applyOffsets: strike ? (o) => setJets((js) => withTotOffsets(js, o)) : undefined,
+              })}
             />
             <button onClick={onClose} className="px-6 py-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors">Cancel</button>
             <button

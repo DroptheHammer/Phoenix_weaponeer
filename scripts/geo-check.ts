@@ -61,11 +61,11 @@ import { compareThreatsForCard } from '../src/lib/cardThreats';
 import { applyFlank, applyEgress, reanchorProfile, moveIp } from '../src/lib/attackFlank';
 import { KNOB_RANGES, KNOB_CHOICES, IP_KNOB_RANGES, type KnobRange } from '../src/lib/customizeKnobs';
 import { draftFromAttack, resolveDraft, draftAttackData, chooseEgress, setIp } from '../src/lib/attackDraft';
-import { newJet, assignFlanks, respace, groupEdit } from '../src/lib/strikeDraft';
+import { newJet, assignFlanks, respace, groupEdit, jetsOfStrike, withTotOffsets, type Jet } from '../src/lib/strikeDraft';
 import {
   applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
   fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot, attackSpeedOf, ipToImpact_s,
-  fragConflicts, setStrikeOffsets, fmtStrikeTime, type StrikeJet,
+  fragConflicts, setStrikeOffsets, fmtStrikeTime, strikeOf, type StrikeJet,
 } from '../src/lib/strike';
 import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
@@ -141,10 +141,11 @@ import {
   initSession, sessionReducer, isDirty, conflictBands, SEAT_TEXT, SEAT_ON_BG, SEAT_ON_TEXT, QUIET_TEXT, WARN_TEXT, type Session, type SessionAction, type ShowAction,
 } from '../src/lib/playbackScene';
 import { laneAxis, zoneBands, seatInConflict, seatConflictTitle, handleKeyStep, READOUT_TEXT, BOX_FILL, BOX_EDGE } from '../src/lib/playbackScene';
+import { editorOffsets, applyShift, cardOrder, renumbered, renumberedText, applyStatusLines, APPLY_WORDS } from '../src/lib/playbackScene';
 import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle } from '../src/components/playback/laneText';
 import {
   LANE, LANES, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, LANE_SKIPPED, FOOTER_OK, FOOTER_MORE, FOOTER_WARN, FOOTER_REST,
-  READOUT, TIME_BOX, CONFLICT_MARK, FOOTER_DIRTY, FOOTER_RESET,
+  READOUT, TIME_BOX, CONFLICT_MARK, FOOTER_DIRTY, FOOTER_RESET, FOOTER_STATUS,
 } from '../src/components/playback/ui';
 import { PHASES, PHASE_STYLE, dangerZones, inDangerZone } from '../src/lib/playback';
 import {
@@ -7995,6 +7996,8 @@ void (async () => {
     //   FAIL playback B3 [LS2]: … SEAT_OFF hover fill: class gives #f3f4f6, laneStyle holds #374151
     // ui.ts TIME_BOX 'border-gray-500' → 'border-gray-600' (the time box's edge, 2.09:1 on the panel; [CT1] stays green, it reads the constant):
     //   FAIL playback B3 [LS2]: … TIME_BOX edge: class gives #4b5563, laneStyle holds #6b7280
+    // ui.ts FOOTER_STATUS 'text-gray-300' → 'text-gray-600' (the line under the footer after an Apply, too dark on the panel), seen red 2026-11-15:
+    //   FAIL playback B3 [LS2]: … FOOTER_STATUS text: class gives #4b5563, laneStyle holds #d1d5db
     const twColours = createRequire(`${process.cwd()}/`)('tailwindcss/colors') as Record<string, string | Record<string, string> | undefined>;
     // A tailwind colour name ("gray-200", "white") as lower-case six-digit hex, or undefined when it is not one.
     const twHex = (name: string): string | undefined => {
@@ -8028,6 +8031,7 @@ void (async () => {
       ['FOOTER_RESET text', classHex(FOOTER_RESET, 'text'), READOUT_TEXT],
       ['FOOTER_RESET edge', classHex(FOOTER_RESET, 'border'), BOX_EDGE],
       ['FOOTER_RESET hover fill', classHex(FOOTER_RESET, 'hover:bg'), BOX_FILL],
+      ['FOOTER_STATUS text', classHex(FOOTER_STATUS, 'text'), READOUT_TEXT],
     ];
     const ls2Bad = ls2.filter(([, got, want]) => got !== want).map(([n, got, want]) => `${n}: class gives ${got ?? 'no one colour'}, laneStyle holds ${want}`);
     ok('playback B3 [LS2]: every class string that sets the seat buttons\', the quiet text\'s or the warnings\' colour names the tailwind colour whose hex laneStyle carries (the one [CT1] holds against the panel)',
@@ -8811,6 +8815,236 @@ void (async () => {
     const ln6bBad = Object.entries(ln6b).filter(([, [got, want]]) => got !== want).map(([k, [got, want]]) => `${k} "${got}" vs "${want}"`);
     ok('playback B3 [LN6b]: the handle\'s name and tooltip, the box\'s name and what seat #1 says when held read exactly these words',
        ln6bBad.length === 0, ln6bBad.join('; ') || 'four strings');
+
+    // ── Apply from the editor (apply.ts, strikeDraft.ts's withTotOffsets, launch.ts's apply and tie). The
+    // attack editor is played here the way AttackEditor.tsx plays it: the saved strike opened as jets
+    // (jetsOfStrike), each draft as it would save (draftAttackData, a draft not saved yet under a "draft-"
+    // id), Play's launch from those, Apply's times written back with withTotOffsets, and Save through
+    // saveStrikeTo with the lead's time as 0. The attack list's way in is setStrikeOffsets over the library's
+    // delaysToOffsets. Both ways must leave the strike the same, and the cards must number the jets as
+    // playback said they would.
+    const apProfiles = b3Profiles.filter((p) => p.id === 'f16c.popup.std' || p.id === 'f16c.loft.std');
+    const apEditor = (m: Mission, strikeId: string, unsaved?: number) => {
+      const strike = strikeOf(m, strikeId)!;
+      const ctx = { mission: m, weapons: refWeapons, profiles: apProfiles, threatSystems: [] } as never;
+      const jets: Jet[] = jetsOfStrike(m, strike).map((j, i) => (i === unsaved ? { ...j, attackId: undefined } : j));
+      const resolved = jets.map((j) => resolveDraft(j.draft, ctx));
+      const drafts = jets.map((j, i) => {
+        const data = draftAttackData(j.draft, resolved[i], m.attacks.find((a) => a.id === j.attackId), m.attacks.length + 1 + i);
+        const attack = data ? ({ ...data, id: j.attackId ?? `draft-${i}` } as Attack) : undefined;
+        return { data, attack, ipAnchor: draftIpAnchor(attack, m) };
+      });
+      return { m, strike, jets, resolved, drafts };
+    };
+    type ApEditor = ReturnType<typeof apEditor>;
+    const apPlay = (e: ApEditor, extra: Partial<Parameters<typeof playbackLaunchFromEditor>[0]> = {}) =>
+      playbackLaunchFromEditor({ mission: e.m, drafts: e.drafts, resolved: e.resolved, offsets: e.jets.map((j) => j.totOffset_s), strikeName: 'S', selectedIndex: 0, ...extra });
+    /** Save, the editor's way (AttackEditor.tsx handleSave): the lead's time is 0, saveStrikeTo re-bases on whoever is first. */
+    const apSave = (e: ApEditor, jets: Jet[]) => {
+      let n = 0;
+      return saveStrikeTo(e.m, e.strike, jets.map((j, i) => ({ id: j.attackId, data: e.drafts[i].data!, totOffset_s: i === 0 ? 0 : j.totOffset_s })), () => `ap-new-${++n}`);
+    };
+    const apOffsetsOf = (m: Mission, strikeId: string, ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, m.attacks.find((a) => a.id === id)?.totOffset_s]));
+    const apFlip = (m: Mission): Mission => ({ ...m, flightMembers: m.flightMembers.map((f) => (f.id === 'p3' ? { ...f, position: 4 } : f.id === 'p4' ? { ...f, position: 3 } : f)) });
+    // The four-ship again with p3 and p4 flying in the other order (their attacks keep the numbers they had) and
+    // the times 0/10/30/50, so playback opens with the seats in the order the cards number them.
+    const apRev = b3Saved(apFlip(b3m), 'br', [
+      { who: 'p1', target: wpTgt.id, profile: 'f16c.popup.std', tot: 0 },
+      { who: 'p2', target: wpTgt.id, profile: 'f16c.popup.std', tot: 10 },
+      { who: 'p3', target: b3Tgt2.id, profile: 'f16c.popup.std', tot: 30 },
+      { who: 'p4', target: wpTgt.id, profile: 'f16c.loft.std', tot: 50 },
+    ]).mission;
+    // The four-ship with p3 and p4 both at flight position 4 and the attacks numbered 10, 20, 30, 40 (a plan that has
+    // had attacks deleted: the numbers run past the count), so a tie in time between #3 and #4 falls to the attack's number.
+    const apSparse: Mission = {
+      ...strike4, attacks: strike4.attacks.map((a) => ({ ...a, sequenceNumber: a.sequenceNumber * 10 })),
+      flightMembers: strike4.flightMembers.map((f) => (f.id === 'p3' ? { ...f, position: 4 } : f)),
+    };
+    const apIds = s4Pb.members.map((m) => m.id);
+
+    // [A1] The editor's Apply writes each member's time less the first member's, in member order, to the
+    // thousandth of a second: 20/0/40 → 0/−20/+20; a lead at 0 leaves the times as they are; a time that
+    // needs rounding is rounded (12.3456 → 12.346; 0.3 − 0.1 → 0.2, not 0.19999999999999998); a difference
+    // too small to show is 0 and not −0; no members, no times.
+    // Mutation proof (seen red 2026-11-15): apply.ts editorOffsets `const lead = delays[memberIds[0]]` → `const lead = Math.min(...memberIds.map((m) => delays[m]))` (subtracts the earliest, not the first):
+    //   FAIL playback B3 [A1]: … 20/0/40: 20,0,40 (want 0,-20,20)
+    // (A2 and A6 go red with it, below.)
+    const a1 = {
+      shifted: editorOffsets(['m1', 'm2', 'm3'], { m1: 20, m2: 0, m3: 40 }),
+      leadAtZero: editorOffsets(apIds, { 'b3-1': 0, 'b3-2': 10, 'b3-3': 40, 'b3-4': 40 }),
+      round: editorOffsets(['a', 'b', 'c'], { a: 0, b: 12.3456, c: 0.3 - 0.1 }),
+      minusZero: editorOffsets(['a', 'b'], { a: 5, b: 5.0004 }),
+      none: editorOffsets([], {}),
+    };
+    const a1Bad: string[] = [];
+    if (a1.shifted.join() !== '0,-20,20') a1Bad.push(`20/0/40: ${a1.shifted} (want 0,-20,20)`);
+    if (a1.leadAtZero.join() !== '0,10,40,40') a1Bad.push(`lead at 0: ${a1.leadAtZero} (want 0,10,40,40)`);
+    if (a1.round.join() !== '0,12.346,0.2') a1Bad.push(`rounded: ${a1.round} (want 0,12.346,0.2)`);
+    if (!Object.is(a1.minusZero[1], 0)) a1Bad.push(`a difference of −0.0004 s is ${Object.is(a1.minusZero[1], -0) ? '−0' : a1.minusZero[1]} (want 0)`);
+    if (a1.none.length !== 0) a1Bad.push(`no members: ${a1.none}`);
+    ok('playback B3 [A1]: the editor\'s Apply writes each member\'s time less the first member\'s, in member order, to a thousandth of a second (20/0/40 → 0/−20/+20; a lead at 0 changes nothing; no −0)',
+       a1Bad.length === 0, a1Bad.join('; ') || `20/0/40 → ${a1.shifted}; plan ${a1.leadAtZero}; rounded ${a1.round}`);
+
+    // [A2] Both ways in leave the strike's times the same. The editor: Apply writes the offsets to its jets
+    // (editorOffsets, withTotOffsets), Save stores them with the lead at 0 and re-bases on whoever is first. The
+    // attack list: setStrikeOffsets over delaysToOffsets. After either the strike's attacks hold the same times
+    // over target: lead first, a wingman ahead of the lead (the editor re-bases at Save, the list at once), and
+    // three jets on one time.
+    // Mutation proof (seen red 2026-11-15): apply.ts editorOffsets `const lead = delays[memberIds[0]]` → `const lead = Math.min(...memberIds.map((m) => delays[m]))` (red on the wingman-first case alone: the lead is then
+    // written as 20 and the editor saves it at 0, while the list door keeps it 20 s behind #2; the first case, with the lead at 0, cannot tell the two apart):
+    //   FAIL playback B3 [A2]: … wingman first: the editor stores {"b3-1":0,"b3-2":0,"b3-3":60,"b3-4":60}, the attack list {"b3-1":20,"b3-2":0,"b3-3":60,"b3-4":60}
+    const a2Cases: [string, Record<string, number>][] = [
+      ['lead first', { 'b3-1': 0, 'b3-2': 25, 'b3-3': 40, 'b3-4': 40 }],
+      ['wingman first', { 'b3-1': 0, 'b3-2': -20, 'b3-3': 40, 'b3-4': 40 }],
+      ['three on one time', { 'b3-1': 0, 'b3-2': 40, 'b3-3': 40, 'b3-4': 40 }],
+    ];
+    const a2Bad: string[] = [];
+    for (const [name, delays] of a2Cases) {
+      const e = apEditor(strike4, 'b3');
+      const editorWay = apOffsetsOf(apSave(e, withTotOffsets(e.jets, editorOffsets(apIds, delays))).mission, 'b3', apIds);
+      const listWay = apOffsetsOf(setStrikeOffsets(strike4, 'b3', delaysToOffsets(s4Pb, delays)), 'b3', apIds);
+      if (JSON.stringify(editorWay) !== JSON.stringify(listWay)) a2Bad.push(`${name}: the editor stores ${JSON.stringify(editorWay)}, the attack list ${JSON.stringify(listWay)}`);
+    }
+    ok('playback B3 [A2]: Apply from the editor (written to its jets, then saved) and Apply from the attack list (setStrikeOffsets) leave the strike with the same times over target: lead first, a wingman first, three on one time',
+       a2Bad.length === 0 && a2Cases.length === 3, a2Bad.join('; ') || `${a2Cases.length} cases agree`);
+
+    // [A3] How far Apply moves the strike's clock: from the editor, the first member's time (the editor counts from
+    // its lead); on the plan, the earliest time of every member, a member not flown included (what the planner's own
+    // re-base does). No members: 0.
+    // Mutation proof (seen red 2026-11-15): apply.ts applyShift `return times.length ? Math.min(...times) : 0` → `return times[0] ?? 0` (the plan takes the first member's time too):
+    //   FAIL playback B3 [A3]: … plan, wingman first: 20 (want 0); plan, a member not flown the earliest: 0 (want -30)
+    const a3Ids = ['a', 'b', 'c'];
+    const a3Skip = skipPb.members.map((m) => m.id);
+    const a3 = {
+      editor: applyShift('editor', a3Ids, { a: 20, b: 0, c: 40 }),
+      editorLead0: applyShift('editor', a3Ids, { a: 0, b: -20, c: 40 }),
+      planLeadFirst: applyShift('mission', a3Ids, { a: 0, b: 10, c: 40 }),
+      planWingman: applyShift('mission', a3Ids, { a: 20, b: 0, c: 40 }),
+      planSkipped: applyShift('mission', a3Skip, { [a3Skip[0]]: 0, [a3Skip[1]]: -30, [a3Skip[2]]: 40 }),
+      none: [applyShift('editor', [], {}), applyShift('mission', [], {})],
+    };
+    const a3Want = { editor: 20, editorLead0: 0, planLeadFirst: 0, planWingman: 0, planSkipped: -30 };
+    const a3Bad = (Object.keys(a3Want) as (keyof typeof a3Want)[]).filter((k) => a3[k] !== a3Want[k]).map((k) => ({
+      editor: 'editor', editorLead0: 'editor, lead at 0', planLeadFirst: 'plan, lead first', planWingman: 'plan, wingman first', planSkipped: 'plan, a member not flown the earliest',
+    })[k] + `: ${a3[k]} (want ${a3Want[k]})`);
+    if (a3.none.join() !== '0,0') a3Bad.push(`no members: ${a3.none} (want 0,0)`);
+    ok('playback B3 [A3]: Apply moves the strike\'s clock by the first member\'s time from the editor and by the earliest time of every member (not flown ones too) on the plan',
+       a3Bad.length === 0 && a3Skip.length === 3, a3Bad.join('; ') || `editor ${a3.editor}, ${a3.editorLead0}; plan ${a3.planLeadFirst}, ${a3.planWingman}, ${a3.planSkipped}`);
+
+    // [A5] The editor offers Apply only to a strike with somewhere to write: a strike's name, two jets or more, and
+    // the editor's own way to set the sliders; it writes through that way. A lone attack (no strike name), a strike
+    // with one jet, and a launch with no way to write get none.
+    // Mutation proof (seen red 2026-11-15): launch.ts `drafts.length >= 2` → `drafts.length >= 1`:
+    //   FAIL playback B3 [A5]: … a strike with one jet: Apply offered (want none)
+    const a5Written: number[][] = [];
+    const a5e = apEditor(strike4, 'b3');
+    const a5Write = (o: number[]) => void a5Written.push(o);
+    const a5 = {
+      strike: apPlay(a5e, { applyOffsets: a5Write }),
+      lone: apPlay(a5e, { applyOffsets: a5Write, strikeName: undefined }),
+      oneJet: apPlay({ ...a5e, drafts: a5e.drafts.slice(0, 1), resolved: a5e.resolved.slice(0, 1), jets: a5e.jets.slice(0, 1) }, { applyOffsets: a5Write }),
+      noWay: apPlay(a5e),
+    };
+    a5.strike?.apply?.write([0, 1, 2, 3]);
+    const a5Bad: string[] = [];
+    if (a5.strike?.apply?.to !== 'editor') a5Bad.push(`a strike of four: Apply to ${a5.strike?.apply?.to} (want the editor)`);
+    if (JSON.stringify(a5Written) !== '[[0,1,2,3]]') a5Bad.push(`writing through Apply gave ${JSON.stringify(a5Written)} (want [[0,1,2,3]])`);
+    if (a5.lone?.apply) a5Bad.push('a lone attack: Apply offered (want none)');
+    if (a5.oneJet?.apply) a5Bad.push('a strike with one jet: Apply offered (want none)');
+    if (a5.noWay?.apply) a5Bad.push('no way to write: Apply offered (want none)');
+    ok('playback B3 [A5]: the editor\'s launch offers Apply to a strike of two jets or more with a way to write the sliders, and not to a lone attack, a strike with one jet, or a launch with no way to write',
+       a5Bad.length === 0 && !!a5.strike && !!a5.lone && !!a5.oneJet && !!a5.noWay, a5Bad.join('; ') || 'strike of 4 yes (writes through); lone, one jet, no way: none');
+
+    // [A6] The cards number a strike's jets by time over target, then flight position, then the attack's number,
+    // so an Apply can leave the cards numbering a jet differently from playback's seats; playback says which. The
+    // order it works out (cardOrder, over the times as written and what the launch gives to break a tie) equals the
+    // order the cards really take after Save (the editor: saveStrikeTo) and after the attack list's Apply
+    // (setStrikeOffsets), in cases that move a wingman first, swap #2 and #3, make a tie between pilots who fly in
+    // the other order than their seats (the cards go by the pilots' flight position), and put a draft not saved yet
+    // among saved ones (it takes the numbers after every saved attack, so only the flight position can put it first).
+    // The words of the Apply button and its status lines, exact, for both places the times go.
+    // Mutation proof (seen red 2026-11-15): apply.ts cardOrder without its flight-position key (`|| tie[a][0] - tie[b][0]` taken out):
+    //   FAIL playback B3 [A6]: … flight positions reversed, a new tie, the editor: cards [0,1,3,2], playback says [0,1,2,3]; … the attack list: cards [0,1,3,2], playback says [0,1,2,3]; … a draft not saved yet among saved ones on a three-way tie, the editor: cards [0,1,2,3], playback says [0,2,3,1]; …
+    // and launch.ts `attack && !attack.id.startsWith('draft-') ? attack.sequenceNumber : 1e9 + i` → `attack ? attack.sequenceNumber : 1e9 + i` (a draft takes the number it shows, which can sit below a saved attack's, not one after every saved attack):
+    //   FAIL playback B3 [A6]: … a draft not saved yet on a tie with a saved attack of the same flight position and a higher number, the editor: cards [0,1,3,2], playback says [0,1,2,3]; … renumbered [] (want [[3,2],[2,3]])
+    // (A1's mutation turns it red too: "a wingman first, the editor: cards [0,1,2,3], playback says [1,0,2,3]".)
+    type A6Case = { name: string; m: Mission; sid: string; bySeat: number[]; want: [number, number][]; unsaved?: number; editorOnly?: boolean };
+    const a6Cases: A6Case[] = [
+      { name: 'flight positions reversed, a new tie', m: apRev, sid: 'br', bySeat: [0, 10, 30, 30], want: [[3, 2], [2, 3]] },
+      { name: 'a wingman first', m: strike4, sid: 'b3', bySeat: [0, -20, 40, 40], want: [[1, 0], [0, 1]] },
+      { name: '#2 and #3 swapped', m: strike4, sid: 'b3', bySeat: [0, 35, 25, 40], want: [[2, 1], [1, 2]] },
+      { name: 'a draft not saved yet among saved ones on a three-way tie', m: strike4, sid: 'b3', bySeat: [0, 40, 40, 40], want: [], unsaved: 1, editorOnly: true },
+      { name: 'a draft not saved yet on a tie with a saved attack of the same flight position and a higher number', m: apSparse, sid: 'b3', bySeat: [0, 10, 40, 40], want: [[3, 2], [2, 3]], unsaved: 2, editorOnly: true },
+    ];
+    const a6Bad: string[] = [];
+    for (const c of a6Cases) {
+      // The editor.
+      const e = apEditor(c.m, c.sid, c.unsaved);
+      const launch = apPlay(e, { applyOffsets: () => {} })!;
+      const ids = launch.input.jets.map((j) => j.id);
+      const written = editorOffsets(ids, Object.fromEntries(ids.map((id, i) => [id, c.bySeat[i]])));
+      const saved = apSave(e, withTotOffsets(e.jets, written));
+      const real = strikeMembers(saved.mission, c.sid).map((a) => saved.attackIds.indexOf(a.id));
+      const said = cardOrder(written, launch.tie!);
+      if (JSON.stringify(said) !== JSON.stringify(real)) a6Bad.push(`${c.name}, the editor: cards ${JSON.stringify(real)}, playback says ${JSON.stringify(said)}`);
+      if (JSON.stringify(renumbered(said)) !== JSON.stringify(c.want)) a6Bad.push(`${c.name}, the editor: renumbered ${JSON.stringify(renumbered(said))} (want ${JSON.stringify(c.want)})`);
+      if (c.editorOnly) continue;
+      // The attack list.
+      const lpb = buildStrikePlayback(playbackInputFromMission(c.m, { strikeId: c.sid }, refWeapons as never)!);
+      const lids = lpb.members.map((mb) => mb.id);
+      const off = delaysToOffsets(lpb, Object.fromEntries(lids.map((id, i) => [id, c.bySeat[i]])));
+      const lwritten = lids.map((id) => off[id]);
+      const ltie = lids.map((id): [number, number] => {
+        const a = c.m.attacks.find((x) => x.id === id)!;
+        return [c.m.flightMembers.find((f) => f.id === a.attackerId)?.position ?? 9, a.sequenceNumber];
+      });
+      const lreal = strikeMembers(setStrikeOffsets(c.m, c.sid, off), c.sid).map((a) => lids.indexOf(a.id));
+      const lsaid = cardOrder(lwritten, ltie);
+      if (JSON.stringify(lsaid) !== JSON.stringify(lreal)) a6Bad.push(`${c.name}, the attack list: cards ${JSON.stringify(lreal)}, playback says ${JSON.stringify(lsaid)}`);
+      if (JSON.stringify(renumbered(lsaid)) !== JSON.stringify(c.want)) a6Bad.push(`${c.name}, the attack list: renumbered ${JSON.stringify(renumbered(lsaid))} (want ${JSON.stringify(c.want)})`);
+    }
+    // The words.
+    const a6Two = [renumberedText('#3', 'Viper 1-3', 1), renumberedText('#2', 'Viper 1-2', 2)];
+    const a6Words: [string, string, string][] = [
+      ['a renumbered seat', renumberedText('#3', 'Viper 1-3', 1), '#3 Viper 1-3 as #2'],
+      ['a renumbered seat with no callsign', renumberedText('#2', undefined, 0), '#2 as #1'],
+      ['Apply to the strike', `${APPLY_WORDS.editor.label} | ${APPLY_WORDS.editor.title}`, "Apply to strike | Write these times into the strike you're editing. Save the strike to keep them."],
+      ['Apply to the plan', `${APPLY_WORDS.mission.label} | ${APPLY_WORDS.mission.title}`, 'Apply to plan | Write these times into the plan and the cards.'],
+      ['the editor, nothing renumbered', applyStatusLines({ to: 'editor', renumbered: [] }).join(' / '),
+        'Applied to the strike in the editor. Save the strike to keep it; Cancel throws it away. / Moving “Spacing over the target” on the Group tab spaces the jets evenly again and replaces these times.'],
+      ['the editor, two renumbered', applyStatusLines({ to: 'editor', renumbered: a6Two }).slice(2).join(' / '),
+        'When you save, the cards will number jets in their order over the target: #3 Viper 1-3 as #2 and #2 Viper 1-2 as #3. Playback keeps the numbers it opened with.'],
+      ['the plan, nothing renumbered', applyStatusLines({ to: 'mission', renumbered: [] }).join(' / '),
+        'Applied to the plan: the cards now use these times. To take it back, close playback and press Undo (⌘Z / Ctrl+Z), once for each Apply.'],
+      ['the plan, three renumbered', applyStatusLines({ to: 'mission', renumbered: [...a6Two, '#4 Viper 1-4 as #3'] }).slice(1).join(' / '),
+        'The cards number jets in their order over the target, so they now have #3 Viper 1-3 as #2, #2 Viper 1-2 as #3 and #4 Viper 1-4 as #3. Playback keeps the numbers it opened with.'],
+      ['the plan, one renumbered', applyStatusLines({ to: 'mission', renumbered: ['#2 as #1'] }).slice(1).join(' / '),
+        'The cards number jets in their order over the target, so they now have #2 as #1. Playback keeps the numbers it opened with.'],
+    ];
+    for (const [name, got, want] of a6Words) if (got !== want) a6Bad.push(`${name}: "${got}" vs "${want}"`);
+    ok('playback B3 [A6]: the order playback says the cards will number the jets in equals the order after Save and after the attack list\'s Apply (a wingman first, #2 and #3 swapped, a tie between pilots in the other order of their seats, a draft not saved yet), and the Apply words read exactly so',
+       a6Bad.length === 0 && a6Cases.length === 5, a6Bad.join('; ') || `${a6Cases.length} cases agree with the real order (3 both ways, 2 the editor's), ${a6Words.length} sentences`);
+
+    // [A7] Writing the applied times to the editor's jets: each jet's time over target by index; a time that is not
+    // a number (or is infinite) leaves that jet's as it was; a list that is not one per jet, longer or shorter,
+    // changes nothing and gives the same array back; the drafts and the attacks they edit are untouched.
+    // Mutation proof (seen red 2026-11-15): strikeDraft.ts withTotOffsets without its `if (offsets.length !== jets.length) return jets;`:
+    //   FAIL playback B3 [A7]: … three times for four jets: a new array (want the same one); five times for four jets: a new array (want the same one); no times: a new array (want the same one)
+    // (green: "four times; NaN and Infinity keep; three, five and none leave the array alone".)
+    const a7Jets = apEditor(strike4, 'b3').jets;
+    const a7 = {
+      all: withTotOffsets(a7Jets, [0, 5, 6, 7]),
+      odd: withTotOffsets(a7Jets, [0, NaN, 6, Infinity]),
+    };
+    const a7Bad: string[] = [];
+    if (a7.all.map((j) => j.totOffset_s).join() !== '0,5,6,7') a7Bad.push(`four times: ${a7.all.map((j) => j.totOffset_s)} (want 0,5,6,7)`);
+    if (a7.odd.map((j) => j.totOffset_s).join() !== `0,${a7Jets[1].totOffset_s},6,${a7Jets[3].totOffset_s}`) a7Bad.push(`a NaN and an Infinity: ${a7.odd.map((j) => j.totOffset_s)} (want the jets' own at 2 and 4)`);
+    if (!a7.all.every((j, i) => j.draft === a7Jets[i].draft && j.attackId === a7Jets[i].attackId)) a7Bad.push('the drafts or attack ids changed');
+    for (const [name, list] of [['three times for four jets', [1, 2, 3]], ['five times for four jets', [1, 2, 3, 4, 5]], ['no times', []]] as [string, number[]][]) {
+      if (withTotOffsets(a7Jets, list) !== a7Jets) a7Bad.push(`${name}: a new array (want the same one)`);
+    }
+    ok('playback B3 [A7]: the applied times go to the editor\'s jets by index; a time that is not a number leaves that jet\'s alone; a list of the wrong length changes nothing (the same array)',
+       a7Bad.length === 0, a7Bad.join('; ') || 'four times; NaN and Infinity keep; three, five and none leave the array alone');
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }

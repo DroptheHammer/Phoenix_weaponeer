@@ -13,7 +13,8 @@
  *   live                 real OpenStreetMap and elevation tiles, fetched by the browser
  *   none                 flat ground, nothing fetched
  * Other parameters: ?open=0 starts closed; ?notes=1 adds an unverified-theater note
- * (the longest small print, for the 1024×768 fit check).
+ * (the longest small print, for the 1024×768 fit check). The strikes also offer Apply
+ * to strike, as the editor does: what it writes is recorded in __pb.applied.
  *
  * Underneath sits a small fake "editor": the opener, a sentinel button, an
  * Escape listener like the real editor's, and a click counter on the
@@ -44,7 +45,9 @@ const watchParam = params.get('watch');
 const notes = params.get('notes') === '1'
   ? ["Harness: coordinates unverified. This map's projection has not been checked against a known landmark, so the plan may sit offset over the ground drawn here."]
   : [];
-const launch = harnessFixtureLaunch(fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined);
+// What Apply wrote to the editor's sliders, one list of offsets (the editor's order) for each press.
+const applied: number[][] = [];
+const launch = harnessFixtureLaunch(fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined, (offsets) => applied.push(offsets));
 const moments = harnessMoments(launch);
 // The same source the view builds, for the world positions the checks compare against.
 const source = sceneSourceFrom(moments.pb, moments.timing);
@@ -128,6 +131,8 @@ interface PbHandle {
   watched(): number | null;
   /** The session as the view holds it now (null until playback has opened). */
   session(): Session | null;
+  /** What Apply has written to the editor's sliders so far: one list of times (the editor's order) for each press. The strikes only. */
+  readonly applied: readonly (readonly number[])[];
   /**
    * What each seat button beside the lanes shows, read off the page as drawn (page pixels), in seat
    * order, skipped seats included: its text, whether it is pressed or disabled, its label and box.
@@ -240,6 +245,7 @@ const pb: PbHandle = {
   tileRequests: () => tileRequests,
   watched: () => sessionNow?.watched ?? null,
   session: () => sessionNow,
+  applied,
   seats: () =>
     [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] [data-seat]')].map((b) => ({
       seat: Number(b.getAttribute('data-seat')),

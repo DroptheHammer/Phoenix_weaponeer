@@ -110,6 +110,16 @@ export function respace(jets: Jet[], spacing_s: number): Jet[] {
 }
 
 /**
+ * Playback's Apply from the editor: each jet's time over target (by index, the editor's order). A time that
+ * is not a number leaves that jet's as it was; a list that is not one per jet changes nothing (the same
+ * array back). Never `respace`: that would wipe the very times being applied.
+ */
+export function withTotOffsets(jets: Jet[], offsets: readonly number[]): Jet[] {
+  if (offsets.length !== jets.length) return jets;
+  return jets.map((j, i) => (Number.isFinite(offsets[i]) ? { ...j, totOffset_s: offsets[i] } : j));
+}
+
+/**
  * The strike's target. Jets still on the old strike target (or on none) move
  * with it; a jet the planner sent to its own target stays there.
  */

@@ -16,7 +16,9 @@
  * planner's words, the stretch of the clock that is played), homeView (what
  * Home frames, which camera opens), show (what the 3D view shows: the Show
  * menu's state), session (what the open playback remembers: the jet watched,
- * the camera, the Show choices, every member's time over target), lanes (the
+ * the camera, the Show choices, every member's time over target), apply (what
+ * Apply writes from those times and says afterwards, and how the cards will
+ * number the jets then), lanes (the
  * timeline's axis (kept still while a time is dragged), each jet's phase bands
  * and lettered marks, where the chips go, the stretches of frag conflict and
  * of each jet's danger zones, the keys that move a time), laneStyle (the timeline's sizes and
@@ -36,6 +38,7 @@ export * from './actionPoints';
 export * from './homeView';
 export * from './show';
 export * from './session';
+export * from './apply';
 export * from './lanes';
 export * from './laneStyle';
 export * from './terrain';

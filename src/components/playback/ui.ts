@@ -125,6 +125,13 @@ export const FOOTER_DIRTY = 'text-amber-300';
  */
 export const FOOTER_RESET =
   'h-4 rounded border border-gray-500 px-2 text-[11px] leading-[14px] text-gray-300 hover:bg-gray-700 aria-disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent';
+/** Apply is Reset's twin: the same 16 px, edge and colours, so the line keeps its height. */
+export const FOOTER_APPLY = FOOTER_RESET;
+/**
+ * What Apply said, in one 16 px row under the line (longer than the row, it is cut short and its whole text
+ * is the row's tooltip), so four lanes and the small print still leave the picture its room. Text READOUT_TEXT.
+ */
+export const FOOTER_STATUS = 'h-4 min-w-0 truncate text-xs leading-4 text-gray-300';
 /** The side view's panel: the editor's own pale background. */
 export const SIDE_BG = 'bg-[#F4F4EC]';
 

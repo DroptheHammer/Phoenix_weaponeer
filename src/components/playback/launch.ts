@@ -5,7 +5,10 @@
  * draw), plus the notes the planner shows about the theater.
  *
  * Every jet of the strike goes, in the editor's order, with the times the
- * sliders hold now. Kept out of the editor so the editor keeps one import and
+ * sliders hold now. A strike also gets a way to write times back to those
+ * sliders (Apply), and what the cards go by when two jets share a time, so
+ * playback can say which jets an Apply leaves numbered differently on the
+ * cards. Kept out of the editor so the editor keeps one import and
  * one element for playback. Small and free of three.js: it sits in the eager
  * desktop bundle, and only runs when the button is pressed.
  */
@@ -17,7 +20,7 @@ import { attackSpeedOf } from '../../lib/strike';
 import { getTheaterInfo } from '../../stores/theaterStore';
 import { isRealWorld } from '../../lib/strikeNearMe';
 import { formatCallsign } from '../../lib/callsign';
-import type { PlaybackLaunch } from './types';
+import type { PlaybackApply, PlaybackLaunch } from './types';
 
 /** One jet as the editor holds it: the attack as it would save, and where its run-in starts. */
 export interface EditorDraft {
@@ -37,6 +40,8 @@ export interface EditorLaunchArgs {
   strikeName?: string;
   /** The jet being edited: playback opens watching it. */
   selectedIndex: number;
+  /** Puts each jet's time over target (the editor's order) back on its slider. Left out: playback offers no Apply. */
+  applyOffsets?: (offsets: number[]) => void;
 }
 
 /** Why a jet the editor cannot build yet still keeps its place in the strike. */
@@ -52,15 +57,20 @@ const NOT_READY = 'Not ready in the editor yet.';
  * the normal path.
  */
 export function playbackLaunchFromEditor(a: EditorLaunchArgs): PlaybackLaunch | undefined {
-  const { mission, drafts, resolved, offsets, strikeName, selectedIndex } = a;
+  const { mission, drafts, resolved, offsets, strikeName, selectedIndex, applyOffsets } = a;
   const jets: PlaybackJetInput[] = [];
   const skipped: SkippedJet[] = [];
+  const tie: [number, number][] = [];
 
   drafts.forEach((draft, i) => {
     const r = resolved[i];
     const attack = draft.attack;
     const target = r?.target;
     const label = `#${i + 1}`;
+    const member = attack && mission.flightMembers.find((m) => m.id === attack.attackerId);
+    // What the cards go by when two jets share a time: flight position, then the attack's number. A draft not
+    // saved yet takes the numbers after every saved one, in the editor's order (what saving does).
+    tie.push([member?.position ?? 9, attack && !attack.id.startsWith('draft-') ? attack.sequenceNumber : 1e9 + i]);
     // The lead's time over target is the strike clock's zero whatever its slider says (the editor's
     // readout and its save do the same), and a time that is not a number is no delay.
     const totOffset_s = i === 0 ? 0 : Number.isFinite(offsets[i]) ? offsets[i] : 0;
@@ -71,7 +81,6 @@ export function playbackLaunchFromEditor(a: EditorLaunchArgs): PlaybackLaunch | 
       });
       return;
     }
-    const member = mission.flightMembers.find((m) => m.id === attack.attackerId);
     jets.push({
       id: attack.id, attack, ipAnchor: draft.ipAnchor, target, weapon: r.weapon, totOffset_s, label,
       callsign: member ? formatCallsign(member.callsign) : undefined,
@@ -81,7 +90,9 @@ export function playbackLaunchFromEditor(a: EditorLaunchArgs): PlaybackLaunch | 
 
   const title = strikeName ?? jets[0].callsign ?? 'Attack';
   const input: PlaybackInput = { name: title, jets, skipped };
-  return { input, title, jetId: drafts[selectedIndex]?.attack?.id, notes: theaterNotes(mission) };
+  // Apply needs a strike to write into: two jets or more, and the editor's own way to set their sliders.
+  const apply: PlaybackApply | undefined = strikeName !== undefined && applyOffsets && drafts.length >= 2 ? { to: 'editor', write: applyOffsets } : undefined;
+  return { input, title, jetId: drafts[selectedIndex]?.attack?.id, notes: theaterNotes(mission), apply, tie };
 }
 
 /**

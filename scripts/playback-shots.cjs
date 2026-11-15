@@ -2195,6 +2195,133 @@ async function checkWatchSeat(page, tag) {
   step(`36 the seat buttons move the watch: the pressed button, the time bar's band, the colour code and the chase camera follow it (${tag})`, ok, parts.join('; '));
 }
 
+/**
+ * Check 14 (Apply from the editor): on the four-ship, with the theater note (the page whose small print is the
+ * longest, four lanes and all) and the editor's way of writing the sliders replaced by a recorder.
+ * - As opened, nothing changed: "Apply to strike" is there and greyed (aria-disabled), pressing it writes nothing
+ *   and shows no status line.
+ * - #2's time typed as 25 (+15 s): Apply and Reset come on. Apply: the recorder holds one list, 0, 25, 40, 40 (each
+ *   time less the lead's, in the editor's order); the session holds 25 as both its plan and its time; Apply and
+ *   Reset are greyed again; the line under the footer says "Applied to the strike in the editor. Save the strike to
+ *   keep it; Cancel throws it away." and the next sentence, is one row tall, and its tooltip is the whole text; the
+ *   playhead and the time bar are where they were (the lead's time is 0, so the strike's clock moves by nothing);
+ *   the press left the keyboard with playback (Space plays and pauses); the canvas still has its room (the same
+ *   floors as 7b) and the line is inside the window.
+ * - #2 typed as 30: the line is gone, Apply and Reset on; Reset: #2 is 25 again (the times just applied, not the 10
+ *   playback opened with), the line still gone.
+ * - #3 typed as 5 (ahead of #2's 25), then Apply: the recorder's second list is 0, 25, 5, 40; the session's status
+ *   names the two jets the cards will number the other way round ("#3 Viper 1-3 as #2", "#2 Viper 1-2 as #3"), the line
+ *   says so ("When you save, the cards will number jets in their order over the target: … Playback keeps the numbers
+ *   it opened with.") in the same one row, and the canvas has its room again.
+ * No page errors through it.
+ *
+ * Measured green 2026-11-15: the line is 16 px tall; the canvas 1400x576 and 1024x428 with it (floors 560 and 420;
+ * without it, as 7b measures, 1400x592 and 1024x444: the line costs 16 px and leaves 8 at 1024).
+ *
+ * Proven red 2026-11-15, each by one temporary edit (the text is the part of the step's message that changes):
+ * - PlaybackView.tsx, `apply.write(offsets);` taken out (nothing reaches the editor's sliders):
+ *   STEP FAIL 14 … (1400x900-strike4) — …; pressed: written [], session plan 25 and time 25, …; still written []; #3 at 5: written [], renumbered ["#3 Viper 1-3 as #2","#2 Viper 1-2 as #3"], …
+ * - PlaybackView.tsx, the `act({ type: 'applied', … })` call made `void ({ … })` (the session never told):
+ *   STEP FAIL 14 … — …; pressed: written [[0,25,40,40]], session plan 10 and time 25, status null/null, Apply on true, Reset on true, box 25, line none; …; Reset: #2 at 10 (want 25, the applied time), box 10, …; #3 at 5: written [[0,25,40,40],[0,10,5,40]], renumbered null, line none; …
+ * - PlaybackView.tsx, the `renumbered:` of that call given `[]` (the jets the cards number differently left unsaid):
+ *   STEP FAIL 14 … — …; #3 at 5: written [[0,25,40,40],[0,25,5,40]], renumbered [], line ends "…p tab spaces the jets evenly again and replaces these times." 16 px tall; …
+ * - DelayFooter.tsx, the Apply button's `onMouseDown={keepFocus}` taken out (the press takes the keyboard from playback):
+ *   STEP FAIL 14 … — …; focus kept false, Space false/true; …
+ * - ui.ts, FOOTER_STATUS 'h-4' → 'h-12' (a status line three rows tall):
+ *   STEP FAIL 14 … (1400x900-strike4) — …; line "Applied to the strike in the editor. Save the strike to keep…" 48 px tall, …; canvas 1400x544 (want ≥ 1350x560); …
+ *   STEP FAIL 14 … (1024x768-strike4) — …; canvas 1024x396 (want ≥ 1000x420); …
+ *
+ * What the check cannot see: in the editor the lead's time is always 0, so an Apply moves the strike's clock by
+ * nothing and the playhead and the bar stay where they were. That the scene is handed the shift with the new
+ * source was seen once with applyShift forced to 10 (not kept): "playhead -30.15 → -40.15, bar -50.15…80.00 →
+ * -60.15…70.00". The attack list's Apply, whose shift is not 0, is where a check can hold it.
+ */
+async function checkApply(page, tag, w, h, problems) {
+  const apply = page.locator('[role="dialog"] [data-apply]');
+  const reset = page.locator('[role="dialog"] [data-reset]');
+  const on = async (loc) => (await loc.getAttribute('aria-disabled')) === 'false';
+  const row = () => page.locator('[role="dialog"] [data-apply-status]');
+  const rowOf = async () => ((await row().count()) ? row().evaluate((e) => ({ text: e.textContent, title: e.getAttribute('title'), h: e.getBoundingClientRect().height, bottom: e.getBoundingClientRect().bottom })) : null);
+  const typeTime = async (n, v) => {
+    await boxOf(page, n).click();
+    await boxOf(page, n).fill(String(v));
+    await page.keyboard.press('Enter');
+    await settle(page, 300);
+  };
+  const [fw, fh] = LAYOUT_FLOOR[w];
+  const canvasOk = async () => {
+    const [cw, ch] = await page.$eval('[role="dialog"] canvas', (c) => [c.clientWidth, c.clientHeight]);
+    return { ok: cw >= fw && ch >= fh, text: `${cw}x${ch} (want ≥ ${fw}x${fh})` };
+  };
+  const applied = () => pbEval(page, () => JSON.stringify(__pb.applied));
+  const sess = () => pbEval(page, () => { const s = __pb.session(); const id = s.memberIds[1]; return { plan: s.plan_s[id], now: s.delays_s[id], renumbered: s.status ? s.status.renumbered : null, to: s.status ? s.status.to : null }; });
+  const parts = [];
+  let ok = true;
+  const note = (good, text) => { ok = ok && good; parts.push(text); };
+
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start + 20); });
+  await page.evaluate(() => document.querySelector('[role="dialog"]').focus());
+  await settle(page, 300);
+  // As opened.
+  const label = await apply.innerText();
+  const title = await apply.getAttribute('title');
+  const offAtOpen = !(await on(apply));
+  // Playwright will not click what is aria-disabled: force it, as a finger or a stray key would.
+  await apply.click({ force: true });
+  await settle(page, 150);
+  const idle = { applied: await applied(), row: await rowOf() };
+  note(label === 'Apply to strike' && /^Write these times into the strike you're editing/.test(title) && offAtOpen && idle.applied === '[]' && idle.row === null,
+    `as opened: "${label}", greyed ${offAtOpen}, pressed: nothing written ${idle.applied}, line ${idle.row === null ? 'none' : 'showing'}`);
+
+  // +15 s on #2, then Apply.
+  await typeTime(2, 25);
+  const ready = { apply: await on(apply), reset: await on(reset), dirty: (await page.locator('[role="dialog"] [data-footer-dirty]').count()) === 1 };
+  const snap0 = await pbEval(page, () => __pb.snapshot());
+  await apply.click();
+  await settle(page, 400);
+  const snap1 = await pbEval(page, () => __pb.snapshot());
+  const first = { applied: await applied(), s: await sess(), apply: await on(apply), reset: await on(reset), row: await rowOf(), box: await boxOf(page, 2).inputValue() };
+  const focusOnPlayback = await page.evaluate(() => !!document.activeElement && document.activeElement.getAttribute('role') === 'dialog');
+  await page.keyboard.press(' ');
+  const played = await pbEval(page, () => __pb.snapshot().playing);
+  await page.keyboard.press(' ');
+  const paused = !(await pbEval(page, () => __pb.snapshot().playing));
+  await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start + 20); });
+  const room1 = await canvasOk();
+  await shot(page, `${tag}-14-applied`);
+  const sentence = 'Applied to the strike in the editor. Save the strike to keep it; Cancel throws it away.';
+  const stayed = Math.abs(snap1.t - snap0.t) < 0.01 && Math.abs(snap1.start - snap0.start) < 1e-6 && Math.abs(snap1.end - snap0.end) < 1e-6;
+  note(ready.apply && ready.reset && ready.dirty && first.applied === '[[0,25,40,40]]' && first.s.plan === 25 && first.s.now === 25 && first.s.to === 'editor' && first.s.renumbered.length === 0 &&
+      !first.apply && !first.reset && first.box === '25' && !!first.row && first.row.text.startsWith(sentence) && /Moving “Spacing over the target”/.test(first.row.text) && first.row.title === first.row.text &&
+      first.row.h <= 17 && first.row.bottom <= h && stayed && focusOnPlayback && played && paused && room1.ok,
+    `#2 at 25: Apply on ${ready.apply}, Reset on ${ready.reset}, "changed" note ${ready.dirty}; pressed: written ${first.applied}, session plan ${first.s.plan} and time ${first.s.now}, status ${first.s.to}/${JSON.stringify(first.s.renumbered)}, Apply on ${first.apply}, Reset on ${first.reset}, box ${first.box}, ` +
+      `line ${first.row ? `"${first.row.text.slice(0, 60)}…" ${first.row.h.toFixed(0)} px tall, tooltip ${first.row.title === first.row.text ? 'the whole text' : 'not the whole text'}, bottom ${first.row.bottom.toFixed(0)}` : 'none'}; playhead ${snap0.t.toFixed(2)} → ${snap1.t.toFixed(2)}, bar ${snap0.start.toFixed(2)}…${snap0.end.toFixed(2)} → ${snap1.start.toFixed(2)}…${snap1.end.toFixed(2)}; focus kept ${focusOnPlayback}, Space ${played}/${paused}; canvas ${room1.text}`);
+
+  // Change again; Reset goes back to the applied times.
+  await typeTime(2, 30);
+  const changed = { row: await rowOf(), apply: await on(apply), reset: await on(reset) };
+  await reset.click();
+  await settle(page, 300);
+  const back = { now: (await sess()).now, box: await boxOf(page, 2).inputValue(), row: await rowOf(), apply: await on(apply), reset: await on(reset), written: await applied() };
+  note(changed.row === null && changed.apply && changed.reset && back.now === 25 && back.box === '25' && back.row === null && !back.apply && !back.reset && back.written === '[[0,25,40,40]]',
+    `#2 at 30: line ${changed.row === null ? 'gone' : 'still showing'}, Apply on ${changed.apply}, Reset on ${changed.reset}; Reset: #2 at ${back.now} (want 25, the applied time), box ${back.box}, line ${back.row === null ? 'gone' : 'showing'}, Apply on ${back.apply}, Reset on ${back.reset}, still written ${back.written}`);
+
+  // #3 ahead of #2: the cards will number them the other way round.
+  await typeTime(3, 5);
+  await apply.click();
+  await settle(page, 400);
+  const second = { applied: await applied(), s: await sess(), row: await rowOf() };
+  const room2 = await canvasOk();
+  await shot(page, `${tag}-14-renumbered`);
+  const want = ['#3 Viper 1-3 as #2', '#2 Viper 1-2 as #3'];
+  const said = `When you save, the cards will number jets in their order over the target: ${want[0]} and ${want[1]}. Playback keeps the numbers it opened with.`;
+  note(second.applied === '[[0,25,40,40],[0,25,5,40]]' && JSON.stringify(second.s.renumbered) === JSON.stringify(want) && !!second.row && second.row.text.endsWith(said) && second.row.h <= 17 && second.row.bottom <= h && room2.ok,
+    `#3 at 5: written ${second.applied}, renumbered ${JSON.stringify(second.s.renumbered)}, line ${second.row ? `ends "…${second.row.text.slice(-60)}" ${second.row.h.toFixed(0)} px tall` : 'none'}; canvas ${room2.text}`);
+
+  note(problems.length === 0, `page errors ${problems.length ? problems.slice(0, 4).join(' | ') : 'none'}`);
+  step(`14 Apply to strike writes the times to the editor's sliders, says so in one line, Reset then goes back to the applied times, and names the jets the cards will number differently (${tag})`, ok, parts.join('; '));
+}
+
 async function runStrikeChecks(browser, base) {
   for (const [w, h] of [[1400, 900], [1024, 768]]) {
     const tag = `${w}x${h}`;
@@ -2237,6 +2364,8 @@ async function runStrikeChecks(browser, base) {
     // tightest the rows get (a page of its own: the note takes a row from the pictures the checks above measure).
     const lay = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1`, w, h);
     await checkLayout(lay.page, `${tag}-strike4`, w, h, 4);
+    // 14 on the same page: it changes the times, and wants the tightest rows under the picture.
+    await checkApply(lay.page, `${tag}-strike4`, w, h, lay.problems);
     await lay.context.close();
   }
   {

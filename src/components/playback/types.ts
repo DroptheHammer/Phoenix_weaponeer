@@ -17,7 +17,18 @@ export interface PlaybackLaunch {
   jetId?: string;
   /** Plain sentences shown beside the 3D view (the theater's projection is unverified, and so on). */
   notes: string[];
+  /** Where Apply writes the times. Left out: there is nowhere to write them, and playback shows no Apply. */
+  apply?: PlaybackApply;
+  /**
+   * What breaks a tie in time over target on the cards, for every member in seat order: its flight position,
+   * then the number its attack has (or will get when saved). With it playback can say which jets the cards
+   * will number differently after an Apply.
+   */
+  tie?: (readonly [number, number])[];
 }
+
+/** Where Apply to strike writes the times: the editor's sliders, one time for each jet in the editor's order. */
+export type PlaybackApply = { to: 'editor'; write(offsets: number[]): void };
 
 export interface PlayStrikeButtonProps {
   disabled?: boolean;

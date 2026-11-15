@@ -17,6 +17,10 @@
  *   the time bar starts; opened watching #2.
  * - skip: three pop-ups at 0/10/40 with #2's target pointed at a waypoint
  *   that does not exist, so #2 is skipped and #3 flies as the second jet.
+ *
+ * The strikes also carry what the editor gives a strike: a way to write times
+ * back (the checks pass a recorder) and what the cards go by when two jets
+ * share a time.
  */
 import f16Profiles from '../../../../src-tauri/resources/profiles/f16c.json';
 import reference from '../../../../crates/core/data/reference.json';
@@ -105,13 +109,15 @@ export type HarnessFixture = 'one' | 'strike4' | 'late' | 'skip';
  * The launch for a fixture, as the attack list would hand a saved strike over. `watch` is the seat
  * number (1 = #1) playback opens watching; left out, the lead (or, for late, #2).
  */
-export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = [], watch?: number): PlaybackLaunch {
+export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = [], watch?: number, record?: (offsets: number[]) => void): PlaybackLaunch {
   if (fixture === 'one') return harnessLaunch(notes);
   const m = strikeMission();
   let input: PlaybackInput | undefined;
+  let planned = m;
   if (fixture === 'skip') {
     const s = savedStrike(m, 'h-skip', ['h-p1', 'h-p2', 'h-p3'].map((who, i) => ({ who, target: 'h-tgt', profile: 'f16c.popup.std', tot: [0, 10, 40][i] })));
     const lost = { ...s.mission, attacks: s.mission.attacks.map((a) => (a.id === s.attackIds[1] ? { ...a, targetWaypointId: 'h-nowhere' } : a)) } as Mission;
+    planned = lost;
     input = playbackInputFromMission(lost, { strikeId: 'h-skip' }, weapons);
   } else {
     const s = savedStrike(m, 'h-strike4', [
@@ -120,6 +126,7 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
       { who: 'h-p3', target: 'h-tgt2', profile: 'f16c.popup.std', tot: 40 },
       { who: 'h-p4', target: 'h-tgt', profile: 'f16c.loft.std', tot: 40 },
     ]);
+    planned = s.mission;
     input = playbackInputFromMission(s.mission, { strikeId: 'h-strike4' }, weapons);
     if (input && fixture === 'late') input = { ...input, jets: input.jets.map((j, i) => (i === 1 ? { ...j, totOffset_s: 300 } : j)) };
   }
@@ -127,8 +134,16 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
   // Every member in seat order, skipped ones included, so a seat number names the same member as the card.
   const ids = [...input.jets.map((j) => ({ id: j.id, label: j.label })), ...(input.skipped ?? []).map((j) => ({ id: j.id, label: j.label }))];
   const seat = watch ?? (fixture === 'late' ? 2 : 1);
+  // What the editor would hand over for a strike it had open: a way to write the times back (here, to the
+  // checks' recorder) and what breaks a tie in time over target on the cards, each member's flight position
+  // then its attack's number, in seat order.
+  const members = [...ids].sort((a, b) => Number(a.label.slice(1)) - Number(b.label.slice(1)));
+  const tie = members.map(({ id }): [number, number] => {
+    const attack = planned.attacks.find((a) => a.id === id)!;
+    return [planned.flightMembers.find((f) => f.id === attack.attackerId)?.position ?? 9, attack.sequenceNumber];
+  });
   // A strike's title is its name.
-  return { input, title: input.name, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes };
+  return { input, title: input.name, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes, apply: record && { to: 'editor', write: record }, tie };
 }
 
 /** The moments the screenshot checks seek to, on the strike clock (built the same way PlaybackView builds them). */

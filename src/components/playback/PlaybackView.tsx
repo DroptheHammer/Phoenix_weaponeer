@@ -43,11 +43,19 @@
  * and the lanes keep the scale they had; when it is let go the paths are
  * sampled finely again and both re-fit to the new earliest first action.
  *
+ * When the plan has somewhere to keep the times (the attack editor's strike),
+ * Apply writes them there. Reset then goes back to the times just applied, and
+ * a line under the footer says what was done and which jets the cards will
+ * number differently, until the times change again.
+ *
  * The clock's range has two writers and no more. Show › Whole run-in sets it
  * (and a rebuilt scene is handed the one in force); a committed change of times
  * sets it inside the scene's setSource, which moves the range before the
- * playhead's step. Nothing re-sets it whenever the range happens to change: the
- * range moves while a handle is held, and the bar must not.
+ * playhead's step. An Apply is such a change that also says how far it moved
+ * the strike's clock (its first member's time becomes 0), so the playhead stays
+ * on the same moment of the strike. Nothing re-sets the range whenever it
+ * happens to change: the range moves while a handle is held, and the bar must
+ * not.
  *
  * Failures stay inside playback: nothing to fly gives a plain sentence; a
  * frame or shader that breaks is thrown into the local error boundary; a lost
@@ -57,8 +65,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { buildStrikePlayback, dangerZones, retime, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
-  conflictBands, DRAG_PATH_STEP_S, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks, markerMoments, openingMode, PATH_STEP_S, playRange,
-  sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
+  APPLY_WORDS, applyShift, applyStatusLines, cardOrder, conflictBands, DRAG_PATH_STEP_S, editorOffsets, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks,
+  markerMoments, openingMode, PATH_STEP_S, playRange, renumbered, renumberedText, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
   type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TileSource,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
@@ -222,6 +230,7 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   // when the times or the axis change (never while it plays).
   const moments = useMemo(() => pb.jets.map((j) => markerMoments(j)), [pb]);
   const seatLabels = useMemo(() => pb.members.map((m) => m.label), [pb]);
+  const seatCallsigns = useMemo(() => pb.members.map((m) => (m.jet === undefined ? undefined : pb.jets[m.jet].callsign)), [pb]);
   const lanes = useMemo<LaneInfo[]>(() => {
     const bands = laneBands(pb, timing, axis);
     const marks = laneMarks(pb, timing, axis, (k) => moments[k]);
@@ -291,6 +300,25 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   const setDelay = useCallback((id: string, value_s: number) => act({ type: 'delay', id, value_s }), [act]);
   const setDrag = useCallback((on: boolean) => act({ type: 'drag', on }), [act]);
   const reset = useCallback(() => act({ type: 'reset' }), [act]);
+  // Apply: the times go to where the plan keeps them, and the session takes them as the plan's own, so Reset now
+  // returns to them. The strike's clock moves by `shift` (the first member's time becomes 0): the setSource effect
+  // below hands that to the scene together with the new source, so the playhead stays on the same moment. The
+  // cards number jets by their order over the target; the jets that order would renumber are named.
+  const { apply, tie } = built.launch;
+  const pendingShift = useRef(0);
+  const applyTimes = useCallback(() => {
+    if (!apply || !isDirty(session)) return;
+    const { memberIds, delays_s } = session;
+    const offsets = editorOffsets(memberIds, delays_s);
+    apply.write(offsets);
+    const others = tie?.length === memberIds.length ? renumbered(cardOrder(offsets, tie)) : [];
+    pendingShift.current = applyShift(apply.to, memberIds, delays_s);
+    act({
+      type: 'applied', to: apply.to, shift_s: pendingShift.current,
+      renumbered: others.map(([seat, card]) => renumberedText(seatLabels[seat], seatCallsigns[seat], card)),
+    });
+  }, [apply, tie, session, act, seatLabels, seatCallsigns]);
+  const statusLines = useMemo(() => (session.status ? applyStatusLines(session.status) : undefined), [session.status]);
   // DEV: nothing to report until the times have been changed once.
   const reTimeMs = useCallback(() => {
     const ms = reTime.current.timing + reTime.current.source + reTime.current.scene;
@@ -326,8 +354,10 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   // source alone, so the bar keeps its scale. The scene made a moment ago already has this source: no change.
   useEffect(() => {
     if (!scene) return;
+    const shift_s = pendingShift.current; // an Apply's: used once
+    pendingShift.current = 0;
     const t0 = devNow();
-    scene.setSource(source, dragging ? {} : { range: axis });
+    scene.setSource(source, dragging ? {} : { range: axis, shift_s });
     reTime.current.scene = devNow() - t0;
     // The axis and the drag flag read here are those of the render that made this source. (Whole run-in
     // changes the axis alone, and moves the range itself, in `act`.)
@@ -386,7 +416,14 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
       <div className="shrink-0 border-t border-gray-700 bg-dcs-navy px-4 py-2 space-y-1">
         {scene ? <Timeline scene={scene} bands={watchedBands} conflicts={conflicts} /> : <div className="h-8" />}
         <JetLanes scene={scene} axis={axis} lanes={lanes} watched={watched} onWatch={watchSeat} onDelay={setDelay} onDrag={setDrag} />
-        <DelayFooter warnings={timing.readout.warnings} dirty={isDirty(session)} single={pb.members.length < 2} onReset={reset} />
+        <DelayFooter
+          warnings={timing.readout.warnings}
+          dirty={isDirty(session)}
+          single={pb.members.length < 2}
+          onReset={reset}
+          apply={apply && pb.members.length >= 2 ? { ...APPLY_WORDS[apply.to], onApply: applyTimes } : undefined}
+          status={statusLines}
+        />
         <StatusNotes terrain={terrain} notes={built.launch.notes} restoring={lost === 'restoring'} onGround={onGround} />
       </div>
     </div>
