@@ -405,9 +405,20 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   what is done, refresh these notes. At 95%: stop every run at once, save
   any half-built stage as a patch in the git-ignored working folder and
   put the tree back to the last commit, push, notes. At 98.5%: stop,
-  patch, one notes commit, push, nothing else. The session cannot see the
-  usage figure by itself: ask him for it, or use whatever monitor the
-  memory notes say was set up.
+  patch, one notes commit, push, nothing else. **The figure is tracked
+  on the main Mac since 2026-11-15:** a status line script writes the
+  all-models weekly percentage to `~/.claude/rate-limits.json` (wired in
+  the project's git-ignored `.claude/settings.local.json`, refreshed every
+  5 minutes and after each reply; it makes no request and uses no tokens).
+  Read that file before every launch, and keep a background watcher armed
+  that exits when the figure reaches the next level (85, then 90, 95, 98).
+  The per-model figure is not in the file: he reads it from `/usage`.
+  Close to the weekly reset, winding down means holding new launches
+  until the reset, not ending the day.
+- **He answers from his phone when away from the Mac.** Keep messages to
+  him short, send a push notification only when a decision of his blocks
+  the work or a usage level is reached, and carry on with everything that
+  does not need him.
 
 **Where the work stands.** The working papers are git-ignored and exist only
 on the main Mac (`Other Items/`):
@@ -469,12 +480,32 @@ on the main Mac (`Other Items/`):
      card and the playback), **BAL-b** (a four-dive fixture for the
      harness and two checks of the look). In the 3D the arc is plain in
      Chase and small in the default Home view (the whole fall is 30 to
-     44 px long there). **Still to settle with him, one at a time, each
-     shown, not described:** whether the dive card's table gains a row
-     with the aim-off distance (asked, re-explained with the card's rows;
-     not built until he says); then what old saved 45° dives of those
-     three aircraft should do. **A real dive card before and after goes in
+     44 px long there). **Settled with him since:** **no aim-off number
+     on any dive card** (a CCIP jet's pipper gives the aim point, the A-4E
+     and F-4E have a computed release, and the manual jets set their sight
+     in mils: do not offer it again); the dashed aim line on the map
+     stays. **Old saved 45° dives of those three aircraft: he wants them
+     repaired automatically, later** ("we arent opening a lot of old saved
+     missions in the normal ops"): not in this build, a roadmap item, and
+     the release notes say to open and save again any dive attack made
+     before this version. **A real dive card before and after goes in
      front of him before anything merges.**
+   - **New work he asked for while settling that: the sight's mils must
+     follow a customized attack.** Manual-dive cards print one fixed
+     `SIGHT n mils` per profile today (an unsourced figure for a Mk-82 at
+     the profile's own speed and height, in
+     `src-tauri/resources/profiles/*.json`), and nothing recomputes it.
+     His words: "It should change IF the pilot customizes the attack. It
+     should look up the new MILs and make the alteration ... eitehr looked
+     up or estimated based on the master operating tables for that jet."
+     A research run was finding each manual jet's own depression tables
+     (A-4E, F-4E, F-5E, Mirage F1) when these notes were written; its
+     paper is `SIGHT_MILS_DATA.md` in the same folder (finished only if it
+     has a section 7). Design and build come after it, and it is not yet
+     placed in the order of stages. He was asked whether the squadron has
+     its own tables to use first. **To do when BAL-a is on the branch: add
+     this and the old-saves repair to `ROADMAP.md` there** (BAL-a edits
+     that file, so not on `main`).
    - **The frag stages, from his decision above.** Two more papers in the
      same folder: `BUILD_SPEC_S12_FRAG.md`, **written, reviewed and
      revised but not yet ruled on by the director** (it was begun before
@@ -549,9 +580,8 @@ on the main Mac (`Other Items/`):
 - **Ask him one thing at a time and show the thing itself** (the card's
   row as it would print, the map before and after), in plain words: he
   could not follow two of three questions sent together.
-- **A row with the aim-off distance on the dive card's table**: yes or no
-  (asked, with the rows shown). Then **old saved 45° dives** of the
-  A-10C, AV-8B and A-4E.
+- **Whether his squadron has its own sight (mils) tables** for the manual
+  jets, to use before the public manuals (asked).
 - **The blast radii:** fly the test in DCS or not; which numbers until
   then; whether weapons sharing a warhead share a radius.
 - **Whether the roll reads** at the arrow's size in look 4, or the arrow
