@@ -127,6 +127,10 @@ const jetLike = (p) => p[2] > p[0] + 80 && p[1] > p[0] + 80 && Math.abs(p[1] - p
 async function openPage(browser, url, w, h, waitForScene = true) {
   const context = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });
   const page = await context.newPage();
+  // A click that builds a scene, or a screenshot, on the software renderer can take longer than the
+  // driver's own 30 s when the machine is busy with other work, and the whole run then dies on a step
+  // that measures nothing. The waits that do measure something name their own limits.
+  page.setDefaultTimeout(120000);
   const problems = [];
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
   page.on('console', (m) => {
