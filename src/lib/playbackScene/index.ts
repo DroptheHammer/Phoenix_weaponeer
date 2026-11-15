@@ -10,7 +10,8 @@
  * poses), sceneStyle (colours and sizes),
  * source (the only file that knows the playback library's sampling names),
  * targets (one mark per distinct target, its tag, its post), callouts (the
- * letters on the discs),
+ * letters on the discs, when the planner's words show, where their plates go,
+ * how they fade), labels (each jet's label words and where they go),
  * actionPoints (each jet's first action, the moments that carry the
  * planner's words, the stretch of the clock that is played), homeView (what
  * Home frames, which camera opens), show (what the 3D view shows: the Show
@@ -27,6 +28,7 @@ export * from './sceneStyle';
 export * from './source';
 export * from './targets';
 export * from './callouts';
+export * from './labels';
 export * from './actionPoints';
 export * from './homeView';
 export * from './show';

@@ -9,7 +9,7 @@
  * with the final camera.
  */
 import type { PerspectiveCamera } from 'three';
-import type { GroundMode, SceneSource } from '../../../lib/playbackScene';
+import type { ActionPointsMode, GroundMode, SceneSource } from '../../../lib/playbackScene';
 
 export interface FrameCtx {
   /** Strike time, s. */
@@ -37,6 +37,17 @@ export interface FrameCtx {
    * out the planner's length in pixels where the eye is.
    */
   focusPxPerM: number;
+  /** The clock's speed setting, playing or paused: the planner's words show for set real seconds, so their stretch of strike time grows with it. */
+  speed: number;
+  /** Altitude and speed on each jet's label (off: seat and callsign only). */
+  labels: boolean;
+  /** The action points' discs, posts and words: none, as each jet nears a point, or all the time. */
+  actionPoints: ActionPointsMode;
+  /**
+   * Set false before the layers update; a layer that is still easing something (a callout fading)
+   * sets it true to have one more frame drawn, even while the clock stands still.
+   */
+  again: boolean;
 }
 
 export interface Layer {

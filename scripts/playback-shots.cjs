@@ -149,6 +149,28 @@ async function shot(page, name) {
   return decodePng(await page.screenshot({ path: shotPath(name) }));
 }
 const dialogGone = (page) => page.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 });
+/**
+ * Hide or show the 2D overlay (the action points' discs, the planner's words, the jets' labels). It is
+ * drawn over the 3D on purpose (the pull-up's disc sits on the arrow as it passes, the jet's label beside
+ * it), so the checks that read the 3D's own pixels (the arrow, the lines' colours) look under it.
+ */
+const overlay = (page, shown) => page.evaluate((s) => {
+  const c = document.querySelector('[role="dialog"] canvas[data-labels]');
+  if (c) c.style.visibility = s ? '' : 'hidden';
+}, shown);
+/**
+ * Wait `ms`, then until the scene stops drawing (a callout's fade done). Each frame's fade step is capped
+ * at 0.1 s, as the clock's is, so on the software renderer's few frames a second a fade takes longer than
+ * its half second of wall time.
+ */
+async function settleIdle(page, ms) {
+  await page.waitForTimeout(ms);
+  for (let i = 0; i < 30; i++) {
+    const a = await pbEval(page, () => __pb.stats().renders);
+    await page.waitForTimeout(400);
+    if ((await pbEval(page, () => __pb.stats().renders)) === a) return;
+  }
+}
 
 // ── The checks.
 
@@ -204,6 +226,12 @@ async function checkColours(page, tag) {
  * moment beside the ring: with the arrow gone it still passed, on 35 / 99 / 211 px of lines and ring.)
  * Since the path and trail wear the planner's colours (2026-11-14) the lines give no cyan at all: the
  * same mutation reads 0 / 0 / 0 px at both sizes, and green is 170 / 140 / 128 and 168 / 138 / 122.
+ * Since the 2D overlay carries the action points (2026-11-14) the pull-up's disc covers the arrow at
+ * the pull-up moment (0 px there), so the overlay is hidden for these shots: the check is the 3D's arrow.
+ * Green with it hidden: 172 / 138 / 130 px at 1400×900, 171 / 138 / 127 at 1024×768. Proven red again
+ * by the arrow-shrink mutation:
+ *   STEP FAIL 2 jet arrow on screen (1400x900) — start t=-151.2 at 159,563: 0 px; run-in t=-94.0 at 586,438: 0 px; pull-up t=-36.8 at 896,352: 0 px (need 90)
+ *   STEP FAIL 5b after the rebuild, the jet arrow on screen (1400x900-rebuilt) — … 0 px; … 0 px; … 0 px (need 90)
  */
 const ARROW_PATCH = 10;
 const ARROW_MIN = 90;
@@ -211,6 +239,7 @@ async function checkJet(page, tag, label = '2 jet arrow on screen') {
   // The moments include the whole run-in's start: the time bar must reach back that far (it does after
   // check 1, and after a rebuild, which keeps the choice; set again so the check stands on its own).
   await pbEval(page, () => __pb.setRange(true));
+  await overlay(page, false);
   const m = await pbEval(page, () => __pb.moments);
   const parts = [];
   let ok = true;
@@ -223,6 +252,7 @@ async function checkJet(page, tag, label = '2 jet arrow on screen') {
     ok = ok && n >= ARROW_MIN;
     parts.push(`${name} t=${t.toFixed(1)} at ${p ? p.map(Math.round) : 'none'}: ${n} px`);
   }
+  await overlay(page, true);
   step(`${label} (${tag})`, ok, `${parts.join('; ')} (need ${ARROW_MIN})`);
 }
 
@@ -672,6 +702,11 @@ async function checkHomeFrame(page, tag, minSpan) {
  * (every coloured line drawn in the material's white):
  *   STEP FAIL 23 the planner's colours in 3D: yellow climb, blue route, no cyan lines (1400x900) — climb (482,498)→(777,418): 0 yellow px (need 25), 0 cyan; route at (311,534): 0 blue px (need 30), 0 cyan (≤ 5 each)
  *   STEP FAIL 23 … (1024x768) — climb (350,405)→(569,345): 0 yellow px (need 25), 0 cyan; route at (223,431): 0 blue px (need 30), 0 cyan (≤ 5 each)
+ * Since the 2D overlay carries the jet's label and the planner's words (2026-11-14), the label's plate
+ * lay over the climb (0 yellow px), so the overlay is hidden for the shot: the check is the 3D's lines.
+ * Green with it hidden: 54 yellow and 52 blue px at 1400×900, 53 and 55 at 1024×768. Proven red again
+ * by the `vertexColors: false` mutation:
+ *   STEP FAIL 23 … (1400x900) — climb (482,504)→(777,423): 0 yellow px (need 25), 0 cyan; route at (310,539): 0 blue px (need 30), 0 cyan (≤ 5 each)
  */
 const climbLike = (p) => p[0] > 200 && p[1] > 150 && p[2] < 90;
 const routeLike = (p) => p[2] > 200 && p[2] > p[0] + 80 && p[2] > p[1] + 30;
@@ -706,7 +741,9 @@ async function checkColourCode(page, tag) {
   const r0 = await jetAt(routeMid - 2), rm = await jetAt(routeMid), r1 = await jetAt(routeMid + 2);
   await pbEval(page, (tt) => __pb.seek(tt), m.pullUp + 3);
   await settle(page, 300);
+  await overlay(page, false);
   const img = await shot(page, `${tag}-23-colour-code`);
+  await overlay(page, true);
   const climbMid = pop && down ? [(pop[0] + down[0]) / 2, (pop[1] + down[1]) / 2] : null;
   const count = (a, b, mid, test) => (a && b && mid ? alongLine(img, a, b, mid, 20, 3, test) : 0);
   const climb = count(pop, down, climbMid, climbLike), climbJet = count(pop, down, climbMid, jetLike);
@@ -754,6 +791,118 @@ async function checkTargetMark(page, tag) {
   step(`24 the planner's red TGT disc on its post, tagged with the target and its seat (${tag})`,
     n >= TGT_MIN && !!t0 && t0.tag === 'TGT1 · #1' && drawnAt <= 1 && labels.targets.length === 1,
     `disc at ${p ? p.map(Math.round) : 'none'}: ${n} red px within 14 px (need ${TGT_MIN}); overlay ${labels ? labels.targets.length : 'none'} target(s), first ${t0 ? `"${t0.tag}" ${drawnAt.toFixed(2)} px from the projected point` : 'none'}`);
+}
+
+/**
+ * Check 25: the planner's words at the action points come and go with the jet, in real seconds. Home on
+ * the default range, paused, 1×, 0.7 s of wall time after each seek (the fade takes 0.5 s), then until
+ * the scene stops drawing (the software renderer's frames are slow, and each fade step is capped at a
+ * 0.1 s frame; a first run waiting 0.7 s alone found the pull-up's plate still at alpha 0.15): 4 s before
+ * the pull-up (POP) its callout is not up; 1 s before, it is placed, fully shown, with the planner's
+ * own lines (deep-equal to the marker's), and at least half its plate is the plate's white; 3 s after,
+ * gone. At 16×, 10 s of strike time before the pull-up it is up already (the window is in real seconds).
+ * Paused at the pull-up for 2 s of wall time it stays fully shown. Show › Action points › Off: no discs
+ * and no callouts; Always: every point's callout (each marker, the IP, the egress label) is there, placed
+ * or dropped for want of room. The Show menu's own buttons make the last two choices.
+ *
+ * Measured 2026-11-14 on the first green run: the plate 70% white at 1400×900, 73% at 1024×768.
+ * Proven red the same day by two temporary edits, one run each. src/lib/playbackScene/callouts.ts
+ * calloutAlpha in strike seconds (`/ s` dropped):
+ *   STEP FAIL 25 the planner's words at the pull-up come and go with the jet in real seconds; Off and Always (1400x900) — POP at -36.85: −4 s not up; −1 s placed at alpha 1.00, …; +3 s not up; 16× −10 s not up; paused at it 2 s placed at alpha 1.00; …
+ *   STEP FAIL 25 … (1024x768) — …; 16× −10 s not up; …
+ * scene/labelLayer.ts taking each callout down after 2 s of wall time on screen (an age summed from
+ * ctx.dt while its target is above 0, the frames kept coming while any is up), an alpha off the wall
+ * clock instead of the strike clock:
+ *   STEP FAIL 25 … (1400x900) — POP at -36.85: −4 s not up; −1 s not up, lines null vs […], plate 0% white; +3 s not up; 16× −10 s not up; paused at it 2 s not up; …; Always (always): 0 up, missing ["h-attack:AP", …]
+ *   STEP FAIL 25 … (1024x768) — … (the same)
+ */
+const plateLike = (p) => p[0] > 245 && p[1] > 245 && p[2] > 245;
+async function checkCallouts(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.setSpeed(1); __pb.setActionPoints('coming'); __pb.goHome(); });
+  const m = await pbEval(page, () => __pb.moments);
+  const pop = m.markers.find((k) => k.kind === 'POP');
+  const at = async (t, wait = 700) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settleIdle(page, wait);
+    return pbEval(page, () => __pb.debugLabels());
+  };
+  const popOf = (labels) => labels && labels.callouts.find((c) => c.key === pop.key);
+  const before4 = popOf(await at(pop.t_s - 4));
+  const before1Labels = await at(pop.t_s - 1);
+  const before1 = popOf(before1Labels);
+  const cv = await canvasBox(page);
+  const img = await shot(page, `${tag}-25-callout`);
+  let white = 0, all = 0;
+  if (before1 && before1.placed) {
+    for (let y = Math.ceil(cv.t + before1.y); y < cv.t + before1.y + before1.h - 0.5; y++) for (let x = Math.ceil(cv.l + before1.x); x < cv.l + before1.x + before1.w - 0.5; x++) {
+      all++;
+      if (plateLike(img.at(x, y))) white++;
+    }
+  }
+  const after3 = popOf(await at(pop.t_s + 3));
+  await pbEval(page, () => __pb.setSpeed(16));
+  const fast = popOf(await at(pop.t_s - 10));
+  await pbEval(page, () => __pb.setSpeed(1));
+  const held = popOf(await at(pop.t_s, 2000));
+
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  await page.getByRole('button', { name: 'Off', exact: true }).click();
+  await settleIdle(page, 700);
+  const off = await pbEval(page, () => __pb.debugLabels());
+  await page.getByRole('button', { name: 'Always', exact: true }).click();
+  await settleIdle(page, 700);
+  const always = await pbEval(page, () => __pb.debugLabels());
+  const shownAlways = await pbEval(page, () => __pb.show().actionPoints);
+  await page.getByRole('button', { name: 'As they come', exact: true }).click();
+  await page.getByRole('button', { name: 'Show ▾' }).click(); // shut it again
+  const wantKeys = [...m.markers.map((k) => k.key), `${pop.key.split(':')[0]}:ip`, `${pop.key.split(':')[0]}:egress`];
+  const missing = wantKeys.filter((k) => !always.callouts.some((c) => c.key === k && c.alpha === 1 && typeof c.placed === 'boolean'));
+
+  const share = all ? white / all : 0;
+  const fmt = (c) => (c ? `${c.placed ? 'placed' : 'dropped'} at alpha ${c.alpha.toFixed(2)}` : 'not up');
+  step(`25 the planner's words at the pull-up come and go with the jet in real seconds; Off and Always (${tag})`,
+    !before4 && !!before1 && before1.placed && before1.alpha === 1 && JSON.stringify(before1.lines) === JSON.stringify(pop.lines) && share >= 0.5 &&
+      !after3 && !!fast && fast.placed && !!held && held.alpha === 1 && held.placed &&
+      off.markers.length === 0 && off.callouts.length === 0 && shownAlways === 'always' && missing.length === 0,
+    `POP at ${pop.t_s.toFixed(2)}: −4 s ${fmt(before4)}; −1 s ${fmt(before1)}, lines ${JSON.stringify(before1 ? before1.lines : null)} vs ${JSON.stringify(pop.lines)}, plate ${(share * 100).toFixed(0)}% white; +3 s ${fmt(after3)}; ` +
+    `16× −10 s ${fmt(fast)}; paused at it 2 s ${fmt(held)}; Off: ${off.markers.length} discs, ${off.callouts.length} callouts; Always (${shownAlways}): ${always.callouts.length} up, missing ${JSON.stringify(missing)}`);
+}
+
+/**
+ * Check 11 (one jet): the jet's label. Home on the default range, paused 5 s into it: one label, its
+ * first line "#1 Viper 1-1", its second the altitude and speed ("…ft AGL · … KTAS"), its plate inside
+ * the canvas; Show › Labels unticked, the label is one line (seat and callsign) and shorter; ticked
+ * again, two lines.
+ *
+ * Proven red 2026-11-14 by one temporary edit to scene/labelLayer.ts, the second line drawn whatever
+ * Labels says (`ctx.labels || true`):
+ *   STEP FAIL 11 the jet's label: seat, callsign, altitude and speed; Labels off leaves one line (1400x900) — Labels on: 1 label(s), ["#1 Viper 1-1","500ft AGL · 480 KTAS"] 133×32 at 324,448 (inside the canvas true); off (false): ["#1 Viper 1-1","500ft AGL · 480 KTAS"] 133×32 at 324,448; …
+ *   STEP FAIL 11 … (1024x768) — …; off (false): ["#1 Viper 1-1","500ft AGL · 480 KTAS"] 133×32 at 238,337; …
+ */
+async function checkJetLabels(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.goHome(); __pb.seek(__pb.snapshot().start + 5); });
+  await settle(page, 300);
+  const on = await pbEval(page, () => __pb.debugLabels());
+  const cv = await canvasBox(page);
+  await shot(page, `${tag}-11-jet-label`);
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  const box = page.getByRole('checkbox', { name: /^Labels/ });
+  await box.click();
+  await settle(page, 300);
+  const off = await pbEval(page, () => __pb.debugLabels());
+  const offShown = await pbEval(page, () => __pb.show().labels);
+  await box.click();
+  await settle(page, 300);
+  const back = await pbEval(page, () => __pb.debugLabels());
+  await page.getByRole('button', { name: 'Show ▾' }).click(); // shut it again
+  const j = on.jets[0], jo = off.jets[0], jb = back.jets[0];
+  const inside = j && j.x >= 0 && j.y >= 0 && j.x + j.w <= cv.w + 0.5 && j.y + j.h <= cv.h + 0.5;
+  const fmt = (x) => (x ? `${JSON.stringify(x.lines)} ${Math.round(x.w)}×${Math.round(x.h)} at ${Math.round(x.x)},${Math.round(x.y)}` : 'none');
+  step(`11 the jet's label: seat, callsign, altitude and speed; Labels off leaves one line (${tag})`,
+    on.jets.length === 1 && !!j && j.lines[0] === '#1 Viper 1-1' && j.lines.length === 2 && /^[\d,]+ft AGL · \d+ KTAS$/.test(j.lines[1]) && inside &&
+      off.jets.length === 1 && !!jo && jo.lines.length === 1 && jo.lines[0] === '#1 Viper 1-1' && jo.h < j.h && offShown === false &&
+      back.jets.length === 1 && !!jb && jb.lines.length === 2,
+    `Labels on: ${on.jets.length} label(s), ${fmt(j)} (inside the canvas ${!!inside}); off (${offShown}): ${fmt(jo)}; on again: ${fmt(jb)}`);
 }
 
 /**
@@ -1204,6 +1353,8 @@ async function runChecks(browser, base) {
     await checkHomeFrame(page, tag, w === 1400 ? 250 : 180);
     await checkColourCode(page, tag);
     await checkTargetMark(page, tag);
+    await checkCallouts(page, tag);
+    await checkJetLabels(page, tag);
     await checkWheel(page, tag);
     await checkCameras(page, tag);
     await checkColours(page, tag);

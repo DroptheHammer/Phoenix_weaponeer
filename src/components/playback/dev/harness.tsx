@@ -21,7 +21,9 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../index.css';
-import { newSceneBombPose, sceneSourceFrom, type EnuBox, type GroundMode, type ShowAction, type ShowState, type Speed } from '../../../lib/playbackScene';
+import {
+  newSceneBombPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type ShowAction, type ShowState, type Speed,
+} from '../../../lib/playbackScene';
 import { JET_COLORS } from '../../../lib/jetColors';
 import PlaybackView from '../PlaybackView';
 import { PlaybackOverlay } from '../PlaybackOverlay';
@@ -87,7 +89,7 @@ interface PbHandle {
   setSpeed(s: Speed): void;
   /** Where the jet (or its falling bomb, its target's ring centre, or its target's TGT disc) is on the page, at the clock's time. */
   project(jet?: number, what?: 'jet' | 'bomb' | 'target' | 'targetMark'): [number, number] | null;
-  /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc centre and its tag. */
+  /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the callouts, the jets' labels. */
   debugLabels(): ReturnType<PlaybackScene['debugLabels']> | null;
   /** Where a point (playback metres east, north, up) is on the page, through the camera as it is now. */
   projectPoint(e_m: number, n_m: number, up_m: number): [number, number] | null;
@@ -108,6 +110,8 @@ interface PbHandle {
    * before the first action.
    */
   setRange(whole: boolean): void;
+  /** Show › Action points, made the way a click on its button makes it. */
+  setActionPoints(mode: ActionPointsMode): void;
   /** The Show choices as the view last held them (null until playback has opened). */
   show(): ShowState | null;
   /**
@@ -128,10 +132,12 @@ interface PbHandle {
   /**
    * t0 and t1: the library's window, the whole run-in. range and wholeRange: what the clock plays
    * without and with Show › Whole run-in. firstAction: the lead's first action after the IP.
-   * All strike time.
+   * All strike time. markers: the lead's action points as the scene places them (source.markers(0)),
+   * each with the planner's own lines and its strike time.
    */
   readonly moments: {
     t0: number; t1: number; range: { t0_s: number; t1_s: number }; wholeRange: { t0_s: number; t1_s: number }; firstAction: number;
+    markers: readonly SceneMarker[];
     push?: number; pullUp?: number; release?: number; impact?: number; events: { kind: string; label: string; t_s: number }[];
   };
   readonly colours: { jet: string; west: string; north: string; east: string };
@@ -195,6 +201,7 @@ const pb: PbHandle = {
     return { bomb: [b.x, b.y, b.z], target: [t.x, t.y, t.z] };
   },
   setRange: (whole) => showAct?.({ type: 'wholeRunIn', on: whole }),
+  setActionPoints: (mode) => showAct?.({ type: 'actionPoints', value: mode }),
   show: () => showNow,
   lanes: () =>
     [...document.querySelectorAll('[role="dialog"] [data-lane]')].map((lane) => {
@@ -215,6 +222,7 @@ const pb: PbHandle = {
     }),
   moments: {
     t0: moments.window.t0_s, t1: moments.window.t1_s, range: moments.range, wholeRange: moments.wholeRange, firstAction: moments.firstAction,
+    markers: source.markers(0),
     push: moments.push, pullUp: moments.pullUp, release: moments.release, impact: moments.impact, events: moments.events,
   },
   colours: { jet: JET_COLORS[0], west: DRAPE_WEST, north: DRAPE_NORTH, east: DRAPE_EAST },

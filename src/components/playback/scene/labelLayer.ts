@@ -6,31 +6,54 @@
  * size on screen, sharp at any distance, and their look is ordinary canvas
  * code that is easy to restyle.
  *
- * It draws, for each distinct target, the planner's red TGT disc (the map's
- * and the card's own mark) on the top of the target's post, with a dark
- * edge and a white rim so it reads over pale land and dark sky alike, and
- * the target's tag on a plate to the right of it ("TGT1 · #1 #3": the
- * waypoint's name, then every seat on it, so whose target it is never rests
- * on colour).
+ * What it draws, bottom to top:
+ * - The watched jet's action points: a disc in the planner's marker colour at
+ *   each point (on the drawn line, where the arrow passes), with the marker's
+ *   letters; an "IP" disc on the planner's IP blue; a small green dot at the
+ *   end of the egress leg. Gone when Show › Action points is Off.
+ * - Each distinct target's red TGT disc (the map's and the card's own mark) on
+ *   the top of its post, with its tag on a plate to the right ("TGT1 · #1 #3":
+ *   the waypoint's name, then every seat on it, so whose target it is never
+ *   rests on colour). These stay whatever Action points says.
+ * - The planner's words at each point, word for word what the map and the
+ *   card print, on a white plate joined to its disc by a thin line: the
+ *   markers' lines, the IP and egress labels, and the TGT marker's line at the
+ *   target when the bombs land. As they come (the default), each shows from a
+ *   little before the jet reaches its point to a little after, in real
+ *   seconds whatever the speed, three of one jet's at most, fading in and
+ *   out; Always, all of them. A plate that finds no free spot round its disc
+ *   is left out that frame (its disc stays): it never covers another label.
+ * - Each jet's label beside its arrow: "#1 Viper 1-1" in the jet's colour,
+ *   and, with Show › Labels on, its altitude and speed as the planner prints
+ *   them.
  *
  * The backing store follows the canvas's CSS size times the scene's capped
  * device pixel ratio, so text is sharp on a Retina screen without costing
  * more pixels than the 3D itself draws. Strings and their widths are worked
- * out once per source, never per frame.
+ * out once per source (a jet label's numbers only when they change), and
+ * nothing is allocated frame by frame.
  */
 import { Vector3, type PerspectiveCamera } from 'three';
-import { MARKER_COLOR } from '../../../lib/attackPicture';
+import { LABEL_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import {
-  DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
-  TARGET_FONT, TARGET_R_PX, letterInk, targetTag, type SceneSource,
+  CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CalloutFader, CalloutPlacer,
+  DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, EGRESS_DOT_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
+  LabelText, MARKER_FONT, MARKER_R_PX, TARGET_FONT, TARGET_R_PX, calloutTargets, letterInk, placeLabels, targetTag, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
+import type { JetLayer } from './jetLayer';
 import type { FrameCtx, Layer } from './layer';
 import type { TargetLayer } from './targetLayer';
 
 /** What was drawn on the last frame, CSS pixels from the canvas's top left. For the screenshot checks. */
 export interface LabelDebug {
   targets: { key: string; x: number; y: number; tag: string }[];
+  /** The action points' discs and the IP disc. */
+  markers: { key: string; x: number; y: number }[];
+  /** Every callout showing at all (alpha above 0), placed or dropped for want of room; the plate's top left and size. */
+  callouts: { key: string; lines: readonly string[]; alpha: number; x: number; y: number; w: number; h: number; placed: boolean }[];
+  /** Each jet's label: its lines as shown, and its plate. */
+  jets: { key: string; lines: string[]; x: number; y: number; w: number; h: number }[];
 }
 
 export interface LabelLayer extends Layer {
@@ -39,32 +62,123 @@ export interface LabelLayer extends Layer {
 }
 
 const TGT_INK = letterInk(MARKER_COLOR.TGT);
+const IP_INK = letterInk(LABEL_STYLE.ipBg);
+/** A callout's anchor that is not one of the discs: the egress dot, or the jet's target's disc. */
+const AT_EGRESS = -1, AT_TARGET = -2;
 
-export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; targets: TargetLayer; bag: DisposeBag }): LabelLayer {
+const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+
+export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; targets: TargetLayer; jets: readonly JetLayer[]; bag: DisposeBag }): LabelLayer {
   const canvas = document.createElement('canvas');
   canvas.setAttribute('aria-hidden', 'true');
   canvas.dataset.labels = '';
   Object.assign(canvas.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', pointerEvents: 'none' });
   o.host.appendChild(canvas); // after the WebGL canvas, so it is drawn over it
   const g = canvas.getContext('2d');
+  const measureLabel = (s: string) => {
+    if (!g) return 0;
+    g.font = LABEL_FONT;
+    return g.measureText(s).width;
+  };
 
   let src: SceneSource | undefined;
-  let tags: string[] = [];
-  let tagW = new Float32Array(0);
-  // Where each target's disc was drawn last frame (NaN when it was not), for debugLabels.
-  let drawnX = new Float32Array(0), drawnY = new Float32Array(0);
   let w = 0, h = 0, dpr = 0;
   const v = new Vector3();
 
-  /** The tags and their widths, once per source. */
+  // ── Per source: the targets' tags, the jets' label words.
+  let tags: string[] = [];
+  let tagW = new Float32Array(0);
+  let tx = new Float32Array(0), ty = new Float32Array(0), tOn = new Uint8Array(0);
+  let jetText: LabelText[] = [];
+  // Per jet layer, each frame: anchor, plate size and place, whether shown, the second line shown.
+  const nJ = o.jets.length;
+  const jax = new Float32Array(nJ), jay = new Float32Array(nJ), jw = new Float32Array(nJ), jh = new Float32Array(nJ);
+  const jx = new Float32Array(nJ), jy = new Float32Array(nJ), jOf = new Int16Array(nJ);
+  const jL2: (string | undefined)[] = new Array(nJ).fill(undefined);
+  let shownJets = 0;
+
+  // ── Per source and watched jet: its discs and its callouts.
+  let watched = -1;
+  let discKey: string[] = [], discFill: string[] = [], discEdge: string[] = [], discInk: string[] = [], discText: string[] = [];
+  let discPos: Vector3[] = [];
+  let discX = new Float32Array(0), discY = new Float32Array(0), discOn = new Uint8Array(0);
+  let egress: Vector3 | undefined;
+  let egX = 0, egY = 0, egOn = false;
+  let cKey: string[] = [], cLines: (readonly string[])[] = [], cColour: string[] = [];
+  let cMark = new Float64Array(0), cJet = new Int16Array(0), cAt = new Int16Array(0), cW = new Float32Array(0), cH = new Float32Array(0), cTW = new Float32Array(0);
+  let cTarget = new Float32Array(0), cOrder = new Int16Array(0), cPlaced = new Uint8Array(0), cX = new Float32Array(0), cY = new Float32Array(0);
+  let fader = new CalloutFader(0), placer = new CalloutPlacer(1);
+  let nCallouts = 0, nCandidates = 0, showPoints = false;
+
+  /** The tags and the jets' words, once per source. */
   function remember(s: SceneSource) {
     src = s;
     tags = s.targets.map((t) => targetTag(t, s.seatLabels));
     if (g) g.font = LABEL_FONT;
     tagW = Float32Array.from(tags, (t) => (g ? g.measureText(t).width : 0));
-    drawnX = new Float32Array(tags.length).fill(NaN);
-    drawnY = new Float32Array(tags.length).fill(NaN);
+    tx = new Float32Array(tags.length);
+    ty = new Float32Array(tags.length);
+    tOn = new Uint8Array(tags.length);
+    jetText = o.jets.map((jl) => new LabelText(s.labelOf(jl.jet), s.callsignOf(jl.jet)));
+    watched = -1; // the discs and callouts are made again for this source
   }
+
+  /** The watched jet's discs and callouts, their words measured: once per source and per watched jet. */
+  function rememberWatched(s: SceneSource, jet: number) {
+    watched = jet;
+    const ok = jet >= 0 && jet < s.jetCount;
+    const markers = ok ? s.markers(jet) : [];
+    const points = ok ? s.labelPoints(jet) : [];
+    const ip = points.find((p) => p.kind === 'ip');
+    const eg = points.find((p) => p.kind === 'egress');
+    discKey = markers.map((m) => m.key);
+    discFill = markers.map((m) => MARKER_COLOR[m.kind]);
+    discEdge = markers.map(() => DISC_EDGE);
+    discInk = markers.map((m) => letterInk(MARKER_COLOR[m.kind]));
+    discText = markers.map((m) => m.kind);
+    discPos = markers.map((m) => new Vector3(m.x, m.y, m.z));
+    if (ip) {
+      discKey.push(ip.key);
+      discFill.push(LABEL_STYLE.ipBg);
+      discEdge.push(LABEL_STYLE.ipBorder);
+      discInk.push(IP_INK);
+      discText.push('IP');
+      discPos.push(new Vector3(ip.x, ip.y, ip.z));
+    }
+    discX = new Float32Array(discKey.length);
+    discY = new Float32Array(discKey.length);
+    discOn = new Uint8Array(discKey.length);
+    egress = eg ? new Vector3(eg.x, eg.y, eg.z) : undefined;
+
+    // The callouts: each marker's lines at its disc, the IP label at the IP disc, the egress label at
+    // the dot, and the TGT marker's line at the target's disc when the bombs land.
+    const list: { key: string; lines: readonly string[]; colour: string; t: number; at: number }[] = markers.map((m, i) => ({ key: m.key, lines: m.lines, colour: MARKER_COLOR[m.kind], t: m.t_s, at: i }));
+    if (ip) list.push({ key: ip.key, lines: [ip.text], colour: LABEL_STYLE.ipBorder, t: ip.t_s, at: markers.length });
+    if (eg) list.push({ key: eg.key, lines: [eg.text], colour: LABEL_STYLE.egressBorder, t: eg.t_s, at: AT_EGRESS });
+    const tw = ok ? s.targetWords(jet) : undefined;
+    if (tw) list.push({ key: tw.key, lines: tw.lines, colour: MARKER_COLOR.TGT, t: tw.t_s, at: AT_TARGET });
+    const n = list.length;
+    nCallouts = n;
+    cKey = list.map((c) => c.key);
+    cLines = list.map((c) => c.lines);
+    cColour = list.map((c) => c.colour);
+    cMark = Float64Array.from(list, (c) => c.t);
+    cJet = new Int16Array(n).fill(jet);
+    cAt = Int16Array.from(list, (c) => c.at);
+    if (g) g.font = CALLOUT_FONT;
+    cTW = Float32Array.from(list, (c) => Math.max(0, ...c.lines.map((l) => (g ? g.measureText(l).width : 0))));
+    cW = Float32Array.from(cTW, (t) => Math.ceil(t) + CALLOUT_STRIPE_PX + 2 * CALLOUT_PAD_PX);
+    cH = Float32Array.from(list, (c) => c.lines.length * CALLOUT_LINE_PX + 2 * CALLOUT_PAD_PX);
+    cTarget = new Float32Array(n);
+    cOrder = new Int16Array(n);
+    cPlaced = new Uint8Array(n);
+    cX = new Float32Array(n);
+    cY = new Float32Array(n);
+    fader = new CalloutFader(n);
+    placer = new CalloutPlacer(n + nJ + tags.length);
+    nCandidates = 0;
+  }
+
   remember(o.source);
 
   /** A world point (overwritten) to CSS pixels on the canvas; false when it is behind the camera or past its far plane. */
@@ -75,8 +189,10 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     p.y = (-p.y * 0.5 + 0.5) * ctx.viewH;
     return true;
   }
+  const inView = (x: number, y: number, m: number) => x >= -m && x <= w + m && y >= -m && y <= h + m;
 
-  function disc(x: number, y: number, r: number, fill: string, letters: string, ink: string, font: string) {
+  /** A disc with its letters; `squeeze` narrows them to fit inside it (a marker's "ROLL" in a 10 px disc). */
+  function disc(x: number, y: number, r: number, fill: string, edge: string, letters: string, ink: string, font: string, squeeze = false) {
     if (!g) return;
     g.beginPath();
     g.arc(x, y, r + DISC_EDGE_PX + DISC_RIM_PX, 0, 2 * Math.PI);
@@ -84,7 +200,7 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     g.fill();
     g.beginPath();
     g.arc(x, y, r + DISC_EDGE_PX, 0, 2 * Math.PI);
-    g.fillStyle = DISC_EDGE;
+    g.fillStyle = edge;
     g.fill();
     g.beginPath();
     g.arc(x, y, r, 0, 2 * Math.PI);
@@ -94,7 +210,34 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     g.fillStyle = ink;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText(letters, x, y + 0.5);
+    if (squeeze) g.fillText(letters, x, y + 0.5, 2 * r - 4);
+    else g.fillText(letters, x, y + 0.5);
+  }
+
+  /** Callout i's anchor on screen this frame: writes ax, ay, ar; false when it is not on screen. */
+  let ax = 0, ay = 0, ar = 0;
+  function anchorOf(i: number): boolean {
+    const at = cAt[i];
+    if (at >= 0) {
+      if (!discOn[at]) return false;
+      ax = discX[at];
+      ay = discY[at];
+      ar = MARKER_R_PX + DISC_EDGE_PX + DISC_RIM_PX;
+      return true;
+    }
+    if (at === AT_EGRESS) {
+      if (!egOn) return false;
+      ax = egX;
+      ay = egY;
+      ar = EGRESS_DOT_PX;
+      return true;
+    }
+    const ti = src && watched >= 0 && watched < src.jetCount ? src.targetIndexOf(watched) : -1;
+    if (ti < 0 || !tOn[ti]) return false;
+    ax = tx[ti];
+    ay = ty[ti];
+    ar = TARGET_R_PX + DISC_EDGE_PX + DISC_RIM_PX;
+    return true;
   }
 
   return {
@@ -103,6 +246,7 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     afterCamera(ctx) {
       if (!g) return;
       if (ctx.source !== src) remember(ctx.source);
+      if (ctx.watched !== watched) rememberWatched(ctx.source, ctx.watched);
       if (ctx.viewW !== w || ctx.viewH !== h || ctx.dpr !== dpr) {
         w = ctx.viewW;
         h = ctx.viewH;
@@ -113,32 +257,175 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       g.clearRect(0, 0, w, h);
 
-      const r = TARGET_R_PX, edge = r + DISC_EDGE_PX + DISC_RIM_PX;
+      // ── Where everything goes.
+      // The targets' discs and tags.
+      const tEdge = TARGET_R_PX + DISC_EDGE_PX + DISC_RIM_PX;
       for (let i = 0; i < tags.length; i++) {
-        drawnX[i] = drawnY[i] = NaN;
+        tOn[i] = 0;
         if (!toScreen(v.copy(o.targets.markTop(i)), ctx.camera, ctx)) continue;
-        if (v.x < -edge - tagW[i] - 2 * LABEL_PAD_PX - LABEL_GAP_PX || v.x > w + edge || v.y < -edge || v.y > h + edge) continue;
-        disc(v.x, v.y, r, MARKER_COLOR.TGT, 'TGT', TGT_INK, TARGET_FONT);
+        if (v.x < -tEdge - tagW[i] - 2 * LABEL_PAD_PX - LABEL_GAP_PX || v.x > w + tEdge || v.y < -tEdge || v.y > h + tEdge) continue;
+        tOn[i] = 1;
+        tx[i] = v.x;
+        ty[i] = v.y;
+      }
+
+      // The jets' labels, beside their arrows.
+      shownJets = 0;
+      for (let k = 0; k < nJ; k++) {
+        const jl = o.jets[k], at = jl.jetPosition();
+        if (!at || !toScreen(v.copy(at), ctx.camera, ctx)) continue;
+        const text = jetText[k];
+        const l2 = ctx.labels ? text.line2(jl.pose, ctx.source.altRefOf(jl.jet)) : undefined;
+        const n = shownJets++;
+        jOf[n] = k;
+        jL2[n] = l2;
+        jax[n] = v.x;
+        jay[n] = v.y;
+        jw[n] = Math.max(text.width(1, measureLabel), l2 === undefined ? 0 : text.width(2, measureLabel)) + 2 * LABEL_PAD_PX;
+        jh[n] = (l2 === undefined ? 1 : 2) * LABEL_LINE_PX;
+      }
+      placeLabels(shownJets, jax, jay, jw, jh, w, h, jx, jy);
+
+      // The watched jet's discs.
+      showPoints = ctx.actionPoints !== 'off' && watched >= 0 && watched < ctx.source.jetCount;
+      const dEdge = MARKER_R_PX + DISC_EDGE_PX + DISC_RIM_PX;
+      for (let i = 0; i < discPos.length; i++) {
+        discOn[i] = 0;
+        if (!showPoints || !toScreen(v.copy(discPos[i]), ctx.camera, ctx) || !inView(v.x, v.y, dEdge)) continue;
+        discOn[i] = 1;
+        discX[i] = v.x;
+        discY[i] = v.y;
+      }
+      egOn = false;
+      if (showPoints && egress && toScreen(v.copy(egress), ctx.camera, ctx) && inView(v.x, v.y, EGRESS_DOT_PX)) {
+        egOn = true;
+        egX = v.x;
+        egY = v.y;
+      }
+
+      // The callouts: which show and how much, then a spot for each, nearest the playhead first.
+      nCandidates = 0;
+      if (!showPoints) {
+        fader.alpha.fill(0); // switched back on, they fade in afresh
+      } else {
+        nCandidates = calloutTargets(ctx.t, ctx.speed, ctx.actionPoints, cMark, cJet, nCallouts, fader.alpha, cTarget, cOrder);
+        if (fader.step(ctx.dt, cTarget, nCallouts)) ctx.again = true;
+        placer.begin(w, h);
+        for (let n = 0; n < shownJets; n++) placer.block(jx[n], jy[n], jw[n], jh[n]);
+        for (let i = 0; i < tags.length; i++) if (tOn[i]) placer.block(tx[i] + tEdge + LABEL_GAP_PX, ty[i] - LABEL_LINE_PX / 2, tagW[i] + 2 * LABEL_PAD_PX, LABEL_LINE_PX);
+        cPlaced.fill(0);
+        // Those meant to show first, then those fading out.
+        for (let pass = 0; pass < 2; pass++) {
+          for (let p = 0; p < nCandidates; p++) {
+            const i = cOrder[p];
+            if ((cTarget[i] > 0) !== (pass === 0) || !(fader.alpha[i] > 0) || !anchorOf(i)) continue;
+            if (placer.place(i, ax, ay, ar, cW[i], cH[i]) < 0) continue;
+            cPlaced[i] = 1;
+            cX[i] = placer.x;
+            cY[i] = placer.y;
+          }
+        }
+      }
+
+      // ── Drawing, bottom to top.
+      if (showPoints) {
+        for (let i = 0; i < discPos.length; i++) {
+          if (discOn[i]) disc(discX[i], discY[i], MARKER_R_PX, discFill[i], discEdge[i], discText[i], discInk[i], MARKER_FONT, true);
+        }
+        if (egOn) {
+          g.beginPath();
+          g.arc(egX, egY, EGRESS_DOT_PX + 1, 0, 2 * Math.PI);
+          g.fillStyle = DISC_EDGE;
+          g.fill();
+          g.beginPath();
+          g.arc(egX, egY, EGRESS_DOT_PX, 0, 2 * Math.PI);
+          g.fillStyle = LABEL_STYLE.egressBorder;
+          g.fill();
+        }
+      }
+
+      for (let i = 0; i < tags.length; i++) {
+        if (!tOn[i]) continue;
+        disc(tx[i], ty[i], TARGET_R_PX, MARKER_COLOR.TGT, DISC_EDGE, 'TGT', TGT_INK, TARGET_FONT);
         // The tag on its plate, to the right of the disc, centred on it.
-        const px = v.x + edge + LABEL_GAP_PX, py = v.y - LABEL_LINE_PX / 2;
+        const px = tx[i] + tEdge + LABEL_GAP_PX, py = ty[i] - LABEL_LINE_PX / 2;
         g.fillStyle = LABEL_PLATE;
         g.fillRect(px, py, tagW[i] + 2 * LABEL_PAD_PX, LABEL_LINE_PX);
         g.font = LABEL_FONT;
         g.fillStyle = LABEL_TEXT;
         g.textAlign = 'left';
         g.textBaseline = 'middle';
-        g.fillText(tags[i], px + LABEL_PAD_PX, v.y + 0.5);
-        drawnX[i] = v.x;
-        drawnY[i] = v.y;
+        g.fillText(tags[i], px + LABEL_PAD_PX, ty[i] + 0.5);
+      }
+
+      for (let p = 0; p < nCandidates; p++) {
+        const i = cOrder[p];
+        if (!cPlaced[i] || !anchorOf(i)) continue;
+        const px = cX[i], py = cY[i], pw = cW[i], ph = cH[i];
+        g.globalAlpha = fader.alpha[i];
+        // A thin line from the disc's rim to the nearest point of the plate.
+        const nx = clamp(ax, px, px + pw), ny = clamp(ay, py, py + ph), dx = nx - ax, dy = ny - ay, L = Math.hypot(dx, dy);
+        if (L > ar) {
+          g.beginPath();
+          g.moveTo(ax + (dx / L) * ar, ay + (dy / L) * ar);
+          g.lineTo(nx, ny);
+          g.strokeStyle = CALLOUT_LEADER;
+          g.lineWidth = CALLOUT_LEADER_PX;
+          g.stroke();
+        }
+        g.fillStyle = LABEL_STYLE.tooltipBg;
+        g.fillRect(px, py, pw, ph);
+        g.strokeStyle = LABEL_STYLE.tooltipBorder;
+        g.lineWidth = 1;
+        g.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+        g.fillStyle = cColour[i];
+        g.fillRect(px, py, CALLOUT_STRIPE_PX, ph);
+        g.font = CALLOUT_FONT;
+        g.fillStyle = LABEL_STYLE.tooltipText;
+        g.textAlign = 'left';
+        g.textBaseline = 'middle';
+        const lines = cLines[i];
+        for (let k = 0; k < lines.length; k++) g.fillText(lines[k], px + CALLOUT_STRIPE_PX + CALLOUT_PAD_PX, py + CALLOUT_PAD_PX + (k + 0.5) * CALLOUT_LINE_PX + 0.5);
+      }
+      g.globalAlpha = 1;
+
+      for (let n = 0; n < shownJets; n++) {
+        const k = jOf[n], l2 = jL2[n];
+        g.fillStyle = LABEL_PLATE;
+        g.fillRect(jx[n], jy[n], jw[n], jh[n]);
+        g.font = LABEL_FONT;
+        g.textAlign = 'left';
+        g.textBaseline = 'middle';
+        g.fillStyle = o.jets[k].colour;
+        g.fillText(jetText[k].line1, jx[n] + LABEL_PAD_PX, jy[n] + LABEL_LINE_PX / 2 + 0.5);
+        if (l2 !== undefined) {
+          g.fillStyle = LABEL_TEXT;
+          g.fillText(l2, jx[n] + LABEL_PAD_PX, jy[n] + 1.5 * LABEL_LINE_PX + 0.5);
+        }
       }
     },
 
     debugLabels() {
       const targets: LabelDebug['targets'] = [];
       (src?.targets ?? []).forEach((t, i) => {
-        if (Number.isFinite(drawnX[i])) targets.push({ key: t.key, x: drawnX[i], y: drawnY[i], tag: tags[i] });
+        if (tOn[i]) targets.push({ key: t.key, x: tx[i], y: ty[i], tag: tags[i] });
       });
-      return { targets };
+      const markers: LabelDebug['markers'] = [];
+      if (showPoints) discKey.forEach((key, i) => {
+        if (discOn[i]) markers.push({ key, x: discX[i], y: discY[i] });
+      });
+      const callouts: LabelDebug['callouts'] = [];
+      for (let p = 0; p < nCandidates; p++) {
+        const i = cOrder[p];
+        if (!(fader.alpha[i] > 0)) continue;
+        callouts.push({ key: cKey[i], lines: cLines[i], alpha: fader.alpha[i], x: cX[i], y: cY[i], w: cW[i], h: cH[i], placed: !!cPlaced[i] });
+      }
+      const jets: LabelDebug['jets'] = [];
+      for (let n = 0; n < shownJets; n++) {
+        const k = jOf[n], l2 = jL2[n];
+        jets.push({ key: src ? src.labelOf(o.jets[k].jet) : '', lines: l2 === undefined ? [jetText[k].line1] : [jetText[k].line1, l2], x: jx[n], y: jy[n], w: jw[n], h: jh[n] });
+      }
+      return { targets, markers, callouts, jets };
     },
 
     dispose() {

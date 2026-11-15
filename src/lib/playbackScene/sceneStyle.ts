@@ -71,7 +71,29 @@ export const DISC_EDGE_PX = 2;
 export const DISC_RIM = '#ffffff';
 export const DISC_RIM_PX = 1;
 
-/** The words drawn beside things on the picture (the target's tag): a dark plate with light text. */
+/**
+ * The action points: a disc in the planner's marker colour (MARKER_COLOR, read where it is drawn) at
+ * each point, with the marker's letters squeezed to fit inside it; the IP gets a disc of its own
+ * ("IP" on the planner's IP blue) and the end of the egress leg a small dot.
+ */
+export const MARKER_R_PX = 10;
+export const MARKER_OTHER_R_PX = 7;
+export const MARKER_FONT = 'bold 9px ui-sans-serif, system-ui, sans-serif';
+export const EGRESS_DOT_PX = 3;
+
+/**
+ * The planner's words at a point: a white plate like the map's and the card's tooltips (LABEL_STYLE,
+ * read where it is drawn), a stripe of the point's colour down its left edge, and a thin light line
+ * from the disc to the plate, so it is clear which point the words belong to.
+ */
+export const CALLOUT_FONT = '600 12px ui-sans-serif, system-ui, sans-serif';
+export const CALLOUT_LINE_PX = 15;
+export const CALLOUT_PAD_PX = 5;
+export const CALLOUT_STRIPE_PX = 3;
+export const CALLOUT_LEADER = '#e5e7eb';
+export const CALLOUT_LEADER_PX = 1;
+
+/** The words drawn beside things on the picture (the target's tag, each jet's label): a dark plate with light text. */
 export const LABEL_FONT = '12px ui-sans-serif, system-ui, sans-serif';
 export const LABEL_PLATE = 'rgba(26,26,46,0.85)';
 export const LABEL_TEXT = '#e5e7eb';

@@ -13,8 +13,9 @@
  *
  * The time bar (the clock's range) starts 10 s before the earliest first action
  * of the jets flown, not at the start of the whole run-in; Show › Whole run-in
- * widens it. The lane's axis is the same range. The Show choices live here, for
- * as long as the playback is open.
+ * widens it. The lane's axis is the same range. Show › Labels and Show ›
+ * Action points say what the 3D draws beside the jets and along the runs. The
+ * Show choices live here, for as long as the playback is open.
  *
  * It opens riding behind the watched jet (Chase) at the start of the time bar,
  * unless that jet is not in the picture yet then: it opens at Home instead,
@@ -196,6 +197,15 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
   useEffect(() => {
     onShow?.(show, act);
   }, [show, act, onShow]);
+
+  // What the labels and the action points show, handed to the scene whenever the choice changes and to
+  // every scene made (a rebuilt one included), so a context loss keeps them.
+  useEffect(() => {
+    scene?.setLabels(show.labels);
+  }, [scene, show.labels]);
+  useEffect(() => {
+    scene?.setActionPoints(show.actionPoints);
+  }, [scene, show.actionPoints]);
 
   if (fatal) throw fatal; // into the local error boundary, which keeps the plan safe and offers Try again
 

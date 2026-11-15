@@ -129,6 +129,10 @@ import {
 import { ANCHOR_VERTICES, PATH_STEP_S, LINE_CASING } from '../src/lib/playbackScene';
 import { groupTargets, targetTag, targetPost, letterInk, TARGET_STAND_PX, TARGET_GROUP_M, DISC_EDGE } from '../src/lib/playbackScene';
 import {
+  calloutAlpha, calloutTargets, CalloutPlacer, CalloutFader, CALLOUT_BEFORE_WALL_S, CALLOUT_AFTER_WALL_S, CALLOUT_FADE_WALL_S, CALLOUT_MAX_PER_JET,
+  labelLine1, labelLine2, LabelText, placeLabels, LABEL_OFFSET_PX, type SceneSource,
+} from '../src/lib/playbackScene';
+import {
   laneMarks, laneBands, laneChips, placeChips, pinnedGroup, axisFraction, axisTime, chipWidth, CHIP_GAP_PX, CHIP_TEXT, BAND_OUTLINE, DIAMOND_EDGE, IP_TEXT,
   PANEL, HATCH_RGB, HATCH_ALPHA, MENU_BG, PIN_MARK_PX, type Axis, type SeatMarks,
 } from '../src/lib/playbackScene';
@@ -7885,6 +7889,266 @@ void (async () => {
        DISC_EDGE === BG && fb8m.every((f) => f.worst >= 3) && fb8InkBad.length === 0 && letterInk(MARKER_COLOR.TGT) === '#000000' && letterInk(LABEL_STYLE.ipBg) === '#ffffff',
        `edge ${DISC_EDGE}; ${fb8m.map((f) => `${f.k} ${f.worst.toFixed(2)}`).join(', ')}; letters: ` +
        (fb8InkBad.length ? fb8InkBad.map((f) => `${f.name} ${f.got} ${f.r.toFixed(2)} (want ${f.best})`).join(', ') : fb8Ink.map((f) => `${f.name} ${f.got === '#000000' ? 'black' : 'white'} ${f.r.toFixed(2)}`).join(', ')));
+
+    // ── The action points and the planner's words (source.ts: markers, label points; callouts.ts: when a
+    // callout shows, the cap, the fader, where its plate goes), and each jet's label (labels.ts).
+
+    // [FB9] Each jet's action points are its marker moments (the planner's markers less TGT, with their
+    // own lines) at anchor time + the jet's shift, placed where the drawn jet is then, which is a vertex of
+    // its planned path (the path has one on every anchor); the IP and egress labels likewise; keys unique
+    // across the strike; none left out. Re-timing #2 by +20 s moves its points' times by 20 s and leaves
+    // them where they were on the ground (measured 2026-11-14: 0.00 m for every point of #2, so the
+    // 1 cm allowance is slack, not a fit).
+    // Mutation proof: source.ts markers placed at the plan sample (`x: j.samples.e_m[j.anchors[m.kind]!.index]`,
+    // y and z likewise from up_m and −n_m) instead of where jetAt puts the drawn jet, seen red 2026-11-14:
+    //   FAIL playback B3 [FB9]: … #1 AP: at (7736.9, 152.4, -3097.8), the drawn jet then at (7728.1, 152.4, -3151.1)
+    const fb9Pose = newSceneJetPose();
+    const fb9OnPath = (src: SceneSource, k: number, p: { x: number; y: number; z: number }) => {
+      const path = src.plannedPath(k), fx = Math.fround(p.x), fy = Math.fround(p.y), fz = Math.fround(p.z);
+      for (let i = 0; i < path.length; i += 3) if (path[i] === fx && path[i + 1] === fy && path[i + 2] === fz) return true;
+      return false;
+    };
+    let fb9Bad = '', fb9N = 0;
+    const fb9Keys = new Set<string>();
+    for (let k = 0; k < s4Src.jetCount; k++) {
+      const mm = markerMoments(s4Pb.jets[k]), sm = s4Src.markers(k), shift = s4Timing.jets[k].shift_s;
+      const lm = labelMoments(s4Pb.jets[k]), sl = s4Src.labelPoints(k);
+      if (sm.length !== mm.length || sl.length !== lm.length) fb9Bad ||= `${s4Pb.jets[k].label}: ${sm.length} markers for ${mm.length} moments, ${sl.length} label points for ${lm.length}`;
+      const pts: { key: string; jet: number; t_s: number; x: number; y: number; z: number; want_t: number; same: boolean; what: string }[] = [
+        ...sm.map((m, i) => ({ ...m, want_t: mm[i].tau_s + shift, same: m.kind === mm[i].kind && m.lines === mm[i].lines && m.first === mm[i].first, what: m.kind })),
+        ...sl.map((l, i) => ({ ...l, want_t: lm[i].tau_s + shift, same: l.kind === lm[i].kind && l.text === lm[i].text, what: l.kind })),
+      ];
+      for (const p of pts) {
+        fb9N++;
+        if (fb9Keys.has(p.key)) fb9Bad ||= `key ${p.key} twice`;
+        fb9Keys.add(p.key);
+        if (p.jet !== k || !p.same) fb9Bad ||= `${s4Pb.jets[k].label} ${p.what}: not the moment's own kind, words or first mark`;
+        if (Math.abs(p.t_s - p.want_t) > 1e-9) fb9Bad ||= `${s4Pb.jets[k].label} ${p.what}: at ${p.t_s} vs anchor + shift ${p.want_t}`;
+        s4Src.jetAt(k, p.t_s, fb9Pose);
+        if (p.x !== fb9Pose.x || p.y !== fb9Pose.y || p.z !== fb9Pose.z) fb9Bad ||= `${s4Pb.jets[k].label} ${p.what}: at (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}), the drawn jet then at (${fb9Pose.x.toFixed(1)}, ${fb9Pose.y.toFixed(1)}, ${fb9Pose.z.toFixed(1)})`;
+        if (!fb9OnPath(s4Src, k, p)) fb9Bad ||= `${s4Pb.jets[k].label} ${p.what}: on no vertex of its planned path`;
+      }
+    }
+    const FB9_MOVE_M = 0.01;
+    const fb9Id = s4Pb.jets[1].id;
+    const fb9Late = sceneSourceFrom(s4Pb, retime(s4Pb, { [fb9Id]: s4Pb.planDelays_s[fb9Id] + 20 }));
+    const fb9Moved = s4Src.markers(1).map((m, i) => {
+      const n = fb9Late.markers(1)[i];
+      return { kind: m.kind, dt: n.t_s - m.t_s, d: Math.hypot(n.x - m.x, n.y - m.y, n.z - m.z) };
+    });
+    const fb9MovedBad = fb9Moved.filter((x) => Math.abs(x.dt - 20) > 1e-9 || x.d > FB9_MOVE_M);
+    ok('playback B3 [FB9]: each jet\'s action points and IP and egress labels sit at anchor time + shift where the drawn jet is then, on a vertex of its planned path, with the planner\'s own words, keys unique; #2 re-timed +20 s moves them 20 s and not on the ground',
+       fb9Bad === '' && fb9N >= 20 && fb9MovedBad.length === 0 && fb9Moved.length >= 4,
+       fb9Bad || `${fb9N} points on the four-ship; #2 +20 s: ${fb9Moved.map((x) => `${x.kind} +${x.dt.toFixed(3)} s, ${x.d.toFixed(2)} m`).join(', ')}`);
+
+    // [FB10] How much of a callout shows: off 0, always 1; as they come, at 1× nothing until 3.5 s
+    // before the point, fully from 3 s before to 2 s after, nothing from 2.5 s after, linear between; at
+    // 16× the same in real seconds (full at 48 s before, nothing 56 s before); a speed of 0 or NaN is 1×;
+    // never NaN; the same answer every call (so paused shows what playing at that speed shows).
+    // Mutation proof: callouts.ts calloutAlpha `const u = (t_s - mark_s) / s` → `const u = t_s - mark_s`
+    // (the windows in strike seconds), seen red 2026-11-14:
+    //   FAIL playback B3 [FB10]: … 16× −48 s 0 (want 1); 16× −56 s − ε 0; 16× +32 s 0 (want 1); … (and [FB11])
+    const eps = 1e-6, mk = 100;
+    const fb10Cases: [string, number, number][] = [
+      ['off', calloutAlpha(mk, mk, 1, 'off'), 0], ['always, far off', calloutAlpha(mk - 500, mk, 1, 'always'), 1],
+      ['1× −3.5 s − ε', calloutAlpha(mk - 3.5 - eps, mk, 1, 'coming'), 0], ['1× −3.25 s', calloutAlpha(mk - 3.25, mk, 1, 'coming'), 0.5],
+      ['1× −3 s', calloutAlpha(mk - 3, mk, 1, 'coming'), 1], ['1× at the point', calloutAlpha(mk, mk, 1, 'coming'), 1],
+      ['1× +2 s', calloutAlpha(mk + 2, mk, 1, 'coming'), 1], ['1× +2.25 s', calloutAlpha(mk + 2.25, mk, 1, 'coming'), 0.5],
+      ['1× +2.5 s + ε', calloutAlpha(mk + 2.5 + eps, mk, 1, 'coming'), 0],
+      ['16× −48 s', calloutAlpha(mk - 48, mk, 16, 'coming'), 1], ['16× −56 s − ε', calloutAlpha(mk - 56 - eps, mk, 16, 'coming'), 0],
+      ['16× +32 s', calloutAlpha(mk + 32, mk, 16, 'coming'), 1], ['16× +40 s + ε', calloutAlpha(mk + 40 + eps, mk, 16, 'coming'), 0],
+      ['speed 0 −3.25 s', calloutAlpha(mk - 3.25, mk, 0, 'coming'), 0.5], ['speed NaN −3.25 s', calloutAlpha(mk - 3.25, mk, NaN, 'coming'), 0.5],
+      ['t NaN', calloutAlpha(NaN, mk, 1, 'coming'), 0], ['speed −4 +2.25 s', calloutAlpha(mk + 2.25, mk, -4, 'coming'), 0.5],
+    ];
+    const fb10Bad = fb10Cases.filter(([, got, want]) => !(Math.abs(got - want) < 1e-9));
+    const fb10Again = calloutAlpha(mk - 40, mk, 16, 'coming') === calloutAlpha(mk - 40, mk, 16, 'coming');
+    ok('playback B3 [FB10]: a callout shows fully from 3 s before its point to 2 s after, fading over half a second each end, in real seconds at the speed setting (16×: 48 s before to 32 s after); off none, always all; speed 0 or NaN is 1×; never NaN',
+       fb10Bad.length === 0 && fb10Again && CALLOUT_BEFORE_WALL_S === 3 && CALLOUT_AFTER_WALL_S === 2 && CALLOUT_FADE_WALL_S === 0.5,
+       fb10Cases.map(([name, got, want]) => `${name} ${got}${Math.abs(got - want) < 1e-9 ? '' : ` (want ${want})`}`).join('; '));
+
+    // [FB11] Nothing is skipped at any speed, the cap and the fader included: on the four-ship, every
+    // callout of every jet (its markers, IP and egress labels and TGT words), the clock stepping
+    // MAX_FRAME_DT_S × speed a frame across the whole window and then standing at its end (a finished
+    // playback stays on its last frame), the cap of three per jet and the fader run as the label layer
+    // runs them (0.1 s frames): every callout is shown fully on at least 3 frames, rises through values
+    // between 0 and 1 (it fades in, never pops), and no shown alpha moves more than 0.1 / 0.5 in a frame.
+    // Measured 2026-11-14: the fewest full frames of any callout are 50, 50, 41, 28 and 12 at 1× to 16×;
+    // the cap changes a callout's place in or out of the three 0, 0, 6, 38 and 44 times.
+    // Mutation proofs (each seen red 2026-11-14): callouts.ts calloutAlpha in strike seconds (`/ s` dropped):
+    //   FAIL playback B3 [FB11]: … 2×: fewest full frames 23, …; 8×: fewest full frames 2, …; short: #1 REL 2 full, #2 AP 2 full, …; 16×: fewest full frames 0, …; short: #1 AP 0 full, #1 POP 0 full, …
+    // CalloutFader.step taking the target at once (`this.alpha[i] = target[i]`; the window's own ramp still
+    // passes through the values between, so it is the cap's changes that show it):
+    //   FAIL playback B3 [FB11]: … 4×: fewest full frames 45, biggest step 1.000, cap changes 6; 8×: …, biggest step 1.000, …; short: #1 TRK 32 full, never between, …; 16×: …, biggest step 1.000, …
+    const fb11Mark: number[] = [], fb11Jet: number[] = [], fb11Name: string[] = [];
+    for (let k = 0; k < s4Src.jetCount; k++) {
+      const add = (t: number, what: string) => { fb11Mark.push(t); fb11Jet.push(k); fb11Name.push(`${s4Pb.jets[k].label} ${what}`); };
+      s4Src.markers(k).forEach((m) => add(m.t_s, m.kind));
+      s4Src.labelPoints(k).forEach((l) => add(l.t_s, l.kind));
+      const tw = s4Src.targetWords(k);
+      if (tw) add(tw.t_s, 'TGT');
+    }
+    const fb11N = fb11Mark.length;
+    const fb11Rows = SPEEDS.map((speed) => {
+      const fader = new CalloutFader(fb11N), target = new Float32Array(fb11N), order = new Int16Array(fb11N);
+      const full = new Int32Array(fb11N), between = new Uint8Array(fb11N);
+      let jump = 0, swaps = 0;
+      const prevIn = new Uint8Array(fb11N);
+      const frame = (t: number) => {
+        calloutTargets(t, speed, 'coming', fb11Mark, fb11Jet, fb11N, fader.alpha, target, order);
+        const before = Float32Array.from(fader.alpha);
+        fader.step(MAX_FRAME_DT_S, target, fb11N);
+        for (let i = 0; i < fb11N; i++) {
+          const a = fader.alpha[i];
+          jump = Math.max(jump, Math.abs(a - before[i]));
+          if (a === 1) full[i]++;
+          if (a > 0 && a < 1) between[i] = 1;
+          const inCap = calloutAlpha(t, fb11Mark[i], speed, 'coming') > 0 && target[i] === 0 ? 0 : 1;
+          if (calloutAlpha(t, fb11Mark[i], speed, 'coming') > 0 && inCap !== prevIn[i]) swaps++;
+          prevIn[i] = inCap;
+        }
+      };
+      const { t0_s, t1_s } = s4Timing.window, step = MAX_FRAME_DT_S * speed;
+      for (let t = t0_s; t < t1_s; t += step) frame(t);
+      for (let f = 0; f < 10; f++) frame(t1_s);
+      const short = Array.from(full).map((n, i) => ({ n, i })).filter((x) => x.n < 3 || !between[x.i]);
+      return { speed, jump, swaps, short, between, least: Math.min(...full) };
+    });
+    const fb11Bad = fb11Rows.filter((r) => r.short.length || r.jump > MAX_FRAME_DT_S / CALLOUT_FADE_WALL_S + 1e-6);
+    ok('playback B3 [FB11]: at every speed every callout of the four-ship is fully shown on 3 frames or more and fades in through the values between, with the cap of three per jet, and no shown alpha moves more than 0.2 in a 0.1 s frame',
+       fb11Bad.length === 0 && fb11N >= 25 && CALLOUT_MAX_PER_JET === 3,
+       fb11Rows.map((r) => `${r.speed}×: fewest full frames ${r.least}, biggest step ${r.jump.toFixed(3)}, cap changes ${r.swaps}${r.short.length ? `; short: ${r.short.slice(0, 4).map((x) => `${fb11Name[x.i]} ${x.n} full${r.between[x.i] ? '' : ', never between'}`).join(', ')}` : ''}`).join('; ') + ` (${fb11N} callouts)`);
+
+    // [FB12] Where a callout's plate goes: never over a blocked box (a jet's label, a target's tag); six
+    // on one disc take the six spots without overlapping and the rest are dropped (−1); the same input
+    // gives the same spots; and a plate keeps last frame's spot when its disc moves 3 px, even though the
+    // first spot has come free again.
+    // Mutation proof: callouts.ts CalloutPlacer.place trying the spots in order every time (last frame's
+    // spot not tried first: `const prev = -1`), seen red 2026-11-14:
+    //   FAIL playback B3 [FB12]: … with spot 0 blocked: spot 1 (covers the block false), 3 px on: 0 (a fresh placer there: 0); …
+    const fb12Over = (a: number[], b: number[]) => a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1];
+    const fb12Run = () => {
+      const pl = new CalloutPlacer(16);
+      pl.begin(800, 600);
+      const out: { s: number; box: number[] }[] = [];
+      for (let slot = 0; slot < 8; slot++) {
+        const s = pl.place(slot, 400, 300, 13, 120, 40);
+        out.push({ s, box: [pl.x, pl.y, 120, 40] });
+      }
+      return out;
+    };
+    const fb12Six = fb12Run(), fb12SixAgain = fb12Run();
+    const fb12Placed = fb12Six.filter((p) => p.s >= 0);
+    const fb12Overlap = fb12Placed.some((p, i) => fb12Placed.some((q, j) => j > i && fb12Over(p.box, q.box)));
+    const fb12Spots = fb12Six.map((p) => p.s).join();
+    // A blocked box over where spot 0 would go, then the same disc a frame later, 3 px on, nothing blocked.
+    const pl = new CalloutPlacer(8);
+    pl.begin(800, 600);
+    const blocked = [400 + 23 * Math.SQRT1_2 - 5, 300 - 23 * Math.SQRT1_2 - 30, 60, 30];
+    pl.block(blocked[0], blocked[1], blocked[2], blocked[3]);
+    const fb12First = pl.place(0, 400, 300, 13, 120, 25);
+    const fb12FirstBox = [pl.x, pl.y, 120, 25];
+    pl.begin(800, 600);
+    const fb12Next = pl.place(0, 403, 303, 13, 120, 25);
+    const fb12Free = new CalloutPlacer(8);
+    fb12Free.begin(800, 600);
+    const fb12FreeSpot = fb12Free.place(0, 403, 303, 13, 120, 25);
+    const fb12Edge = new CalloutPlacer(8);
+    fb12Edge.begin(800, 600);
+    const fb12EdgeSpot = fb12Edge.place(0, 790, 10, 13, 120, 25); // up against the top right corner: only down-left fits
+    ok('playback B3 [FB12]: a callout\'s plate never covers a blocked box; six on one disc take six spots without overlapping and the rest are dropped; the same every time; a plate keeps its spot when its disc moves 3 px; only spots wholly in view are taken',
+       fb12Spots === '0,1,2,3,4,5,-1,-1' && !fb12Overlap && JSON.stringify(fb12Six) === JSON.stringify(fb12SixAgain) &&
+       fb12First > 0 && !fb12Over(fb12FirstBox, blocked) && fb12Next === fb12First && fb12FreeSpot === 0 && fb12EdgeSpot === 3,
+       `eight on one disc: spots ${fb12Spots}, overlap ${fb12Overlap}; with spot 0 blocked: spot ${fb12First} (covers the block ${fb12Over(fb12FirstBox, blocked)}), 3 px on: ${fb12Next} (a fresh placer there: ${fb12FreeSpot}); in the top right corner: ${fb12EdgeSpot}`);
+
+    // [S3] The pose the label reads is the display sample's own: agl_ft, msl_ft and tas_kt of jetAt equal
+    // sampleJet on the display layer at six moments of every jet of the four-ship (in the picture,
+    // the IP, the first action, release, impact, just before it hides).
+    // Mutation proof: source.ts jetAt `out.agl_ft = js.agl_ft` → `out.agl_ft = js.msl_ft`, seen red 2026-11-14:
+    //   FAIL playback B3 [S3]: … #1 at -270.2: 4500 / 4500 ft, 480 kt vs 500 / 4500 ft, 480 kt
+    let s3Bad = '', s3N = 0;
+    for (let k = 0; k < s4Src.jetCount; k++) {
+      const tj = s4Timing.jets[k];
+      for (const t of [s4Src.visibleFromOf(k) + 1, tj.push_s, s4Src.firstActionOf(k), tj.release_s, tj.impact_s, tj.hide_s - 0.5]) {
+        s3N++;
+        const js = sampleJet(s4Pb, s4Timing, k, t, 'display');
+        const p = s4Src.jetAt(k, t, newSceneJetPose());
+        if (p.agl_ft !== js.agl_ft || p.msl_ft !== js.msl_ft || p.tas_kt !== js.tas_kt) s3Bad ||= `${s4Pb.jets[k].label} at ${t.toFixed(1)}: ${p.agl_ft.toFixed(0)} / ${p.msl_ft.toFixed(0)} ft, ${p.tas_kt.toFixed(0)} kt vs ${js.agl_ft.toFixed(0)} / ${js.msl_ft.toFixed(0)} ft, ${js.tas_kt.toFixed(0)} kt`;
+      }
+    }
+    ok('playback B3 [S3]: the altitude above the target, above sea level and the true airspeed a jet\'s label reads are the display sample\'s, at six moments of each jet',
+       s3Bad === '' && s3N === 24, s3Bad || `${s3N} moments, all equal`);
+
+    // [LB1] A jet's label: line 1 "#2 Viper 1-2" (just "#2" with no callsign); line 2 the altitude the
+    // planner prints for it, to 10 ft, and its true airspeed: a level run above sea level ("12,000ft MSL ·
+    // 450 KTAS"), the rest above the target; on the four-ship the pop-ups print AGL and carry their
+    // callsigns, the level JDAM MSL. The numbers come with toLocaleString, as the planner prints them.
+    // Mutation proof: labels.ts labelLine2 ignoring the reference (always `pose.agl_ft`), seen red 2026-11-14:
+    //   FAIL playback B3 [LB1]: … level "8,000ft MSL · 450 KTAS" (want "12,000ft MSL · 450 KTAS"); …
+    const L = (n: number) => n.toLocaleString();
+    const lb1Cases: [string, string, string][] = [
+      ['level', labelLine2({ agl_ft: 8004, msl_ft: 12004, tas_kt: 450.4 }, 'MSL'), `${L(12000)}ft MSL · 450 KTAS`],
+      ['pop-up', labelLine2({ agl_ft: 1496, msl_ft: 5496, tas_kt: 479.6 }, 'AGL'), `${L(1500)}ft AGL · 480 KTAS`],
+      ['rounds down at 4', labelLine2({ agl_ft: 1494.9, msl_ft: 0, tas_kt: 480 }, 'AGL'), `${L(1490)}ft AGL · 480 KTAS`],
+      ['rounds up at 5', labelLine2({ agl_ft: 1495, msl_ft: 0, tas_kt: 480 }, 'AGL'), `${L(1500)}ft AGL · 480 KTAS`],
+      ['a hair under the target', labelLine2({ agl_ft: -3, msl_ft: 0, tas_kt: 480 }, 'AGL'), '0ft AGL · 480 KTAS'],
+      ['line 1', labelLine1('#2', 'Viper 1-2'), '#2 Viper 1-2'],
+      ['line 1, no callsign', labelLine1('#2', undefined), '#2'],
+      ['four-ship #1', labelLine1(s4Src.labelOf(0), s4Src.callsignOf(0)) + ' ' + s4Src.altRefOf(0), '#1 Viper 1-1 AGL'],
+      ['four-ship #4 (loft)', s4Src.altRefOf(3), 'AGL'],
+      ['level JDAM', levelSrc.altRefOf(0), 'MSL'],
+    ];
+    const lb1Bad = lb1Cases.filter(([, got, want]) => got !== want);
+    ok('playback B3 [LB1]: a jet\'s label reads "#2 Viper 1-2" (or "#2"), then its altitude to 10 ft in the planner\'s reference (MSL for level runs, else AGL) and its true airspeed',
+       lb1Bad.length === 0,
+       lb1Cases.map(([name, got, want]) => `${name} "${got}"${got === want ? '' : ` (want "${want}")`}`).join('; '));
+
+    // [LB2] The label's words are rebuilt only when a printed number changes: fifty poses whose altitude
+    // rounds to the same 10 ft and speed to the same knot give the same string and are measured once;
+    // the next 10 ft gives a new string, measured once more; line 1 is measured once.
+    // Mutation proof: labels.ts LabelText.line2 rebuilding its string every call (the "same numbers" test
+    // replaced by `if (alt === alt)`), seen red 2026-11-14:
+    //   FAIL playback B3 [LB2]: … same string true, measured 51 time(s); next 10 ft "1,510ft AGL · 480 KTAS", measured 52; with line 1 53
+    const lbt = new LabelText('#1', 'Viper 1-1');
+    let lbMeasured = 0;
+    const lbMeasure = (s: string) => { lbMeasured++; return s.length * 7; };
+    const lb2First = lbt.line2({ agl_ft: 1500, msl_ft: 0, tas_kt: 480 }, 'AGL');
+    lbt.width(2, lbMeasure);
+    let lb2Same = true;
+    for (let i = 0; i < 50; i++) {
+      const s = lbt.line2({ agl_ft: 1495.5 + (i % 9), msl_ft: 0, tas_kt: 479.6 + (i % 8) / 10 }, 'AGL');
+      lbt.width(2, lbMeasure);
+      lb2Same &&= s === lb2First;
+    }
+    const lb2After50 = lbMeasured;
+    const lb2Next = lbt.line2({ agl_ft: 1506, msl_ft: 0, tas_kt: 480 }, 'AGL');
+    lbt.width(2, lbMeasure);
+    lbt.width(2, lbMeasure);
+    const lb2AfterNext = lbMeasured;
+    lbt.width(1, lbMeasure);
+    lbt.width(1, lbMeasure);
+    ok('playback B3 [LB2]: a jet\'s label words are rebuilt and measured only when a printed number changes',
+       lb2Same && lb2After50 === 1 && lb2Next === `${L(1510)}ft AGL · 480 KTAS` && lb2AfterNext === 2 && lbMeasured === 3 && lbt.line1 === '#1 Viper 1-1',
+       `50 poses the same to 10 ft and 1 kt: same string ${lb2Same}, measured ${lb2After50} time(s); next 10 ft "${lb2Next}", measured ${lb2AfterNext}; with line 1 ${lbMeasured}`);
+
+    // [LB3] The jets' labels: four on one arrow take the four spots round it (up-right, up-left,
+    // down-right, down-left, 14 px off) without overlapping, all inside the view; one in the top right
+    // corner goes down-left; the same input gives the same output.
+    // Mutation proof: labels.ts placeLabels taking the first spot every time (the candidate loop stopped
+    // after the first, `c < 1`), seen red 2026-11-14:
+    //   FAIL playback B3 [LB3]: … four on one arrow: (214, 104) (214, 104) (214, 104) (214, 104), overlap true, in view true; top right corner (409, -41)
+    const lb3Run = (ax: number[], ay: number[]) => {
+      const n = ax.length, outX = new Float32Array(n), outY = new Float32Array(n);
+      placeLabels(n, Float32Array.from(ax), Float32Array.from(ay), new Float32Array(n).fill(100), new Float32Array(n).fill(32), 400, 300, outX, outY);
+      return Array.from(outX, (x, i) => [x, outY[i], 100, 32]);
+    };
+    const lb3 = lb3Run([200, 200, 200, 200], [150, 150, 150, 150]), lb3Again = lb3Run([200, 200, 200, 200], [150, 150, 150, 150]);
+    const lb3Overlap = lb3.some((p, i) => lb3.some((q, j) => j > i && fb12Over(p, q)));
+    const lb3In = lb3.every((p) => p[0] >= 0 && p[1] >= 0 && p[0] + p[2] <= 400 && p[1] + p[3] <= 300);
+    const lb3Corner = lb3Run([395], [5])[0];
+    ok('playback B3 [LB3]: four labels on one arrow sit round it without overlapping, inside the view; one in the top right corner goes down-left; the same every time',
+       !lb3Overlap && lb3In && JSON.stringify(lb3) === JSON.stringify(lb3Again) && LABEL_OFFSET_PX === 14 &&
+       lb3[0][0] === 214 && lb3[0][1] === 150 - 14 - 32 && lb3Corner[0] === 395 - 14 - 100 && lb3Corner[1] === 5 + 14,
+       `four on one arrow: ${lb3.map((p) => `(${p[0]}, ${p[1]})`).join(' ')}, overlap ${lb3Overlap}, in view ${lb3In}; top right corner (${lb3Corner[0]}, ${lb3Corner[1]})`);
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }

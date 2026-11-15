@@ -29,6 +29,9 @@
  *   segment, so one dashed material for a mixed line would notch every bend.
  *   Each geometry has its own dark casing mesh under it (one mesh draws one
  *   geometry), so a dashed stretch is cased too.
+ * - A thin post in the point's colour stands under each action point and the
+ *   IP, from the drawn ground up to the point; the discs on top are the label
+ *   layer's. The posts go with the discs when Action points is Off.
  * - Nothing here is hazed: the jet must stay visible over the far terrain.
  */
 import {
@@ -38,10 +41,10 @@ import {
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import { LINE_STYLE } from '../../../lib/attackPicture';
+import { LABEL_STYLE, LINE_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import { PHASES, PHASE_STYLE } from '../../../lib/playback';
 import {
-  ARROW_LEN_M, ARROW_PX, BOMB_LEN_M, BOMB_LINE_CASING_PX, BOMB_LINE_PX, BOMB_PX, LINE_CASING, PATH_CASING_PX, PATH_PX,
+  ARROW_LEN_M, ARROW_PX, BOMB_LEN_M, BOMB_LINE_CASING_PX, BOMB_LINE_PX, BOMB_PX, LINE_CASING, PATH_CASING_PX, PATH_PX, POST_PX,
   TRAIL_CASING_PX, TRAIL_PX, TRAIL_S, jetColor,
   newSceneBombPose, newSceneJetPose, screenScale, worldPerPixel, type SceneJetPose, type ScenePhase, type SceneSource,
 } from '../../../lib/playbackScene';
@@ -81,7 +84,21 @@ const MIN_SPEED_MPS = 0.5;
  * and the bomb). Every casing of a line draws before any of its colour, so a casing never covers a
  * coloured stretch of its own line.
  */
-const ORDER = { pathCasing: 6, path: 7, trailCasing: 31, trail: 32, fallCasing: 33, fall: 34, bomb: 59, arrow: 60 } as const;
+const ORDER = { pathCasing: 6, path: 7, trailCasing: 31, trail: 32, fallCasing: 33, fall: 34, posts: 35, bomb: 59, arrow: 60 } as const;
+
+/** Posts under the action points: one per marker kind and the IP, at most. */
+const POST_SEGS = 9;
+/** A point this close above the drawn ground (or under it) gets no post: there is nothing to stand it on. */
+const POST_MIN_M = 5;
+/** The posts start this far above the drawn ground, so they never flicker into it. */
+const POST_LIFT_M = 1;
+/** Per marker kind (and the IP, in the IP disc's edge blue): the post's colour as linear RGB, worked out once. */
+const POST_KINDS = [...Object.keys(MARKER_COLOR), 'IP'];
+const POST_RGB = new Float32Array(POST_KINDS.length * 3);
+POST_KINDS.forEach((k, i) => {
+  const c = new Color(k === 'IP' ? LABEL_STYLE.ipBorder : MARKER_COLOR[k as keyof typeof MARKER_COLOR]);
+  POST_RGB.set([c.r, c.g, c.b], i * 3);
+});
 
 /** An opaque wide line of a set width in CSS pixels, tested against the ground's depth but never writing its own. */
 function wideLine(color: Color, px: number, more: { vertexColors?: boolean; dash?: number[] } = {}): LineMaterial {
@@ -185,6 +202,10 @@ function putPhase(l: CodedLine, x0: number, y0: number, z0: number, x1: number, 
 }
 
 export interface JetLayer extends Layer {
+  /** The playback index of the jet drawn. */
+  readonly jet: number;
+  /** Its colour ('#rrggbb'), the arrow's: its label's first line wears it. */
+  readonly colour: string;
   /**
    * The jet at the last update's time, three.js axes (the scene's own object,
    * refilled every update: read, never kept or written). Its position is
@@ -205,7 +226,8 @@ export interface JetLayer extends Layer {
 export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex?: number; parent: Object3D; bag: DisposeBag }): JetLayer {
   const { bag, jet } = o;
   let src = o.source;
-  const colour = new Color(jetColor(o.colorIndex ?? jet)); // sRGB in, linear inside: shown as exactly the editor's colour
+  const colourHex = jetColor(o.colorIndex ?? jet);
+  const colour = new Color(colourHex); // sRGB in, linear inside: shown as exactly the editor's colour
 
   // ── The arrow.
   const arrowMat = bag.add(new MeshBasicMaterial({ color: colour, vertexColors: true, side: DoubleSide, fog: false, toneMapped: false }));
@@ -239,7 +261,17 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   bomb.frustumCulled = false;
   bomb.visible = false;
 
-  const drawn = [...path.meshes, ...trail.meshes, fallCasing, fallLine, bomb, arrow];
+  // ── A thin post under each action point and the IP, in the point's colour, from the drawn ground up
+  // to the point, so a disc high on a climb reads as standing over its spot on the ground. Laid again
+  // only when the source or the ground changes.
+  const posts = capacityGeometry(bag, POST_SEGS, true, false);
+  const postLine = new LineSegments2(posts.geom, bag.add(wideLine(new Color('#ffffff'), POST_PX, { vertexColors: true })));
+  postLine.renderOrder = ORDER.posts;
+  postLine.frustumCulled = false;
+  let postsSource: SceneSource | undefined;
+  let postsGround = -1;
+
+  const drawn = [...path.meshes, ...trail.meshes, fallCasing, fallLine, postLine, bomb, arrow];
   o.parent.add(...drawn);
 
   // Scratch, made once: no frame allocates.
@@ -283,6 +315,21 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   refillPath();
   refillFall();
 
+  /** The posts into their buffer: one per action point and the IP that stands at least POST_MIN_M off the drawn ground. */
+  function layPosts(ctx: FrameCtx) {
+    posts.n = 0;
+    const post = (x: number, y: number, z: number, kind: string) => {
+      const g = ctx.heightAt(x, z);
+      if (y - g < POST_MIN_M) return;
+      putSegment(posts, x, g + POST_LIFT_M, z, x, y, z, POST_RGB, POST_KINDS.indexOf(kind) * 3, 0, 0);
+    };
+    for (const m of src.markers(jet)) post(m.x, m.y, m.z, m.kind);
+    for (const l of src.labelPoints(jet)) if (l.kind === 'ip') post(l.x, l.y, l.z, 'IP');
+    finish(posts);
+    postsSource = src;
+    postsGround = ctx.groundVersion;
+  }
+
   function placeArrow() {
     arrow.position.set(pose.x, pose.y, pose.z);
     dir.set(pose.vx, pose.vy, pose.vz);
@@ -325,10 +372,14 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
     screenScale(worldPerPixel(ctx.camera.position.distanceTo(p), ctx.camera.fov, ctx.viewH), px, len_m);
 
   return {
+    jet,
+    colour: colourHex,
     pose,
 
     update(ctx) {
       src = ctx.source;
+      if (src !== postsSource || ctx.groundVersion !== postsGround) layPosts(ctx);
+      postLine.visible = ctx.actionPoints !== 'off';
       src.jetAt(jet, ctx.t, pose);
       arrow.visible = pose.visible;
       if (pose.visible) placeArrow();

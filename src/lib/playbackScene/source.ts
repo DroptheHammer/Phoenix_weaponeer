@@ -12,7 +12,9 @@
  *   with the planner's phase of each stretch (for the colour code), its
  *   bomb's whole fall, the sizes their buffers need at any delay,
  *   each jet's target point and seat, the distinct targets (one mark per
- *   target, however many jets share it), the strike window, the box the terrain is
+ *   target, however many jets share it), each jet's action points and its IP
+ *   and egress labels with the planner's words (on the drawn line), its
+ *   callsign and altitude reference, the strike window, the box the terrain is
  *   built from, the lead's attack axis (for the home camera), the frame
  *   (what Home frames is homeBox in homeView.ts, from the poses);
  * - each jet's moments on the strike clock: in the picture from, first
@@ -31,7 +33,7 @@ import {
   PHASES, newBombState, newJetState, playbackBounds, sampleBomb, sampleJet, toLocal, upOf,
   type LocalFrame, type PlaybackBounds, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
 } from '../playback';
-import { firstActionTau } from './actionPoints';
+import { firstActionTau, labelMoments, markerMoments, type ActionKind } from './actionPoints';
 import { groupTargets, type SceneTarget } from './targets';
 
 export type ScenePhase = PlaybackPhase;
@@ -51,6 +53,51 @@ export interface SceneJetPose {
   /** Display estimate, right wing down positive. */
   bank_deg: number;
   phase: ScenePhase;
+  /** The numbers the jet's label prints, off the same display sample: height above the jet's own target, above sea level, and true airspeed. */
+  agl_ft: number;
+  msl_ft: number;
+  tas_kt: number;
+}
+
+/**
+ * An action point as the 3D view draws it: the planner's marker (less the target's) at the moment the
+ * jet reaches it, where the drawn jet is then. That spot is a vertex of the planned path (the path has
+ * one on every anchor), so the disc sits on the drawn line and the arrow flies through it.
+ */
+export interface SceneMarker {
+  /** `${attack id}:${kind}`: unique across the strike. */
+  key: string;
+  jet: number;
+  kind: ActionKind;
+  /** The marker's own lines, the very array the map and the card print. */
+  lines: readonly string[];
+  /** The jet's first action after the IP. */
+  first: boolean;
+  /** Strike time the jet reaches it. */
+  t_s: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** The picture's IP label at the IP and its egress label at the end of the drawn egress leg, placed the same way as the markers. */
+export interface SceneLabelPoint {
+  key: string;
+  jet: number;
+  kind: 'ip' | 'egress';
+  text: string;
+  t_s: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** The words of the planner's TGT marker (the attack heading), shown at the jet's target when its bombs land. */
+export interface SceneTargetWords {
+  key: string;
+  lines: readonly string[];
+  /** The jet's impact, strike time. */
+  t_s: number;
 }
 
 export interface SceneBombPose {
@@ -111,6 +158,16 @@ export interface SceneSource {
   readonly targets: readonly SceneTarget[];
   /** Index into `targets` of jet k's target. */
   targetIndexOf(jet: number): number;
+  /** Jet k's callsign, as the planner prints it, if it has one. */
+  callsignOf(jet: number): string | undefined;
+  /** How the planner prints jet k's altitudes: level runs above sea level, the rest above the target. */
+  altRefOf(jet: number): 'AGL' | 'MSL';
+  /** Jet k's action points, in picture order (worked out once per source). */
+  markers(jet: number): readonly SceneMarker[];
+  /** Jet k's IP and egress labels, in picture order (worked out once per source). */
+  labelPoints(jet: number): readonly SceneLabelPoint[];
+  /** The words of jet k's TGT marker at its impact, or undefined when its picture has none. */
+  targetWords(jet: number): SceneTargetWords | undefined;
   /** Jet k at strike time t, written into `out` (returned). Allocates nothing. */
   jetAt(jet: number, t_s: number, out: SceneJetPose): SceneJetPose;
   /** Jet k's bomb at strike time t, written into `out` (returned). Allocates nothing. */
@@ -128,7 +185,7 @@ export interface SceneSource {
 }
 
 export function newSceneJetPose(): SceneJetPose {
-  return { visible: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, heading_deg: 0, pitch_deg: 0, bank_deg: 0, phase: 'leadIn' };
+  return { visible: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, heading_deg: 0, pitch_deg: 0, bank_deg: 0, phase: 'leadIn', agl_ft: 0, msl_ft: 0, tas_kt: 0 };
 }
 
 export function newSceneBombPose(): SceneBombPose {
@@ -165,6 +222,9 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     out.pitch_deg = js.pitch_deg;
     out.bank_deg = js.bank_deg;
     out.phase = js.phase;
+    out.agl_ft = js.agl_ft;
+    out.msl_ft = js.msl_ft;
+    out.tas_kt = js.tas_kt;
     return out;
   };
 
@@ -247,6 +307,24 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
   const firstAction_s = pb.jets.map((j, k) => timing.jets[k].shift_s + firstActionTau(j).tau_s);
   const visibleFrom_s = pb.jets.map((j, k) => timing.jets[k].shift_s - j.display.leadIn.capTau_s);
 
+  // The action points and the IP and egress labels, once: each where the drawn jet is at the moment
+  // it reaches it, the same jetAt call the planned path's anchor vertex was made with, so each lands
+  // exactly on a vertex of the drawn line.
+  const markers: SceneMarker[][] = pb.jets.map((j, k) => markerMoments(j).map((m) => {
+    const t_s = m.tau_s + timing.jets[k].shift_s;
+    jetAt(k, t_s, pose);
+    return { key: `${j.id}:${m.kind}`, jet: k, kind: m.kind, lines: m.lines, first: m.first, t_s, x: pose.x, y: pose.y, z: pose.z };
+  }));
+  const labelPoints: SceneLabelPoint[][] = pb.jets.map((j, k) => labelMoments(j).map((l) => {
+    const t_s = l.tau_s + timing.jets[k].shift_s;
+    jetAt(k, t_s, pose);
+    return { key: `${j.id}:${l.kind}`, jet: k, kind: l.kind, text: l.text, t_s, x: pose.x, y: pose.y, z: pose.z };
+  }));
+  const targetWords = pb.jets.map((j, k): SceneTargetWords | undefined => {
+    const m = j.picture.markers.find((p) => p.kind === 'TGT');
+    return m && m.lines.length ? { key: `${j.id}:TGT`, lines: m.lines, t_s: timing.jets[k].impact_s } : undefined;
+  });
+
   const lead = pb.jets[0];
   const h = ((lead?.attackHeading_deg ?? 0) * Math.PI) / 180;
 
@@ -267,6 +345,11 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     seatLabels,
     targets: grouped.targets,
     targetIndexOf: (jet) => grouped.targetOfJet[jet],
+    callsignOf: (jet) => pb.jets[jet].callsign,
+    altRefOf: (jet) => pb.jets[jet].altRef,
+    markers: (jet) => markers[jet],
+    labelPoints: (jet) => labelPoints[jet],
+    targetWords: (jet) => targetWords[jet],
     jetAt,
     bombAt,
     impactOf: (jet) => timing.jets[jet].impact_s,

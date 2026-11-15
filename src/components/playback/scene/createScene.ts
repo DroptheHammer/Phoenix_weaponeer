@@ -32,7 +32,7 @@ import { Color, Fog, NoToneMapping, SRGBColorSpace, Scene, Vector3, WebGLRendere
 import type { StrikeWindow } from '../../../lib/playback';
 import {
   BG, MAX_DPR, PlayClock, UI_EMIT_MS, homeBox, homePose, newSceneJetPose, FOG_FAR_K,
-  type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TileSource,
+  type ActionPointsMode, type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TileSource,
 } from '../../../lib/playbackScene';
 import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
@@ -139,6 +139,10 @@ export interface PlaybackScene {
    * happens when the range is the one already set.
    */
   setRange(range: StrikeWindow): void;
+  /** Altitude and speed on each jet's label (Show › Labels); off leaves the seat and callsign. */
+  setLabels(on: boolean): void;
+  /** The action points' discs, posts and the planner's words (Show › Action points). */
+  setActionPoints(mode: ActionPointsMode): void;
   stats(): SceneStats;
   /**
    * Where jet `jet`'s arrow, its falling bomb, its target's ring centre or its target's TGT disc is
@@ -146,7 +150,7 @@ export interface PlaybackScene {
    * thing is not shown or is behind the camera. For the screenshot checks.
    */
   project(what: 'jet' | 'bomb' | 'target' | 'targetMark', jet?: number): ScreenPoint | undefined;
-  /** What the 2D overlay drew on the last frame (target discs and their tags). For the screenshot checks. */
+  /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels). For the screenshot checks. */
   debugLabels(): LabelDebug;
   /** Where a point (three.js axes: x east, y up, z = −north, m) is on screen through the camera as it is now. Undefined behind it. For the screenshot checks. */
   projectPoint(x: number, y: number, z: number): ScreenPoint | undefined;
@@ -242,7 +246,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     const homeFor = (aspect: number) => homePose({ box: homeBoxNow(), axis: source.attackAxis, aspect });
     rig = new CameraRig(canvas, homeFor, homeBoxNow, viewW / viewH, terrain.halfDiag_m, (FOG_FAR_K + 1) * terrain.halfDiag_m);
     // The 2D overlay last: nothing after it can throw, so a failed open never leaves its canvas behind.
-    labels = createLabelLayer({ host, source, targets, bag });
+    labels = createLabelLayer({ host, source, targets, jets: jets ? [jets] : [], bag });
   } catch (err) {
     abort.abort();
     bag.disposeAll();
@@ -283,6 +287,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     t: clock.time, dt: 0, source, camera: rig.camera, viewW, viewH, dpr,
     ground: terrain.ground, groundVersion: terrain.groundVersion, heightAt: terrain.heightAt,
     watched: camJet, focusPxPerM: 1,
+    speed: clock.currentSpeed, labels: true, actionPoints: 'coming', again: false,
   };
   const follow: Follow = { jet: new Vector3(), vel: new Vector3(), heading_deg: 0, target: new Vector3(), targetGround: 0 };
   const camPose = newSceneJetPose();
@@ -331,6 +336,8 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     ctx.ground = terrain.ground;
     ctx.groundVersion = terrain.groundVersion;
     ctx.watched = camJet;
+    ctx.speed = clock.currentSpeed;
+    ctx.again = false;
     // Pixels per metre where the eye is looking: at the orbit point, or, from the target (whose
     // controls are off and keep a stale orbit point), at the watched jet. Dashes are scaled by it.
     const cam = rig.camera;
@@ -341,6 +348,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     if (source.jetCount > 0) fillFollow(jets && camJet === jet ? jets.pose : source.jetAt(camJet, ctx.t, camPose));
     if (rig.update(terrain.heightAt, nearestTo, follow)) dirty = true;
     for (const l of layers) l.afterCamera?.(ctx); // 3. sizes on screen, read off the final camera
+    if (ctx.again) dirty = true; // a layer is still easing something (a callout fading): one more frame
     renderer.render(scene, rig.camera);
     renders++;
   }
@@ -469,6 +477,14 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       clock.setRange(r.t0_s, r.t1_s); // t is kept inside the new range; the clock tells the UI and asks for a frame
       homeBoxKept = undefined; // Home frames the new range from now on
       rig.refresh();
+      invalidate();
+    },
+    setLabels: (on) => {
+      ctx.labels = on;
+      invalidate();
+    },
+    setActionPoints: (mode) => {
+      ctx.actionPoints = mode;
       invalidate();
     },
     stats: () => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
