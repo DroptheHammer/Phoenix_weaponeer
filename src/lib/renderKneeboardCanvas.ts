@@ -486,6 +486,68 @@ function drawBasemap(ctx: CanvasRenderingContext2D, theme: CardTheme, basemap: B
   return report;
 }
 
+/**
+ * The room the north arrow (top right) and the one-mile bar (bottom left, as long as a mile at
+ * `scale` pixels per mile) take in the north-up picture `box`.
+ */
+function planFurniture(box: Rect, scale: number): Rect[] {
+  return [{ x: box.x + box.w - 44, y: box.y + 6, w: 40, h: 68 }, { x: box.x + 6, y: box.y + box.h - 34, w: scale + 24, h: 30 }];
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/**
+ * The route's edge note moved off the north arrow or the scale bar. A route leaving by the top
+ * right corner put the note on the arrow's "N", and there the arrow's room can reach past the
+ * action point, so walking back along the route is not always enough. The note first walks back
+ * along the route from the edge, in the steps of the walk that found the edge (`along`, step `t`
+ * being the edge), to the first spot whose plate is clear of everything in `keepOff` (the
+ * furniture and every marker, so the move never puts it on a marker instead). Failing that, it
+ * slides along the frame, either way round, to the nearest such spot: `inner` is the box the
+ * note's anchor is held to (left, top, right, bottom), and the slide runs round its edge.
+ * Failing both, it stays where it was.
+ */
+function offFurniture(
+  note: PlatedNote,
+  along: (k: number) => [number, number],
+  t: number,
+  held: (p: [number, number]) => [number, number],
+  inner: [number, number, number, number],
+  keepOff: Rect[],
+): PlatedNote {
+  const at = ([x, y]: [number, number]): PlatedNote => ({ ...note, x, y, plate: { ...note.plate, x: note.plate.x + x - note.x, y: note.plate.y + y - note.y } });
+  const clear = (n: PlatedNote) => !keepOff.some((r) => overlaps(n.plate, r));
+  for (let k = t - 1; k >= 0; k--) {
+    const n = at(held(along(k)));
+    if (clear(n)) return n;
+  }
+  const [x0, y0, x1, y1] = inner;
+  const w = x1 - x0, h = y1 - y0;
+  if (w < 0 || h < 0 || w + h <= 0) return note;
+  const round = 2 * (w + h);
+  // A distance round the edge, clockwise from the top left corner, to a point.
+  const pointAt = (s: number): [number, number] => {
+    const u = ((s % round) + round) % round;
+    if (u <= w) return [x0 + u, y0];
+    if (u <= w + h) return [x1, y0 + u - w];
+    if (u <= 2 * w + h) return [x1 - (u - w - h), y1];
+    return [x0, y1 - (u - 2 * w - h)];
+  };
+  // Start from the nearest point of the edge to where the note sits now.
+  const toSide = [note.y - y0, x1 - note.x, y1 - note.y, note.x - x0];
+  const nearestSide = toSide.indexOf(Math.min(...toSide));
+  const start = [note.x - x0, w + note.y - y0, w + h + x1 - note.x, 2 * w + h + y1 - note.y][nearestSide];
+  for (let d = 2; d <= round / 2; d += 2) {
+    for (const s of [start + d, start - d]) {
+      const n = at(pointAt(s));
+      if (clear(n)) return n;
+    }
+  }
+  return note;
+}
+
 function drawPlanView(
   ctx: CanvasRenderingContext2D,
   theme: CardTheme,
@@ -567,17 +629,27 @@ function drawPlanView(
 
   for (const line of picture.lines) strokePath(ctx, line.points.map(toPx), theme.lines[line.style], 1.1);
 
+  // The room the north arrow (top right) and the one-mile bar (bottom left) take. Neither a label
+  // nor the route's edge note may sit on them.
+  const furniture = planFurniture(box, scale);
+  const markerR = PLAN_MARKER_R;
+  const markerRooms = picture.markers.map((marker) => {
+    const [x, y] = toPx(marker.position);
+    return { x: x - markerR - 1, y: y - markerR - 1, w: 2 * markerR + 2, h: 2 * markerR + 2 };
+  });
+
   // Where the route leaves the frame toward the IP, say so.
   const route = picture.lines.find((l) => l.style === 'route');
   if (route && route.points.length >= 2) {
     const far = toPx(route.points[0]);
     const near = toPx(route.points[route.points.length - 1]);
+    const along = (k: number): [number, number] => [near[0] + (far[0] - near[0]) * (k / 200), near[1] + (far[1] - near[1]) * (k / 200)];
     if (!insideBox(far)) {
       // Walk back from the in-frame end toward the far end until the edge.
       let t = 0;
       let edge: [number, number] = near;
       for (let k = 1; k <= 200; k++) {
-        const p: [number, number] = [near[0] + (far[0] - near[0]) * (k / 200), near[1] + (far[1] - near[1]) * (k / 200)];
+        const p = along(k);
         if (!insideBox(p)) break;
         edge = p;
         t = k;
@@ -588,22 +660,23 @@ function drawPlanView(
         // the card; a fixed margin let the end of a long note like "→ STPT 2" run off the edge.
         ctx.font = `bold 12px ${SANS}`;
         const noteW = ctx.measureText(text).width;
-        const tx = Math.min(Math.max(edge[0], box.x + noteW / 2 + 4), box.x + box.w - noteW / 2 - 4);
-        const ty = Math.min(Math.max(edge[1], box.y + 16), box.y + box.h - 8);
-        notes.push(platedNote(ctx, text, tx, ty, { color: theme.ipArrow, size: 12, align: 'center' }));
+        const x0 = box.x + noteW / 2 + 4, x1 = box.x + box.w - noteW / 2 - 4;
+        const y0 = box.y + 16, y1 = box.y + box.h - 8;
+        const held = (p: [number, number]): [number, number] => [Math.min(Math.max(p[0], x0), x1), Math.min(Math.max(p[1], y0), y1)];
+        const [tx, ty] = held(edge);
+        const note = platedNote(ctx, text, tx, ty, { color: theme.ipArrow, size: 12, align: 'center' });
+        notes.push(furniture.some((f) => overlaps(note.plate, f)) ? offFurniture(note, along, t, held, [x0, y0, x1, y1], [...furniture, ...markerRooms]) : note);
       }
     }
   }
   for (const note of notes) obstacles.push(note.plate);
 
-  const markerR = PLAN_MARKER_R;
-  for (const marker of picture.markers) {
+  picture.markers.forEach((marker, i) => {
     const [x, y] = toPx(marker.position);
     drawMarker(ctx, theme, x, y, marker.kind, theme.marker.colors[marker.kind], markerR);
-    obstacles.push({ x: x - markerR - 1, y: y - markerR - 1, w: 2 * markerR + 2, h: 2 * markerR + 2 });
-  }
-  // North arrow and scale bar are obstacles too.
-  obstacles.push({ x: box.x + box.w - 44, y: box.y + 6, w: 40, h: 68 }, { x: box.x + 6, y: box.y + box.h - 34, w: scale + 24, h: 30 });
+    obstacles.push(markerRooms[i]);
+  });
+  obstacles.push(...furniture);
   // The map's credit line, bottom right, only when there is a map to credit.
   ctx.font = `11px ${SANS}`;
   const attributionW = report && report.drawn > 0 ? ctx.measureText(OSM_ATTRIBUTION).width + 8 : 0;
@@ -825,7 +898,9 @@ export function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile
     .map((p, i) => ({ p, i }))
     .filter(({ p }) => p.label)
     .map(({ p, i }) => ({ lines: [p.label!], anchor: P(i), side: p.side ?? 'top', size: 13, anchorRadius: p.kind !== 'APEX' && p.kind !== 'EGRESS' ? markerR : 0 }));
-  for (const label of layoutLabels(ctx, requests, obstacles, box)) drawPlacedLabel(ctx, theme, label);
+  // The side view keeps the first clear spot: only the north-up picture's boxes were moved to
+  // their nearest spot, and the side view's pictures stay as they were drawn before.
+  for (const label of layoutLabels(ctx, requests, obstacles, box, { firstClear: true })) drawPlacedLabel(ctx, theme, label);
 
   ctx.restore();
 }

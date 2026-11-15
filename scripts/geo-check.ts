@@ -56,7 +56,8 @@ import { calculateBearing, calculateDistance, calculateDestination } from '../sr
 import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, REAL_WORLD_DEFAULT_WEAPON, REAL_WORLD_DEFAULT_WEAPON_ID, isRealWorld } from '../src/lib/strikeNearMe';
 import { buildAttackPicture, buildSideProfile, pictureFitPoints, LINE_STYLE, MARKER_COLOR, LABEL_STYLE } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
-import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
+import { edgeCrossing, pixelSpan, labelsAreLegible, layoutLabels, leaderLine, type LabelRequest, type Rect } from '../src/lib/labelLayout';
+import type { LabelSide } from '../src/types/attackPicture.types';
 import { targetCandidates, ipCandidates, waypointLabel } from '../src/lib/waypointOptions';
 import { flightGroupOf, formatCallsign } from '../src/lib/callsign';
 import { applyDisplayFilter } from '../src/lib/displayFilter';
@@ -3221,6 +3222,150 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
      })());
 }
 
+// ─── Label boxes take the nearest clear spot on their side ──────────────────
+// The card's and the live map's labels are laid out by labelLayout's layoutLabels. A box used to
+// take the first clear spot in the order the spots are looked at (close in first, then sideways),
+// which once put the dive card's Release box a box-width and a half to the side of its marker,
+// its leader along the attack line, when a spot straight under the marker one step further out
+// was clear and far nearer. Now each side's nearest clear spot wins.
+{
+  const GAPS = [18, 30, 46, 66, 90, 120, 155, 195];
+  const shiftsFor = (w: number) => [0, -w * 0.35, w * 0.35, -w * 0.7, w * 0.7, -w * 1.05, w * 1.05, -w * 1.4, w * 1.4];
+  const ORDER: Record<LabelSide, LabelSide[]> = {
+    top: ['top', 'right', 'left', 'bottom'], bottom: ['bottom', 'right', 'left', 'top'],
+    left: ['left', 'top', 'bottom', 'right'], right: ['right', 'top', 'bottom', 'left'],
+  };
+  const spot = ([ax, ay]: [number, number], side: LabelSide, gap: number, shift: number, w: number, h: number): Rect =>
+    side === 'top' ? { x: ax - w / 2 + shift, y: ay - gap - h, w, h }
+    : side === 'bottom' ? { x: ax - w / 2 + shift, y: ay + gap, w, h }
+    : side === 'left' ? { x: ax - gap - w, y: ay - h / 2 + shift, w, h }
+    : { x: ax + gap, y: ay - h / 2 + shift, w, h };
+  const boxOf = (ctx: CanvasRenderingContext2D, req: LabelRequest) => {
+    const size = req.size ?? 11;
+    ctx.font = `bold ${size}px 'Arial Narrow', Arial, sans-serif`;
+    return { w: Math.max(...req.lines.map((l) => ctx.measureText(l).width)) + 12, h: req.lines.length * (size + 4) + 6 };
+  };
+  const gapTo = ([px, py]: [number, number], r: Rect) => Math.hypot(Math.max(r.x - px, 0, px - r.x - r.w), Math.max(r.y - py, 0, py - r.y - r.h));
+  const covers = (r: Rect, obstacles: Rect[]) => obstacles.reduce((sum, b) => {
+    const w = Math.min(r.x + r.w, b.x + b.w) - Math.max(r.x, b.x), h = Math.min(r.y + r.h, b.y + b.h) - Math.max(r.y, b.y);
+    return sum + (w > 0 && h > 0 ? w * h : 0);
+  }, 0);
+  /**
+   * The placement as it was before, for one label, kept as the yardstick: the first clear spot in
+   * loop order, else the full-frame sweep, else the least-bad spot, else the clamp. `side` is the
+   * side of the clear spot it took, when it took one.
+   */
+  const firstClear = (ctx: CanvasRenderingContext2D, req: LabelRequest, obstacles: Rect[], bounds: Rect): { rect: Rect; side?: LabelSide } => {
+    const { w, h } = boxOf(ctx, req);
+    const inside = (r: Rect) => r.x >= bounds.x + 2 && r.y >= bounds.y + 2 && r.x + r.w <= bounds.x + bounds.w - 2 && r.y + r.h <= bounds.y + bounds.h - 2;
+    let best: { rect: Rect; score: number } | undefined;
+    for (const side of ORDER[req.side]) {
+      for (const gap of GAPS) {
+        for (const shift of shiftsFor(w)) {
+          const rect = spot(req.anchor, side, gap, shift, w, h);
+          if (!inside(rect)) continue;
+          const area = covers(rect, obstacles);
+          if (area === 0) return { rect, side };
+          const score = area + gap * 2 + Math.abs(shift);
+          if (!best || score < best.score) best = { rect, score };
+        }
+      }
+    }
+    const [ax, ay] = req.anchor;
+    let sweep: { rect: Rect; d: number } | undefined;
+    for (let y = bounds.y + 2; y + h <= bounds.y + bounds.h - 2; y += 28) {
+      for (let x = bounds.x + 2; x + w <= bounds.x + bounds.w - 2; x += 28) {
+        const rect = { x, y, w, h };
+        if (covers(rect, obstacles) === 0) {
+          const d = (x + w / 2 - ax) ** 2 + (y + h / 2 - ay) ** 2;
+          if (!sweep || d < sweep.d) sweep = { rect, d };
+        }
+      }
+    }
+    if (sweep) return { rect: sweep.rect };
+    if (best) return { rect: best.rect };
+    const rect = spot(req.anchor, req.side, 18, 0, w, h);
+    rect.x = Math.min(Math.max(rect.x, bounds.x + 2), bounds.x + bounds.w - w - 2);
+    rect.y = Math.min(Math.max(rect.y, bounds.y + 2), bounds.y + bounds.h - h - 2);
+    return { rect };
+  };
+  /** A measuring stand-in, as the card checks' recording canvas is: every character the same width. */
+  const evenWidth = (perChar: number) => ({ font: '', measureText: (text: string) => ({ width: text.length * perChar }) }) as unknown as CanvasRenderingContext2D;
+  const same = (a: Rect, b: Rect) => Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9 && a.w === b.w && a.h === b.h;
+  const show = (r: Rect) => `(${r.x.toFixed(1)}, ${r.y.toFixed(1)})`;
+
+  // [LL1] Built to show it. A 72 x 21 box (ten characters at 6 px) under a point at (400, 200): the
+  // first rectangle blocks the spots 18 and 30 px down at every shift; the second blocks the spots
+  // 46 px down at every shift but the farthest to the right (1.4 box-widths, 79.5 px from the point).
+  // The spot 66 px straight down is clear and nearer, so it wins. In the second case only the
+  // 18 px spots are blocked, and the 30 px spot straight down was both the first clear and the nearest.
+  // Seen red (2026-11-15) with layoutLabels back to stopping at the first clear spot it looks at:
+  //   FAIL label layout [LL1]: with the spots 18 and 30 px down blocked and 46 px down clear only 1.4 box-widths to the side, the box takes the clear spot 66 px straight down  (464.8, 246.0), first-clear (464.8, 246.0)
+  const ctx6 = evenWidth(6);
+  const frame: Rect = { x: 0, y: 0, w: 800, h: 800 };
+  const under: LabelRequest = { lines: ['RELEASE 45'], anchor: [400, 200], side: 'bottom' };
+  const walls: Rect[] = [{ x: 0, y: 231, w: 800, h: 14 }, { x: 0, y: 250, w: 450, h: 10 }];
+  const [nearer] = layoutLabels(ctx6, [under], walls, frame);
+  ok('label layout [LL1]: with the spots 18 and 30 px down blocked and 46 px down clear only 1.4 box-widths to the side, the box takes the clear spot 66 px straight down',
+     same(nearer.rect, { x: 364, y: 266, w: 72, h: 21 }) && nearer.leader && same(firstClear(ctx6, under, walls, frame).rect, { x: 464.8, y: 246, w: 72, h: 21 }),
+     `${show(nearer.rect)}, first-clear ${show(firstClear(ctx6, under, walls, frame).rect)}`);
+  const lowWall: Rect[] = [{ x: 0, y: 215, w: 800, h: 10 }];
+  const [kept] = layoutLabels(ctx6, [under], lowWall, frame);
+  ok('label layout [LL1]: where the first clear spot is also the nearest (30 px straight down), the box is where it always was',
+     same(kept.rect, { x: 364, y: 230, w: 72, h: 21 }) && same(kept.rect, firstClear(ctx6, under, lowWall, frame).rect), show(kept.rect));
+
+  // [LL2] Never worse, over many scenes. A seeded generator lays out one label per scene: a random
+  // point, side, one or two lines of 3 to 45 characters, and up to 14 obstacles (60 to 119 in one
+  // scene in six), half of them near the point, in a frame the size of the card's north-up picture. Wherever the old search found
+  // a clear spot, the new one finds a clear spot on the same side, no farther from the point; where it
+  // found none, the new placement is the old one exactly.
+  // Seen red (2026-11-15) with layoutLabels taking the farthest clear spot (`dist < nearest.dist - 1e-9` → `dist > nearest.dist + 1e-9`):
+  //   FAIL label layout [LL2]: over 3,000 seeded scenes … unchanged where nothing was clear  2596 farther, 0 off-side, 0 not clear, 0 of 280 with no near clear spot changed; 2596 of 2720 clear scenes differ
+  // Measuring by gap alone is the old rule over again (the smallest clear gap, its first shift), so
+  // nothing is farther; it is seen red here only as "0 of 2720 clear scenes differ", and by [LL1].
+  let seed = 20261115;
+  const rand = () => (seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff) / 0x80000000;
+  const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
+  const picture: Rect = { x: 0, y: 0, w: 768, h: 423 };
+  const ctx7 = evenWidth(7);
+  const tally = { clear: 0, none: 0, differ: 0, farther: 0, offSide: 0, notClear: 0, fallbackChanged: 0 };
+  // The side view asks for the old rule by name; in every scene that must be the old placement exactly.
+  const keptOld = { differ: 0 };
+  const SCENES = 3000;
+  for (let n = 0; n < SCENES; n++) {
+    const anchor: [number, number] = [10 + rand() * (picture.w - 20), 10 + rand() * (picture.h - 20)];
+    const lines = Array.from({ length: rand() < 0.3 ? 2 : 1 }, () => 'X'.repeat(3 + Math.floor(rand() * 43)));
+    const req: LabelRequest = { lines, anchor, side: pick<LabelSide>(['top', 'bottom', 'left', 'right']), size: pick([11, 13, 14]) };
+    // One scene in six is crowded, so that some find no clear spot near the point at all.
+    const obstacles = Array.from({ length: rand() < 1 / 6 ? 60 + Math.floor(rand() * 60) : Math.floor(rand() * 15) }, (_, i) => {
+      const w = 20 + rand() * 200, h = 10 + rand() * 70;
+      const [cx, cy] = i % 2 ? [anchor[0] + (rand() - 0.5) * 300, anchor[1] + (rand() - 0.5) * 300] : [rand() * picture.w, rand() * picture.h];
+      return { x: cx - w / 2, y: cy - h / 2, w, h };
+    });
+    const was = firstClear(ctx7, req, obstacles, picture);
+    const now = layoutLabels(ctx7, [req], obstacles, picture)[0].rect;
+    if (!same(layoutLabels(ctx7, [req], obstacles, picture, { firstClear: true })[0].rect, was.rect)) keptOld.differ++;
+    if (!was.side) {
+      tally.none++;
+      if (!same(now, was.rect)) tally.fallbackChanged++;
+      continue;
+    }
+    tally.clear++;
+    if (!same(now, was.rect)) tally.differ++;
+    const { w, h } = boxOf(ctx7, req);
+    if (!GAPS.some((gap) => shiftsFor(w).some((shift) => same(now, spot(anchor, was.side!, gap, shift, w, h))))) tally.offSide++;
+    if (covers(now, obstacles) > 0) tally.notClear++;
+    if (gapTo(anchor, now) > gapTo(anchor, was.rect) + 1e-9) tally.farther++;
+  }
+  ok('label layout [LL2]: over 3,000 seeded scenes the box is never farther from its point than the old first-clear spot, always on the same side, and unchanged where nothing was clear',
+     tally.clear >= 2000 && tally.none >= 20 && tally.differ > 0 && tally.farther === 0 && tally.offSide === 0 && tally.notClear === 0 && tally.fallbackChanged === 0,
+     `${tally.farther} farther, ${tally.offSide} off-side, ${tally.notClear} not clear, ${tally.fallbackChanged} of ${tally.none} with no near clear spot changed; ${tally.differ} of ${tally.clear} clear scenes differ`);
+  // Seen red (2026-11-15) with layoutLabels ignoring `firstClear`:
+  //   FAIL label layout: asked for the first clear spot (as the side view asks), the box is where the old search put it, in all 3,000 scenes  438 of 3000 differ
+  ok('label layout: asked for the first clear spot (as the side view asks), the box is where the old search put it, in all 3,000 scenes',
+     keptOld.differ === 0, `${keptOld.differ} of ${SCENES} differ`);
+}
+
 // ─── The card's colours: Day is the card as it always was ────────────────────
 // The card draws in a theme (lib/cardTheme.ts); Day is today's card and must stay
 // so. A recording canvas notes every call the renderer makes, in order: text with
@@ -3237,10 +3382,10 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
 {
   /**
    * A 2D context that logs every call and property set. Text is 0.6 em a character,
-   * as in Courier. `refuseBlends` is an engine that does not know any blend mode: it
-   * keeps `globalCompositeOperation` as it was.
+   * as in Courier, unless `perEm` says otherwise. `refuseBlends` is an engine that does
+   * not know any blend mode: it keeps `globalCompositeOperation` as it was.
    */
-  const recordingContext = (refuseBlends = false) => {
+  const recordingContext = (refuseBlends = false, perEm = 0.6) => {
     const log: string[] = [];
     const state: Record<string, unknown> = { font: '10px sans-serif', globalCompositeOperation: 'source-over' };
     const em = () => parseFloat(/([\d.]+)px/.exec(String(state.font))?.[1] ?? '10');
@@ -3252,7 +3397,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
       : `<${typeof v}>`;
     const ctx = new Proxy(state, {
       get: (s, name: string) =>
-        name === 'measureText' ? (text: string) => { log.push(`measureText(${show(text)})`); return { width: text.length * 0.6 * em() }; }
+        name === 'measureText' ? (text: string) => { log.push(`measureText(${show(text)})`); return { width: text.length * perEm * em() }; }
         : name in s ? s[name]
         : (...args: unknown[]) => { log.push(`${name}(${args.map(show).join(',')})`); },
       set: (s, name: string, value) => {
@@ -3436,19 +3581,36 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   //   FAIL Day card: A-4E manual dive is drawn exactly as it always was  1024 draw calls, 4cca73a48f7da913   (and a4e-map, no-tiles, wingman in all four themes)
   // and the gun card's under attackPicture.ts buildSideProfile `diveRanges(p, isFired(attack.weaponClass))` → `diveRanges(p, true)`:
   //   FAIL Day card: a gun card with no threats and only a side view is drawn exactly as it always was  516 draw calls, b27c13a18d629637
+  // Every card with a north-up picture (all but the gun card "bare" and the two side views) was
+  // re-pinned in all four themes when a label box in that picture came to take the nearest clear
+  // spot on its side, and when the "→ STPT 7" edge note came off the north arrow (a4e, a4e-map,
+  // wingman and popup: 50 px down the right edge, below the AP marker; loft-strike: back along the
+  // route). Diffing every log before and after showed only the north-up picture's label boxes,
+  // their leaders and the edge note moved: the same number of calls, no text added, lost or
+  // changed, no colour changed, every marker and line the same, every side view the same.
+  // The new pins seen red (2026-11-15) with layoutLabels back to the first clear spot:
+  //   FAIL Day card: A-4E manual dive is drawn exactly as it always was  1024 draw calls, 3dc9687fb192d4e2   (and every re-pinned card, in all four themes)
+  // with the edge note left where it was put (no move off the furniture):
+  //   FAIL Day card: A-4E manual dive is drawn exactly as it always was  1024 draw calls, 91738b7322722e56   (and a4e-map, popup, wingman, loft-strike, in all four themes)
+  // and with the walk back along the route skipped (only the slide along the frame's edge left):
+  //   FAIL Day card: F-4E LABS loft, #2 of a two-jet strike is drawn exactly as it always was  1096 draw calls, bfa04fa8d0499e92   (in all four themes)
+  // The side views keep the first clear spot. Seen red with the side view's layoutLabels call
+  // asking for the nearest spot instead (the "4,887ft: track 5s" box comes in close and pushes
+  // the Release box one step out, onto a leader):
+  //   FAIL Day card: the side view alone, as the attack editor draws it is drawn exactly as it always was  501 draw calls, 2e3ec491d36c1e40   (and popup, in all four themes)
   const DAY_PIN: Record<string, { ops: number; sha: string }> = {
-    a4e: { ops: 1024, sha: '46e893aa7c1a7272' },
-    'a4e-map': { ops: 1141, sha: '18fb8e312aaacfda' },
-    strike: { ops: 1154, sha: '62b32a0f769ddc9b' },
-    popup: { ops: 1295, sha: '25b3d772d1ecbaf9' },
+    a4e: { ops: 1024, sha: 'eed3f52332297c0a' },
+    'a4e-map': { ops: 1141, sha: '5ef60f941c921137' },
+    strike: { ops: 1154, sha: 'a9a0b47e7d338199' },
+    popup: { ops: 1295, sha: 'c49f486f4c2087b0' },
     side: { ops: 500, sha: '5af01fbeeba5515e' },
     bare: { ops: 504, sha: 'f4f2a5a9dab7b284' },
-    'no-tiles': { ops: 616, sha: 'de17b3d8c643ab23' },
-    wingman: { ops: 1107, sha: '3a9ccd4f47277c40' },
-    // The loft cards, first pinned 2026-11-14 on the code as shipped in v0.3.4 (not re-pins).
-    'loft-labs': { ops: 1034, sha: '4b70354b77866b80' },
-    'loft-ccrp': { ops: 1036, sha: '8ae658a6e11beb96' },
-    'loft-strike': { ops: 1096, sha: 'b6b20406fffc8192' },
+    'no-tiles': { ops: 616, sha: '94791f35a7d9a8df' },
+    wingman: { ops: 1107, sha: '2a94d547308c5386' },
+    // The loft cards, first pinned 2026-11-14 on the code as shipped in v0.3.4; all but the side view re-pinned as above.
+    'loft-labs': { ops: 1034, sha: '1d82e45935747850' },
+    'loft-ccrp': { ops: 1036, sha: '422e20893ee39b94' },
+    'loft-strike': { ops: 1096, sha: '4014de7ee102a9a8' },
     'loft-side': { ops: 419, sha: '918baef989834be8' },
   };
   const runs = runAll();
@@ -3629,20 +3791,21 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // header date and the footer, say) draw the same under Day, so swapping two of them passes
   // every check above; the marked log tells them apart. A new slot changes these: re-pin.
   // Re-pinned on purpose for 3x, like the Day pins: the setTransform line, and the map card's finer tiles.
-  // The A-4E dive cards re-pinned again for the dive's aim-off, as the Day pins say.
+  // The A-4E dive cards re-pinned again for the dive's aim-off, as the Day pins say, and every card
+  // with a north-up picture for its labels' nearest clear spot and the edge note, as the Day pins say.
   const MARKED_PIN: Record<string, string> = {
-    a4e: '3dd60b0c53ce996a',
-    'a4e-map': '35980f16fc1607aa',
-    strike: '438d5fa57855cc20',
-    popup: '91e2321633db837d',
+    a4e: '3b2b376f1d07b4f6',
+    'a4e-map': '655fc19fff1a7508',
+    strike: '7d1a9647d405e9f0',
+    popup: 'ea5818629d0d951f',
     bare: 'c06f7d5c3df3ae67',
-    'no-tiles': '57deadfaf52ef434',
-    wingman: '1f5aac096a6c0eee',
+    'no-tiles': '1ab55360a6299ddd',
+    wingman: 'c47473eb54b98cd8',
     side: 'c5ad2258b64c94f0',
     // The loft cards, first pinned 2026-11-14 (see DAY_PIN).
-    'loft-labs': '6f64e0f9df8d741f',
-    'loft-ccrp': '4d9f5d77a93b2169',
-    'loft-strike': 'c38d41ef80cef541',
+    'loft-labs': '0c04fec5d3800719',
+    'loft-ccrp': '5fbd0271bfec47c6',
+    'loft-strike': 'bf7c9248c02e75e3',
     'loft-side': 'fddeb05de1b37ec6',
   };
   for (const run of markedRuns) {
@@ -3780,6 +3943,107 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
       run.notes.filter((n) => n.plate && overlap(l, n.plate)).map((n) => `${run.id}: label box over "${n.text}"`)));
   ok('plated notes: no label box lands on a plate', covered.length === 0, covered.join('; '));
 
+  // [LL3] The card that showed the fault: the F-16C 30° CCIP dive, Mk-82, left flank, from STPT 7
+  // 15.3 nm out on 068°, target at 4,000 ft, Day, no map. Its Release box used to sit right of ROLL,
+  // hundreds of pixels from REL, its leader over ROLL and along the red attack line. Everything is read
+  // back out of what the card drew. The 40 px bound was set on the first green run, where the box's
+  // top edge sits 30.0 px under the marker's centre.
+  // Seen red (2026-11-15) with layoutLabels back to the first clear spot:
+  //   FAIL dive card [LL3]: the Release box sits within 40 px of the REL marker's centre  219.4 px
+  //   FAIL dive card [LL3]: the Release box's leader neither crosses nor runs along the attack line from ROLL to REL (at least 6 px from it)  2.0 px; leader 454.1,643.8 → 253.4,627.3, …
+  // and with it taking the farthest clear spot: 228.4 px, 1.8 px.
+  {
+    const diveMission = {
+      id: 'm', name: 'Dive card', date: '2026-11-15', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '',
+      waypoints: [wpIp, wpTgt], flightMembers: [viper], threats: [], attacks: [] as unknown[], strikes: [],
+    };
+    const built = autoBuildAttack({
+      mission: diveMission, targetWaypointId: wpTgt.id, attackerId: viper.id, weapons: refWeapons, profiles: lib('f16c'), threatSystems: [],
+      overrides: { weaponId: 'mk82', profileId: 'f16c.dive.ccip30', angleOffSide: 'left' },
+    } as never).attack!;
+    const diveCard = buildKneeboardCard({ ...diveMission, attacks: [{ ...built, id: 'a' }] } as never, 'a', refWeapons as never, new Map(), [])!;
+    // Measured at half an em a character, near the card's real face (Arial Narrow bold), not the
+    // Courier-wide 0.6 of the pins: at 0.6 the boxes are so wide that the old search happened to land
+    // in the same spot, and the fault only showed in the real card.
+    const { ctx, log } = recordingContext(false, 0.5);
+    paint(ctx, diveCard, undefined);
+    const nums = (line: string) => line.slice(line.indexOf('(') + 1, -1).split(',').map(Number);
+    // Each plan-view marker's centre: the disc drawn just before its letters.
+    const centres: Record<string, [number, number]> = {};
+    let disc: number[] | undefined;
+    for (const line of log) {
+      if (line.startsWith('arc(')) disc = nums(line);
+      const m = /^fillText\("([A-Z]+)",/.exec(line);
+      if (m && disc && disc[2] === PLAN_MARKER_R && !centres[m[1]]) centres[m[1]] = [disc[0], disc[1]];
+    }
+    const rel = centres.REL, roll = centres.ROLL;
+    const releaseLine = log.find((l) => /^fillText\("Release by [^"]*@/.test(l));
+    const [tx, ty] = releaseLine ? nums(releaseLine.replace(/^fillText\(".*?",/, 'x(')) : [NaN, NaN];
+    const { boxes } = readPlates(log);
+    const box = boxes.find((b) => b.x0 <= tx && tx <= b.x1 && b.y0 <= ty && ty <= b.y1);
+    const releaseRect = box && { x: box.x0, y: box.y0, w: box.x1 - box.x0, h: box.y1 - box.y0 };
+    const fromRel = releaseRect && rel ? Math.hypot(Math.max(releaseRect.x - rel[0], 0, rel[0] - releaseRect.x - releaseRect.w), Math.max(releaseRect.y - rel[1], 0, rel[1] - releaseRect.y - releaseRect.h)) : NaN;
+    const leader = releaseRect && rel ? leaderLine({ lines: [], anchor: rel, side: 'bottom', rect: releaseRect, leader: true, anchorRadius: PLAN_MARKER_R }) : undefined;
+    /** How close two segments come: 0 when they cross. */
+    const apart = (p1: number[], p2: number[], q1: number[], q2: number[]) => {
+      const side = (a: number[], b: number[], c: number[]) => Math.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
+      if (side(p1, p2, q1) * side(p1, p2, q2) < 0 && side(q1, q2, p1) * side(q1, q2, p2) < 0) return 0;
+      const toSegment = (p: number[], a: number[], b: number[]) => {
+        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)));
+        return Math.hypot(p[0] - a[0] - t * (b[0] - a[0]), p[1] - a[1] - t * (b[1] - a[1]));
+      };
+      return Math.min(toSegment(p1, q1, q2), toSegment(p2, q1, q2), toSegment(q1, p1, p2), toSegment(q2, p1, p2));
+    };
+    // Not crossing is not enough: the old leader ran alongside the attack line and ended 2 px from
+    // it, inside the line's own 3.3 px stroke, without crossing it between the marker centres.
+    const clearance = leader && roll && rel ? apart(leader.from, leader.to, roll, rel) : 0;
+    ok('dive card [LL3]: the fixture is the F-16C 30° CCIP dive, with REL, ROLL and the Release box drawn',
+       built.sourceProfileId === 'f16c.dive.ccip30' && !!rel && !!roll && !!releaseRect,
+       `${built.sourceProfileId}; REL ${rel}; ROLL ${roll}; ${releaseLine}`);
+    ok('dive card [LL3]: the Release box sits within 40 px of the REL marker\'s centre', fromRel <= 40, `${fromRel.toFixed(1)} px`);
+    ok('dive card [LL3]: the Release box\'s leader neither crosses nor runs along the attack line from ROLL to REL (at least 6 px from it)', clearance >= 6,
+       `${clearance.toFixed(1)} px; leader ${leader ? `${leader.from.map((v) => v.toFixed(1))} → ${leader.to.map((v) => v.toFixed(1))}` : 'none'}, ROLL ${roll} → REL ${rel}`);
+
+    // The "→ STPT 7" note, where the route leaves the frame by the top right corner, used to sit on
+    // the north arrow's "N". The rooms of the arrow and the one-mile bar are worked out here from
+    // where the card drew them, independently of the renderer's own sums: the "N" is drawn 24 px
+    // in from the picture's right edge and 65 px under its top; the bar starts 14 px in from the
+    // left and 14 px up from the bottom, one mile long. The arrow's room is 40 x 68 from 44 px in
+    // and 6 px down; the bar's runs 6 px in, 34 px up, 30 px tall and 24 px longer than the bar.
+    // The note must also not land on a marker instead: here no spot back along the route clears
+    // the arrow, and the first spot down the right edge that does would sit on the AP marker.
+    // Seen red (2026-11-15) with the edge note left where it was put (no move off the furniture):
+    //   FAIL dive card [LL3]: the "→ STPT 7" plate overlaps neither the north arrow's room nor the scale bar's  plate 713.0,321.0 → 767.0,336.0 over the north arrow; picture 0,271 → 768,734
+    //   (and the marker check below, "over AP": the note as first put already grazes the AP disc)
+    // and with the move counting only the furniture, not the markers:
+    //   FAIL dive card [LL3]: the "→ STPT 7" plate, moved off the furniture, sits on no marker  plate 713.0,347.0 → 767.0,362.0 over AP
+    const northN = log.find((l) => l.startsWith('fillText("N",'));
+    const mileText = log.find((l) => l.startsWith('fillText("1 nm",'));
+    const [nX, nY] = northN ? nums(northN.replace(/^fillText\(".*?",/, 'x(')) : [NaN, NaN];
+    const [, mY] = mileText ? nums(mileText.replace(/^fillText\(".*?",/, 'x(')) : [NaN, NaN];
+    const barY = mY + 7;
+    const barAt = log.findIndex((l, i) => l.startsWith('moveTo(') && nums(l)[1] === barY && log[i + 1]?.startsWith('lineTo(') && nums(log[i + 1])[1] === barY);
+    const [barX0] = barAt >= 0 ? nums(log[barAt]) : [NaN];
+    const [barX1] = barAt >= 0 ? nums(log[barAt + 1]) : [NaN];
+    const plan = { left: barX0 - 14, top: nY - 65, right: nX + 24, bottom: barY + 14 };
+    const rooms: Record<string, Box> = {
+      'the north arrow': { x0: plan.right - 44, y0: plan.top + 6, x1: plan.right - 4, y1: plan.top + 74 },
+      'the scale bar': { x0: plan.left + 6, y0: plan.bottom - 34, x1: plan.left + 6 + (barX1 - barX0) + 24, y1: plan.bottom - 4 },
+    };
+    const edgeNote = readPlates(log).notes.find((n) => n.text.startsWith('→ STPT'));
+    const notePlate = edgeNote?.plate;
+    const showPlate = (p: Box) => `plate ${p.x0.toFixed(1)},${p.y0.toFixed(1)} → ${p.x1.toFixed(1)},${p.y1.toFixed(1)}`;
+    const onRooms = notePlate ? Object.entries(rooms).filter(([, r]) => overlap(notePlate, r)).map(([name]) => name) : [];
+    ok('dive card [LL3]: the "→ STPT 7" plate overlaps neither the north arrow\'s room nor the scale bar\'s',
+       !!notePlate && Number.isFinite(plan.left + plan.top + plan.right + plan.bottom) && onRooms.length === 0,
+       notePlate ? `${showPlate(notePlate)}${onRooms.length ? ` over ${onRooms.join(' and ')}` : ''}; picture ${plan.left},${plan.top} → ${plan.right},${plan.bottom}` : 'no edge note drawn');
+    const onMarkers = notePlate ? Object.entries(centres).filter(([, [x, y]]) =>
+      overlap(notePlate, { x0: x - PLAN_MARKER_R, y0: y - PLAN_MARKER_R, x1: x + PLAN_MARKER_R, y1: y + PLAN_MARKER_R })).map(([name]) => name) : [];
+    ok('dive card [LL3]: the "→ STPT 7" plate, moved off the furniture, sits on no marker',
+       !!notePlate && Object.keys(centres).length >= 4 && onMarkers.length === 0,
+       notePlate ? `${showPlate(notePlate)}${onMarkers.length ? ` over ${onMarkers.join(', ')}` : ''}` : 'no edge note drawn');
+  }
+
   // The elevation prints in whole feet: the card data is rounded, the waypoint is not.
   const elevationCard = (elevation_ft: number) =>
     cardOf({ ...solo(build(scooter, mk82, lib('a4ec'))), waypoints: [wpIp, { ...wpTgt, elevation_ft }] }, 'atk', [mk82]);
@@ -3800,34 +4064,35 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // and the tinted map are held as they are for the marked theme.
   // Re-pinned on purpose for 3x, like the Day pins: the setTransform line, and the map card's
   // finer tiles (each one tinted, so that card's count grows by more than Day's does).
-  // The A-4E dive cards re-pinned again for the dive's aim-off, as the Day pins say.
+  // The A-4E dive cards re-pinned again for the dive's aim-off, as the Day pins say, and every card
+  // with a north-up picture for its labels' nearest clear spot and the edge note, as the Day pins say.
   const DARK_PIN: Record<string, Record<string, { ops: number; sha: string }>> = {
     night: {
-      a4e: { ops: 1025, sha: '2eb6dff6974f9edc' },
-      'a4e-map': { ops: 1974, sha: 'ff392eee0ed017d8' },
-      strike: { ops: 1155, sha: '15fd6f15db966a3b' },
-      popup: { ops: 1296, sha: '7bcd5f747d44bbb5' },
+      a4e: { ops: 1025, sha: '17d26e8d70fe57d9' },
+      'a4e-map': { ops: 1974, sha: '1430e3c491bebfff' },
+      strike: { ops: 1155, sha: '551fae3c454b713b' },
+      popup: { ops: 1296, sha: 'debec9f4e2428238' },
       side: { ops: 500, sha: 'ec8d27b5fb7dd3c2' },
       bare: { ops: 504, sha: '40db2361c27f642a' },
-      'no-tiles': { ops: 617, sha: 'ee630d5451b6064d' },
-      wingman: { ops: 1108, sha: 'f2f1f577d0a93078' },
-      'loft-labs': { ops: 1035, sha: 'd083f63be490564a' },
-      'loft-ccrp': { ops: 1037, sha: 'b83e766c648a0cdf' },
-      'loft-strike': { ops: 1097, sha: 'a302260cff1a99fa' },
+      'no-tiles': { ops: 617, sha: '30b822539063867b' },
+      wingman: { ops: 1108, sha: '552c7d30de68b12b' },
+      'loft-labs': { ops: 1035, sha: '8d36235ebe8324ac' },
+      'loft-ccrp': { ops: 1037, sha: 'f71f80156196b587' },
+      'loft-strike': { ops: 1097, sha: '08bb4342ab8f867d' },
       'loft-side': { ops: 419, sha: '79436a427ed72875' },
     },
     nvg: {
-      a4e: { ops: 1025, sha: 'e91121544b326132' },
-      'a4e-map': { ops: 1974, sha: '46e1278e52490cec' },
-      strike: { ops: 1155, sha: '85c17c1c16afd596' },
-      popup: { ops: 1296, sha: '38888a6623dc1167' },
+      a4e: { ops: 1025, sha: '56a222316f405023' },
+      'a4e-map': { ops: 1974, sha: '8aef2df940e051cb' },
+      strike: { ops: 1155, sha: '9eea2c04dac5c67c' },
+      popup: { ops: 1296, sha: '067d9a2fc63e5bb6' },
       side: { ops: 500, sha: 'e3142dc060b86433' },
       bare: { ops: 504, sha: 'fa3c2f2b977024bf' },
-      'no-tiles': { ops: 617, sha: 'd185268b0b9b1cc0' },
-      wingman: { ops: 1108, sha: 'a6b2b410ffb759bc' },
-      'loft-labs': { ops: 1035, sha: '7c4acda898511715' },
-      'loft-ccrp': { ops: 1037, sha: 'ebe1081d3327784c' },
-      'loft-strike': { ops: 1097, sha: '62c0a2c3b2eae5ae' },
+      'no-tiles': { ops: 617, sha: '268ec385806e7891' },
+      wingman: { ops: 1108, sha: 'af775193e7639e2b' },
+      'loft-labs': { ops: 1035, sha: 'b65c340a29e10fcb' },
+      'loft-ccrp': { ops: 1037, sha: '6dc7e64fd7878bcb' },
+      'loft-strike': { ops: 1097, sha: '06e659114b24893b' },
       'loft-side': { ops: 419, sha: '6fdcd02cb615657b' },
     },
   };

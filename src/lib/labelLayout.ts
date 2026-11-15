@@ -56,12 +56,33 @@ function candidateRect(anchor: [number, number], side: LabelSide, gap: number, s
   }
 }
 
+/** Straight-line distance from a point to the nearest point of a box: 0 when the point is inside it. */
+function distanceToRect([px, py]: [number, number], r: Rect): number {
+  return Math.hypot(Math.max(r.x - px, 0, px - r.x - r.w), Math.max(r.y - py, 0, py - r.y - r.h));
+}
+
 /**
- * Greedy placement: each label tries its own side close in, then further out,
- * then shifted sideways, then the other sides. Anything already placed and
- * every marker is an obstacle. If nothing is clear it takes the least-bad spot.
+ * Greedy placement, one label at a time; anything already placed and every
+ * marker is an obstacle. Each label looks at every spot on its own side, close
+ * in and further out, centred and shifted sideways, and of the clear ones takes
+ * the spot whose box comes nearest its point. Taking the first clear spot found
+ * once put a box a box-width and a half sideways, its leader along the attack
+ * line, when a spot straight under the point one step further out was clear and
+ * far nearer. On a tie the spot looked at first wins. Only a side with no clear
+ * spot passes the label on to the next side. If nothing is clear anywhere it
+ * takes a clear spot anywhere in the frame, then the least-bad spot.
+ *
+ * `firstClear` keeps the older rule, the first clear spot in the order above:
+ * the card's side view asks for it, so that its labels stay exactly where they
+ * were drawn when the north-up picture's boxes moved to their nearest spot.
  */
-export function layoutLabels(ctx: CanvasRenderingContext2D, requests: LabelRequest[], obstacles: Rect[], bounds: Rect): PlacedLabel[] {
+export function layoutLabels(
+  ctx: CanvasRenderingContext2D,
+  requests: LabelRequest[],
+  obstacles: Rect[],
+  bounds: Rect,
+  opts: { firstClear?: boolean } = {},
+): PlacedLabel[] {
   const placed: PlacedLabel[] = [];
   const blocked = [...obstacles];
   const inside = (r: Rect) => r.x >= bounds.x + 2 && r.y >= bounds.y + 2 && r.x + r.w <= bounds.x + bounds.w - 2 && r.y + r.h <= bounds.y + bounds.h - 2;
@@ -78,21 +99,28 @@ export function layoutLabels(ctx: CanvasRenderingContext2D, requests: LabelReque
     // A clear spot always beats an overlapping one, however far out it sits —
     // scoring the two against each other would trade legibility for closeness.
     let clear = false;
-    outer: for (const side of SIDE_ORDER[req.side]) {
-      for (const gap of [18, 30, 46, 66, 90, 120, 155, 195]) {
+    for (const side of SIDE_ORDER[req.side]) {
+      let nearest: { rect: Rect; leader: boolean; dist: number } | undefined;
+      scan: for (const gap of [18, 30, 46, 66, 90, 120, 155, 195]) {
         for (const shift of [0, -w * 0.35, w * 0.35, -w * 0.7, w * 0.7, -w * 1.05, w * 1.05, -w * 1.4, w * 1.4]) {
           const rect = candidateRect(req.anchor, side, gap, shift, w, h);
           if (!inside(rect)) continue;
           const area = overlapArea(rect);
           const leader = gap > 24 || Math.abs(shift) > 1;
           if (area === 0) {
-            best = { rect, leader, score: 0 };
-            clear = true;
-            break outer;
+            const dist = distanceToRect(req.anchor, rect);
+            if (!nearest || dist < nearest.dist - 1e-9) nearest = { rect, leader, dist };
+            if (opts.firstClear) break scan;
+          } else {
+            const score = area + gap * 2 + Math.abs(shift);
+            if (!best || score < best.score) best = { rect, leader, score };
           }
-          const score = area + gap * 2 + Math.abs(shift);
-          if (!best || score < best.score) best = { rect, leader, score };
         }
+      }
+      if (nearest) {
+        best = { rect: nearest.rect, leader: nearest.leader, score: 0 };
+        clear = true;
+        break;
       }
     }
     // Full-frame sweep when clustered attacks block the whole near field.
