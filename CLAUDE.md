@@ -227,9 +227,11 @@ The playback is built through stage 15 (a strike flies every jet, a jet's
 time over target can be dragged while it plays, and Apply writes the times
 back). The user has looked at stage 13 and asked for three things: jets
 that roll as a pilot would fly them, a bomb you can see with a trace behind
-it, and an impact with its frag. The roll and a bomb you can find are
-built; the trace was being built when these notes were written; the impact
-and the frag follow.** Nothing of 0.4.0 is
+it, and an impact with its frag. The roll, a bomb you can find and its
+trace are built; the impact and the frag follow. He has since looked at
+that build and asked for two more things (below): a bomb that falls on a
+ballistic arc in a dive, which needs the planner's dive to change and so
+his say; and lanes whose stripes explain themselves.** Nothing of 0.4.0 is
 on `main`
 except documents. The brief, the user's decisions and
 each gate's outcome are in `docs/V040_PLAN.md`.
@@ -244,8 +246,9 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   desktop 34 + 2 ignored. Headless checks: `scripts/playback-shots.cjs`.
 - `v040-playback-full`, cut from `v040-playback`: **the full playback, being
   built stage by stage** (stages 0 to 20, plus the stages added from the
-  user's look, below). **Stages 0 to 15 and the first three stages from his
-  look (ATT-a, ATT-b, S10a) are built, reviewed and pushed, tip `e90a8af`.**
+  user's look, below). **Stages 0 to 15 and the first four stages from his
+  look (ATT-a, ATT-b, S10a, S10t) are built, reviewed and pushed, tip
+  `6f89063`.**
   What the playback does now:
   opens following the jet 10 s before the first action; Orbit, Top-down,
   Chase, From target and Home view; speeds 1× to 16×; the planner's colours
@@ -282,10 +285,13 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   unchanged to the last bit); **the arrow shows a roll** (a tall fin,
   raised wings, a darker underside); **the falling bomb is 14 px with an
   outline and has a ring round it** that pulses at the release (Show ›
-  Impact turns the ring off). Gates at the tip: geo-check 995/0, tsc, build
-  with the bundle check, the web check, 106 screenshot checks; the Rust
-  side is untouched since stage 15 (core 154, desktop 34 + 2 ignored
-  there).
+  Impact turns the ring off); **a solid line follows each bomb down from
+  the release and stays after it lands**, with the planner's dashed fall
+  line still ahead of it. Gates at the tip: geo-check 997/0, tsc, build
+  with the bundle check, the web check, 110 screenshot checks (the
+  reviewer's full run on the stage's commit, and the director's run of the
+  one check changed after it); the Rust side is untouched since stage 15
+  (core 154, desktop 34 + 2 ignored there).
   **The screenshot run takes 12 to 25 minutes** (the 3D is drawn in
   software): run it alone, in the background, with a long limit. It used
   to die on a busy Mac when a click or a screenshot passed the browser
@@ -294,8 +300,9 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   0.3.4 baseline; the build fails past 3,072, a ceiling a fix round raised
   from 1,536 for the attack list's Play buttons and the director accepted
   (commit `7400208`). No stage may raise it again without stopping to ask.
-  The main Mac's checkout is on this branch. **The bomb's trace (S10t,
-  below) was building when these notes were written**; a stage is
+  The main Mac's checkout is on this branch. **The impact flash (S10b)
+  and then the lanes' stripes (LN-k), both below, were building when these
+  notes were written**; a stage is
   one commit, and anything not pushed is not reviewed yet.
 - `v040-landing-data`, one commit `3127c41` on an older `main`: the front
   page's data layer (`src/lib/landing/`, 143 checks). Nothing in the app
@@ -341,6 +348,34 @@ each gate's outcome are in `docs/V040_PLAN.md`.
      behind it so we can see the path of the bomb".
   Asked of him, defaults in force: the arrow keeps its seat colour; no G
   figure on the label unless he asks.
+- **His look at the roll and the bomb's ring (the first "look 4" copy,
+  2026-11-15), on a four-ship dive strike: two more things.**
+  1. **"The bomb isnt following a ballistic trajectory it looks wierd
+     falling in a striaght line. we have weights and speeds and all that
+     stuff. I dont see why we arent doing this."** What was found: level
+     and pop-up bombs already fall on a gravity arc with no drag, and the
+     loft's on the planner's drag simulation. **The dive is the exception,
+     and the cause is in the planner:** `calculateDiveGeometry`
+     (`src/lib/attackGeometry.ts`) puts the roll-in and the release on a
+     straight line at the dive angle through the target, with no aim-off,
+     so a real bomb from that release point lands several hundred feet to
+     2,000 ft short and the playback rides the card's straight line
+     instead of showing a miss. The pop-up planner already has the aim-off
+     (`planPopup`). **The fix gives the dive the same aim-off, which moves
+     the roll-in point on dive maps and kneeboard cards** (release
+     altitude, speed and dive angle stay; no other delivery's card
+     changes). **That is his decision; he has been asked and told the
+     recommendation is yes**, and that unless he says otherwise it is
+     built on the playback branch as its own step, with nothing merged
+     until he has seen a dive card before and after.
+  2. **"why are the lines all hashed and caution taped again? in certain
+     areas?"** (the lanes). The dashes are the planner's own dashed legs.
+     The amber stripes on a lane are the times over target that would put
+     that jet inside another's frag; with three wingmen 5 s behind the lead
+     nearly every lane was striped end to end. They do not explain
+     themselves. Told him the plan, his to veto: a lane's stripes show
+     only while that jet's time is being set, and the footer's warning
+     gets a striped key.
 
 **Where the work stands.** The working papers are git-ignored and exist only
 on the main Mac (`Other Items/`):
@@ -371,17 +406,32 @@ on the main Mac (`Other Items/`):
      next step if not. **ATT-c** (a G figure on the label) is on hold until
      he asks.
    - **S10a (built)**: a bigger bomb with an outline and a ring round it
-     while it falls. **S10t**: a solid trace behind the bomb that stays after the
+     while it falls. **S10t (built)**: a solid trace behind the bomb that
+     stays after the
      impact. **S10b**: a flash at the impact, timed so it shows at 16×.
      **S10c**: a ring at the weapon row's frag radius, true size, marked
      "(est.)". **S10d**: Chase looks at the bomb from release to impact and
      holds on the burst (From target is left alone). **Stage 19** (the frag
      cloud) is rewritten there and moved up.
-   - **The order from here:** S10t, S10b, S10c, S10d,
-     19, then 16, 17, 18a, 18b, 20. **The user looks after S10t** (Apply,
-     the roll, the bomb and its trace: "look 4") **and after 19** (the
+   - **Two stages from his look at the roll and the ring:** **LN-k** (the
+     lanes' stripes show only while that jet's time is being set, with a
+     striped key by the footer's warning; its whole spec is ruling 9.15.13
+     of `BUILD_SPEC_S9.md`; one commit, so it can be backed out if he says
+     to keep the stripes or drop them). **BAL-a and BAL-b** (the dive's
+     aim-off in the planner, then the dive's bomb on its true arc in the
+     playback): their paper, `BUILD_SPEC_S11_BALLISTIC.md`, **was being
+     written and reviewed when these notes were written** and is not ruled
+     on yet. It is to give the exact before and after of a real dive card,
+     and what ignoring drag costs. **BAL-a changes dive cards: it needs his
+     yes, or at least no objection, before it is built, and his look
+     before anything merges.**
+   - **The order from here:** S10b, LN-k, then BAL-a and BAL-b once the
+     paper is ruled on and he has not objected, then S10c, S10d,
+     19, then 16, 17, 18a, 18b, 20. **Look 4 is out** (Apply,
+     the roll, the bomb and its trace); **he looks again after 19** (the
      flash, the ring, the bomb camera, the frag: "look 5"), then after 17
-     and 18b as before.
+     and 18b as before. A dive card before and after goes in front of him
+     with BAL-a.
    - **To tell him at those looks:** the frag radius and frag height come
      from the old weapon rows with no source on file (the roadmap already
      lists them for audit), so they are drawn marked "(est.)". And the drawn
@@ -399,11 +449,11 @@ on the main Mac (`Other Items/`):
    2.app" is stage 11** (`06088e6`, the whole strike) **and "Playback look
    3.app" is stage 13** (`3da9085`, lanes, a jet to watch, times that can
    be moved). Each holds everything the one before does. He has looked at
-   look 3 (above). **"Playback look 4.app" exists, built from `e90a8af`:
-   Apply, the roll, the new arrow, the bigger bomb and its ring. It has no
-   trace yet: build it again under the same name once S10t is pushed**, so
-   look 4 is what was promised (a build must not run while a stage is
-   being built: both write `dist/`). The older questions below are still
+   look 3 (above). **"Playback look 4.app" is built from `6f89063`:
+   Apply, the roll, the new arrow, the bigger bomb with its ring, and the
+   bomb's trace.** He looked at an earlier copy of it without the trace
+   (his two points are above). A build must not run while a stage is
+   being built: both write `dist/`. The older questions below are still
    open.
 3. **Second-round mockup of the EFB draft**, desktop and iPhone, is finished
    and was shown to him as private pages (the links are in the memory
