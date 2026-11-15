@@ -27,6 +27,14 @@ export interface FrameCtx {
   groundVersion: number;
   /** The drawn ground's height at a point in three.js axes (x east, z = −north), m on the playback's datum. */
   heightAt(x: number, z: number): number;
+  /** The jet the view is watching (a playback index): it carries the planner's colour code. */
+  watched: number;
+  /**
+   * CSS pixels per metre at the distance the camera is looking at (its orbit point, or the jet it
+   * looks at from the target): dashes given in metres along a line are scaled by it, so they come
+   * out the planner's length in pixels where the eye is.
+   */
+  focusPxPerM: number;
 }
 
 export interface Layer {

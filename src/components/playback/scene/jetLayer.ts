@@ -1,10 +1,15 @@
 /**
  * One jet in the 3D playback (the spike draws one): its arrow, its planned
- * path, a 20 s trail, its bomb while it falls, and a ring on the ground at
- * its target. Everything is sampled from the playback library's DISPLAY
- * layer through the scene adapter (src/lib/playbackScene/source.ts), so the
- * picture is the planner's, timed.
+ * path, a 20 s trail, its bomb while it falls and the line of its whole
+ * fall, and a ring on the ground at its target. Everything is sampled from
+ * the playback library's DISPLAY layer through the scene adapter
+ * (src/lib/playbackScene/source.ts), so the picture is the planner's, timed.
  *
+ * - The path and the trail wear the planner's colour code, the map's and the
+ *   card's own LINE_STYLE: blue route and leg, yellow climb, orange
+ *   pull-down, red attack, green egress, dashed where the planner dashes. The bomb's fall is the planner's thin red dashed bomb line.
+ *   Colours are never the only cue: route and leg differ by the dash, and
+ *   the arrow keeps its seat colour.
  * - The arrow points along the displayed velocity, not the heading number
  *   (meridians converge away from the target, and velocity is what the eye
  *   follows), and banks with the display's bank estimate.
@@ -14,22 +19,30 @@
  * - The trail is worked out afresh from the playback every frame instead of
  *   remembered, so scrubbing backwards, seeking and speed changes are always
  *   right; its buffers are made once, so no frame allocates.
- * - The path and the trail are three's wide lines (LineSegments2), a set
- *   width in CSS pixels: plain WebGL lines are one device pixel, too thin to
- *   follow over a map. They are opaque (a see-through wide line shows a bead
- *   at every joint) and still hidden by a hill in front of them.
+ * - The path, the trail and the fall are three's wide lines (LineSegments2),
+ *   a set width in CSS pixels: plain WebGL lines are one device pixel, too
+ *   thin to follow over a map. They are opaque (a see-through wide line shows
+ *   a bead at every joint) and still hidden by a hill in front of them.
+ * - Each coloured line is two geometries, one for its solid stretches and one
+ *   for its dashed ones: a dashed line material drops the round caps of every
+ *   segment, so one dashed material for a mixed line would notch every bend.
+ *   Each geometry has its own dark casing mesh under it (one mesh draws one
+ *   geometry), so a dashed stretch is cased too.
  * - Nothing here is hazed: the jet must stay visible over the far terrain.
  */
 import {
-  type BufferAttribute, Color, DoubleSide, DynamicDrawUsage, type InstancedInterleavedBuffer, type InterleavedBufferAttribute,
+  type BufferAttribute, Color, DoubleSide, DynamicDrawUsage, InstancedInterleavedBuffer, InterleavedBufferAttribute,
   Matrix4, Mesh, MeshBasicMaterial, Quaternion, Vector3, type Object3D,
 } from 'three';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LINE_STYLE } from '../../../lib/attackPicture';
+import { PHASES, PHASE_STYLE } from '../../../lib/playback';
 import {
-  ARROW_LEN_M, ARROW_PX, BG, BOMB_LEN_M, BOMB_PX, PATH_PX, PATH_SHADE, TRAIL_CASING_PX, TRAIL_PX, TRAIL_S, jetColor,
-  newSceneBombPose, newSceneJetPose, screenScale, worldPerPixel, type SceneJetPose, type SceneSource,
+  ARROW_LEN_M, ARROW_PX, BOMB_LEN_M, BOMB_LINE_CASING_PX, BOMB_LINE_PX, BOMB_PX, LINE_CASING, PATH_CASING_PX, PATH_PX,
+  TRAIL_CASING_PX, TRAIL_PX, TRAIL_S, jetColor,
+  newSceneBombPose, newSceneJetPose, screenScale, worldPerPixel, type SceneJetPose, type ScenePhase, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
 import { arrowGeometry, bombGeometry, ringGeometry, RING_INNER, RING_SEGMENTS } from './jetGeometry';
@@ -37,6 +50,27 @@ import type { FrameCtx, Layer } from './layer';
 
 /** Trail samples: one every quarter second over TRAIL_S. */
 const TRAIL_N = 81;
+/**
+ * The trail's dashes are laid along jet time × this speed, not metres flown, so they stay put on the
+ * ground as the trail moves. Jet time measured from when the jet comes into the picture stays small
+ * at any delay (strike time at a delay of hours would cost float32 its precision, a metre a step).
+ */
+const TRAIL_DASH_MPS = 250;
+
+/** Per PHASES index: the planner's colour as linear RGB (three's working space; a hex divided by 255 would draw too pale), and whether it is dashed. */
+const PHASE_RGB = new Float32Array(PHASES.length * 3);
+const PHASE_DASHED = new Uint8Array(PHASES.length);
+const PHASE_INDEX = {} as Record<ScenePhase, number>;
+PHASES.forEach((p, i) => {
+  const style = LINE_STYLE[PHASE_STYLE[p]];
+  const c = new Color(style.color);
+  PHASE_RGB.set([c.r, c.g, c.b], i * 3);
+  PHASE_DASHED[i] = style.dash ? 1 : 0;
+  PHASE_INDEX[p] = i;
+});
+/** The dash of the dashed stretches, CSS px on, px off (the route and the egress leg share the map's 10 / 10). */
+const PATH_DASH = LINE_STYLE[PHASE_STYLE[PHASES.find((p) => LINE_STYLE[PHASE_STYLE[p]].dash) ?? 'route']].dash ?? [10, 10];
+const BOMB_DASH = LINE_STYLE.bomb.dash ?? [4, 6];
 /** The target ring's radius on screen, CSS pixels, and its smallest real radius, m. */
 export const RING_PX = 14;
 export const RING_MIN_M = 60;
@@ -45,20 +79,112 @@ const RING_LIFT_M = 1;
 /** Below this speed the velocity has no direction worth trusting: the heading and pitch are used. */
 const MIN_SPEED_MPS = 0.5;
 
-/** Draw order: the muted path first, then the trail on its casing, the ring, and the arrow and bomb last. */
-const ORDER = { path: 5, casing: 29, trail: 30, ring: 40, bomb: 59, arrow: 60 } as const;
-
-/** A polyline's points (xyz, xyz, …) as wide-line segments (start xyz, end xyz per segment). */
-function segmentsOf(points: Float32Array): Float32Array {
-  const n = Math.max(0, points.length / 3 - 1);
-  const out = new Float32Array(n * 6);
-  for (let k = 0; k < n; k++) out.set(points.subarray(k * 3, k * 3 + 6), k * 6);
-  return out;
-}
+/**
+ * Draw order: each line's casing just before the line itself, the path first, then the trail, the
+ * bomb's fall, the ring, and the arrow and bomb last. Every casing of a line draws before any of its
+ * colour, so a casing never covers a coloured stretch of its own line.
+ */
+const ORDER = { pathCasing: 6, path: 7, trailCasing: 31, trail: 32, fallCasing: 33, fall: 34, ring: 40, bomb: 59, arrow: 60 } as const;
 
 /** An opaque wide line of a set width in CSS pixels, tested against the ground's depth but never writing its own. */
-function wideLine(color: Color, px: number): LineMaterial {
-  return new LineMaterial({ color, linewidth: px, worldUnits: false, depthWrite: false, fog: false, toneMapped: false });
+function wideLine(color: Color, px: number, more: { vertexColors?: boolean; dash?: number[] } = {}): LineMaterial {
+  const m = new LineMaterial({ color, linewidth: px, worldUnits: false, depthWrite: false, fog: false, toneMapped: false, vertexColors: !!more.vertexColors });
+  if (more.dash) {
+    m.dashed = true;
+    m.dashSize = more.dash[0];
+    m.gapSize = more.dash[1];
+  }
+  return m;
+}
+
+/**
+ * A wide-line geometry with room for `segs` segments, made once and refilled in place (never
+ * re-made, so the graphics card's buffers are never reallocated): positions, and when asked a colour
+ * per segment end and a distance along the line per segment end (for dashes).
+ */
+interface Capacity {
+  geom: LineSegmentsGeometry;
+  segs: number;
+  pos: Float32Array;
+  col: Float32Array | null;
+  dist: Float32Array | null;
+  buffers: InstancedInterleavedBuffer[];
+  /** Segments written so far in this refill. */
+  n: number;
+}
+function capacityGeometry(bag: DisposeBag, segs: number, colours: boolean, distances: boolean): Capacity {
+  const geom = bag.add(new LineSegmentsGeometry());
+  const room = Math.max(1, segs);
+  const pos = new Float32Array(room * 6);
+  geom.setPositions(pos);
+  const buffers = [(geom.getAttribute('instanceStart') as InterleavedBufferAttribute).data as InstancedInterleavedBuffer];
+  let col: Float32Array | null = null, dist: Float32Array | null = null;
+  if (colours) {
+    col = new Float32Array(room * 6);
+    geom.setColors(col);
+    buffers.push((geom.getAttribute('instanceColorStart') as InterleavedBufferAttribute).data as InstancedInterleavedBuffer);
+  }
+  if (distances) {
+    dist = new Float32Array(room * 2);
+    const d = new InstancedInterleavedBuffer(dist, 2, 1);
+    geom.setAttribute('instanceDistanceStart', new InterleavedBufferAttribute(d, 1, 0));
+    geom.setAttribute('instanceDistanceEnd', new InterleavedBufferAttribute(d, 1, 1));
+    buffers.push(d);
+  }
+  for (const b of buffers) b.setUsage(DynamicDrawUsage);
+  geom.instanceCount = 0;
+  return { geom, segs: room, pos, col, dist, buffers, n: 0 };
+}
+/** Write one segment (start xyz, end xyz) with its colour and its two distances, if there is room. */
+function putSegment(c: Capacity, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, rgb: Float32Array, ri: number, d0: number, d1: number) {
+  if (c.n >= c.segs) return;
+  const i = c.n++, p = i * 6;
+  c.pos[p] = x0; c.pos[p + 1] = y0; c.pos[p + 2] = z0;
+  c.pos[p + 3] = x1; c.pos[p + 4] = y1; c.pos[p + 5] = z1;
+  if (c.col) {
+    c.col[p] = c.col[p + 3] = rgb[ri];
+    c.col[p + 1] = c.col[p + 4] = rgb[ri + 1];
+    c.col[p + 2] = c.col[p + 5] = rgb[ri + 2];
+  }
+  if (c.dist) {
+    c.dist[i * 2] = d0;
+    c.dist[i * 2 + 1] = d1;
+  }
+}
+/** End a refill: draw what was written, and send it to the graphics card. */
+function finish(c: Capacity) {
+  c.geom.instanceCount = c.n;
+  for (const b of c.buffers) b.needsUpdate = true;
+}
+
+/** A line in the planner's colour code: solid and dashed stretches on their own geometries, each on its casing. */
+interface CodedLine {
+  solid: Capacity;
+  dashed: Capacity;
+  dashMat: LineMaterial;
+  meshes: LineSegments2[];
+}
+function codedLine(bag: DisposeBag, segs: number, px: number, casingPx: number, order: { casing: number; line: number }): CodedLine {
+  const solid = capacityGeometry(bag, segs, true, false);
+  const dashed = capacityGeometry(bag, segs, true, true);
+  // The colour comes from the vertices; the material's white leaves it as it is (three multiplies the two).
+  const white = new Color('#ffffff');
+  const casingMat = bag.add(wideLine(new Color(LINE_CASING), casingPx));
+  const solidMat = bag.add(wideLine(white, px, { vertexColors: true }));
+  const dashMat = bag.add(wideLine(white, px, { vertexColors: true, dash: PATH_DASH }));
+  const meshes = [
+    new LineSegments2(solid.geom, casingMat), new LineSegments2(dashed.geom, casingMat),
+    new LineSegments2(solid.geom, solidMat), new LineSegments2(dashed.geom, dashMat),
+  ];
+  meshes.forEach((m, i) => {
+    m.renderOrder = i < 2 ? order.casing : order.line;
+    m.frustumCulled = false;
+  });
+  return { solid, dashed, dashMat, meshes };
+}
+/** One stretch of a coded line, on the solid or the dashed geometry by its phase. */
+function putPhase(l: CodedLine, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, phase: number, d0: number, d1: number) {
+  putSegment(PHASE_DASHED[phase] ? l.dashed : l.solid, x0, y0, z0, x1, y1, z1, PHASE_RGB, phase * 3, d0, d1);
 }
 
 export interface JetLayer extends Layer {
@@ -93,30 +219,27 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   arrow.frustumCulled = false;
   arrow.visible = false;
 
-  // ── The planned path: the whole visible display track, thin and muted toward the background.
-  const pathGeom = bag.add(new LineSegmentsGeometry());
-  pathGeom.setPositions(segmentsOf(src.plannedPath(jet)));
-  const path = new LineSegments2(pathGeom, bag.add(wideLine(colour.clone().lerp(new Color(BG), PATH_SHADE), PATH_PX)));
-  path.renderOrder = ORDER.path;
-  path.frustumCulled = false;
+  // ── The planned path, IP to the end of the drawn egress leg, in the planner's colours. Its buffers
+  // are sized for any delay (pathCapacity), so a new timing refills them in place.
+  const pathSegs = Math.max(1, src.pathCapacity(jet) - 1);
+  const path = codedLine(bag, pathSegs, PATH_PX, PATH_CASING_PX, { casing: ORDER.pathCasing, line: ORDER.path });
 
-  // ── The trail: the last TRAIL_S of the track in the jet's colour, on a dark casing. One buffer of
-  // segments (start xyz, end xyz), made once and shared by both; each frame refills it in place.
-  const trailSegs = new Float32Array((TRAIL_N - 1) * 6);
-  const trailGeom = bag.add(new LineSegmentsGeometry());
-  trailGeom.setPositions(trailSegs);
-  const trailBuffer = (trailGeom.getAttribute('instanceStart') as InterleavedBufferAttribute).data as InstancedInterleavedBuffer;
-  trailBuffer.setUsage(DynamicDrawUsage);
-  trailGeom.instanceCount = 0;
-  const casing = new LineSegments2(trailGeom, bag.add(wideLine(new Color(BG), TRAIL_CASING_PX)));
-  casing.renderOrder = ORDER.casing;
-  casing.frustumCulled = false;
-  const trail = new LineSegments2(trailGeom, bag.add(wideLine(colour, TRAIL_PX)));
-  trail.renderOrder = ORDER.trail;
-  trail.frustumCulled = false;
+  // ── The trail: the last TRAIL_S of the track in the planner's colours, wider than the path; each
+  // frame refills its buffers in place.
+  const trail = codedLine(bag, TRAIL_N - 1, TRAIL_PX, TRAIL_CASING_PX, { casing: ORDER.trailCasing, line: ORDER.trail });
 
-  // ── The bomb, while it falls: the jet's colour a shade darker.
-  const bomb = new Mesh(bag.add(bombGeometry()), bag.add(new MeshBasicMaterial({ color: colour.clone().multiplyScalar(0.8), fog: false, toneMapped: false })));
+  // ── The bomb's whole fall, release to impact, drawn from the start: the planner's bomb line,
+  // thin, red and dashed, on its casing.
+  const fall = capacityGeometry(bag, Math.max(1, src.bombCapacity(jet) - 1), false, true);
+  const fallMat = bag.add(wideLine(new Color(LINE_STYLE.bomb.color), BOMB_LINE_PX, { dash: BOMB_DASH }));
+  const fallCasing = new LineSegments2(fall.geom, bag.add(wideLine(new Color(LINE_CASING), BOMB_LINE_CASING_PX)));
+  const fallLine = new LineSegments2(fall.geom, fallMat);
+  fallCasing.renderOrder = ORDER.fallCasing;
+  fallLine.renderOrder = ORDER.fall;
+  fallCasing.frustumCulled = fallLine.frustumCulled = false;
+
+  // ── The bomb, while it falls: the planner's bomb-line red.
+  const bomb = new Mesh(bag.add(bombGeometry()), bag.add(new MeshBasicMaterial({ color: new Color(LINE_STYLE.bomb.color), fog: false, toneMapped: false })));
   bomb.renderOrder = ORDER.bomb;
   bomb.frustumCulled = false;
   bomb.visible = false;
@@ -134,7 +257,8 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   const ringCentre = new Vector3();
   let ringRadius = 0, ringGroundVersion = -1;
 
-  o.parent.add(path, casing, trail, ring, bomb, arrow);
+  const drawn = [...path.meshes, ...trail.meshes, fallCasing, fallLine, ring, bomb, arrow];
+  o.parent.add(...drawn);
 
   // Scratch, made once: no frame allocates.
   const pose = newSceneJetPose(), past = newSceneJetPose(), bpose = newSceneBombPose();
@@ -142,6 +266,40 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   const ORIGIN = new Vector3(0, 0, 0), UP = new Vector3(0, 1, 0), FWD = new Vector3(0, 0, -1), Z_AXIS = new Vector3(0, 0, 1);
   let lastTrailT = NaN;
   const D2R = Math.PI / 180;
+
+  /** The planned path into its buffers, stretch by stretch, with the metres along it for the dashes. */
+  function refillPath() {
+    const pts = src.plannedPath(jet), ph = src.plannedPhase(jet);
+    const segs = Math.min(pts.length / 3 - 1, pathSegs);
+    path.solid.n = path.dashed.n = 0;
+    let along = 0;
+    for (let s = 0; s < segs; s++) {
+      const a = s * 3;
+      const len = Math.hypot(pts[a + 3] - pts[a], pts[a + 4] - pts[a + 1], pts[a + 5] - pts[a + 2]);
+      putPhase(path, pts[a], pts[a + 1], pts[a + 2], pts[a + 3], pts[a + 4], pts[a + 5], ph[s], along, along + len);
+      along += len;
+    }
+    finish(path.solid);
+    finish(path.dashed);
+  }
+
+  /** The bomb's whole fall into its buffer, with the metres along it for the dashes. */
+  function refillFall() {
+    const pts = src.plannedBomb(jet);
+    const segs = Math.min(pts.length / 3 - 1, fall.segs);
+    fall.n = 0;
+    let along = 0;
+    for (let s = 0; s < segs; s++) {
+      const a = s * 3;
+      const len = Math.hypot(pts[a + 3] - pts[a], pts[a + 4] - pts[a + 1], pts[a + 5] - pts[a + 2]);
+      putSegment(fall, pts[a], pts[a + 1], pts[a + 2], pts[a + 3], pts[a + 4], pts[a + 5], PHASE_RGB, 0, along, along + len);
+      along += len;
+    }
+    finish(fall);
+  }
+
+  refillPath();
+  refillFall();
 
   function placeArrow() {
     arrow.position.set(pose.x, pose.y, pose.z);
@@ -160,29 +318,25 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   }
 
   function updateTrail(t: number) {
-    // Sample k is the trail k steps back from the jet; segment k−1 joins sample k−1 to sample k.
-    let n = 0;
+    // Sample k is the trail k steps back from the jet; the segment from sample k−1 to sample k takes
+    // the phase of its earlier end, sample k (a sample's phase is that of the stretch after it).
+    trail.solid.n = trail.dashed.n = 0;
+    const from = src.visibleFromOf(jet);
+    let px = 0, py = 0, pz = 0, pd = 0;
     for (let k = 0; k < TRAIL_N; k++) {
       const tk = t - (k * TRAIL_S) / (TRAIL_N - 1);
       if (tk < src.window.t0_s) break;
       src.jetAt(jet, tk, past);
       if (!past.visible) break;
-      if (k > 0) {
-        const end = (k - 1) * 6 + 3;
-        trailSegs[end] = past.x;
-        trailSegs[end + 1] = past.y;
-        trailSegs[end + 2] = past.z;
-      }
-      if (k < TRAIL_N - 1) {
-        const start = k * 6;
-        trailSegs[start] = past.x;
-        trailSegs[start + 1] = past.y;
-        trailSegs[start + 2] = past.z;
-      }
-      n++;
+      const d = (tk - from) * TRAIL_DASH_MPS;
+      if (k > 0) putPhase(trail, px, py, pz, past.x, past.y, past.z, PHASE_INDEX[past.phase], pd, d);
+      px = past.x;
+      py = past.y;
+      pz = past.z;
+      pd = d;
     }
-    trailGeom.instanceCount = Math.max(0, n - 1);
-    trailBuffer.needsUpdate = true;
+    finish(trail.solid);
+    finish(trail.dashed);
   }
 
   function placeRing(radius: number, ctx: FrameCtx) {
@@ -230,6 +384,10 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
     },
 
     afterCamera(ctx) {
+      // Dashes are laid in metres along each line: scaled to the planner's pixels where the eye is looking.
+      path.dashMat.dashScale = ctx.focusPxPerM;
+      trail.dashMat.dashScale = ctx.focusPxPerM;
+      fallMat.dashScale = ctx.focusPxPerM;
       if (arrow.visible) arrow.scale.setScalar(sizeAt(ctx, arrow.position, ARROW_PX, ARROW_LEN_M));
       if (bomb.visible) bomb.scale.setScalar(sizeAt(ctx, bomb.position, BOMB_PX, BOMB_LEN_M));
       // The ring: re-laid only when its size on the ground moves by 3% or the ground itself changed.
@@ -245,7 +403,7 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
     targetPosition: () => ringCentre,
 
     dispose() {
-      o.parent.remove(path, casing, trail, ring, bomb, arrow);
+      o.parent.remove(...drawn);
     },
   };
 }

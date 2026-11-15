@@ -267,14 +267,15 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   ro.observe(host);
 
   // One mutable frame context, reused every frame: no per-frame garbage.
-  const ctx: FrameCtx = {
-    t: clock.time, dt: 0, source, camera: rig.camera, viewW, viewH,
-    ground: terrain.ground, groundVersion: terrain.groundVersion, heightAt: terrain.heightAt,
-  };
-
   // ── What the camera follows: the watched jet, filled every frame from its layer's pose (a jet
   // with no layer of its own is sampled here instead). Made once.
   let camJet = opts.camera && opts.camera.jet >= 0 && opts.camera.jet < source.jetCount ? opts.camera.jet : jet;
+
+  const ctx: FrameCtx = {
+    t: clock.time, dt: 0, source, camera: rig.camera, viewW, viewH,
+    ground: terrain.ground, groundVersion: terrain.groundVersion, heightAt: terrain.heightAt,
+    watched: camJet, focusPxPerM: 1,
+  };
   const follow: Follow = { jet: new Vector3(), vel: new Vector3(), heading_deg: 0, target: new Vector3(), targetGround: 0 };
   const camPose = newSceneJetPose();
   function fillFollow(p: SceneJetPose) {
@@ -320,6 +321,12 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     ctx.viewH = viewH;
     ctx.ground = terrain.ground;
     ctx.groundVersion = terrain.groundVersion;
+    ctx.watched = camJet;
+    // Pixels per metre where the eye is looking: at the orbit point, or, from the target (whose
+    // controls are off and keep a stale orbit point), at the watched jet. Dashes are scaled by it.
+    const cam = rig.camera;
+    const focus = rig.mode === 'target' ? cam.position.distanceTo(follow.jet) : cam.position.distanceTo(rig.controls.target);
+    ctx.focusPxPerM = viewH / (2 * Math.max(focus, 1) * Math.tan((cam.fov * Math.PI) / 360));
     for (const l of layers) l.update(ctx); // 1. everything moves to time t
     // 2. the camera follows the watched jet (Chase, From target), eases, stays above ground; keep drawing while it settles.
     if (source.jetCount > 0) fillFollow(jets && camJet === jet ? jets.pose : source.jetAt(camJet, ctx.t, camPose));
@@ -440,6 +447,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     setCamera: (mode, j) => {
       if (!canFollow(mode)) return;
       if (j >= 0 && j < source.jetCount) camJet = j;
+      ctx.watched = camJet; // the watched jet carries the colour code
       followNow();
       rig.setMode(mode, follow);
       opts.onCamera?.(mode);

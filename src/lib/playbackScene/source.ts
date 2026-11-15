@@ -8,7 +8,9 @@
  * - every frame: a jet's or a bomb's pose at strike time t, already in
  *   three.js axes (x = east, y = up, z = −north), written into an object
  *   the caller keeps, so nothing is allocated at 60 fps;
- * - once per open: each jet's planned path as a flat Float32Array of xyz,
+ * - once per open: each jet's planned path as a flat Float32Array of xyz
+ *   with the planner's phase of each stretch (for the colour code), its
+ *   bomb's whole fall, the sizes their buffers need at any delay,
  *   each jet's target point, the strike window, the box the terrain is
  *   built from, the lead's attack axis (for the home camera), the frame
  *   (what Home frames is homeBox in homeView.ts, from the poses);
@@ -25,7 +27,7 @@
  */
 
 import {
-  newBombState, newJetState, playbackBounds, sampleBomb, sampleJet, toLocal, upOf,
+  PHASES, newBombState, newJetState, playbackBounds, sampleBomb, sampleJet, toLocal, upOf,
   type LocalFrame, type PlaybackBounds, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
 } from '../playback';
 import { firstActionTau } from './actionPoints';
@@ -77,8 +79,21 @@ export interface SceneSource {
   readonly bounds: PlaybackBounds;
   /** The lead's attack axis, a horizontal unit vector (east, north) along the run-in toward its target: the home camera stands behind it. */
   readonly attackAxis: [e: number, n: number];
-  /** Jet k's planned path (display layer, sampled across the window while it is visible), xyz in three.js axes. */
+  /**
+   * Jet k's planned path, xyz in three.js axes: the display track from its IP crossing to the end of
+   * the drawn egress leg, sampled every path step plus a vertex on every anchor (so the colour
+   * changes sit exactly on the planner's points). The run-in before the IP and the flight past the
+   * drawn leg are shown by the trail only, as the planner draws neither.
+   */
   plannedPath(jet: number): Float32Array;
+  /** Per vertex of plannedPath: the PHASES index of the stretch from it to the next (the last repeats the one before). */
+  plannedPhase(jet: number): Uint8Array;
+  /** Jet k's bomb's whole fall on the display layer, release to impact, xyz in three.js axes (the last point is the target). */
+  plannedBomb(jet: number): Float32Array;
+  /** The most vertices plannedPath can have for jet k at any delay (path step at least PATH_STEP_S): its buffers are made this size once. */
+  pathCapacity(jet: number): number;
+  /** The most points plannedBomb can have for jet k at any delay. */
+  bombCapacity(jet: number): number;
   /** Jet k's target point on the ground, three.js axes. Its bomb's last position. */
   targetOf(jet: number): ScenePoint;
   /** The jet's seat label, '#1'… */
@@ -109,6 +124,10 @@ export function newSceneBombPose(): SceneBombPose {
 
 /** The planned path's sampling step, s of strike time. Fine enough that the drawn line hugs the rounded corners the arrow flies. */
 export const PATH_STEP_S = 0.25;
+/** The most anchors a track can have (one per AnchorKind): each adds a vertex to the planned path. */
+export const ANCHOR_VERTICES = 11;
+/** A sampled path time this close to an anchor's is left out: the anchor's own vertex stands there. */
+const ON_ANCHOR_S = 1e-6;
 
 /**
  * The scene's view of one built playback at one timing. Build it once per
@@ -149,17 +168,56 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     return out;
   };
 
-  // The planned paths, once: the visible stretch of the display track across the window.
+  // The planned paths, once: IP crossing to the end of the drawn egress leg (the stretch the planner
+  // draws), never the whole window, so a delay of hours costs nothing. Each anchor gets a vertex of
+  // its own, its phase read straight from the plan sample on it: a strike-time round trip
+  // ((tau + shift) − shift) can land a hair before the anchor and read the stretch behind it.
   const step = pathStep_s > 0 ? pathStep_s : PATH_STEP_S;
-  const steps = Math.max(1, Math.ceil((t1_s - t0_s) / step));
   const pose = newSceneJetPose();
-  const paths = pb.jets.map((_, k) => {
-    const xyz: number[] = [];
+  const paths: Float32Array[] = [], phases: Uint8Array[] = [];
+  pb.jets.forEach((j, k) => {
+    const tj = timing.jets[k];
+    const from = tj.push_s, to = tj.egressEnd_s;
+    const anchors = Object.values(j.anchors)
+      .map((a) => ({ t: a!.tau_s + tj.shift_s, phase: j.samples.phase[a!.index] }))
+      .sort((a, b) => a.t - b.t);
+    const xyz: number[] = [], ph: number[] = [];
+    let ai = 0;
+    const atAnchor = (a: { t: number; phase: number }) => {
+      jetAt(k, a.t, pose);
+      xyz.push(pose.x, pose.y, pose.z);
+      ph.push(a.phase);
+    };
+    const steps = Math.max(1, Math.ceil((to - from) / step));
     for (let i = 0; i <= steps; i++) {
-      const t = i === steps ? t1_s : t0_s + i * step;
+      const t = i === steps ? to : from + i * step;
+      while (ai < anchors.length && anchors[ai].t < t - ON_ANCHOR_S) atAnchor(anchors[ai++]);
+      if (ai < anchors.length && Math.abs(anchors[ai].t - t) <= ON_ANCHOR_S) continue;
       jetAt(k, t, pose);
-      if (pose.visible) xyz.push(pose.x, pose.y, pose.z);
+      xyz.push(pose.x, pose.y, pose.z);
+      ph.push(PHASES.indexOf(pose.phase));
     }
+    while (ai < anchors.length) atAnchor(anchors[ai++]);
+    // The last vertex starts no stretch: the plan sample at the end of the leg already says
+    // 'extension', so it repeats the stretch before it.
+    if (ph.length > 1) ph[ph.length - 1] = ph[ph.length - 2];
+    paths.push(Float32Array.from(xyz));
+    phases.push(Uint8Array.from(ph));
+  });
+
+  // Each bomb's whole fall, once (the slot it leaves from eases out with the timing, so it is rebuilt with the source).
+  const bpose = newSceneBombPose();
+  const bombs = pb.jets.map((_, k) => {
+    const { release_s, impact_s } = timing.jets[k];
+    const xyz: number[] = [];
+    for (let i = 0; ; i++) {
+      const t = release_s + i * PATH_STEP_S;
+      if (t >= impact_s - ON_ANCHOR_S) break;
+      bombAt(k, t, bpose);
+      xyz.push(bpose.x, bpose.y, bpose.z);
+    }
+    bombAt(k, impact_s, bpose);
+    xyz.push(bpose.x, bpose.y, bpose.z);
     return Float32Array.from(xyz);
   });
 
@@ -182,6 +240,10 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     bounds: playbackBounds(pb),
     attackAxis: [Math.sin(h), Math.cos(h)],
     plannedPath: (jet) => paths[jet],
+    plannedPhase: (jet) => phases[jet],
+    plannedBomb: (jet) => bombs[jet],
+    pathCapacity: (jet) => Math.ceil(pb.jets[jet].egressEndTau_s / PATH_STEP_S) + 3 + ANCHOR_VERTICES,
+    bombCapacity: (jet) => Math.ceil(pb.jets[jet].bomb.fall_s / PATH_STEP_S) + 3,
     targetOf: (jet) => targets[jet],
     labelOf: (jet) => pb.jets[jet].label,
     jetAt,

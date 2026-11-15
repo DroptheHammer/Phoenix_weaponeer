@@ -126,6 +126,8 @@ import {
   firstActionTau, markerMoments, labelMoments, playRange, homeBox, openingMode, initShow, showReducer, isThreatOn,
   FIRST_ACTION_FALLBACK_S, RUN_LEAD_S, HOME_AFTER_S, type ShowState,
 } from '../src/lib/playbackScene';
+import { ANCHOR_VERTICES, PATH_STEP_S, LINE_CASING } from '../src/lib/playbackScene';
+import { PHASES, PHASE_STYLE } from '../src/lib/playback';
 import {
   controlsFor, topDownPose, chasePose, yawDelta, targetEye, CHASE_BACK_M, CHASE_UP_M, CHASE_MIN_M, CHASE_MAX_M, CHASE_SWING_DEG,
   ZOOM_SPEED, MAX_POLAR_DEG, TOP_POLAR_RAD, MIN_CAMERA_AGL_M, type ControlsConfig,
@@ -6224,7 +6226,8 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     // [P11] restated for the library's datum: the adapter hands the scene the DISPLAY layer in three.js
     // axes, y = up_m (above the lead target's planned elevation: not MSL × 0.3048, not AGL), z = −north,
     // writing into the caller's object; each jet's target is where its bomb lands; the planned path is
-    // the display track inside the box; the window and the axis are the library's.
+    // the display track inside the box, starting where the jet crosses the IP (the planner draws
+    // nothing before it); the window and the axis are the library's.
     // Mutation proofs: source.ts jetAt `out.y = js.up_m` → `out.y = js.agl_ft * 0.3048`:
     //   FAIL playback scene [P11]: the adapter gives the display layer in three.js axes … #1 jet at t=-121.7: (26386.692, 152.400, -10661.258) vs the library's (26386.692, 152.400, -10661.258); worst jet position error 365.760 m
     //   (the lead's AGL equals its up but for rounding, which the exact comparison sees first; #2's is 1,200 ft = 365.76 m off)
@@ -6234,6 +6237,9 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     //   FAIL playback scene [P11]: … #3 bomb at t=-151.2: (1115.702, 1066.800, -1618.544) vs the library's (399.263, 1066.800, -2205.223)
     // targetOf `upOf(pb.frame, j.targetElevation_ft)` → `j.targetElevation_ft * 0.3048` (MSL):
     //   FAIL playback scene [P11]: … #1 target (0.000, 1219.200, 0.000) vs its bomb's impact (0.000, 0.000, 0.000)
+    // The path's start moved to the IP crossing 2026-11-14; source.ts sampling the path from the
+    // window's start again (`const from = t0_s`), seen red the same day:
+    //   FAIL playback scene [P11]: … #1 path: 655 points, first (33133.754, 152.400, -13407.385) vs the jet at its IP crossing (26272.353, 152.400, -10614.722); worst jet position error 0.000 m
     const sPose = newSceneJetPose(), sBomb = newSceneBombPose(), refJ = newJetState(), refB = newBombState();
     let srcBad = '', srcPts = 0, sameOut = true, upIsOwn = false, worstPos = 0;
     const fmt3 = (a: number, b: number, c: number) => `(${a.toFixed(3)}, ${b.toFixed(3)}, ${c.toFixed(3)})`;
@@ -6258,9 +6264,9 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
       if (sBomb.stage !== 'impacted' || Math.hypot(tg.x - sBomb.x, tg.y - sBomb.y, tg.z - sBomb.z) > 1e-6)
         srcBad ||= `#${k + 1} target ${fmt3(tg.x, tg.y, tg.z)} vs its bomb's impact ${fmt3(sBomb.x, sBomb.y, sBomb.z)}`;
       const path = src.plannedPath(k), b = src.bounds;
-      src.jetAt(k, src.window.t0_s, sPose);
+      src.jetAt(k, sTiming.jets[k].push_s, sPose);
       if (path.length % 3 !== 0 || path.length < 300 * 3 || path[0] !== Math.fround(sPose.x) || path[1] !== Math.fround(sPose.y) || path[2] !== Math.fround(sPose.z))
-        srcBad ||= `#${k + 1} path: ${path.length / 3} points, first ${fmt3(path[0], path[1], path[2])} vs the jet at the window's start ${fmt3(sPose.x, sPose.y, sPose.z)}`;
+        srcBad ||= `#${k + 1} path: ${path.length / 3} points, first ${fmt3(path[0], path[1], path[2])} vs the jet at its IP crossing ${fmt3(sPose.x, sPose.y, sPose.z)}`;
       for (let i = 0; i < path.length; i += 3) {
         const e = path[i], up = path[i + 1], n = -path[i + 2];
         if (e < b.min_e_m - 1 || e > b.max_e_m + 1 || n < b.min_n_m - 1 || n > b.max_n_m + 1 || up < b.min_up_m - 1 || up > b.max_up_m + 1) { srcBad ||= `#${k + 1} path point ${i / 3} outside the box`; break; }
@@ -7407,8 +7413,116 @@ void (async () => {
     ok('playback B3 [SH2]: every Show action changes only what it names, gives the same object back when nothing changes (unknown system, same value, All when all on, None when none on), and keeps the menu\'s order',
        shBad.length === 0 && sh.labels === false && sh.actionPoints === 'always' && sh.attackColours === 'all' && sh.wholeRunIn === true,
        shBad.length ? shBad.join('; ') : '19 steps');
+
+    // ── The planner's colour code in 3D (source.ts: the planned path with its phase per vertex, the
+    // bomb's fall, the buffer sizes; sceneStyle.ts: the casing the colours sit on).
+
+    // [FB6] Each planned path runs from the jet's IP crossing to the end of its drawn egress leg (the
+    // stretch the planner draws: no lead-in, no extension past the leg), has a vertex on every anchor
+    // whose phase is the plan sample's on it, and changes colour only on an anchor vertex; on a level
+    // JDAM the stretch from the action point is the leg. The four-ship and a lone level JDAM.
+    // Mutation proofs (each seen red 2026-11-14): source.ts with the anchor vertices dropped (the
+    // in-loop and trailing `atAnchor` calls and the `continue` on an anchor's time all switched off):
+    //   FAIL playback B3 [FB6]: … #1 popup: no vertex on AP
+    // an anchor vertex's phase taken from `jetAt` at `tau + shift` (`ph.push(PHASES.indexOf(pose.phase))` in atAnchor):
+    //   FAIL playback B3 [FB6]: … level JDAM: AP vertex starts route, its plan sample leg
+    // the path sampled from the window's start (`const from = t0_s`; [P11] and [FB17] go red with it):
+    //   FAIL playback B3 [FB6]: … #1 popup: first vertex (33133.8, 152.4, -13407.4) is not the jet at its IP crossing (26272.4, 152.4, -10614.7)
+    const fb6Pose = newSceneJetPose();
+    const levelTiming = retime(levelPb), levelSrc = sceneSourceFrom(levelPb, levelTiming);
+    const fb6Cases = [
+      ...s4Pb.jets.map((j, k) => ({ name: `${j.label} ${j.family}`, pb: s4Pb, timing: s4Timing, src: s4Src, k })),
+      { name: 'level JDAM', pb: levelPb, timing: levelTiming, src: levelSrc, k: 0 },
+    ];
+    let fb6Bad = '', fb6Anchors = 0, fb6Changes = 0, fb6Verts = 0;
+    for (const c of fb6Cases) {
+      const path = c.src.plannedPath(c.k), ph = c.src.plannedPhase(c.k), n = path.length / 3;
+      const tj = c.timing.jets[c.k], j = c.pb.jets[c.k];
+      const on = (i: number) => path[i * 3] === Math.fround(fb6Pose.x) && path[i * 3 + 1] === Math.fround(fb6Pose.y) && path[i * 3 + 2] === Math.fround(fb6Pose.z);
+      fb6Verts += n;
+      if (ph.length !== n) fb6Bad ||= `${c.name}: ${ph.length} phases for ${n} vertices`;
+      c.src.jetAt(c.k, tj.push_s, fb6Pose);
+      if (!on(0)) fb6Bad ||= `${c.name}: first vertex (${path[0].toFixed(1)}, ${path[1].toFixed(1)}, ${path[2].toFixed(1)}) is not the jet at its IP crossing (${fb6Pose.x.toFixed(1)}, ${fb6Pose.y.toFixed(1)}, ${fb6Pose.z.toFixed(1)})`;
+      c.src.jetAt(c.k, tj.egressEnd_s, fb6Pose);
+      if (!on(n - 1)) fb6Bad ||= `${c.name}: last vertex is not the jet at the end of its egress leg`;
+      const anchorVerts = new Set<number>();
+      for (const [kind, a] of Object.entries(j.anchors)) {
+        c.src.jetAt(c.k, a!.tau_s + tj.shift_s, fb6Pose);
+        let i = -1;
+        for (let v = 0; v < n && i < 0; v++) if (on(v)) i = v;
+        fb6Anchors++;
+        if (i < 0) { fb6Bad ||= `${c.name}: no vertex on ${kind}`; continue; }
+        anchorVerts.add(i);
+        if (kind !== 'END' && ph[i] !== j.samples.phase[a!.index]) fb6Bad ||= `${c.name}: ${kind} vertex starts ${PHASES[ph[i]]}, its plan sample ${PHASES[j.samples.phase[a!.index]]}`;
+        if (kind === 'AP' && c.name === 'level JDAM' && PHASES[ph[i]] !== 'leg') fb6Bad ||= `level JDAM: the AP vertex starts ${PHASES[ph[i]]}, not leg`;
+      }
+      for (let i = 1; i < n - 1; i++) {
+        if (ph[i] === ph[i - 1]) continue;
+        fb6Changes++;
+        if (!anchorVerts.has(i)) fb6Bad ||= `${c.name}: colour changes ${PHASES[ph[i - 1]]} → ${PHASES[ph[i]]} at vertex ${i}, not on an anchor`;
+      }
+      const used = new Set(Array.from(ph, (p) => PHASES[p]));
+      if (used.has('leadIn') || used.has('extension')) fb6Bad ||= `${c.name}: phases ${[...used].join(', ')}`;
+    }
+    ok('playback B3 [FB6]: each planned path runs from the IP crossing to the end of the drawn egress leg with a vertex on every anchor in its plan sample\'s phase, changing colour only there (four-ship, level JDAM: the leg from the action point)',
+       fb6Bad === '' && fb6Anchors >= 30 && fb6Changes >= 20,
+       fb6Bad || `${fb6Cases.length} paths, ${fb6Verts} vertices, ${fb6Anchors} anchors, ${fb6Changes} colour changes all on anchors`);
+
+    // [FB7] The bomb's fall is sampled from its release every path step, ending on the target itself,
+    // and fits the buffer made for it. The four-ship (three pop-ups and a loft).
+    // Mutation proof: source.ts plannedBomb stopping at its last step before impact (the closing
+    // `bombAt(k, impact_s, …)` point left out), seen red 2026-11-14:
+    //   FAIL playback B3 [FB7]: … #1: the fall ends 60.3 m from the target
+    const fb7Bomb = newSceneBombPose();
+    let fb7Bad = '', fb7Pts = 0, fb7End = 0;
+    for (let k = 0; k < s4Src.jetCount; k++) {
+      const b = s4Src.plannedBomb(k), m = b.length / 3, tj = s4Timing.jets[k];
+      fb7Pts += m;
+      if (m > s4Src.bombCapacity(k)) fb7Bad ||= `#${k + 1}: ${m} points for room ${s4Src.bombCapacity(k)}`;
+      for (let i = 0; i < m - 1; i++) {
+        s4Src.bombAt(k, tj.release_s + i * PATH_STEP_S, fb7Bomb);
+        if (b[i * 3] !== Math.fround(fb7Bomb.x) || b[i * 3 + 1] !== Math.fround(fb7Bomb.y) || b[i * 3 + 2] !== Math.fround(fb7Bomb.z)) { fb7Bad ||= `#${k + 1}: point ${i} is not the bomb at release + ${(i * PATH_STEP_S).toFixed(2)} s`; break; }
+      }
+      const tg = s4Src.targetOf(k), last = (m - 1) * 3;
+      const miss = Math.hypot(b[last] - tg.x, b[last + 1] - tg.y, b[last + 2] - tg.z);
+      fb7End = Math.max(fb7End, miss);
+      if (miss > 0.5) fb7Bad ||= `#${k + 1}: the fall ends ${miss.toFixed(1)} m from the target`;
+    }
+    ok('playback B3 [FB7]: the bomb\'s fall is the bomb every path step from release, ends on the target (0.5 m) and fits its buffer',
+       fb7Bad === '' && fb7Pts > 40, fb7Bad || `${fb7Pts} points over four falls; worst end ${fb7End.toFixed(3)} m from the target`);
+
+    // [FB17] The path's buffer size does not depend on the delays (the path is only the IP-to-leg
+    // stretch), and every planned path fits it, at plan, with #2 300 s early or late, and with #2 ten
+    // hours late. Four-ship.
+    // Mutation proof: source.ts pathCapacity without `+ ANCHOR_VERTICES`, seen red 2026-11-14:
+    //   FAIL playback B3 [FB17]: … #1 at #2 plan s: 535 vertices for room 530
+    const fb17Plan = Array.from({ length: s4Src.jetCount }, (_, k) => s4Src.pathCapacity(k));
+    let fb17Bad = '', fb17Slack = Infinity;
+    for (const d of [undefined, 300, -300, 36_000]) {
+      const t = d === undefined ? s4Timing : retime(s4Pb, { [s4Pb.jets[1].id]: d });
+      const sd = sceneSourceFrom(s4Pb, t);
+      for (let k = 0; k < sd.jetCount; k++) {
+        const cap = sd.pathCapacity(k), n = sd.plannedPath(k).length / 3;
+        fb17Slack = Math.min(fb17Slack, cap - n);
+        if (cap !== fb17Plan[k]) fb17Bad ||= `#${k + 1} at #2 ${d} s: room ${cap} vs ${fb17Plan[k]} at plan`;
+        if (n > cap) fb17Bad ||= `#${k + 1} at #2 ${d ?? 'plan'} s: ${n} vertices for room ${cap}`;
+      }
+    }
+    ok('playback B3 [FB17]: the planned path\'s buffer is the same size at plan, ±300 s and 36,000 s, and every path fits it',
+       fb17Bad === '' && ANCHOR_VERTICES === 11, fb17Bad || `rooms ${fb17Plan.join('/')}; least spare room ${fb17Slack}`);
+
+    // [FB8] (lines) Every planner colour a path or trail can take, and the bomb line, stands 3:1 off
+    // the casing it sits on (the window's background), to normal eyes and to protans and deutans.
+    // Mutation proof: sceneStyle.ts `LINE_CASING = '#f2efe9'` (the casing taken as pale land), seen red 2026-11-14:
+    //   FAIL playback B3 [FB8]: … casing #f2efe9; route 2.00, leg 2.00, climb 1.38, pullDown 2.14, attack 2.77, egress 1.82, egressLeg 1.82, bomb 2.77
+    const casingRgb = parseColour(LINE_CASING)!;
+    const fb8Keys = [...new Set(PHASES.map((p) => PHASE_STYLE[p])), 'bomb' as const];
+    const fb8 = fb8Keys.map((key) => ({ key, worst: Math.min(...VISIONS.map((v) => ratio(parseColour(LINE_STYLE[key].color)!, casingRgb, v))) }));
+    ok('playback B3 [FB8]: every planner line colour in 3D and the bomb line stand at least 3:1 off their casing, the window\'s background, in all three visions',
+       LINE_CASING === BG && fb8.every((f) => f.worst >= 3),
+       `casing ${LINE_CASING}; ` + fb8.map((f) => `${f.key} ${f.worst.toFixed(2)}`).join(', '));
   } catch (e) {
-    ok('playback B3 (start, Home, Show): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    ok('playback B3 (start, Home, Show, colours): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }
 

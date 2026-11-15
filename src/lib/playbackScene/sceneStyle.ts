@@ -27,15 +27,25 @@ export const BOMB_LEN_M = 2.4;
  * the one device pixel plain WebGL lines get: at one pixel the path was all
  * but invisible over a pale map, and thinner still on a high-density screen.
  *
- * The planned path: thin, and the jet's colour mixed PATH_SHADE of the way
- * toward the background, so the jet and its trail stand out against it. It
- * is opaque on purpose: a see-through wide line shows a bead at every joint.
+ * The lines are opaque on purpose: a see-through wide line shows a bead at
+ * every joint.
+ *
+ * The planned path and the trail carry the planner's colour code (the map's
+ * and the card's LINE_STYLE, one colour per stretch, dashed where the
+ * planner dashes), each on a casing in LINE_CASING a little wider, so the
+ * pale yellow climb and the blue route read on any map.
  */
+export const LINE_CASING = BG;
 export const PATH_PX = 2;
+export const PATH_CASING_PX = 4;
+/** A jet drawn in its seat colour has its path mixed this far toward the background. */
 export const PATH_SHADE = 0.45;
-/** The trail behind the jet: the jet's full colour, over a dark casing a little wider so it reads on any map. */
-export const TRAIL_PX = 3;
-export const TRAIL_CASING_PX = 5.5;
+/** The trail behind the jet: wider than the path, so the stretch just flown stands out. */
+export const TRAIL_PX = 3.5;
+export const TRAIL_CASING_PX = 6;
+/** The bomb's whole fall: thin and dashed in the planner's bomb-line red, on its casing. */
+export const BOMB_LINE_PX = 1.5;
+export const BOMB_LINE_CASING_PX = 3.5;
 /** How far back the trail reaches behind the jet, s of strike time. */
 export const TRAIL_S = 20;
 

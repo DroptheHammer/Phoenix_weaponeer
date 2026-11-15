@@ -118,8 +118,9 @@ function median(px) {
   return [m(0), m(1), m(2)];
 }
 // The arrow is the jet's colour on top and darker shades of it underneath and on the fin: cyan
-// whatever the shade. Neither drape colour nor the navy background passes this. The path, the
-// trail and the target ring do (they are the jet's colour too): see check 2 for how it allows for them.
+// whatever the shade. Neither drape colour nor the navy background passes this. The target ring
+// does (it is the jet's colour too); the path and the trail did until they took the planner's
+// colours: see check 2 for how it allowed for them.
 const jetLike = (p) => p[2] > p[0] + 80 && p[1] > p[0] + 80 && Math.abs(p[1] - p[2]) < 70;
 
 // ── Page helpers.
@@ -201,6 +202,8 @@ async function checkColours(page, tag) {
  *   STEP FAIL 5b after the rebuild, the jet arrow on screen (1400x900-rebuilt) — start t=-151.2 at 174,554: 20 px; run-in …: 53 px; pull-up …: 50 px (need 90)
  * (The first version of this check counted within 20 px, needed 30, and included the release
  * moment beside the ring: with the arrow gone it still passed, on 35 / 99 / 211 px of lines and ring.)
+ * Since the path and trail wear the planner's colours (2026-11-14) the lines give no cyan at all: the
+ * same mutation reads 0 / 0 / 0 px at both sizes, and green is 170 / 140 / 128 and 168 / 138 / 122.
  */
 const ARROW_PATCH = 10;
 const ARROW_MIN = 90;
@@ -412,16 +415,19 @@ const offCentre = (p, cv) => (p ? [(p[0] - (cv.l + cv.w / 2)) / cv.w, (p[1] - (c
  * pixels within ARROW_PATCH px of it. Run first, on the page as it opens.
  *
  * ARROW_MIN_CHASE: the arrow is at its real size in Chase (about 418 m off, 17° up), not at the 28 px
- * Home size ARROW_MIN was measured for. Measured 2026-11-14 on the first green run: 138 px at 1400×900
- * and 111 px at 1024×768; with the arrow shrunk to nothing (jetLayer.ts afterCamera, scale × 1e-6) the
- * path and trail alone give 59 / 59 px. 85 sits between with room either side for the software
- * renderer. To be measured again once the path and trail stop being the jet's colour.
+ * Home size ARROW_MIN was measured for. First measured 2026-11-14 while the path and trail were the
+ * jet's cyan too: 138 px at 1400×900 and 111 px at 1024×768, the lines alone 59 / 59 px, floor 85.
+ * Measured again the same day once they wore the planner's colours: 122 and 86 px, and with the
+ * arrow shrunk to nothing (jetLayer.ts afterCamera, scale × 1e-6) 0 / 0 px, so the count is the
+ * arrow's alone. The floor came down to 60, between 0 and 86 with room for the software renderer;
+ * that mutation turns it red:
+ *   STEP FAIL 21 opens in Chase behind #1 at the start of the time bar (1400x900) — t -50.15 (range start -50.15); pressed ["Chase #1"]; arrow at 700,391, -0.0% / 0.0% off the middle, 0 px (need 60)
  *
  * Proven red 2026-11-14 by one temporary edit to PlaybackView.tsx, the camera's opening mode 'orbit'
  * in place of openingMode(…) (playback opens at Home):
  *   STEP FAIL 21 opens in Chase behind #1 at the start of the time bar (1400x900) — t -50.15 (range start -50.15); pressed ["Orbit"]; arrow at 209,563, -35.0% / 24.9% off the middle, 171 px (need 85)
  */
-const ARROW_MIN_CHASE = 85;
+const ARROW_MIN_CHASE = 60;
 async function checkOpening(page, tag) {
   const m = await pbEval(page, () => __pb.moments);
   const snap = await pbEval(page, () => __pb.snapshot());
@@ -469,6 +475,71 @@ async function checkHomeFrame(page, tag, minSpan) {
   step(`22 Home frames the attack: first action, release and target inside, pull-up to release ≥ ${minSpan} px (${tag})`,
     inside(first) && inside(rel) && inside(tgt) && span >= minSpan,
     `canvas [${[cv.l, cv.t, cv.l + cv.w, cv.t + cv.h].map(Math.round)}]; first action ${fmt(first)}, release ${fmt(rel)}, target ${fmt(tgt)}; pull-up to release ${span.toFixed(0)} px`);
+}
+
+/**
+ * Check 23: the planner's colour code in 3D. Home on the default range, paused 3 s after the pull-up:
+ * along the climb (the projected pull-up → pull-down stretch, 20 px either side of its middle, 3 px
+ * either side of the line) the pixels are the planner's climb yellow; along the route the same way
+ * (round the middle of the stretch between the time bar's start and the first action, the line laid
+ * through the jet's points 2 s either side) they are the route blue; and at both hardly any are the
+ * jet's own cyan, which every line was before. The jet's points come from `__pb.project(0, 'jet')`
+ * at each moment, which lies on the drawn path (the path is the same display track, sampled), with
+ * the camera standing still at Home in between.
+ *
+ * Minimums: measured 2026-11-14 on the first green run, 55 yellow and 68 blue px at 1400×900, 54 and
+ * 68 at 1024×768, 0 cyan at both. The 41 px window spans two whole periods of the route's 10 / 10
+ * dash, so the blue count does not ride on where the dashes fall. CLIMB_MIN and ROUTE_MIN sit at
+ * about half, room for the software renderer. The predicates match neither drape colour, its
+ * hillshade, nor the navy background (the cyan counts of 0 and the drape checks run beside them).
+ *
+ * Proven red 2026-11-14 by one temporary edit to scene/jetLayer.ts, wideLine's `vertexColors: false`
+ * (every coloured line drawn in the material's white):
+ *   STEP FAIL 23 the planner's colours in 3D: yellow climb, blue route, no cyan lines (1400x900) — climb (482,498)→(777,418): 0 yellow px (need 25), 0 cyan; route at (311,534): 0 blue px (need 30), 0 cyan (≤ 5 each)
+ *   STEP FAIL 23 … (1024x768) — climb (350,405)→(569,345): 0 yellow px (need 25), 0 cyan; route at (223,431): 0 blue px (need 30), 0 cyan (≤ 5 each)
+ */
+const climbLike = (p) => p[0] > 200 && p[1] > 150 && p[2] < 90;
+const routeLike = (p) => p[2] > 200 && p[2] > p[0] + 80 && p[2] > p[1] + 30;
+const CLIMB_MIN = 25;
+const ROUTE_MIN = 30;
+/** Pixels of `img` within `across` px of the line through `a` and `b`, at most `along` px from `mid` along it, that pass `test`. */
+function alongLine(img, a, b, mid, along, across, test) {
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (!(L > 0)) return 0;
+  const ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L;
+  const r = Math.ceil(along + across);
+  let n = 0;
+  for (let y = Math.round(mid[1]) - r; y <= Math.round(mid[1]) + r; y++) for (let x = Math.round(mid[0]) - r; x <= Math.round(mid[0]) + r; x++) {
+    if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
+    const dx = x - mid[0], dy = y - mid[1];
+    if (Math.abs(dx * ux + dy * uy) <= along && Math.abs(dx * uy - dy * ux) <= across && test(img.at(x, y))) n++;
+  }
+  return n;
+}
+async function checkColourCode(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.goHome(); });
+  const m = await pbEval(page, () => __pb.moments);
+  const pdp = m.events.find((e) => e.kind === 'pullDown')?.t_s;
+  const jetAt = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 100);
+    return pbEval(page, () => __pb.project(0, 'jet'));
+  };
+  const pop = await jetAt(m.pullUp);
+  const down = pdp === undefined ? null : await jetAt(pdp);
+  const routeMid = (m.range.t0_s + m.firstAction) / 2;
+  const r0 = await jetAt(routeMid - 2), rm = await jetAt(routeMid), r1 = await jetAt(routeMid + 2);
+  await pbEval(page, (tt) => __pb.seek(tt), m.pullUp + 3);
+  await settle(page, 300);
+  const img = await shot(page, `${tag}-23-colour-code`);
+  const climbMid = pop && down ? [(pop[0] + down[0]) / 2, (pop[1] + down[1]) / 2] : null;
+  const count = (a, b, mid, test) => (a && b && mid ? alongLine(img, a, b, mid, 20, 3, test) : 0);
+  const climb = count(pop, down, climbMid, climbLike), climbJet = count(pop, down, climbMid, jetLike);
+  const route = count(r0, r1, rm, routeLike), routeJet = count(r0, r1, rm, jetLike);
+  const fmt = (q) => (q ? `(${q.map(Math.round)})` : 'none');
+  step(`23 the planner's colours in 3D: yellow climb, blue route, no cyan lines (${tag})`,
+    climb >= CLIMB_MIN && route >= ROUTE_MIN && climbJet <= 5 && routeJet <= 5,
+    `climb ${fmt(pop)}→${fmt(down)}: ${climb} yellow px (need ${CLIMB_MIN}), ${climbJet} cyan; route at ${fmt(rm)}: ${route} blue px (need ${ROUTE_MIN}), ${routeJet} cyan (≤ 5 each)`);
 }
 
 /**
@@ -521,7 +592,8 @@ async function checkWheel(page, tag) {
  * pressed: #1's arrow is on screen (its point projects inside the canvas), looked at from its target.
  * The jet-coloured pixels round it are printed, not tested: there the jet is about 10 km off, low by
  * the horizon, and the count was the same with the arrow shrunk to nothing (36 / 32 px against
- * 33 / 32), so it is the path's, and a pixel floor could not fail.
+ * 33 / 32), so it is the path's, and a pixel floor could not fail. (With the path in the planner's
+ * colours it reads 4 / 0 px: the arrow, end-on and 10 km off, is too small to count on.)
  *
  * 15a proven red 2026-11-14 by one temporary edit to scene/cameraRig.ts, the chase step (carry along,
  * swing round, re-aim) skipped each frame, so the camera stays where Chase put it:
@@ -915,6 +987,7 @@ async function runChecks(browser, base) {
       await checkChaseKeys(page);
     }
     await checkHomeFrame(page, tag, w === 1400 ? 250 : 180);
+    await checkColourCode(page, tag);
     await checkWheel(page, tag);
     await checkCameras(page, tag);
     await checkColours(page, tag);
