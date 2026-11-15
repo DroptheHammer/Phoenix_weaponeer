@@ -7,9 +7,10 @@
  *
  * At the right end: when the times have been moved off the plan's, a note that
  * they have, then Reset, which puts every one back, and Apply, which writes
- * them to where the plan can keep them. Both are always there, greyed and still
- * while there is nothing to put back or to apply. A strike of one jet has no
- * times to move, and says so.
+ * them to where the plan can keep them. Reset is always there, and Apply
+ * whenever playback has somewhere to write the times (a lone attack has not);
+ * each is greyed and still while there is nothing to put back or to apply. A
+ * strike of one jet has no times to move, and says so.
  *
  * After an Apply, one more line under it says what was done, until the times
  * change again.
@@ -98,9 +99,15 @@ export function DelayFooter({ warnings, dirty, single, onReset, apply, status }:
           )}
         </div>
       </div>
-      {status && status.length > 0 && (
-        // One row: cut short when it is long, the whole of it in the tooltip.
-        <div data-apply-status role="status" className={FOOTER_STATUS} title={status.join(' ')}>{status.join(' ')}</div>
+      {apply && (
+        // There from the start, empty and of no height: a screen reader reads out what appears inside a
+        // region it already knows, and often skips one that arrives with its words already in it.
+        <div data-apply-live role="status">
+          {status && status.length > 0 && (
+            // One row: cut short when it is long, the whole of it in the tooltip.
+            <div data-apply-status className={FOOTER_STATUS} title={status.join(' ')}>{status.join(' ')}</div>
+          )}
+        </div>
       )}
       {open && rest.length > 0 && (
         <ul className={FOOTER_REST}>

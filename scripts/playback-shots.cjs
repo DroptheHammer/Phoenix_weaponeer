@@ -2228,6 +2228,11 @@ async function checkWatchSeat(page, tag) {
  *   STEP FAIL 14 … — …; #3 at 5: written [[0,25,40,40],[0,25,5,40]], renumbered [], line ends "…p tab spaces the jets evenly again and replaces these times." 16 px tall; …
  * - DelayFooter.tsx, the Apply button's `onMouseDown={keepFocus}` taken out (the press takes the keyboard from playback):
  *   STEP FAIL 14 … — …; focus kept false, Space false/true; …
+ * - DelayFooter.tsx, the region for a screen reader made to appear only with its words (`{apply && (` →
+ *   `{apply && status && status.length > 0 && (`), as it was first built; the region must be there, empty and of
+ *   no height, before there is anything to say, or a screen reader may never read the line out:
+ *   STEP FAIL 14 … (1400x900-strike4-editor) — as opened: "Apply to strike", greyed true, pressed: nothing written [], line none, 0 region for a screen reader, empty, 0 px tall (want 1, empty, 0); …
+ *   (red at 1024x768 too; green: "1 region for a screen reader, empty, 0 px tall".)
  * - ui.ts, FOOTER_STATUS 'h-4' → 'h-12' (a status line three rows tall):
  *   STEP FAIL 14 … (1400x900-strike4) — …; line "Applied to the strike in the editor. Save the strike to keep…" 48 px tall, …; canvas 1400x544 (want ≥ 1350x560); …
  *   STEP FAIL 14 … (1024x768-strike4) — …; canvas 1024x396 (want ≥ 1000x420); …
@@ -2242,7 +2247,7 @@ async function checkApply(page, tag, w, h, problems) {
   const reset = page.locator('[role="dialog"] [data-reset]');
   const on = async (loc) => (await loc.getAttribute('aria-disabled')) === 'false';
   const row = () => page.locator('[role="dialog"] [data-apply-status]');
-  const rowOf = async () => ((await row().count()) ? row().evaluate((e) => ({ text: e.textContent, title: e.getAttribute('title'), h: e.getBoundingClientRect().height, bottom: e.getBoundingClientRect().bottom })) : null);
+  const rowOf = async () => ((await row().count()) ? row().evaluate((e) => ({ text: e.textContent, title: e.getAttribute('title'), h: e.getBoundingClientRect().height, bottom: e.getBoundingClientRect().bottom, inLive: !!e.closest('[role="status"]') })) : null);
   const typeTime = async (n, v) => {
     await boxOf(page, n).click();
     await boxOf(page, n).fill(String(v));
@@ -2256,6 +2261,8 @@ async function checkApply(page, tag, w, h, problems) {
   };
   const applied = () => pbEval(page, () => JSON.stringify(__pb.applied));
   const sess = () => pbEval(page, () => { const s = __pb.session(); const id = s.memberIds[1]; return { plan: s.plan_s[id], now: s.delays_s[id], renumbered: s.status ? s.status.renumbered : null, to: s.status ? s.status.to : null }; });
+  // The region a screen reader listens to: how many there are, what is in it, how tall it is.
+  const liveOf = () => page.$$eval('[role="dialog"] [role="status"]', (els) => ({ n: els.length, text: els.map((e) => e.textContent).join('|'), h: els.reduce((s, e) => s + e.getBoundingClientRect().height, 0) }));
   const parts = [];
   let ok = true;
   const note = (good, text) => { ok = ok && good; parts.push(text); };
@@ -2270,9 +2277,11 @@ async function checkApply(page, tag, w, h, problems) {
   // Playwright will not click what is aria-disabled: force it, as a finger or a stray key would.
   await apply.click({ force: true });
   await settle(page, 150);
-  const idle = { applied: await applied(), row: await rowOf() };
-  note(label === 'Apply to strike' && /^Write these times into the strike you're editing/.test(title) && offAtOpen && idle.applied === '[]' && idle.row === null,
-    `as opened: "${label}", greyed ${offAtOpen}, pressed: nothing written ${idle.applied}, line ${idle.row === null ? 'none' : 'showing'}`);
+  const idle = { applied: await applied(), row: await rowOf(), live: await liveOf() };
+  const liveWaiting = idle.live.n === 1 && idle.live.text === '' && idle.live.h === 0;
+  note(label === 'Apply to strike' && /^Write these times into the strike you're editing/.test(title) && offAtOpen && idle.applied === '[]' && idle.row === null && liveWaiting,
+    `as opened: "${label}", greyed ${offAtOpen}, pressed: nothing written ${idle.applied}, line ${idle.row === null ? 'none' : 'showing'}, ` +
+      `${idle.live.n} region for a screen reader, ${idle.live.text === '' ? 'empty' : 'not empty'}, ${idle.live.h} px tall (want 1, empty, 0)`);
 
   // +15 s on #2, then Apply.
   await typeTime(2, 25);
@@ -2294,9 +2303,9 @@ async function checkApply(page, tag, w, h, problems) {
   const stayed = Math.abs(snap1.t - snap0.t) < 0.01 && Math.abs(snap1.start - snap0.start) < 1e-6 && Math.abs(snap1.end - snap0.end) < 1e-6;
   note(ready.apply && ready.reset && ready.dirty && first.applied === '[[0,25,40,40]]' && first.s.plan === 25 && first.s.now === 25 && first.s.to === 'editor' && first.s.renumbered.length === 0 &&
       !first.apply && !first.reset && first.box === '25' && !!first.row && first.row.text.startsWith(sentence) && /Moving “Spacing over the target”/.test(first.row.text) && first.row.title === first.row.text &&
-      first.row.h <= 17 && first.row.bottom <= h && stayed && focusOnPlayback && played && paused && room1.ok,
+      first.row.inLive && first.row.h <= 17 && first.row.bottom <= h && stayed && focusOnPlayback && played && paused && room1.ok,
     `#2 at 25: Apply on ${ready.apply}, Reset on ${ready.reset}, "changed" note ${ready.dirty}; pressed: written ${first.applied}, session plan ${first.s.plan} and time ${first.s.now}, status ${first.s.to}/${JSON.stringify(first.s.renumbered)}, Apply on ${first.apply}, Reset on ${first.reset}, box ${first.box}, ` +
-      `line ${first.row ? `"${first.row.text.slice(0, 60)}…" ${first.row.h.toFixed(0)} px tall, tooltip ${first.row.title === first.row.text ? 'the whole text' : 'not the whole text'}, bottom ${first.row.bottom.toFixed(0)}` : 'none'}; playhead ${snap0.t.toFixed(2)} → ${snap1.t.toFixed(2)}, bar ${snap0.start.toFixed(2)}…${snap0.end.toFixed(2)} → ${snap1.start.toFixed(2)}…${snap1.end.toFixed(2)}; focus kept ${focusOnPlayback}, Space ${played}/${paused}; canvas ${room1.text}`);
+      `line ${first.row ? `"${first.row.text.slice(0, 60)}…" ${first.row.h.toFixed(0)} px tall, tooltip ${first.row.title === first.row.text ? 'the whole text' : 'not the whole text'}, bottom ${first.row.bottom.toFixed(0)}, in the screen reader's region ${first.row.inLive}` : 'none'}; playhead ${snap0.t.toFixed(2)} → ${snap1.t.toFixed(2)}, bar ${snap0.start.toFixed(2)}…${snap0.end.toFixed(2)} → ${snap1.start.toFixed(2)}…${snap1.end.toFixed(2)}; focus kept ${focusOnPlayback}, Space ${played}/${paused}; canvas ${room1.text}`);
 
   // Change again; Reset goes back to the applied times.
   await typeTime(2, 30);
@@ -2360,7 +2369,7 @@ async function checkApplyPlan(page, tag, w, h, problems) {
   const reset = page.locator('[role="dialog"] [data-reset]');
   const on = async (loc) => (await loc.getAttribute('aria-disabled')) === 'false';
   const row = () => page.locator('[role="dialog"] [data-apply-status]');
-  const rowOf = async () => ((await row().count()) ? row().evaluate((e) => ({ text: e.textContent, title: e.getAttribute('title'), h: e.getBoundingClientRect().height, bottom: e.getBoundingClientRect().bottom })) : null);
+  const rowOf = async () => ((await row().count()) ? row().evaluate((e) => ({ text: e.textContent, title: e.getAttribute('title'), h: e.getBoundingClientRect().height, bottom: e.getBoundingClientRect().bottom, inLive: !!e.closest('[role="status"]') })) : null);
   const typeTime = async (n, v) => {
     await boxOf(page, n).click();
     await boxOf(page, n).fill(String(v));
@@ -2416,7 +2425,7 @@ async function checkApplyPlan(page, tag, w, h, problems) {
       !first.apply && !first.reset && first.box === '25' && !!first.row && first.row.text === sentence && first.row.title === first.row.text &&
       first.row.h <= 17 && first.row.bottom <= h && stayed && focusOnPlayback && played && paused && room1.ok,
     `#2 at 25: Apply on ${ready.apply}, Reset on ${ready.reset}, "changed" note ${ready.dirty}; pressed: written ${first.applied}, session plan ${first.s.plan} and time ${first.s.now}, status ${first.s.to}/${JSON.stringify(first.s.renumbered)}, Apply on ${first.apply}, Reset on ${first.reset}, box ${first.box}, ` +
-      `line ${first.row ? `"${first.row.text.slice(0, 60)}…" ${first.row.h.toFixed(0)} px tall, tooltip ${first.row.title === first.row.text ? 'the whole text' : 'not the whole text'}, bottom ${first.row.bottom.toFixed(0)}` : 'none'}; playhead ${snap0.t.toFixed(2)} → ${snap1.t.toFixed(2)}, bar ${snap0.start.toFixed(2)}…${snap0.end.toFixed(2)} → ${snap1.start.toFixed(2)}…${snap1.end.toFixed(2)}; focus kept ${focusOnPlayback}, Space ${played}/${paused}; canvas ${room1.text}`);
+      `line ${first.row ? `"${first.row.text.slice(0, 60)}…" ${first.row.h.toFixed(0)} px tall, tooltip ${first.row.title === first.row.text ? 'the whole text' : 'not the whole text'}, bottom ${first.row.bottom.toFixed(0)}, in the screen reader's region ${first.row.inLive}` : 'none'}; playhead ${snap0.t.toFixed(2)} → ${snap1.t.toFixed(2)}, bar ${snap0.start.toFixed(2)}…${snap0.end.toFixed(2)} → ${snap1.start.toFixed(2)}…${snap1.end.toFixed(2)}; focus kept ${focusOnPlayback}, Space ${played}/${paused}; canvas ${room1.text}`);
 
   // Change again; Reset goes back to the applied times.
   await typeTime(2, 30);
