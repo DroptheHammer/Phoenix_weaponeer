@@ -15,16 +15,22 @@
  * After an Apply, one more line under it says what was done, until the times
  * change again.
  *
+ * Whenever the time bar has stripes, the line starts with a small swatch of the
+ * same stripes, so the amber on the bar is keyed to the warning beside it.
+ *
  * It takes one line of height, however many warnings there are: the folded
  * ones open below it and scroll after a few lines. The line after an Apply
  * takes one more.
  */
 import { useState } from 'react';
-import { FOOTER, FOOTER_APPLY, FOOTER_DIRTY, FOOTER_END, FOOTER_MORE, FOOTER_OK, FOOTER_REST, FOOTER_RESET, FOOTER_STATUS, FOOTER_WARN, keepFocus } from './ui';
+import { HATCH_KEY_TITLE } from './laneText';
+import { FOOTER, FOOTER_APPLY, FOOTER_DIRTY, FOOTER_END, FOOTER_KEY, FOOTER_MORE, FOOTER_OK, FOOTER_REST, FOOTER_RESET, FOOTER_STATUS, FOOTER_WARN, HATCH, keepFocus } from './ui';
 
 interface DelayFooterProps {
   /** The readout's warnings at the times now. */
   warnings: readonly string[];
+  /** The time bar has stripes showing: the line opens with a swatch of them. */
+  stripes?: boolean;
   /** The times are not the plan's. */
   dirty: boolean;
   /** The strike has one member: there is nothing to space. */
@@ -37,12 +43,13 @@ interface DelayFooterProps {
   status?: readonly string[];
 }
 
-export function DelayFooter({ warnings, dirty, single, onReset, apply, status }: DelayFooterProps) {
+export function DelayFooter({ warnings, stripes = false, dirty, single, onReset, apply, status }: DelayFooterProps) {
   const [open, setOpen] = useState(false);
   const rest = warnings.slice(1);
   return (
     <div>
       <div className={FOOTER}>
+        {stripes && <span aria-hidden data-hatch-key title={HATCH_KEY_TITLE} className={FOOTER_KEY} style={{ background: HATCH }} />}
         {warnings.length > 0 ? (
           <span data-footer-warning className={FOOTER_WARN} title={warnings[0]}>⚠ {warnings[0]}</span>
         ) : (

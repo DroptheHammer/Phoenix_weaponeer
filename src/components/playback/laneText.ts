@@ -30,7 +30,13 @@ export const READOUT_TITLE = "times est., relative to the lead's TOT";
 
 /** The diamond that moves a jet's time over target, by name (for a screen reader) and as a tooltip, and the box that types it. */
 export const handleLabel = (seatLabel: string) => `${seatLabel} time over target`;
-export const handleTitle = (seatLabel: string) => `Drag to change ${seatLabel}'s time over target (←/→ 1 s, Shift+←/→ 5 s)`;
+/** What the stripes on a lane are, said on its diamond: they show only while that jet's time is being set, so the diamond is where they can be asked about at rest. */
+export const STRIPES_HANDLE_WORDS = "Stripes: times that would put it inside another jet's frag.";
+/** The diamond's tooltip; with `zones` (the lane has stripes to show) it ends with what they are. */
+export const handleTitle = (seatLabel: string, zones = false) =>
+  `Drag to change ${seatLabel}'s time over target (←/→ 1 s, Shift+←/→ 5 s)${zones ? ` ${STRIPES_HANDLE_WORDS}` : ''}`;
+/** The swatch that keys the footer's warning to the stripes on the time bar. */
+export const HATCH_KEY_TITLE = "Striped: a jet is over the target inside another jet's frag (est.)";
 export const boxLabel = (seatLabel: string) => `${seatLabel} time over target, seconds after T`;
 /** Said beside seat #1's time in a strike of more than one jet: it has no handle and no box. */
 export const heldTitle = (seatLabel: string) => `${seatLabel} is held still: move the other jets`;

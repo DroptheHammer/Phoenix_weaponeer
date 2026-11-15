@@ -2569,6 +2569,21 @@ const totOf = (page, n) => pbEval(page, (i) => { const s = __pb.session(); retur
 const warnSeats = (page) => page.$$eval('[role="dialog"] [data-readout]', (els) =>
   els.map((e) => ({ seat: Number(e.getAttribute('data-readout')) + 1, on: !!e.querySelector('[data-conflict-mark]') })).filter((x) => x.on).map((x) => x.seat));
 
+/** Each lane's stripes: how many `[data-zone]` it shows, and whether every one lies inside its axis box (lanes in seat order). */
+const laneZones = (page) => page.$$eval('[role="dialog"] [data-lane]', (lanes) => lanes.map((l) => {
+  const axis = l.querySelector('[data-lane-axis]').getBoundingClientRect();
+  const z = [...l.querySelectorAll('[data-zone]')].map((e) => e.getBoundingClientRect());
+  return { seat: Number(l.getAttribute('data-lane')), n: z.length, inside: z.every((b) => b.width > 0 && b.left >= axis.left - 1 && b.right <= axis.right + 1) };
+}));
+/** How many frag stripes the time bar itself carries. */
+const barStripes = (page) => page.locator('[role="dialog"] [data-conflict]').count();
+/** What has the keyboard focus, by its accessible name (or its tag). */
+const focusName = (page) => page.evaluate(() => (document.activeElement ? document.activeElement.getAttribute('aria-label') || document.activeElement.tagName : 'none'));
+/** Seat `seat` (1-based) alone shows stripes, all inside its lane; with `seat` 0, none do. */
+const zonesOnly = (zs, seat) => zs.length === 4 && zs.every((z) => (z.seat === seat - 1 ? z.n >= 1 && z.inside : z.n === 0));
+/** "#1: 0, #2: 3, …", with a note on a stripe outside its lane. */
+const zonesText = (zs) => zs.map((z) => `#${z.seat + 1}: ${z.n}${z.inside ? '' : ' (outside the lane)'}`).join(', ');
+
 /**
  * Take hold of seat `n`'s handle and move it along its lane to strike time `t` (the lane's scale as it is
  * when the hold begins, which is the clock's range). With `hold`, the pointer is left down: the caller lets
@@ -2651,34 +2666,68 @@ async function checkRetimes(page, tag) {
  * left end of its lane (60 s earlier, 10 s → -50 s), held: the clock's range is exactly as it was, the session
  * is dragging and #2's time is -50; let go: the range starts 10 s before the earliest first action (worked out
  * from the scene's own source) and ends where it did. Also on that: the warning marks are on all four seats
- * at the plan's times (each is in a frag conflict) and on #3 and #4 alone once #2 is clear of #1; each of
- * #2, #3 and #4's lanes shows stripes of its danger zones inside its axis, seat #1's none. The times are put
- * back with Reset.
+ * at the plan's times (each is in a frag conflict) and on #3 and #4 alone once #2 is clear of #1. The times
+ * are put back with Reset.
+ *
+ * The lanes' stripes (the stripes arm): a lane shows its danger zones only while that jet's time is being set.
+ * At rest no lane has a `[data-zone]`; with #2's diamond held lane #2's zones lie inside its axis and #1, #3
+ * and #4 have none; let go (the diamond keeps the focus the mouse gave it, which is not the keyboard's): none
+ * again; an arrow key pressed on that same diamond (the focus does not change, so no focus event says the
+ * keyboard has it): #2's time moves a second and lane #2 has its zones, the others none; a Tab onto #3's
+ * diamond: lane #3 has its zones and the others none; #3's diamond pressed with the mouse where it stands and
+ * let go (it keeps the focus the Tab gave it): none, and its time unchanged; #4's number box clicked into:
+ * lane #4 has its zones and the others none; Enter lets go of the box: none. The time bar's own stripes
+ * (`[data-conflict]`) are there at every one of those moments.
  *
  * Measured green 2026-11-15: the range -50.15…80.00 held while #2's handle is held at -50 s, -100.15…80.00
- * once it is let go (#2's first action is then -90.15 s); marks on seats 1,2,3,4 then 3,4; three stripes on
- * each of #2, #3 and #4's lanes.
+ * once it is let go (#2's first action is then -90.15 s); marks on seats 1,2,3,4 then 3,4.
  *
  * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, an effect that sets the clock's range every
  * time the range changes (`useEffect(() => { sceneRef.current?.setRange(live); }, [live]);`): the bar then
  * moves under the handle while it is held:
  *   STEP FAIL 34 the time bar keeps its scale while a handle is held and re-fits when it is let go; … (1400x900-strike4) — held at -50 s (time -50, dragging true): range -100.15…80.00 vs -50.15…80.00 before (kept false); let go: -100.15…80.00, want -100.15…80.00 (re-fit true, dragging false); warning marks on seats 1,2,3,4 then 3,4 (want 1,2,3,4 then 3,4); stripes per lane #1: 0, #2: 3, #3: 3, #4: 3
  * (The same run with setSource returning at once, check 12's proof, also fails 34: the range is never re-fit, "let go: -50.15…80.00, want -50.15…80.00 (re-fit false".)
+ *
+ * The stripes arm, measured green 2026-11-15: three stripes on the one lane that is being set (#2 held, #3 by
+ * its Tab (three presses from #2's diamond), #4 by its box) and none anywhere else, the time bar's own stripes
+ * 2 at rest and 1 at each of the other moments. Proven red the same day, each by one temporary edit to JetLanes.tsx
+ * (the detail then reads, in each case, as quoted here from "at rest" on):
+ * - the rule's result ignored (`zonesShown && info.zones.map` → `info.zones.map`): every lane shows its stripes
+ *   all the time:
+ *   STEP FAIL 34 … (1400x900-strike4) — …; stripes per lane (the time bar's own in brackets) — at rest #1: 0, #2: 3, #3: 3, #4: 3 [2] (want none); #2 held #1: 0, #2: 3, #3: 3, #4: 3 [1] (want #2 only); let go #1: 0, #2: 3, #3: 3, #4: 3 [1], focus on "#2 time over target" (want none, #2's diamond); Tab onto #3 …
+ * - the stripes never drawn (`zonesShown && false && info.zones.map`): the held arm and every one after it:
+ *   STEP FAIL 34 … — …; at rest #1: 0, #2: 0, #3: 0, #4: 0 [2] (want none); #2 held #1: 0, #2: 0, #3: 0, #4: 0 [1] (want #2 only); …
+ * - the diamond's focus taken as the keyboard's whatever gave it (`onFocus={(e) => onKeyboardFocus(keyboardFocused(e.currentTarget))}`
+ *   → `onFocus={() => onKeyboardFocus(true)}`): the focus the mouse left on #2's diamond keeps its stripes, at rest
+ *   and after the let-go:
+ *   STEP FAIL 34 … — …; at rest #1: 0, #2: 3, #3: 0, #4: 0 [2] (want none); #2 held …; let go #1: 0, #2: 3, #3: 0, #4: 0 [1], focus on "#2 time over target" (want none, #2's diamond); …
+ * - the number box's focus not handed to the lane (`onBoxFocus={setBoxFocus}` left off the lane's Readout):
+ *   STEP FAIL 34 … — …; Tab onto #3 (3 presses, focus on "#3 time over target") #1: 0, #2: 0, #3: 3, #4: 0 [1] (want #3 only); #4's box clicked, focus on "#4 time over target, seconds after T" #1: 0, #2: 0, #3: 0, #4: 0 [1] (want #4 only); …
+ *
+ * The arrow-key arm and the press arm, measured green 2026-11-15 (the arrow key moves #2's time -50 → -49 and lane #2
+ * shows three stripes; the press leaves #3's time at 40 and its lane clean). Each proven red the same day by one
+ * temporary edit to the diamond's handlers in JetLanes.tsx:
+ * - the arrow key not telling the lane the keyboard has the diamond (the `onKeyboardFocus(true);` before the
+ *   `onDelay` in `onKeyDown` left out): the time moves and the lane stays clean:
+ *   STEP FAIL 34 … — …; ArrowRight there, #2's time -50 → -49 (want +1), focus on "#2 time over target" #1: 0, #2: 0, #3: 0, #4: 0 [1] (want #2 only); …
+ * - the mouse press not ending the keyboard's claim (the `onKeyboardFocus(false);` before `onDrag(true)` in
+ *   `onPointerDown` left out): the Tab-focused diamond keeps its stripes after a press:
+ *   STEP FAIL 34 … — …; #3 pressed with the mouse where it stands, its time 40 → 40 (want unchanged), focus on "#3 time over target" #1: 0, #2: 0, #3: 3, #4: 0 [1] (want none, #3's diamond); …
  */
 async function checkDragRange(page, tag) {
   await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
   await settle(page, 300);
   const start = await pbEval(page, () => __pb.snapshot());
   const marksBefore = await warnSeats(page);
-  const zones = await page.$$eval('[role="dialog"] [data-lane]', (lanes) => lanes.map((l) => {
-    const axis = l.querySelector('[data-lane-axis]').getBoundingClientRect();
-    const z = [...l.querySelectorAll('[data-zone]')].map((e) => e.getBoundingClientRect());
-    return { seat: Number(l.getAttribute('data-lane')), n: z.length, inside: z.every((b) => b.width > 0 && b.left >= axis.left - 1 && b.right <= axis.right + 1) };
-  }));
+  // The stripes arm. At rest none (whatever has the focus: after the checks before, the mouse left it on a handle).
+  const zRest = await laneZones(page);
+  const barRest = await barStripes(page);
   await dragHandle(page, 2, start.start, { hold: true, steps: 6 });
   await settle(page, 400);
   const during = await pbEval(page, () => ({ snap: __pb.snapshot(), dragging: __pb.session().dragging }));
   const heldTot = await totOf(page, 2);
+  const zHeld = await laneZones(page);
+  const barHeld = await barStripes(page);
   await shot(page, `${tag}-34-held`);
   await page.mouse.up();
   await settle(page, 600);
@@ -2689,16 +2738,76 @@ async function checkDragRange(page, tag) {
     return { snap: __pb.snapshot(), dragging: __pb.session().dragging, want: first - 10 };
   });
   const marksAfter = await warnSeats(page);
+  // Let go: the mouse gave #2's diamond the focus and it keeps it, but that is not the keyboard's focus.
+  const zLetGo = await laneZones(page);
+  const barLetGo = await barStripes(page);
+  const focusLetGo = await focusName(page);
+  const totLetGo = await totOf(page, 2);
   await shot(page, `${tag}-34-let-go`);
+  // An arrow key on that same diamond (the mouse's focus is on it, and no new focus event comes): the keyboard is
+  // setting #2's time now, so its stripes show and no other lane's do.
+  await page.keyboard.press('ArrowRight');
+  await settle(page, 250);
+  const totArrow = await totOf(page, 2);
+  const focusArrow = await focusName(page);
+  const zArrow = await laneZones(page);
+  const barArrow = await barStripes(page);
+  // A Tab onto #3's diamond (from #2's: its box, #3's seat button, then the diamond).
+  let tabs = 0;
+  while ((await focusName(page)) !== '#3 time over target' && tabs < 8) {
+    await page.keyboard.press('Tab');
+    tabs++;
+  }
+  await settle(page, 250);
+  const focusTab = await focusName(page);
+  const zTab = await laneZones(page);
+  const barTab = await barStripes(page);
+  const totTab = await totOf(page, 3);
+  // #3's diamond pressed with the mouse where it stands and let go: it keeps the focus and no focus event says the
+  // mouse has it, but the press ends the keyboard's claim, so its stripes go.
+  const hb = await handleOf(page, 3).boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  await settle(page, 250);
+  const totPress = await totOf(page, 3);
+  const focusPress = await focusName(page);
+  const zPress = await laneZones(page);
+  const barPress = await barStripes(page);
+  // #4's number box, clicked into, then let go with Enter.
+  await boxOf(page, 4).click();
+  await settle(page, 250);
+  const focusBox = await focusName(page);
+  const zBox = await laneZones(page);
+  const barBox = await barStripes(page);
+  await page.keyboard.press('Enter');
+  await settle(page, 250);
+  const focusOut = await focusName(page);
+  const zOut = await laneZones(page);
+  const barOut = await barStripes(page);
   await page.locator('[role="dialog"] [data-reset]').click();
   await settle(page);
   const kept = Math.abs(during.snap.start - start.start) < 1e-9 && Math.abs(during.snap.end - start.end) < 1e-9;
   const refit = Math.abs(after.snap.start - after.want) < 1e-6 && Math.abs(after.snap.end - start.end) < 1e-9 && after.snap.start < start.start - 40;
-  const zonesOk = zones.length === 4 && zones[0].n === 0 && zones.slice(1).every((z) => z.n >= 1 && z.inside);
+  const arms = [
+    ['at rest', zonesOnly(zRest, 0), barRest], ['#2 held', zonesOnly(zHeld, 2), barHeld],
+    ['let go, diamond still focused', zonesOnly(zLetGo, 0) && focusLetGo === '#2 time over target', barLetGo],
+    ['an arrow key on that diamond', zonesOnly(zArrow, 2) && focusArrow === '#2 time over target' && totArrow === totLetGo + 1, barArrow],
+    ['Tab onto #3', zonesOnly(zTab, 3) && focusTab === '#3 time over target', barTab],
+    ['#3 pressed with the mouse where it stands', zonesOnly(zPress, 0) && focusPress === '#3 time over target' && totPress === totTab, barPress],
+    ['#4 box focused', zonesOnly(zBox, 4) && focusBox === '#4 time over target, seconds after T', barBox], ['#4 box let go', zonesOnly(zOut, 0) && focusOut !== '#4 time over target, seconds after T', barOut],
+  ];
+  const stripesOk = arms.every(([, ok, bar]) => ok && bar >= 1);
   step(`34 the time bar keeps its scale while a handle is held and re-fits when it is let go; warning marks follow the times; stripes of the danger zones on the lanes (${tag})`,
-    kept && during.dragging && heldTot === -50 && !after.dragging && refit && marksBefore.join() === '1,2,3,4' && marksAfter.join() === '3,4' && zonesOk,
+    kept && during.dragging && heldTot === -50 && !after.dragging && refit && marksBefore.join() === '1,2,3,4' && marksAfter.join() === '3,4' && stripesOk,
     `held at -50 s (time ${heldTot}, dragging ${during.dragging}): range ${during.snap.start.toFixed(2)}…${during.snap.end.toFixed(2)} vs ${start.start.toFixed(2)}…${start.end.toFixed(2)} before (kept ${kept}); let go: ${after.snap.start.toFixed(2)}…${after.snap.end.toFixed(2)}, want ${after.want.toFixed(2)}…${start.end.toFixed(2)} (re-fit ${refit}, dragging ${after.dragging}); ` +
-      `warning marks on seats ${marksBefore.join(',')} then ${marksAfter.join(',')} (want 1,2,3,4 then 3,4); stripes per lane ${zones.map((z) => `#${z.seat + 1}: ${z.n}${z.inside ? '' : ' (outside the lane)'}`).join(', ')}`);
+      `warning marks on seats ${marksBefore.join(',')} then ${marksAfter.join(',')} (want 1,2,3,4 then 3,4); ` +
+      `stripes per lane (the time bar's own in brackets) — at rest ${zonesText(zRest)} [${barRest}] (want none); #2 held ${zonesText(zHeld)} [${barHeld}] (want #2 only); ` +
+      `let go ${zonesText(zLetGo)} [${barLetGo}], focus on "${focusLetGo}" (want none, #2's diamond); ` +
+      `ArrowRight there, #2's time ${totLetGo} → ${totArrow} (want +1), focus on "${focusArrow}" ${zonesText(zArrow)} [${barArrow}] (want #2 only); ` +
+      `Tab onto #3 (${tabs} presses, focus on "${focusTab}") ${zonesText(zTab)} [${barTab}] (want #3 only); ` +
+      `#3 pressed with the mouse where it stands, its time ${totTab} → ${totPress} (want unchanged), focus on "${focusPress}" ${zonesText(zPress)} [${barPress}] (want none, #3's diamond); ` +
+      `#4's box clicked, focus on "${focusBox}" ${zonesText(zBox)} [${barBox}] (want #4 only); Enter, focus on "${focusOut}" ${zonesText(zOut)} [${barOut}] (want none)`);
 }
 
 /**
@@ -2982,6 +3091,12 @@ async function checkLaneTimeFour(page, tag) {
  * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, no conflicts handed to the time bar
  * (`conflicts={conflicts}` → `conflicts={[]}`: no stripe at all):
  *   STEP FAIL 13 the time bar's stripes mark each frag conflict: one for each, on its own times, striped (1400x900-strike4) — 0 stripes for 2 conflicts
+ *
+ * The key's arm (the swatch before the footer's warning), measured green 2026-11-15 at both sizes: one swatch,
+ * 14.0 × 10.0 px, a 2 px corner, first in the line and next to the warning, the very background of the bar's
+ * stripes, the line overflowing by 0 px. Proven red the same day by one temporary edit to PlaybackView.tsx, the
+ * swatch never drawn (`stripes={barStriped}` → `stripes={false}`):
+ *   STEP FAIL 13 the footer's first line opens with a swatch of the time bar's stripes, before the warning, worded as the stripes (1400x900-strike4) — 0 swatches (want 1)
  */
 async function checkConflictHatch(page, tag) {
   const wasWhole = await pbEval(page, () => __pb.show().wholeRunIn);
@@ -3015,7 +3130,48 @@ async function checkConflictHatch(page, tag) {
   });
   step(`13 the time bar's stripes mark each frag conflict: one for each, on its own times, striped (${tag})`, ok,
     `${stripes.length} stripes for ${want.length} conflicts${parts.length ? `; ${parts.join('; ')}` : ''}`);
+  // The key arm: the bar has stripes, so the footer's first line opens with one swatch of them, before the
+  // warning, in the very background the bar's stripes have, 14 × 10 px with rounded corners, hidden from a
+  // screen reader, and with the words of the sentence for its tooltip; and nothing at the line's right end
+  // was pushed out of it.
+  const key = await page.$$eval('[role="dialog"] [data-hatch-key]', (els) => els.map((e) => {
+    const b = e.getBoundingClientRect();
+    const line = e.parentElement;
+    const warn = line.querySelector('[data-footer-warning]');
+    return {
+      w: b.width, h: b.height, right: b.right, bg: getComputedStyle(e).backgroundImage, radius: getComputedStyle(e).borderTopLeftRadius,
+      title: e.getAttribute('title'), hidden: e.getAttribute('aria-hidden'), first: line.firstElementChild === e,
+      before: !!warn && e.nextElementSibling === warn && b.right <= warn.getBoundingClientRect().left + 0.5, spill: line.scrollWidth - line.clientWidth,
+    };
+  }));
+  const barBg = await page.locator('[role="dialog"] [data-conflict]').first().evaluate((e) => getComputedStyle(e).backgroundImage);
+  const wantTitle = "Striped: a jet is over the target inside another jet's frag (est.)";
+  const k = key[0];
+  const keyOk = key.length === 1 && !!k && k.first && k.before && k.hidden === 'true' && k.title === wantTitle &&
+    Math.abs(k.w - 14) <= 0.5 && Math.abs(k.h - 10) <= 0.5 && parseFloat(k.radius) > 0 &&
+    /repeating-linear-gradient/.test(k.bg) && k.bg === barBg && k.spill <= 1;
+  step(`13 the footer's first line opens with a swatch of the time bar's stripes, before the warning, worded as the stripes (${tag})`, keyOk,
+    key.length === 1
+      ? `${key.length} swatch, ${k.w.toFixed(1)} × ${k.h.toFixed(1)} px, corner ${k.radius}, first in the line ${k.first}, just before the warning ${k.before}, aria-hidden ${k.hidden}, title ${JSON.stringify(k.title)} (want ${JSON.stringify(wantTitle)}), background the bar's own ${k.bg === barBg} (${k.bg.slice(0, 60)}…), line overflows by ${k.spill} px`
+      : `${key.length} swatches (want 1)`);
   await pbEval(page, (whole) => __pb.setRange(whole), wasWhole);
+}
+
+/**
+ * Check 13 (the key's other arm): with no stripes on the time bar there is no swatch. On the lone pop-up
+ * (a strike of one jet has no conflict, so the bar has no stripes) the footer's line has none, and the bar
+ * really has none, so the arm is about the swatch following the bar and not about the page.
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, the swatch drawn always, not only when the bar
+ * has stripes (`stripes={barStriped}` → `stripes`):
+ *   STEP FAIL 13 the footer has no swatch of stripes when the time bar has none: a lone jet (1400x900) — 1 swatches (want 0), 0 stripes on the time bar (want 0), 2 footer line parts
+ */
+async function checkNoHatchKeyLone(page, tag) {
+  const keys = await page.locator('[role="dialog"] [data-hatch-key]').count();
+  const bar = await page.locator('[role="dialog"] [data-conflict]').count();
+  const footer = await page.locator('[role="dialog"] [data-footer-ok], [role="dialog"] [data-footer-warning], [role="dialog"] [data-footer-single]').count();
+  step(`13 the footer has no swatch of stripes when the time bar has none: a lone jet (${tag})`, keys === 0 && bar === 0 && footer >= 1,
+    `${keys} swatches (want 0), ${bar} stripes on the time bar (want 0), ${footer} footer line parts`);
 }
 
 /**
@@ -3606,6 +3762,7 @@ async function runChecks(browser, base) {
     await checkLayout(page, tag, w, h);
     await checkToolbarFit(page, tag, w, h);
     await checkLaneTime(page, tag);
+    await checkNoHatchKeyLone(page, tag);
     if (w === 1400) await checkLaneColours(page, tag);
     if (w === 1400) {
       await checkScrub(page);

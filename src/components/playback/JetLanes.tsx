@@ -13,9 +13,12 @@
  * or focus it and use the arrow keys (a second a press, five with Shift); or
  * type the seconds into the box in the times cell, which a seat that is not
  * flown has too. Amber stripes behind the diamond mark the times that would put
- * the jet inside another's frag, and a warning mark beside its time says it is
- * inside one now. While a handle is held the lanes keep the scale they had (the
- * axis is handed in frozen), so the lane does not slide under the pointer.
+ * the jet inside another's frag, but only while that jet's time is being set
+ * (its diamond held, or focused by the keyboard, or its box focused: at rest a
+ * lane is clean, and the diamond's tooltip says what the stripes are), and a
+ * warning mark beside its time says it is inside one now. While a handle is held
+ * the lanes keep the scale they had (the axis is handed in frozen), so the lane
+ * does not slide under the pointer.
  *
  * Marks before the time bar starts (usually the IP crossing) sit at the left
  * edge in one small group, "‹ IP", instead of off the end of the bar. Chips
@@ -35,15 +38,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { LABEL_STYLE, MARKER_COLOR } from '../../lib/attackPicture';
 import {
   axisFraction, axisTime, BAND_H_PX, BAND_OUTLINE, BAND_TOP_PX, CHIP_DOT_PX, CHIP_H_PX, CHIP_TEXT, chipWidth, DIAMOND_EDGE, DIAMOND_PX, handleKeyStep,
-  HANDLE_PX, IP_TEXT, laneChips, PIN_CHIP_BG, PIN_CHIP_TEXT, PIN_GLYPH, PIN_MARK_PX, pinnedGroup, ZONE_PAD_PX,
+  HANDLE_PX, IP_TEXT, laneChips, laneZonesShown, PIN_CHIP_BG, PIN_CHIP_TEXT, PIN_GLYPH, PIN_MARK_PX, pinnedGroup, ZONE_PAD_PX,
   type ActionKind, type Axis, type Band, type LaneBand, type LaneMark, type SeatMarks,
 } from '../../lib/playbackScene';
 import { fmtStrikeTime } from '../../lib/strike';
 import type { PlaybackScene } from './scene/createScene';
 import { bandTitle, boxLabel, handleLabel, handleTitle, heldTitle, laneSummary, markTitle, pinnedTitle, READOUT_TITLE } from './laneText';
 import {
-  bandBackground, CHIP, CHIP_LETTERS, CONFLICT_MARK, HANDLE, HATCH, keepFocus, LANE, LANE_LABEL, LANE_SKIPPED, LANES, leaveBox, PIN_MARK, READOUT,
-  READOUT_LINE, ROW_GRID, SEAT_DOT, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, TIME_BOX,
+  bandBackground, CHIP, CHIP_LETTERS, CONFLICT_MARK, HANDLE, HATCH, keepFocus, keyboardFocused, LANE, LANE_LABEL, LANE_SKIPPED, LANES, leaveBox, PIN_MARK,
+  READOUT, READOUT_LINE, ROW_GRID, SEAT_DOT, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, TIME_BOX,
 } from './ui';
 
 /** One member's lane: a jet's, or a skipped member's (marks and bands empty, the reason given). */
@@ -136,7 +139,7 @@ const timeText = (t_s: number) => String(Math.round(t_s * 1000) / 1000);
  * elsewhere while the box still has the focus (Reset, pressed with the mouse, leaves the focus where it
  * was) shows in the box at once, not the text left behind.
  */
-function TimeBox({ info, onDelay }: { info: LaneInfo; onDelay(id: string, value_s: number): void }) {
+function TimeBox({ info, onDelay, onFocusChange }: { info: LaneInfo; onDelay(id: string, value_s: number): void; onFocusChange?(on: boolean): void }) {
   const [typed, setTyped] = useState<{ text: string; at_s: number } | undefined>(undefined);
   const text = typed !== undefined && typed.at_s === info.tot_s ? typed.text : undefined;
   return (
@@ -153,7 +156,11 @@ function TimeBox({ info, onDelay }: { info: LaneInfo; onDelay(id: string, value_
           setTyped({ text: e.currentTarget.value, at_s: Number.isFinite(v) ? v : info.tot_s });
           if (Number.isFinite(v)) onDelay(info.id, v);
         }}
-        onBlur={() => setTyped(undefined)}
+        onFocus={() => onFocusChange?.(true)}
+        onBlur={() => {
+          setTyped(undefined);
+          onFocusChange?.(false);
+        }}
         onKeyDown={(e) => {
           if (e.key !== 'Enter') return;
           e.preventDefault();
@@ -167,7 +174,7 @@ function TimeBox({ info, onDelay }: { info: LaneInfo; onDelay(id: string, value_
 }
 
 /** A lane's right cell: the time over target (typed in a box, or held), the card's push time, and a mark when the jet is inside another's frag. `title` explains the times (left off for a strike of one). */
-function Readout({ info, title, strike, onDelay }: { info: LaneInfo; title?: string; strike: boolean; onDelay(id: string, value_s: number): void }) {
+function Readout({ info, title, strike, onDelay, onBoxFocus }: { info: LaneInfo; title?: string; strike: boolean; onDelay(id: string, value_s: number): void; onBoxFocus?(on: boolean): void }) {
   return (
     <div data-readout={info.seat} className={READOUT} title={title}>
       <div className={READOUT_LINE}>
@@ -175,7 +182,7 @@ function Readout({ info, title, strike, onDelay }: { info: LaneInfo; title?: str
         {info.locked ? (
           strike && <span title={heldTitle(info.label)}>· held</span>
         ) : (
-          <TimeBox info={info} onDelay={onDelay} />
+          <TimeBox info={info} onDelay={onDelay} onFocusChange={onBoxFocus} />
         )}
         {info.conflict !== undefined && (
           <span data-conflict-mark className={CONFLICT_MARK} title={info.conflict}>⚠</span>
@@ -199,6 +206,8 @@ interface HandleProps {
   title: string;
   onDelay(id: string, value_s: number): void;
   onDrag(on: boolean): void;
+  /** The keyboard has the diamond (true: a Tab onto it, an arrow key pressed on it) or no longer does (false: it lost the focus, or a mouse press took hold of it); the focus a mouse press leaves behind is not the keyboard's. */
+  onKeyboardFocus(on: boolean): void;
 }
 
 /**
@@ -208,7 +217,7 @@ interface HandleProps {
  * kept and handed on once a frame; when the pointer is let go, lost or the handle loses the focus, the last
  * one is handed on at once and the drag is over.
  */
-function Handle({ info, axis, width, axisBox, pinned, title, onDelay, onDrag }: HandleProps) {
+function Handle({ info, axis, width, axisBox, pinned, title, onDelay, onDrag, onKeyboardFocus }: HandleProps) {
   const held = useRef<number | undefined>(undefined); // the pointer holding it
   const pending = useRef<number | undefined>(undefined);
   const frame = useRef(0);
@@ -249,6 +258,9 @@ function Handle({ info, axis, width, axisBox, pinned, title, onDelay, onDrag }: 
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
         held.current = e.pointerId;
+        // A diamond reached by Tab keeps its focus through a press, so no focus event says the mouse has it now: the
+        // press itself ends the keyboard's claim (an arrow key gives it back), and the let-go leaves the lane clean.
+        onKeyboardFocus(false);
         onDrag(true);
       }}
       onPointerMove={(e) => {
@@ -268,11 +280,18 @@ function Handle({ info, axis, width, axisBox, pinned, title, onDelay, onDrag }: 
       onPointerUp={letGo}
       onPointerCancel={letGo}
       onLostPointerCapture={letGo}
-      onBlur={letGo}
+      onFocus={(e) => onKeyboardFocus(keyboardFocused(e.currentTarget))}
+      onBlur={() => {
+        letGo();
+        onKeyboardFocus(false);
+      }}
       onKeyDown={(e) => {
         const step = handleKeyStep(e.key, e.shiftKey);
         if (step === undefined || e.altKey || e.ctrlKey || e.metaKey) return;
         e.preventDefault();
+        // A key that moves the time is the keyboard setting it, even on a diamond a mouse press focused: no new focus
+        // event comes to say so, and the browser's own :focus-visible turns on at the first key.
+        onKeyboardFocus(true);
         onDelay(info.id, info.tot_s + step);
       }}
     >
@@ -310,6 +329,14 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike
   const axisBox = useRef<HTMLDivElement>(null);
   // Each chip's place, worked out once per change of marks, axis or width.
   const placed = useMemo(() => laneChips(marks, axis, width), [marks, axis, width]);
+  // The three ways this jet's time is being set, kept from the lane's own events: the stripes show only while
+  // one of them holds. (The session's `dragging` is any lane's hold, and is not it.)
+  const [held, setHeld] = useState(false);
+  const [keyboardFocus, setKeyboardFocus] = useState(false);
+  const [boxFocus, setBoxFocus] = useState(false);
+  const zonesShown = laneZonesShown({ held, keyboardFocus, boxFocus });
+  // The diamond's tooltip says what the stripes are whenever the lane has any to show, so it can be asked at rest.
+  const handleWords = handleTitle(info.label, info.zones.length > 0);
 
   const impact = [...marks.pinnedStart, ...marks.marks, ...marks.pinnedEnd].find((m) => m.kind === 'impact');
   const extent = bands.length ? { f0: bands[0].f0, f1: bands[bands.length - 1].f1 } : undefined;
@@ -338,8 +365,8 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike
           {/* The lane's picture, said in one sentence for a screen reader: an image of its own, with nothing inside it (what is inside an image is not offered as a control, and the handle must be). */}
           <span role="img" aria-label={laneSummary(info.label, info.callsign, marks)} className="pointer-events-none absolute inset-0" />
 
-          {/* Behind everything: the times at which this jet's time over target would put it inside another's frag. Nothing here takes a press. */}
-          {info.zones.map((z) => {
+          {/* Behind everything, while this jet's time is being set: the times at which its time over target would put it inside another's frag. Nothing here takes a press. */}
+          {zonesShown && info.zones.map((z) => {
             const f0 = axisFraction(axis, z.t0_s);
             const f1 = axisFraction(axis, z.t1_s);
             if (!(f1 > f0)) return null;
@@ -443,9 +470,13 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike
               width={width}
               axisBox={axisBox}
               pinned={impact.pinned}
-              title={impact.pinned ? `${pinnedTitle([impact])}. ${handleTitle(info.label)}` : handleTitle(info.label)}
+              title={impact.pinned ? `${pinnedTitle([impact])}. ${handleWords}` : handleWords}
               onDelay={onDelay}
-              onDrag={onDrag}
+              onDrag={(on) => {
+                setHeld(on);
+                onDrag(on);
+              }}
+              onKeyboardFocus={setKeyboardFocus}
             />
           ))}
 
@@ -453,7 +484,7 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike
         </div>
       </div>
 
-      <Readout info={info} title={readoutTitle} strike={strike} onDelay={onDelay} />
+      <Readout info={info} title={readoutTitle} strike={strike} onDelay={onDelay} onBoxFocus={setBoxFocus} />
     </div>
   );
 }

@@ -8,10 +8,12 @@
  * Show over its top right; under it, the timeline (play, pause, scrub, speeds)
  * with the amber stripes of any frag conflict along it, one lane for every jet
  * of the strike (its phase band in the planner's colours with the lettered
- * marks, and its times), a line about the frag and cone warnings, and the small
- * print (what ground is drawn, the Real | Flat switch, the theater warnings,
- * the credits). Fits a 1024×768 window. The overlay around it has the title
- * bar and the Close button.
+ * marks, and its times; its own stripes of where its time would put it inside
+ * another's frag show only while that time is being set), a line about the frag
+ * and cone warnings (opening with a swatch of the time bar's stripes while it
+ * has any), and the small print (what ground is drawn, the Real | Flat switch,
+ * the theater warnings, the credits). Fits a 1024×768 window. The overlay
+ * around it has the title bar and the Close button.
  *
  * The time bar (the clock's range) starts 10 s before the earliest first action
  * of the jets flown, not at the start of the whole run-in; Show › Whole run-in
@@ -69,7 +71,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { buildStrikePlayback, dangerZones, playbackInputFromMission, retime, type PlaybackInput, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
-  APPLY_WORDS, applyShift, applyStatusLines, cardOrder, conflictBands, DRAG_PATH_STEP_S, editorOffsets, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks,
+  APPLY_WORDS, applyShift, applyStatusLines, axisFraction, cardOrder, conflictBands, DRAG_PATH_STEP_S, editorOffsets, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks,
   markerMoments, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
   type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TileSource,
 } from '../../lib/playbackScene';
@@ -264,6 +266,9 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   }, [pb, timing, axis, moments, seatLabels, session.locked]);
   const watchedBands = useMemo(() => lanes.find((l) => l.seat === watched)?.bands ?? [], [lanes, watched]);
   const conflicts = useMemo(() => conflictBands(timing.conflicts), [timing]);
+  // The time bar has stripes to show when some conflict has a part on its axis (the bar cuts each to it): then
+  // the footer's first line carries a swatch of them. A strike of one, or times clear of every frag, have none.
+  const barStriped = useMemo(() => conflicts.some((c) => axisFraction(axis, c.t1_s) > axisFraction(axis, c.t0_s)), [conflicts, axis]);
 
   const [scene, setScene] = useState<PlaybackScene | null>(null);
   const [terrain, setTerrain] = useState<TerrainStatus>();
@@ -448,6 +453,7 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
         <JetLanes scene={scene} axis={axis} lanes={lanes} watched={watched} onWatch={watchSeat} onDelay={setDelay} onDrag={setDrag} />
         <DelayFooter
           warnings={timing.readout.warnings}
+          stripes={barStriped}
           dirty={isDirty(session)}
           single={pb.members.length < 2}
           onReset={reset}

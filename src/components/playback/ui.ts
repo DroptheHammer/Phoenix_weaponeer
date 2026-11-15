@@ -24,6 +24,19 @@ export function leaveBox(box: HTMLElement): void {
   box.closest<HTMLElement>('[role="dialog"]')?.focus({ preventScroll: true });
 }
 
+/**
+ * Does this element have the focus the keyboard gives (a Tab onto it, a key pressed on it), as against the
+ * focus a mouse press leaves behind? A browser too old to know the selector is taken as keyboard: showing
+ * a warning is the safer way to be wrong.
+ */
+export function keyboardFocused(el: Element): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return true;
+  }
+}
+
 /** One button of a segmented group (the speeds): the group draws the border. */
 export const SEG = 'px-1.5 py-1.5 text-sm';
 
@@ -112,6 +125,12 @@ export { HATCH } from '../../lib/playbackScene';
 export const FOOTER = 'flex items-center gap-3 text-xs';
 export const FOOTER_WARN = 'min-w-0 truncate text-amber-300';
 export const FOOTER_OK = 'min-w-0 truncate text-gray-400';
+/**
+ * The swatch before the warning that shows what the time bar's stripes look like (its background is HATCH,
+ * set where it is drawn): it keeps its size, and the warning's text is what gives way, so it takes nothing
+ * from the buttons at the right. The negative margin tightens the line's gap to a few pixels.
+ */
+export const FOOTER_KEY = 'h-[10px] w-[14px] shrink-0 -mr-2 rounded-sm';
 export const FOOTER_MORE = 'shrink-0 whitespace-nowrap text-gray-400 hover:text-blue-400 px-1';
 /** The folded warnings, a few lines at most before they scroll. */
 export const FOOTER_REST = 'max-h-16 overflow-y-auto text-xs text-amber-300';

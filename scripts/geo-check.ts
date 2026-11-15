@@ -142,9 +142,9 @@ import {
 import {
   initSession, sessionReducer, isDirty, conflictBands, SEAT_TEXT, SEAT_ON_BG, SEAT_ON_TEXT, QUIET_TEXT, WARN_TEXT, type Session, type SessionAction, type ShowAction,
 } from '../src/lib/playbackScene';
-import { laneAxis, zoneBands, seatInConflict, seatConflictTitle, handleKeyStep, READOUT_TEXT, BOX_FILL, BOX_EDGE } from '../src/lib/playbackScene';
+import { laneAxis, zoneBands, laneZonesShown, seatInConflict, seatConflictTitle, handleKeyStep, READOUT_TEXT, BOX_FILL, BOX_EDGE } from '../src/lib/playbackScene';
 import { editorOffsets, planOffsets, applyShift, cardOrder, renumbered, renumberedText, applyStatusLines, APPLY_WORDS } from '../src/lib/playbackScene';
-import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle } from '../src/components/playback/laneText';
+import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle, HATCH_KEY_TITLE } from '../src/components/playback/laneText';
 import {
   LANE, LANES, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, LANE_SKIPPED, FOOTER_OK, FOOTER_MORE, FOOTER_WARN, FOOTER_REST,
   READOUT, TIME_BOX, CONFLICT_MARK, FOOTER_DIRTY, FOOTER_RESET, FOOTER_STATUS,
@@ -8856,6 +8856,38 @@ void (async () => {
     const ln6bBad = Object.entries(ln6b).filter(([, [got, want]]) => got !== want).map(([k, [got, want]]) => `${k} "${got}" vs "${want}"`);
     ok('playback B3 [LN6b]: the handle\'s name and tooltip, the box\'s name and what seat #1 says when held read exactly these words',
        ln6bBad.length === 0, ln6bBad.join('; ') || 'four strings');
+
+    // [LN8] A lane's stripes show only while that jet's time is being set: the rule is false with the diamond
+    // not held, not focused by the keyboard and the box not focused, and true with any one of the three (all
+    // eight cases, so a rule that forgot one of them fails on its own case). The diamond's tooltip is today's
+    // sentence exactly, and for a lane with stripes it ends with the sentence that says what they are; the
+    // footer's swatch has its own tooltip, word for word. The words are written out here, not read from the
+    // constants, so a changed word is a failed check.
+    // Mutation proofs (each seen red 2026-11-15):
+    // lanes.ts laneZonesShown `return s.held || s.keyboardFocus || s.boxFocus;` → `return true;` (the stripes always on):
+    //   FAIL playback B3 [LN8]: … held false, keyboard focus false, box focus false: true (want false)
+    // the same, `return s.held || s.keyboardFocus;` (the box's focus forgotten):
+    //   FAIL playback B3 [LN8]: … held false, keyboard focus false, box focus true: false (want true)
+    // laneText.ts STRIPES_HANDLE_WORDS without "would":
+    //   FAIL playback B3 [LN8]: … title with stripes: "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s) Stripes: times that put it inside another jet's frag." vs "… Stripes: times that would put it inside another jet's frag."
+    // laneText.ts HATCH_KEY_TITLE "another jet's frag" → "another's frag":
+    //   FAIL playback B3 [LN8]: … the footer swatch's tooltip: "Striped: a jet is over the target inside another's frag (est.)" vs "Striped: a jet is over the target inside another jet's frag (est.)"
+    const ln8Today = "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s)";
+    const ln8Bad: string[] = [];
+    for (let bits = 0; bits < 8; bits++) {
+      const s = { held: (bits & 1) !== 0, keyboardFocus: (bits & 2) !== 0, boxFocus: (bits & 4) !== 0 };
+      const got = laneZonesShown(s);
+      if (got !== (bits !== 0)) ln8Bad.push(`held ${s.held}, keyboard focus ${s.keyboardFocus}, box focus ${s.boxFocus}: ${got} (want ${bits !== 0})`);
+    }
+    const ln8Titles: [string, string, string][] = [
+      ['title without stripes', handleTitle('#2'), ln8Today],
+      ['title, stripes false', handleTitle('#2', false), ln8Today],
+      ['title with stripes', handleTitle('#2', true), `${ln8Today} Stripes: times that would put it inside another jet's frag.`],
+      ['the footer swatch\'s tooltip', HATCH_KEY_TITLE, "Striped: a jet is over the target inside another jet's frag (est.)"],
+    ];
+    for (const [what, got, want] of ln8Titles) if (got !== want) ln8Bad.push(`${what}: "${got}" vs "${want}"`);
+    ok('playback B3 [LN8]: a lane\'s stripes show only while its diamond is held, focused by the keyboard or its box is focused (none of the three: not shown; any one: shown); the diamond\'s tooltip is the same sentence as before and, with stripes, ends with what they are; the footer swatch\'s tooltip reads exactly its words',
+       ln8Bad.length === 0, ln8Bad.join('; ') || 'eight cases of the rule, four strings');
 
     // ── Apply from the editor (apply.ts, strikeDraft.ts's withTotOffsets, launch.ts's apply and tie). The
     // attack editor is played here the way AttackEditor.tsx plays it: the saved strike opened as jets

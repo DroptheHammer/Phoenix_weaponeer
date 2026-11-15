@@ -14,7 +14,7 @@
  * box to type in). While one is being dragged the axis keeps the scale it had
  * when the drag began, so the lane does not move under the pointer; the stripes
  * of a jet's danger zones show where its time would put it inside another
- * jet's frag.
+ * jet's frag, and only while that jet's time is being set.
  */
 
 import {
@@ -222,6 +222,25 @@ export function zoneBands(zones: readonly DangerZone[], meLabel: string, seatLab
     t1_s: z.to_s,
     title: `Frag conflict with ${seatLabels[z.againstMember]} if ${meLabel} is over the target here (est.)`,
   }));
+}
+
+/** The three ways a jet's time over target is being set on its lane. */
+export interface LaneTimeSetting {
+  /** Its diamond is held by a pointer. */
+  held: boolean;
+  /** Its diamond has the keyboard focus the way the keyboard gives it (a Tab onto it, the arrow keys), not the focus a mouse press leaves behind. */
+  keyboardFocus: boolean;
+  /** The box its time is typed in has the focus. */
+  boxFocus: boolean;
+}
+
+/**
+ * Do the lane's stripes show? Only while that jet's time is being set: they answer "where would this time
+ * put me inside another jet's frag", a question nobody is asking while the lane is at rest (and four lanes
+ * striped end to end read as noise).
+ */
+export function laneZonesShown(s: LaneTimeSetting): boolean {
+  return s.held || s.keyboardFocus || s.boxFocus;
 }
 
 /** Is this seat (a member's place, as the readout counts them) the first or the second of any frag conflict? Flown or not. */
