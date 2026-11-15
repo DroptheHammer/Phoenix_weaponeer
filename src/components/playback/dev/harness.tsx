@@ -122,8 +122,8 @@ interface PbHandle {
   /** Home view (Orbit at the home pose), as the button does. */
   goHome(): void;
   setSpeed(s: Speed): void;
-  /** Where the jet (or its falling bomb, its target's ring centre, or its target's TGT disc) is on the page, at the clock's time. */
-  project(jet?: number, what?: 'jet' | 'bomb' | 'target' | 'targetMark'): [number, number] | null;
+  /** Where the jet (or its falling bomb, its target's ring centre, its target's TGT disc, or the release point, the first point of its bomb's fall) is on the page, at the clock's time. */
+  project(jet?: number, what?: 'jet' | 'bomb' | 'target' | 'targetMark' | 'release'): [number, number] | null;
   /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the callouts, the jets' labels, the bombs' rings. */
   debugLabels(): ReturnType<PlaybackScene['debugLabels']> | null;
   /**
@@ -133,6 +133,12 @@ interface PbHandle {
    * `load_g`. Null before the scene exists or for a jet with no layer. A check compares the two rolls modulo 360°.
    */
   arrow(jet?: number): (NonNullable<ReturnType<PlaybackScene['debugArrow']>> & { pose_bank_deg: number; load_g: number }) | null;
+  /**
+   * Jet `jet`'s (default the lead) bomb's trace as the layer drew it at the clock's time now: `points`, the points of the
+   * bomb's whole fall, and `drawn`, how many of them the trace reaches (0 before the release, all of them from the impact
+   * on). Null before the scene exists or for a jet with no layer.
+   */
+  trace(jet?: number): { points: number; drawn: number } | null;
   /** Where a point (playback metres east, north, up) is on the page, through the camera as it is now. */
   projectPoint(e_m: number, n_m: number, up_m: number): [number, number] | null;
   /** The box Home frames, ENU metres. */
@@ -252,6 +258,7 @@ const pb: PbHandle = {
     const p = scene.source().jetAt(jet, scene.clock.time, arrowPose);
     return { ...a, pose_bank_deg: p.bank_deg, load_g: p.load_g };
   },
+  trace: (jet = 0) => scene?.debugTrace(jet) ?? null,
   projectPoint(e, n, up) {
     const p = scene?.projectPoint(e, up, -n); // three.js axes: x east, y up, z = −north
     return p ? toPage(p.x, p.y) : null;

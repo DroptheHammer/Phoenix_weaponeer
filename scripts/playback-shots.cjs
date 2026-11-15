@@ -546,6 +546,201 @@ async function checkBombRing(page, tag) {
   step(`51b the ring round the falling bomb on the overlay: found, 11 px, pulsing at the release, gone before and after, switched by the real Impact box (${tag})`, ok, parts.join('; '));
 }
 
+// ── The bomb's trace (checks 63 and 63b). The fall's line on screen is read off the scene's own sampled points
+// (the fall is a curve, and in Top-down a curve on a vertical plane is not quite a chord of its ends), each
+// point through the live camera, and walked a pixel at a time: at each spot the pixel itself and the two a
+// pixel to either side of the line (a 1.5 px line is hardly more than one pixel wide, and the polyline and the
+// drawn line are not the same to the pixel). A solid line then gives red at nearly every spot, the planner's dashed
+// bomb line (4 on, 6 off) at about 40%.
+const TRACE_STEP_PX = 1;
+const TRACE_CLEAR_PX = 12;
+const TRACE_CLEAR_TARGET_PX = 12;
+const TRACE_SOLID_MIN = 0.9;
+const TRACE_DASH_MIN = 0.2;
+const TRACE_DASH_MAX = 0.7;
+const TRACE_GROUP_MIN = 10;
+/** Spots every `step` px along a polyline of screen points, each with its arc length, its direction and the polyline's arc lengths at its vertices. */
+function alongPolyline(poly, step) {
+  const cum = [0];
+  for (let i = 1; i < poly.length; i++) cum.push(cum[i - 1] + Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]));
+  const total = cum[cum.length - 1];
+  const spots = [];
+  let seg = 1;
+  for (let s = step / 2; s < total; s += step) {
+    while (seg < cum.length - 1 && cum[seg] < s) seg++;
+    const len = cum[seg] - cum[seg - 1] || 1, f = (s - cum[seg - 1]) / len;
+    const dx = poly[seg][0] - poly[seg - 1][0], dy = poly[seg][1] - poly[seg - 1][1], d = Math.hypot(dx, dy) || 1;
+    spots.push({ s, x: poly[seg - 1][0] + f * dx, y: poly[seg - 1][1] + f * dy, ux: dx / d, uy: dy / d });
+  }
+  return { spots, cum, total };
+}
+/** Arc length along the polyline of the point on it nearest `p`. */
+function arcOf(poly, cum, p) {
+  let best = Infinity, arc = 0;
+  for (let i = 1; i < poly.length; i++) {
+    const ax = poly[i - 1][0], ay = poly[i - 1][1], dx = poly[i][0] - ax, dy = poly[i][1] - ay, l2 = dx * dx + dy * dy;
+    const f = l2 > 0 ? Math.min(1, Math.max(0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / l2)) : 0;
+    const d = Math.hypot(ax + f * dx - p[0], ay + f * dy - p[1]);
+    if (d < best) {
+      best = d;
+      arc = cum[i - 1] + f * Math.sqrt(l2);
+    }
+  }
+  return arc;
+}
+/** Whether a spot of the line passes `test`: the pixel there, or one a pixel to either side of the line. */
+const spotHas = (img, sp, test) => [-1, 0, 1].some((k) => test(img.at(Math.round(sp.x - k * sp.uy), Math.round(sp.y + k * sp.ux))));
+/**
+ * The spots of the fall's line that pass `test`, by side of the bomb: `behind` (the release's side), `ahead` (the
+ * target's) and, with no bomb in the picture, `all`. A spot within `clear.release` px of the release point, `clear.bomb`
+ * of the bomb or `clear.target` of the target (their own red, and the bomb's body) is left out.
+ */
+function traceSpots(img, poly, bomb, test, clear = { release: TRACE_CLEAR_PX, bomb: TRACE_CLEAR_PX, target: TRACE_CLEAR_TARGET_PX }) {
+  const { spots, cum } = alongPolyline(poly, TRACE_STEP_PX);
+  const rel = poly[0], tgt = poly[poly.length - 1];
+  const sBomb = bomb ? arcOf(poly, cum, bomb) : Infinity;
+  const g = { behind: { n: 0, hit: 0 }, ahead: { n: 0, hit: 0 }, all: { n: 0, hit: 0 } };
+  for (const sp of spots) {
+    if (Math.hypot(sp.x - rel[0], sp.y - rel[1]) < clear.release || Math.hypot(sp.x - tgt[0], sp.y - tgt[1]) < clear.target) continue;
+    if (bomb && Math.hypot(sp.x - bomb[0], sp.y - bomb[1]) < clear.bomb) continue;
+    const grp = !bomb ? g.all : sp.s < sBomb ? g.behind : g.ahead;
+    grp.n++;
+    if (spotHas(img, sp, test)) grp.hit++;
+  }
+  return g;
+}
+/** The fall of jet `jet` as the page draws it now: its points on screen, the bomb, and the layer's own count of the trace. */
+const fallOnScreen = (page, jet) => pbEval(page, (k) => {
+  const pts = __pb.source().plannedBomb(k);
+  const poly = [];
+  for (let i = 0; i + 2 < pts.length; i += 3) poly.push(__pb.projectPoint(pts[i], -pts[i + 2], pts[i + 1]));
+  return { poly, bomb: __pb.project(k, 'bomb'), release: __pb.project(k, 'release'), target: __pb.project(k, 'target'), trace: __pb.trace(k) };
+}, jet);
+
+/**
+ * Check 63: the bomb leaves a solid trace behind it and keeps it. The lone pop-up on flat ground, Top-down, the
+ * overlay hidden, paused at 1×. The fall's line is walked as described above (a spot is red if the script's
+ * own redLike test passes at it); the layer's own count (`__pb.trace(0)`: the fall's points, and how many the
+ * trace reaches) is read at the same time.
+ * - 60% of the way down the fall: at least 90% of the spots between the release and the bomb are red (the solid
+ *   trace) and between 20% and 70% of those between the bomb and the target (the planner's dashed fall line).
+ * - 1 s before the release: no trace (`drawn` 0) and the whole line is the dashed one (20% to 70%).
+ * - 5 s after the impact: the whole line is solid (at least 90%) and the trace reaches every point (`drawn` is `points`).
+ * - Seek back to 1 s before the release: dashed again, `drawn` 0 (the trace is a function of the clock's time).
+ * A group needs at least TRACE_GROUP_MIN spots to count. The spots are every pixel of the line's length rather than 40
+ * of them: the part of the dashed line between the bomb and the target is only 14 to 26 px long once the 12 px round the
+ * bomb and the target are left out, and 40 spots over the whole line would leave a handful there.
+ *
+ * Measured 2026-11-15 on the first green run: 1400×900, behind the bomb 100% of 65 spots red, ahead of it 58% of 26, the
+ * whole line 44% of 115 before the release and again after the seek back, 100% of 115 after the impact; 1024×768, 100% of
+ * 42, 57% of 14, 43% of 80, 100% of 80. The thresholds are the ones written above (a solid line is at 100%, the dashed one
+ * between 40% and 60%).
+ *
+ * Proven red 2026-11-15 by two temporary edits, one run each:
+ * (a) scene/jetLayer.ts, the trace's two meshes made invisible when they are made (`traceCasing.visible = traceLine.visible = false`):
+ *   STEP FAIL 63 the bomb's trace: … Top-down (1400x900) — 60% down: behind the bomb 43% of 65 red (need 90%), ahead 58% of 26 (need 20-70%), trace 21 of 35 points; 1 s before the release: 44% of 115 (need 20-70%), trace 0 (need 0); 5 s after the impact: 44% of 115 (need 90%), trace 35 of 35; seek back: 44% of 115, trace 0
+ *   (the 1024×768 run of this edit timed out on a screenshot, the machine being busy; it was not run again)
+ * (b) src/lib/playbackScene/source.ts, bombFlown returning every point at every time:
+ *   STEP FAIL 63 the bomb's trace: … Top-down (1400x900) — 60% down: behind the bomb 100% of 65 red (need 90%), ahead 100% of 26 (need 20-70%), trace 35 of 35 points; 1 s before the release: 100% of 115 (need 20-70%), trace 35 (need 0); 5 s after the impact: 100% of 115 (need 90%), trace 35 of 35; seek back: 100% of 115, trace 35
+ *   STEP FAIL 63 … (1024x768) — … ahead 100% of 14; 1 s before the release: 100% of 80, trace 35 (need 0); …
+ * (geo-check BT1 goes red with (b) too: 0 points before the release is one of its readings.)
+ */
+async function checkBombTrace(page, tag) {
+  const m = await pbEval(page, () => ({ rel: __pb.moments.jets[0].release, imp: __pb.moments.jets[0].impact }));
+  // The step before put the time bar back with a session action, and the handle reads the session as the view last rendered
+  // it: a read straight after it can still see the old choice, and putting that back would leave the next checks (3a, 5b) on the wrong range.
+  await settle(page, 300);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  const phases = {};
+  await overlay(page, false);
+  try {
+    await page.getByRole('button', { name: 'Top-down', exact: true }).click();
+    for (const [name, t] of [['mid', m.rel + 0.6 * (m.imp - m.rel)], ['before', m.rel - 1], ['after', m.imp + 5], ['back', m.rel - 1]]) {
+      await at(t);
+      const f = await fallOnScreen(page, 0);
+      const img = await shot(page, `${tag}-63-trace-${name}`);
+      const whole = f.poly.length > 1 && f.poly.every(Boolean);
+      phases[name] = { whole, trace: f.trace, hasBomb: !!f.bomb, g: whole ? traceSpots(img, f.poly, f.bomb, redLike) : null };
+    }
+  } finally {
+    await overlay(page, true);
+    await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  const pct = (x) => (x && x.n ? `${Math.round((100 * x.hit) / x.n)}% of ${x.n}` : 'no spots');
+  const frac = (x) => (x && x.n >= TRACE_GROUP_MIN ? x.hit / x.n : NaN);
+  const solid = (x) => frac(x) >= TRACE_SOLID_MIN;
+  const dashed = (x) => frac(x) >= TRACE_DASH_MIN && frac(x) <= TRACE_DASH_MAX;
+  const P = phases;
+  const mid = P.mid.g, before = P.before.g, after = P.after.g, back = P.back.g;
+  const okMid = P.mid.whole && P.mid.hasBomb && solid(mid.behind) && dashed(mid.ahead) && P.mid.trace.drawn > 0 && P.mid.trace.drawn < P.mid.trace.points;
+  const okBefore = P.before.whole && !P.before.hasBomb && dashed(before.all) && P.before.trace.drawn === 0;
+  const okAfter = P.after.whole && !P.after.hasBomb && solid(after.all) && P.after.trace.points > 1 && P.after.trace.drawn === P.after.trace.points;
+  const okBack = P.back.whole && dashed(back.all) && P.back.trace.drawn === 0;
+  step(`63 the bomb's trace: solid from the release to the bomb, dashed ahead, none before the release, the whole fall after the impact, gone again on a seek back, Top-down (${tag})`,
+    okMid && okBefore && okAfter && okBack,
+    `60% down: behind the bomb ${pct(mid && mid.behind)} red (need ${TRACE_SOLID_MIN * 100}%), ahead ${pct(mid && mid.ahead)} (need ${TRACE_DASH_MIN * 100}-${TRACE_DASH_MAX * 100}%), trace ${P.mid.trace.drawn} of ${P.mid.trace.points} points; ` +
+      `1 s before the release: ${pct(before && before.all)} (need ${TRACE_DASH_MIN * 100}-${TRACE_DASH_MAX * 100}%), trace ${P.before.trace.drawn} (need 0); ` +
+      `5 s after the impact: ${pct(after && after.all)} (need ${TRACE_SOLID_MIN * 100}%), trace ${P.after.trace.drawn} of ${P.after.trace.points}; ` +
+      `seek back: ${pct(back && back.all)}, trace ${P.back.trace.drawn}`);
+}
+
+/**
+ * Check 63b: a jet that is not watched leaves a trace in its own bomb shade, and none beyond its bomb. The four-ship
+ * opened watching #2, so #1's bomb is one of the others' (as in 52); Top-down, flat ground, the overlay hidden, paused
+ * at 1× half way down #1's fall. The fall's line is walked as in 63; a spot has the shade if a pixel there is within 3
+ * levels of #1's bomb colour (#1ebfd8, the cyan seat colour shaded 0.8 in linear light, as geo-check BM5 holds; the
+ * others' path is 8 levels away in green and is not counted). Between the release and the bomb at least
+ * TRACE_OTHER_MIN spots have it; between the bomb and the target at most 2. The bomb's body is kept clear (9 px:
+ * the others' bomb is the same shade); the release point and the target, whose own colours are not that shade, only
+ * a few px, because the four-ship's fall is short on screen (64 px at 1400×900, 48 at 1024×768).
+ *
+ * TRACE_OTHER_MIN: measured 2026-11-15 on the first green run: 13 of 20 spots in the shade between the release and the bomb
+ * at 1400×900 and 5 of 12 at 1024×768 (a 1.5 px line leaves few pixels that are entirely its own colour), none of 16 and
+ * none of 8 between the bomb and the target; set at 60% of the smaller count, 3.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts wear(), the trace left out of the other jets' look
+ * (`traceCasing.visible = on;` → `traceCasing.visible = traceLine.visible = on;`, so the line is hidden for a jet that is not watched):
+ *   STEP FAIL 63b a jet that is not watched leaves its trace in its own bomb shade, and none beyond its bomb (1400x900-strike4-watch2) — times and colours as the check expects; release to bomb: 0 of 20 spots in #1's bomb shade (need 3), bomb to target: 0 of 16 (need at most 2); trace 17 of 35 points (35 on screen)
+ *   STEP FAIL 63b … (1024x768-strike4-watch2) — … release to bomb: 0 of 12 spots in #1's bomb shade (need 3), bomb to target: 0 of 8 (need at most 2); …
+ */
+const TRACE_OTHER_CLEAR_BOMB_PX = 9;
+const TRACE_OTHER_CLEAR_RELEASE_PX = 3;
+const TRACE_OTHER_CLEAR_TARGET_PX = 4;
+const TRACE_OTHER_MIN = 3;
+async function checkBombTraceOthers(page, tag) {
+  const m = await pbEval(page, () => __pb.moments.jets.map((j) => ({ release: j.release, impact: j.impact })));
+  const seatColour = await pbEval(page, () => __pb.colours.jets[0]);
+  const T = m[0].release + 0.5 * (m[0].impact - m[0].release);
+  const setup = m[1].release > T && seatColour === '#22d3ee';
+  const shade = hex('#1ebfd8');
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); });
+  let f, g = null, n = 0;
+  await overlay(page, false);
+  try {
+    await page.getByRole('button', { name: 'Top-down', exact: true }).click();
+    await pbEval(page, (t) => __pb.seek(t), T);
+    await settle(page, 300);
+    f = await fallOnScreen(page, 0);
+    const img = await shot(page, `${tag}-63b-trace-other`);
+    if (f.poly.length > 1 && f.poly.every(Boolean) && f.bomb) {
+      g = traceSpots(img, f.poly, f.bomb, (p) => near(p, shade, 3), { release: TRACE_OTHER_CLEAR_RELEASE_PX, bomb: TRACE_OTHER_CLEAR_BOMB_PX, target: TRACE_OTHER_CLEAR_TARGET_PX });
+      n = f.poly.length;
+    }
+  } finally {
+    await overlay(page, true);
+    await pbEval(page, () => __pb.goHome());
+  }
+  step(`63b a jet that is not watched leaves its trace in its own bomb shade, and none beyond its bomb (${tag})`,
+    setup && !!g && g.behind.n >= TRACE_GROUP_MIN && g.behind.hit >= TRACE_OTHER_MIN && g.ahead.hit <= 2 && f.trace.drawn > 0 && f.trace.drawn < f.trace.points,
+    `${setup ? 'times and colours as the check expects' : `not as the check expects (seat colour ${seatColour}, #2 released ${m[1].release.toFixed(1)}, check at ${T.toFixed(1)})`}; ` +
+      (g ? `release to bomb: ${g.behind.hit} of ${g.behind.n} spots in #1's bomb shade (need ${TRACE_OTHER_MIN}), bomb to target: ${g.ahead.hit} of ${g.ahead.n} (need at most 2); trace ${f.trace.drawn} of ${f.trace.points} points (${n} on screen)` : 'the fall or the bomb is not on screen'));
+}
+
 /**
  * Check 3: real ground: the hill's sunward (north-west) flank is brighter; the bomb's last sample sits on the ring.
  *
@@ -2962,6 +3157,7 @@ async function runStrikeChecks(browser, base) {
     // 52 on a page of its own: the four-ship opened watching #2, so #1's bomb is one of the others'.
     const bo = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&watch=2`, w, h);
     await checkBombOthers(bo.page, `${tag}-strike4-watch2`);
+    await checkBombTraceOthers(bo.page, `${tag}-strike4-watch2`);
     step(`8 no page errors, four-ship watching #2 (${tag})`, bo.problems.length === 0, bo.problems.length ? bo.problems.slice(0, 8).join(' | ') : 'none');
     await bo.context.close();
     // 7b on the four-ship with its theater note: four lanes and the warnings line under the picture, the
@@ -3029,6 +3225,7 @@ async function runChecks(browser, base) {
     await checkArrowUnderside(page, tag);
     await checkBombSeen(page, tag);
     await checkBombRing(page, tag);
+    await checkBombTrace(page, tag);
     await checkReal(page, tag);
     await checkFit(page, tag, w, h);
     await checkLayout(page, tag, w, h);

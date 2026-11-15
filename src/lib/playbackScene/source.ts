@@ -168,6 +168,13 @@ export interface SceneSource {
   pathCapacity(jet: number): number;
   /** The most points plannedBomb can have for jet k at any delay. */
   bombCapacity(jet: number): number;
+  /**
+   * How many of plannedBomb(jet)'s points jet k's bomb has reached at strike time t: 0 before the release, 1 at
+   * it (the first point is the release point), one more every PATH_STEP_S while it falls (never the last point
+   * before the impact: that one is the impact), every point from the impact on. A time that is not a number gives 0.
+   * Allocates nothing. The bomb's trace is drawn from this many points.
+   */
+  bombFlown(jet: number, t_s: number): number;
   /** Jet k's target point on the ground, three.js axes. Its bomb's last position. */
   targetOf(jet: number): ScenePoint;
   /** The jet's seat label, '#1'… */
@@ -345,6 +352,15 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     xyz.push(bpose.x, bpose.y, bpose.z);
     return Float32Array.from(xyz);
   });
+  // The fall is always sampled at the fine step (a time being dragged coarsens the path, never the fall), so
+  // the points the bomb has reached by a given time follow from the release and that step alone.
+  const bombFlown = (jet: number, t_s: number): number => {
+    const { release_s, impact_s } = timing.jets[jet];
+    if (!(t_s >= release_s)) return 0; // before the release, and a time that is not a number
+    const points = bombs[jet].length / 3;
+    if (t_s >= impact_s) return points;
+    return Math.min(Math.floor((t_s - release_s) / PATH_STEP_S) + 1, points - 1);
+  };
 
   const targets: ScenePoint[] = pb.jets.map((j) => {
     const p = toLocal(pb.frame, j.target.coordinates);
@@ -391,6 +407,7 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     plannedBomb: (jet) => bombs[jet],
     pathCapacity: (jet) => Math.ceil(pb.jets[jet].egressEndTau_s / PATH_STEP_S) + 3 + ANCHOR_VERTICES,
     bombCapacity: (jet) => Math.ceil(pb.jets[jet].bomb.fall_s / PATH_STEP_S) + 3,
+    bombFlown,
     targetOf: (jet) => targets[jet],
     labelOf: (jet) => pb.jets[jet].label,
     seatOf: (jet) => seats[jet],

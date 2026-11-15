@@ -160,6 +160,7 @@ import {
   BOMB_PX, BOMB_LEN_M, BOMB_NOSE_M, BOMB_TAIL_M, BOMB_HULL_M, BOMB_HULL, BOMB_HULL_OTHER, BOMB_LINE_PX, OTHER_BOMB_SHADE, otherBombHex,
   BOMB_RING_R_PX, BOMB_RING_OTHER_R_PX, BOMB_RING_LINE_PX, BOMB_RING_EDGE_PX, OTHER_MARKER_ALPHA, LAND_REF, DISC_RIM, RELEASE_PULSE_WALL_S, RELEASE_PULSE_EXTRA,
   releasePulse, bombRingLook, type BombRingLook,
+  BOMB_TRACE_PX, BOMB_TRACE_CASING_PX, BOMB_TRACE_OTHER_PX, TRAIL_PX,
 } from '../src/lib/playbackScene';
 import { harnessLaunch } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
@@ -9852,6 +9853,93 @@ void (async () => {
          bm5Bad.length === 0, bm5Bad.join('; ') || `on the dark outline ${bm5Worst.map((r) => r.toFixed(2)).join(' / ')}; the outline on pale land ${bm5Land.toFixed(2)}; printed, not gated: each on white ${bm5White.map((r) => r.toFixed(2)).join(' / ')}`);
     } catch (e) {
       ok('playback B3 (the bomb): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
+
+    // ─── The bomb's trace (source.ts bombFlown, sceneStyle.ts, scene/jetLayer.ts) ──────────────────────────────
+    // A solid line follows each bomb down from the release and stays after the impact; the dashed fall line
+    // ahead of it is the planned fall. Each check carries its mutation proof (2026-11-15): one temporary edit,
+    // geo-check run, the FAIL line copied (shortened with …), the edit restored.
+    try {
+      // [BT1] How many of the fall's points the bomb has reached, on the lone pop-up and on every jet of the
+      // four-ship (a pop-up falling 8.5 s, a pop-up on another target, a loft falling 28.8 s), from the source a
+      // drag samples with as well as the fine one: 0 before the release (0.01 s) and for a time that is not a
+      // number; 1 at the release (the first point is the release point); k + 1 a step later for k = 1 and 5;
+      // at the impact and 100 s after it, every point; never the last point before the impact (it is the
+      // impact); one more at every step in between (read mid-step, at every step of every fall, against a
+      // count of the sample times passed); never fewer as time goes on.
+      // Mutation proof (seen red 2026-11-15): source.ts bombFlown `Math.floor((t_s - release_s) / PATH_STEP_S) + 1` → `Math.floor((t_s - release_s) / PATH_STEP_S)` (the `+ 1` dropped: the trace lags a whole step behind the bomb):
+      //   FAIL playback B3 [BT1]: … lone pop-up, fine, jet 0: 0 points at the release (want 1); lone pop-up, fine, jet 0: 1 points at release + 1 step (want 2); lone pop-up, fine, jet 0: 5 points at release + 5 steps (want 6); lone pop-up, fine, jet 0: 0 points 0.125 s after the release (want 1); …
+      // (BT1 was the only check red.)
+      const bt1Bad: string[] = [];
+      const bt1Add = (s: string) => { if (bt1Bad.length < 8) bt1Bad.push(s); };
+      const bt1Sources: { name: string; src: SceneSource; timing: ReturnType<typeof retime> }[] = [
+        { name: 'lone pop-up, fine', src: popSrc, timing: popTiming },
+        { name: 'lone pop-up, drag step', src: sceneSourceFrom(popPb, popTiming, DRAG_PATH_STEP_S), timing: popTiming },
+        { name: 'four-ship, fine', src: s4Src, timing: s4Timing },
+        { name: 'four-ship, drag step', src: sceneSourceFrom(s4Pb, s4Timing, DRAG_PATH_STEP_S), timing: s4Timing },
+      ];
+      let bt1Falls = 0, bt1Reads = 0, bt1Points = 0;
+      for (const { name, src, timing } of bt1Sources) {
+        for (let k = 0; k < src.jetCount; k++) {
+          const n = src.plannedBomb(k).length / 3, rel = timing.jets[k].release_s, imp = timing.jets[k].impact_s;
+          const who = `${name}, jet ${k}`;
+          bt1Falls++;
+          bt1Points += n;
+          const want = (what: string, got: number, expected: number) => { bt1Reads++; if (got !== expected) bt1Add(`${who}: ${got} points ${what} (want ${expected})`); };
+          want('0.01 s before the release', src.bombFlown(k, rel - 0.01), 0);
+          want('at the release', src.bombFlown(k, rel), 1);
+          for (const j of [1, 5]) want(`at release + ${j} step${j === 1 ? '' : 's'}`, src.bombFlown(k, rel + j * PATH_STEP_S + 1e-6), j + 1);
+          const late = src.bombFlown(k, imp - 0.01);
+          bt1Reads++;
+          if (late > n - 1 || late < n - 2) bt1Add(`${who}: ${late} points 0.01 s before the impact (want ${n - 2} or ${n - 1} of ${n}, never all)`);
+          want('at the impact', src.bombFlown(k, imp), n);
+          want('100 s after the impact', src.bombFlown(k, imp + 100), n);
+          want('for a time that is not a number', src.bombFlown(k, NaN), 0);
+          want('at minus infinity', src.bombFlown(k, -Infinity), 0);
+          want('at plus infinity', src.bombFlown(k, Infinity), n);
+          // Every step of the fall, read in the middle of it: the points whose times have passed, counted.
+          for (let j = 0; j <= n - 2; j++) {
+            const t = rel + (j + 0.5) * PATH_STEP_S;
+            const got = src.bombFlown(k, t), expected = t >= imp ? n : j + 1;
+            bt1Reads++;
+            if (got !== expected) { bt1Add(`${who}: ${got} points ${((j + 0.5) * PATH_STEP_S).toFixed(3)} s after the release (want ${expected})`); break; }
+          }
+          let prev = 0;
+          for (let t = rel - 1; t <= imp + 1; t += 0.05) {
+            const got = src.bombFlown(k, t);
+            bt1Reads++;
+            if (got < prev || got > n || !Number.isInteger(got)) { bt1Add(`${who}: ${got} points at ${(t - rel).toFixed(2)} s after the release, ${prev} a moment before`); break; }
+            prev = got;
+          }
+        }
+      }
+      ok('playback B3 [BT1]: the points of its fall a bomb has reached: none before the release, one at it, one more each step, never the last before the impact, all from the impact on, none for a time that is not a number; fine and drag-step sources, every jet',
+         bt1Bad.length === 0 && PATH_STEP_S === 0.25 && bt1Falls === 2 * (1 + s4Src.jetCount),
+         bt1Bad.join('; ') || `${bt1Falls} falls (${bt1Points} points), ${bt1Reads} readings`);
+
+      // [BT2] The trace is heavier than the planned fall it follows (at least half as heavy again: the planner's
+      // 1.5 px bomb line) and no heavier than the jet's own trail (3.5 px), on a casing wider than itself; the
+      // other jets' is thinner than the coded one and has no casing, as their paths have none. The layer wears
+      // these very numbers: its source takes the widths from them, the casing in the window's dark.
+      // Mutation proofs (each seen red 2026-11-15): sceneStyle.ts `BOMB_TRACE_PX = 3` → `1.5` (as heavy as the line it follows):
+      //   FAIL playback B3 [BT2]: … the trace is 1.5 px, not at least 2.25 (1.5 × the planned fall's 1.5); the other jets' trace (1.5 px) is no thinner than the coded one (1.5)
+      // scene/jetLayer.ts wear() `on ? BOMB_TRACE_PX : BOMB_TRACE_OTHER_PX` → `on ? BOMB_TRACE_PX : 1.5` (the other jets' width as a number of its own; the constants stay right, so only the source arm fails):
+      //   FAIL playback B3 [BT2]: … scene/jetLayer.ts does not give the other jets' trace BOMB_TRACE_OTHER_PX
+      // (BT2 was the only check red in both.)
+      const bt2Bad: string[] = [];
+      if (!(BOMB_TRACE_PX >= 1.5 * BOMB_LINE_PX)) bt2Bad.push(`the trace is ${BOMB_TRACE_PX} px, not at least ${1.5 * BOMB_LINE_PX} (1.5 × the planned fall's ${BOMB_LINE_PX})`);
+      if (!(BOMB_TRACE_PX <= TRAIL_PX)) bt2Bad.push(`the trace is ${BOMB_TRACE_PX} px, heavier than the jet's trail (${TRAIL_PX})`);
+      if (!(BOMB_TRACE_CASING_PX > BOMB_TRACE_PX)) bt2Bad.push(`the casing (${BOMB_TRACE_CASING_PX} px) is no wider than the trace (${BOMB_TRACE_PX})`);
+      if (!(BOMB_TRACE_OTHER_PX < BOMB_TRACE_PX)) bt2Bad.push(`the other jets' trace (${BOMB_TRACE_OTHER_PX} px) is no thinner than the coded one (${BOMB_TRACE_PX})`);
+      const bt2Layer = readFileSync('src/components/playback/scene/jetLayer.ts', 'utf8');
+      if (!/traceMat\s*=\s*bag\.add\(wideLine\(bombRed\.clone\(\), BOMB_TRACE_PX\)\)/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not make the trace BOMB_TRACE_PX wide in the bomb\'s red');
+      if (!/new LineSegments2\(trace\.geom, bag\.add\(wideLine\(new Color\(LINE_CASING\), BOMB_TRACE_CASING_PX\)\)\)/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not cast the trace BOMB_TRACE_CASING_PX wide in LINE_CASING');
+      if (!/traceMat\.linewidth\s*=\s*on \? BOMB_TRACE_PX : BOMB_TRACE_OTHER_PX/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not give the other jets\' trace BOMB_TRACE_OTHER_PX');
+      if (!/traceCasing\.visible\s*=\s*on;/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not take the casing off the other jets\' trace');
+      ok('playback B3 [BT2]: the bomb\'s trace is at least 1.5 times as heavy as its planned fall and no heavier than the jet\'s trail, on a wider casing; the other jets\' is thinner and uncased; the layer takes them from these numbers',
+         bt2Bad.length === 0, bt2Bad.join('; ') || `trace ${BOMB_TRACE_PX} px on ${BOMB_TRACE_CASING_PX} px (planned fall ${BOMB_LINE_PX}, trail ${TRAIL_PX}); the other jets' ${BOMB_TRACE_OTHER_PX} px, no casing`);
+    } catch (e) {
+      ok('playback B3 (the bomb\'s trace): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));

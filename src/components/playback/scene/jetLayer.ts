@@ -1,7 +1,7 @@
 /**
  * One jet in the 3D playback (the scene makes one of these per flown jet):
- * its arrow, its planned path, a 20 s trail, its bomb while it falls and the
- * line of its whole fall. Its target is the target layer's (one mark per
+ * its arrow, its planned path, a 20 s trail, its bomb while it falls, the
+ * line of its whole fall and the trace the bomb leaves down it. Its target is the target layer's (one mark per
  * distinct target, however many jets share it). Everything is sampled from
  * the playback library's DISPLAY layer through the scene adapter
  * (src/lib/playbackScene/source.ts), so the picture is the planner's, timed.
@@ -32,6 +32,11 @@
  *   slightly larger copy of its shape drawn from inside behind it (white on
  *   a jet that wears the planner's colours, whose bomb is the planner's red;
  *   dark on the others, whose bombs are pale seat colours).
+ * - The bomb leaves a solid trace from the release to where it is now, and the trace stays after the
+ *   impact, so the path it took can be seen; the dashed fall line ahead of it is the planned fall. The
+ *   trace is the fall's own sampled points the bomb has reached (source.bombFlown), then one last piece
+ *   to the bomb, so it ends on the bomb. It is the bomb's path, not an effect: no Show switch. Worked
+ *   out from the clock's time alone, so scrubbing back before the release removes it.
  * - The trail is worked out afresh from the playback every frame instead of
  *   remembered, so scrubbing backwards, seeking and speed changes are always
  *   right; its buffers are made once, so no frame allocates.
@@ -59,7 +64,8 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LABEL_STYLE, LINE_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import { PHASES, PHASE_STYLE } from '../../../lib/playback';
 import {
-  ARROW_LEN_M, ARROW_PX, BG, BOMB_HULL, BOMB_HULL_OTHER, BOMB_LEN_M, BOMB_LINE_CASING_PX, BOMB_LINE_PX, BOMB_PX, LINE_CASING, OTHER_MARKER_ALPHA, OTHER_SHADE,
+  ARROW_LEN_M, ARROW_PX, BG, BOMB_HULL, BOMB_HULL_OTHER, BOMB_LEN_M, BOMB_LINE_CASING_PX, BOMB_LINE_PX, BOMB_PX,
+  BOMB_TRACE_CASING_PX, BOMB_TRACE_OTHER_PX, BOMB_TRACE_PX, LINE_CASING, OTHER_MARKER_ALPHA, OTHER_SHADE,
   PATH_CASING_PX, PATH_OTHER_PX, PATH_PX, POST_PX, TRAIL_CASING_PX, TRAIL_OTHER_CASING_PX, TRAIL_OTHER_PX, TRAIL_PX, TRAIL_S, jetColor, mixHex,
   newSceneBombPose, newSceneJetPose, otherBombHex, screenScale, worldPerPixel, type SceneJetPose, type ScenePhase, type SceneSource,
 } from '../../../lib/playbackScene';
@@ -99,12 +105,16 @@ const MIN_SPEED_MPS = 0.5;
  * and the bomb). Every casing of a line draws before any of its colour, so a casing never covers a
  * coloured stretch of its own line. The other jets' path and trail draw just before the watched
  * jet's, so where they cross the watched jet's colour code lies on top. The bomb's outline draws just
- * before the bomb: it is seen from inside, so the bomb must come after it.
+ * before the bomb: it is seen from inside, so the bomb must come after it. The bomb's trace lies over the
+ * dashed fall line it follows and under the posts (which are 35, here and in the target layer), so it
+ * takes the two places between the fall and them.
  */
 const ORDER = {
   otherPath: 5, pathCasing: 6, path: 7, otherTrailCasing: 29, otherTrail: 30, trailCasing: 31, trail: 32,
-  fallCasing: 33, fall: 34, posts: 35, bombHull: 58, bomb: 59, arrow: 60,
+  fallCasing: 33, fall: 34, traceCasing: 34.25, trace: 34.5, posts: 35, bombHull: 58, bomb: 59, arrow: 60,
 } as const;
+/** A last piece of the trace shorter than this, m, is left out: a line of no length has no direction to draw it by. */
+const TRACE_MIN_PIECE_M = 0.1;
 
 /** Posts under the action points: one per marker kind and the IP, at most. */
 const POST_SEGS = 9;
@@ -264,6 +274,8 @@ export interface JetLayer extends Layer {
   bombPosition(): Vector3 | undefined;
   /** The arrow's nose, up side and roll as its mesh has them now. Allocates, so only for the checks, never per frame. */
   debugArrow(): ArrowDebug;
+  /** The bomb's trace on the last frame: the fall's points, and how many of them the trace reaches (0 before the release, all of them from the impact on). Allocates, so only for the checks. */
+  debugTrace(): { points: number; drawn: number };
 }
 
 /**
@@ -310,6 +322,17 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
   fallLine.renderOrder = ORDER.fall;
   fallCasing.frustumCulled = fallLine.frustumCulled = false;
 
+  // ── The bomb's trace: a solid line down the fall from the release to the bomb, on a casing, in the
+  // bomb's own red (a darker seat colour on the other jets, thinner and with no casing). Its buffer is
+  // refilled in place whenever the clock's time or the source changes.
+  const trace = capacityGeometry(bag, Math.max(1, src.bombCapacity(jet) - 1), false, false);
+  const traceMat = bag.add(wideLine(bombRed.clone(), BOMB_TRACE_PX));
+  const traceCasing = new LineSegments2(trace.geom, bag.add(wideLine(new Color(LINE_CASING), BOMB_TRACE_CASING_PX)));
+  const traceLine = new LineSegments2(trace.geom, traceMat);
+  traceCasing.renderOrder = ORDER.traceCasing;
+  traceLine.renderOrder = ORDER.trace;
+  traceCasing.frustumCulled = traceLine.frustumCulled = false;
+
   // ── The bomb, while it falls: the planner's bomb-line red (a darker seat colour on the other jets).
   const bombMat = bag.add(new MeshBasicMaterial({ color: bombRed.clone(), fog: false, toneMapped: false }));
   const bomb = new Mesh(bag.add(bombGeometry()), bombMat);
@@ -334,7 +357,7 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
   let postsSource: SceneSource | undefined;
   let postsGround = -1;
 
-  const drawn = [...path.meshes, ...trail.meshes, fallCasing, fallLine, postLine, bomb, arrow];
+  const drawn = [...path.meshes, ...trail.meshes, fallCasing, fallLine, traceCasing, traceLine, postLine, bomb, arrow];
   o.parent.add(...drawn);
 
   // Scratch, made once: no frame allocates.
@@ -342,6 +365,8 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
   const dir = new Vector3(), m = new Matrix4(), qRoll = new Quaternion();
   const ORIGIN = new Vector3(0, 0, 0), UP = new Vector3(0, 1, 0), FWD = new Vector3(0, 0, -1), Z_AXIS = new Vector3(0, 0, 1);
   let lastTrailT = NaN;
+  /** The clock's time the trace was last laid for, and how many of the fall's points it then reached. */
+  let lastTraceT = NaN, traceFlown = 0;
   const D2R = Math.PI / 180;
   /** Whether this jet wears the planner's colour code now (the watched jet, or every jet with All jets). */
   let coded = true;
@@ -375,7 +400,7 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
 
   /**
    * Put on the look of a coded jet or of another one: widths, casings, draw order, the bomb's colour
-   * and outline, the fall line and the posts' strength; then the path and the trail are refilled in their colours
+   * and outline, its trace, the fall line and the posts' strength; then the path and the trail are refilled in their colours
    * and the posts laid again (the IP's goes with the IP disc). Only when the look changes.
    */
   function wear(on: boolean) {
@@ -385,6 +410,9 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
       on ? { casing: ORDER.trailCasing, line: ORDER.trail } : { casing: ORDER.otherTrailCasing, line: ORDER.otherTrail });
     bombMat.color.copy(on ? bombRed : bombSeat);
     hullMat.color.copy(on ? hullWhite : hullDark);
+    traceMat.color.copy(on ? bombRed : bombSeat);
+    traceMat.linewidth = on ? BOMB_TRACE_PX : BOMB_TRACE_OTHER_PX;
+    traceCasing.visible = on;
     fallCasing.visible = fallLine.visible = on;
     postMat.transparent = !on;
     postMat.opacity = on ? 1 : OTHER_MARKER_ALPHA;
@@ -400,6 +428,7 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
     refillPath();
     refillFall();
     lastTrailT = NaN;
+    lastTraceT = NaN;
     postsSource = undefined;
   }
 
@@ -416,6 +445,30 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
       along += len;
     }
     finish(fall);
+  }
+
+  /**
+   * The trace into its buffer for clock time t: the segments between the fall's own points the bomb has
+   * reached (source.bombFlown of them), then one last piece from the latest of those to where the bomb is
+   * now (bpose, read this frame), so the line ends exactly on the bomb. From the impact on that is the
+   * whole fall and there is no last piece; before the release there is nothing.
+   */
+  function layTrace(t: number) {
+    const pts = src.plannedBomb(jet);
+    const total = pts.length / 3;
+    const flown = Math.min(src.bombFlown(jet, t), total);
+    trace.n = 0;
+    for (let s = 0; s + 1 < flown; s++) {
+      const a = s * 3;
+      putSegment(trace, pts[a], pts[a + 1], pts[a + 2], pts[a + 3], pts[a + 4], pts[a + 5], PHASE_RGB, 0, 0, 0);
+    }
+    if (flown > 0 && flown < total) {
+      const a = (flown - 1) * 3;
+      const dx = bpose.x - pts[a], dy = bpose.y - pts[a + 1], dz = bpose.z - pts[a + 2];
+      if (dx * dx + dy * dy + dz * dz >= TRACE_MIN_PIECE_M * TRACE_MIN_PIECE_M) putSegment(trace, pts[a], pts[a + 1], pts[a + 2], bpose.x, bpose.y, bpose.z, PHASE_RGB, 0, 0, 0);
+    }
+    finish(trace);
+    traceFlown = flown;
   }
 
   refillPath();
@@ -522,6 +575,11 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
         dir.set(bpose.vx, bpose.vy, bpose.vz);
         if (dir.lengthSq() > MIN_SPEED_MPS * MIN_SPEED_MPS) bomb.quaternion.setFromUnitVectors(FWD, dir.normalize());
       }
+      // The trace ends on the bomb, so it is laid after it, and only when the time (or the source) is new.
+      if (ctx.t !== lastTraceT) {
+        layTrace(ctx.t);
+        lastTraceT = ctx.t;
+      }
     },
 
     afterCamera(ctx) {
@@ -540,6 +598,7 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
     jetPosition: () => (arrow.visible ? arrow.position : undefined),
     bombPosition: () => (bomb.visible ? bomb.position : undefined),
     debugArrow,
+    debugTrace: () => ({ points: src.plannedBomb(jet).length / 3, drawn: traceFlown }),
 
     dispose() {
       o.parent.remove(...drawn);

@@ -94,6 +94,15 @@ export const TRAIL_OTHER_CASING_PX = 4.5;
 /** The bomb's whole fall: thin and dashed in the planner's bomb-line red, on its casing. */
 export const BOMB_LINE_PX = 1.5;
 export const BOMB_LINE_CASING_PX = 3.5;
+/**
+ * The bomb's trace: a solid line from the release to where the bomb is now, left in place after it lands, so
+ * the path it took to the target can be seen. On a jet that wears the planner's colour code it is the bomb
+ * line's red, heavier than the dashed fall line still ahead of it and no heavier than the jet's own trail, on
+ * a casing. The other jets' is the colour of their bomb, thinner and uncased, as their paths are.
+ */
+export const BOMB_TRACE_PX = 3;
+export const BOMB_TRACE_CASING_PX = 5;
+export const BOMB_TRACE_OTHER_PX = 1.5;
 /** How far back the trail reaches behind the jet, s of strike time. */
 export const TRAIL_S = 20;
 

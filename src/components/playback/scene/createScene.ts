@@ -156,11 +156,11 @@ export interface PlaybackScene {
   stats(): SceneStats;
   /**
    * Where jet `jet`'s (a playback index, default 0, the first flown jet) arrow, its falling bomb, its target's
-   * ring centre or its target's TGT disc is on screen, at the clock's current time (a pending change
-   * is drawn first). Undefined when that thing is not shown or is behind the camera. For the
-   * screenshot checks.
+   * ring centre, its target's TGT disc or the first point of its bomb's fall (the release point, shown or not)
+   * is on screen, at the clock's current time (a pending change is drawn first). Undefined when that thing
+   * is not shown or is behind the camera. For the screenshot checks.
    */
-  project(what: 'jet' | 'bomb' | 'target' | 'targetMark', jet?: number): ScreenPoint | undefined;
+  project(what: 'jet' | 'bomb' | 'target' | 'targetMark' | 'release', jet?: number): ScreenPoint | undefined;
   /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels, the bombs' rings). For the screenshot checks. */
   debugLabels(): LabelDebug;
   /**
@@ -169,6 +169,13 @@ export interface PlaybackScene {
    * is gone or the jet has no layer. For the screenshot checks.
    */
   debugArrow(jet?: number): ArrowDebug | null;
+  /**
+   * Jet `jet`'s (a playback index, default 0) bomb's trace as the layer drew it at the clock's current time (a
+   * pending change is drawn first): the fall's points, and how many of them the trace reaches (0 before the
+   * release, all of them from the impact on). Null when the scene is gone or the jet has no layer. For the
+   * screenshot checks.
+   */
+  debugTrace(jet?: number): { points: number; drawn: number } | null;
   /** Where a point (three.js axes: x east, y up, z = −north, m) is on screen through the camera as it is now. Undefined behind it. For the screenshot checks. */
   projectPoint(x: number, y: number, z: number): ScreenPoint | undefined;
   /** The box Home frames, ENU m (a copy). For the checks. */
@@ -536,6 +543,9 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       if (what === 'target' || what === 'targetMark') {
         const i = source.targetIndexOf(j);
         p = what === 'target' ? targets.ringCentre(i) : targets.markTop(i);
+      } else if (what === 'release') {
+        const pts = source.plannedBomb(j);
+        p = pts.length >= 3 ? probe.set(pts[0], pts[1], pts[2]) : undefined;
       } else {
         p = what === 'jet' ? jets[j].jetPosition() : jets[j].bombPosition();
       }
@@ -549,6 +559,13 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
         try { draw(0); } catch (err) { fail(err); return null; }
       }
       return jets[j].debugArrow();
+    },
+    debugTrace(j = 0) {
+      if (disposed || contextLost || fatal || j < 0 || j >= jets.length) return null;
+      if (dirty) {
+        try { draw(0); } catch (err) { fail(err); return null; }
+      }
+      return jets[j].debugTrace();
     },
     projectPoint(x, y, z) {
       if (disposed || contextLost || fatal) return undefined;
