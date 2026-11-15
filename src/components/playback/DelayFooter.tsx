@@ -5,18 +5,29 @@
  * readout's own words (the editor's strip prints the same), so a jet that is
  * not flown still warns here exactly as it does there.
  *
+ * At the right end: when the times have been moved off the plan's, a note that
+ * they have, and Reset, which puts every one back. Reset is always there, greyed
+ * and still while there is nothing to put back. A strike of one jet has no
+ * times to move, and says so.
+ *
  * It takes one line of height, however many warnings there are: the folded
  * ones open below it and scroll after a few lines.
  */
 import { useState } from 'react';
-import { FOOTER, FOOTER_MORE, FOOTER_OK, FOOTER_REST, FOOTER_WARN, keepFocus } from './ui';
+import { FOOTER, FOOTER_DIRTY, FOOTER_END, FOOTER_MORE, FOOTER_OK, FOOTER_REST, FOOTER_RESET, FOOTER_WARN, keepFocus } from './ui';
 
 interface DelayFooterProps {
   /** The readout's warnings at the times now. */
   warnings: readonly string[];
+  /** The times are not the plan's. */
+  dirty: boolean;
+  /** The strike has one member: there is nothing to space. */
+  single: boolean;
+  /** Reset was pressed. */
+  onReset(): void;
 }
 
-export function DelayFooter({ warnings }: DelayFooterProps) {
+export function DelayFooter({ warnings, dirty, single, onReset }: DelayFooterProps) {
   const [open, setOpen] = useState(false);
   const rest = warnings.slice(1);
   return (
@@ -39,6 +50,29 @@ export function DelayFooter({ warnings }: DelayFooterProps) {
             (+{rest.length} more)
           </button>
         )}
+        <div className={FOOTER_END}>
+          {single ? (
+            <span data-footer-single className={FOOTER_OK}>One jet: nothing to space.</span>
+          ) : (
+            <>
+              {dirty && <span data-footer-dirty className={FOOTER_DIRTY}>Times changed, not applied yet.</span>}
+              <button
+                type="button"
+                data-reset
+                // Never `disabled`: a disabled button drops out of the Tab order, and the keyboard should still find it.
+                aria-disabled={!dirty}
+                onClick={() => {
+                  if (dirty) onReset();
+                }}
+                onMouseDown={keepFocus}
+                className={FOOTER_RESET}
+                title="Back to the plan's times"
+              >
+                Reset
+              </button>
+            </>
+          )}
+        </div>
       </div>
       {open && rest.length > 0 && (
         <ul className={FOOTER_REST}>

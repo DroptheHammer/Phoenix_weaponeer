@@ -9,9 +9,17 @@
  * The lane's time axis is the clock's range. A mark that falls before the
  * axis starts (the IP crossing, with the default range) has no place on it: it
  * is "pinned" at the left edge in one small group instead of being lost.
+ *
+ * A jet's time over target is moved on its lane (a diamond to drag, keys, a
+ * box to type in). While one is being dragged the axis keeps the scale it had
+ * when the drag began, so the lane does not move under the pointer; the stripes
+ * of a jet's danger zones show where its time would put it inside another
+ * jet's frag.
  */
 
-import { PHASES, PHASE_STYLE, type PhaseStyle, type PlaybackPhase, type StrikePlayback, type StrikeTiming, type TimedConflict } from '../playback';
+import {
+  PHASES, PHASE_STYLE, type DangerZone, type PhaseStyle, type PlaybackPhase, type StrikePlayback, type StrikeTiming, type TimedConflict,
+} from '../playback';
 import type { ActionKind, MarkerMoment } from './actionPoints';
 import { CHIP_GAP_PX, chipWidth } from './laneStyle';
 
@@ -33,6 +41,37 @@ export function axisFraction(axis: Axis, t_s: number): number {
 export function axisTime(axis: Axis, f: number, step_s = 1): number {
   const t = axis.t0_s + clamp01(f) * (axis.t1_s - axis.t0_s);
   return step_s > 0 ? Math.round(t / step_s) * step_s : t;
+}
+
+/**
+ * The axis the lanes and the time bar draw on. While a time over target is being dragged it is the axis the
+ * drag began on (the very object, so nothing downstream sees it change); otherwise the live one, which follows
+ * the earliest first action. With nothing frozen yet it is the live one whatever is asked.
+ */
+export function laneAxis(frozen: Axis | undefined, live: Axis, dragging: boolean): Axis {
+  return dragging && frozen ? frozen : live;
+}
+
+/**
+ * What a key does to a time over target, in seconds, or undefined for a key the handle does not take. ←
+ * and ↓ take a second off, → and ↑ add one, with Shift five; Page Down and Page Up take and add five.
+ * Home and End are left alone.
+ */
+export function handleKeyStep(key: string, shift: boolean): number | undefined {
+  switch (key) {
+    case 'ArrowLeft':
+    case 'ArrowDown':
+      return shift ? -5 : -1;
+    case 'ArrowRight':
+    case 'ArrowUp':
+      return shift ? 5 : 1;
+    case 'PageDown':
+      return -5;
+    case 'PageUp':
+      return 5;
+    default:
+      return undefined;
+  }
 }
 
 // ─── Marks ────────────────────────────────────────────────────────────────────
@@ -168,6 +207,32 @@ export function conflictBands(conflicts: readonly TimedConflict[]): Band[] {
     t1_s: c.t1_s,
     title: `⚠ ${c.second} over the target inside ${c.first}'s frag (est.)`,
   }));
+}
+
+/**
+ * One stripe on a jet's own lane for each other member it would be in a frag conflict with: the times over
+ * target (strike time) at which it would warn against that member, from the library's own danger zone.
+ * `meLabel` is this jet's seat label, `seatLabels` every member's, by seat. The lane's stripes take no
+ * pointer, so the words are for a screen reader and for a seat's warning mark.
+ */
+export function zoneBands(zones: readonly DangerZone[], meLabel: string, seatLabels: readonly string[]): Band[] {
+  return zones.map((z) => ({
+    key: z.againstId,
+    t0_s: z.from_s,
+    t1_s: z.to_s,
+    title: `Frag conflict with ${seatLabels[z.againstMember]} if ${meLabel} is over the target here (est.)`,
+  }));
+}
+
+/** Is this seat (a member's place, as the readout counts them) the first or the second of any frag conflict? Flown or not. */
+export function seatInConflict(conflicts: readonly TimedConflict[], seat: number): boolean {
+  return conflicts.some((c) => c.firstIndex === seat || c.secondIndex === seat);
+}
+
+/** The time bar's own sentence for each conflict the seat is in, joined, for the warning mark beside its time; undefined when it is in none. */
+export function seatConflictTitle(conflicts: readonly TimedConflict[], seat: number): string | undefined {
+  const mine = conflicts.filter((c) => c.firstIndex === seat || c.secondIndex === seat);
+  return mine.length ? conflictBands(mine).map((b) => b.title).join(' · ') : undefined;
 }
 
 // ─── Chips ────────────────────────────────────────────────────────────────────

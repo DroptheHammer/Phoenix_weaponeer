@@ -1636,41 +1636,253 @@ async function checkAttackColours(page, tag) {
   await pbEval(page, () => __pb.goHome());
 }
 
+// ── Moving a time over target on its lane (the four-ship): the handle on each diamond, the box, Reset.
+
+/** Seat `n`'s (1-based) handle on its lane. */
+const handleOf = (page, n) => page.locator(`[role="dialog"] [role="slider"][aria-label="#${n} time over target"]`);
+/** Seat `n`'s box in its times cell. */
+const boxOf = (page, n) => page.getByRole('spinbutton', { name: `#${n} time over target, seconds after T`, exact: true });
+/** Seat `n`'s (1-based) lane axis box, page pixels. */
+const laneAxisOf = (page, n) => page.locator(`[role="dialog"] [data-lane="${n - 1}"] [data-lane-axis]`).boundingBox();
+/** The session's time over target of seat `n` (1-based), strike time. */
+const totOf = (page, n) => pbEval(page, (i) => { const s = __pb.session(); return s.delays_s[s.memberIds[i]]; }, n - 1);
+/** How many of the lanes' warning marks are showing, and on which seats (1-based). */
+const warnSeats = (page) => page.$$eval('[role="dialog"] [data-readout]', (els) =>
+  els.map((e) => ({ seat: Number(e.getAttribute('data-readout')) + 1, on: !!e.querySelector('[data-conflict-mark]') })).filter((x) => x.on).map((x) => x.seat));
+
 /**
- * Check 12 (re-times): a re-time swaps the source in the live scene, never rebuilds it. Paused at #2's
- * first action, #2 delayed 20 s more moves its arrow on screen (at least 20 px) while the clock stands
- * still; 30 re-times of #2 in a row; back to the plan, #2's arrow is where it was (1 px). Through it
- * all the scene is never created again and no tile is asked for again.
+ * Take hold of seat `n`'s handle and move it along its lane to strike time `t` (the lane's scale as it is
+ * when the hold begins, which is the clock's range). With `hold`, the pointer is left down: the caller lets
+ * go with page.mouse.up(). Returns where the handle was taken.
+ */
+async function dragHandle(page, n, t, { hold = false, steps = 4 } = {}) {
+  const h = await handleOf(page, n).boundingBox();
+  const axis = await laneAxisOf(page, n);
+  const snap = await pbEval(page, () => __pb.snapshot());
+  const f = Math.min(Math.max((t - snap.start) / (snap.end - snap.start), 0), 1);
+  const x = axis.x + axis.width * f;
+  const cy = h.y + h.height / 2;
+  await page.mouse.move(h.x + h.width / 2, cy);
+  await page.mouse.down();
+  await page.mouse.move(x, cy, { steps });
+  if (!hold) await page.mouse.up();
+  return { from: [h.x + h.width / 2, cy], to: [x, cy] };
+}
+
+/**
+ * Check 12 (re-times): moving a time over target swaps the source in the live scene, never rebuilds it. On
+ * the four-ship: #1 has a plain diamond and #2, #3 and #4 each a handle (three sliders); paused at #2's first
+ * action, #2's handle dragged 20 s later (10 s → 30 s) moves its arrow on screen (at least 20 px) while the
+ * clock stands still, its times cell reads "TOT T+0:30" with 30 in its box and Reset is on; then 30 more
+ * drags of #2 in a row; then Reset, and #2's arrow is where it was (1 px), its cell reads 10 again and Reset is
+ * greyed. Through it all the scene is never created again and no tile is asked for again.
  *
  * Proven red 2026-11-15 by one temporary edit to scene/createScene.ts, setSource returning at once (the
- * scene keeps drawing the old timing):
- *   STEP FAIL 12 re-times swap the source in the live scene: #2 moves, comes back, no new scene, no new tiles (1400x900-strike4) — #2 +20 s: arrow moved 0.0 px (want ≥ 20), clock still true; back to the plan: 0.00 px from where it was (want ≤ 1); sceneCreates 2 → 2; tile requests 175 → 175
- * (green: moved 149.5 px, back 0.00 px.)
+ * scene keeps drawing the old timing; 34 and 5c go red with it):
+ *   STEP FAIL 12 moving a time over target swaps the source in the live scene: … (1400x900-strike4) — sliders 3 (#2 time over target, #3 time over target, #4 time over target), seat #1's plain diamond 1; Reset on at the start false; #2 +20 s: arrow moved 0.0 px (want ≥ 20), clock still true, time 30, cell "TOT T+0:30\ns\n⚠\npush IP T-1:33", box 30, Reset on true; after 30 drags and Reset: 0.00 px from where it was (want ≤ 1), time 10, cell "TOT T+0:10\ns\n⚠\npush IP T-1:53", box 10, Reset on false; sceneCreates 2 → 2; tile requests 175 → 175
+ * (green: arrow moved 145.0 px, back 0.00 px.)
+ *
+ * The thirty drags end on the plan's own 10 s (the last of them lands there), where Reset is greyed (a time
+ * dragged away and back is clean) and Playwright will not click it; one more drag, to 20 s, comes first.
  */
 async function checkRetimes(page, tag) {
   const before = await pbEval(page, () => ({ creates: __pb.stats().sceneCreates, tiles: __pb.tileRequests() }));
   await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.goHome(); __pb.seek(__pb.moments.jets[1].firstAction); });
   await settle(page);
+  const sliders = await page.$$eval('[role="dialog"] [role="slider"]', (els) => els.map((e) => e.getAttribute('aria-label')));
+  const plainDiamonds = await page.$$eval('[role="dialog"] [data-lane="0"] [data-impact]', (els) => els.filter((e) => !e.closest('[role="slider"]')).length);
   const p0 = await pbEval(page, () => __pb.project(1, 'jet'));
-  await pbEval(page, () => __pb.retime([0, 30]));
+  const readout = (n) => page.locator(`[role="dialog"] [data-readout="${n - 1}"]`).innerText();
+  const resetOn = async () => (await page.locator('[role="dialog"] [data-reset]').getAttribute('aria-disabled')) === 'false';
+  const off0 = await resetOn();
+  await dragHandle(page, 2, 30);
   await settle(page);
   const p1 = await pbEval(page, () => __pb.project(1, 'jet'));
   const t1 = await pbEval(page, () => __pb.snapshot().t);
+  const later = { tot: await totOf(page, 2), text: await readout(2), box: await boxOf(page, 2).inputValue(), reset: await resetOn() };
   for (let i = 0; i < 30; i++) {
-    await pbEval(page, (d) => __pb.retime([0, d]), 10 + ((i * 7) % 11) * 4 - 20);
+    await dragHandle(page, 2, 10 + ((i * 7) % 11) * 4 - 20);
     if (i % 10 === 9) await settle(page, 50);
   }
-  await pbEval(page, () => __pb.retime([]));
+  // The thirty land on the plan's own 10 s at the last (a time dragged away and back is clean, and Reset is greyed): one more, away from it.
+  await dragHandle(page, 2, 20);
+  await settle(page);
+  await shot(page, `${tag}-12-drags`);
+  await page.locator('[role="dialog"] [data-reset]').click();
   await settle(page);
   const p2 = await pbEval(page, () => __pb.project(1, 'jet'));
   const t2 = await pbEval(page, () => __pb.snapshot().t);
-  await shot(page, `${tag}-12-retimes`);
+  const back = { tot: await totOf(page, 2), text: await readout(2), box: await boxOf(page, 2).inputValue(), reset: await resetOn() };
   const after = await pbEval(page, () => ({ creates: __pb.stats().sceneCreates, tiles: __pb.tileRequests() }));
   const d = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : NaN);
-  const moved = d(p0, p1), back = d(p0, p2);
-  step(`12 re-times swap the source in the live scene: #2 moves, comes back, no new scene, no new tiles (${tag})`,
-    moved >= 20 && back <= 1 && Math.abs(t2 - t1) < 1e-9 && after.creates === before.creates && after.tiles === before.tiles,
-    `#2 +20 s: arrow moved ${moved.toFixed(1)} px (want ≥ 20), clock still ${Math.abs(t2 - t1) < 1e-9}; back to the plan: ${back.toFixed(2)} px from where it was (want ≤ 1); sceneCreates ${before.creates} → ${after.creates}; tile requests ${before.tiles} → ${after.tiles}`);
+  const moved = d(p0, p1), home = d(p0, p2);
+  const sameClock = Math.abs(t2 - t1) < 1e-9;
+  step(`12 moving a time over target swaps the source in the live scene: #2's handle moves it, 30 more drags, Reset puts it back, no new scene, no new tiles (${tag})`,
+    sliders.join() === '#2 time over target,#3 time over target,#4 time over target' && plainDiamonds === 1 && !off0 &&
+      moved >= 20 && sameClock && later.tot === 30 && /T\+0:30/.test(later.text) && later.box === '30' && later.reset &&
+      home <= 1 && back.tot === 10 && /T\+0:10/.test(back.text) && back.box === '10' && !back.reset &&
+      after.creates === before.creates && after.tiles === before.tiles,
+    `sliders ${sliders.length} (${sliders.join(', ')}), seat #1's plain diamond ${plainDiamonds}; Reset on at the start ${off0}; #2 +20 s: arrow moved ${moved.toFixed(1)} px (want ≥ 20), clock still ${sameClock}, time ${later.tot}, cell ${JSON.stringify(later.text)}, box ${later.box}, Reset on ${later.reset}; ` +
+      `after 30 drags and Reset: ${home.toFixed(2)} px from where it was (want ≤ 1), time ${back.tot}, cell ${JSON.stringify(back.text)}, box ${back.box}, Reset on ${back.reset}; sceneCreates ${before.creates} → ${after.creates}; tile requests ${before.tiles} → ${after.tiles}`);
+}
+
+/**
+ * Check 34 (the drag part): while a handle is held the time bar and the lanes keep their scale, and when it
+ * is let go both re-fit. On the four-ship at the default range, paused: #2's handle taken and moved to the
+ * left end of its lane (60 s earlier, 10 s → -50 s), held: the clock's range is exactly as it was, the session
+ * is dragging and #2's time is -50; let go: the range starts 10 s before the earliest first action (worked out
+ * from the scene's own source) and ends where it did. Also on that: the warning marks are on all four seats
+ * at the plan's times (each is in a frag conflict) and on #3 and #4 alone once #2 is clear of #1; each of
+ * #2, #3 and #4's lanes shows stripes of its danger zones inside its axis, seat #1's none. The times are put
+ * back with Reset.
+ *
+ * Measured green 2026-11-15: the range -50.15…80.00 held while #2's handle is held at -50 s, -100.15…80.00
+ * once it is let go (#2's first action is then -90.15 s); marks on seats 1,2,3,4 then 3,4; three stripes on
+ * each of #2, #3 and #4's lanes.
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, an effect that sets the clock's range every
+ * time the range changes (`useEffect(() => { sceneRef.current?.setRange(live); }, [live]);`): the bar then
+ * moves under the handle while it is held:
+ *   STEP FAIL 34 the time bar keeps its scale while a handle is held and re-fits when it is let go; … (1400x900-strike4) — held at -50 s (time -50, dragging true): range -100.15…80.00 vs -50.15…80.00 before (kept false); let go: -100.15…80.00, want -100.15…80.00 (re-fit true, dragging false); warning marks on seats 1,2,3,4 then 3,4 (want 1,2,3,4 then 3,4); stripes per lane #1: 0, #2: 3, #3: 3, #4: 3
+ * (The same run with setSource returning at once, check 12's proof, also fails 34: the range is never re-fit, "let go: -50.15…80.00, want -50.15…80.00 (re-fit false".)
+ */
+async function checkDragRange(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  const start = await pbEval(page, () => __pb.snapshot());
+  const marksBefore = await warnSeats(page);
+  const zones = await page.$$eval('[role="dialog"] [data-lane]', (lanes) => lanes.map((l) => {
+    const axis = l.querySelector('[data-lane-axis]').getBoundingClientRect();
+    const z = [...l.querySelectorAll('[data-zone]')].map((e) => e.getBoundingClientRect());
+    return { seat: Number(l.getAttribute('data-lane')), n: z.length, inside: z.every((b) => b.width > 0 && b.left >= axis.left - 1 && b.right <= axis.right + 1) };
+  }));
+  await dragHandle(page, 2, start.start, { hold: true, steps: 6 });
+  await settle(page, 400);
+  const during = await pbEval(page, () => ({ snap: __pb.snapshot(), dragging: __pb.session().dragging }));
+  const heldTot = await totOf(page, 2);
+  await shot(page, `${tag}-34-held`);
+  await page.mouse.up();
+  await settle(page, 600);
+  const after = await pbEval(page, () => {
+    const s = __pb.source();
+    let first = Infinity;
+    for (let k = 0; k < s.jetCount; k++) first = Math.min(first, s.firstActionOf(k));
+    return { snap: __pb.snapshot(), dragging: __pb.session().dragging, want: first - 10 };
+  });
+  const marksAfter = await warnSeats(page);
+  await shot(page, `${tag}-34-let-go`);
+  await page.locator('[role="dialog"] [data-reset]').click();
+  await settle(page);
+  const kept = Math.abs(during.snap.start - start.start) < 1e-9 && Math.abs(during.snap.end - start.end) < 1e-9;
+  const refit = Math.abs(after.snap.start - after.want) < 1e-6 && Math.abs(after.snap.end - start.end) < 1e-9 && after.snap.start < start.start - 40;
+  const zonesOk = zones.length === 4 && zones[0].n === 0 && zones.slice(1).every((z) => z.n >= 1 && z.inside);
+  step(`34 the time bar keeps its scale while a handle is held and re-fits when it is let go; warning marks follow the times; stripes of the danger zones on the lanes (${tag})`,
+    kept && during.dragging && heldTot === -50 && !after.dragging && refit && marksBefore.join() === '1,2,3,4' && marksAfter.join() === '3,4' && zonesOk,
+    `held at -50 s (time ${heldTot}, dragging ${during.dragging}): range ${during.snap.start.toFixed(2)}…${during.snap.end.toFixed(2)} vs ${start.start.toFixed(2)}…${start.end.toFixed(2)} before (kept ${kept}); let go: ${after.snap.start.toFixed(2)}…${after.snap.end.toFixed(2)}, want ${after.want.toFixed(2)}…${start.end.toFixed(2)} (re-fit ${refit}, dragging ${after.dragging}); ` +
+      `warning marks on seats ${marksBefore.join(',')} then ${marksAfter.join(',')} (want 1,2,3,4 then 3,4); stripes per lane ${zones.map((z) => `#${z.seat + 1}: ${z.n}${z.inside ? '' : ' (outside the lane)'}`).join(', ')}`);
+}
+
+/**
+ * Check 5c (the times): the rebuilt scene keeps the times over target. On the four-ship #2's time is typed
+ * into its box (25, Enter), the graphics context is lost and given back, and after the rebuild the session
+ * still has 25, the scene's own source is the re-timed one (#2's impact at 25), the box reads 25, Reset is on,
+ * and the time bar starts and ends where it did. The times are put back with Reset.
+ *
+ * Proven red 2026-11-15 by two temporary edits to PlaybackView.tsx, the rebuilt scene made with the source the
+ * playback opened with and the times not handed over afterwards (`source={source}` → `source={built.source}` in
+ * the SceneHost's props, and the setSource effect's `[scene, source]` → `[source]`). Either edit alone leaves it
+ * green: the scene is told its source twice, when it is made and again when it is up, and the check holds that
+ * at least one of the two is kept:
+ *   STEP FAIL 5c after a rebuild: the times over target are kept (1400x900-strike4) — rebuilt true (sceneCreates 2 → 4); #2's time 25 → 25; its impact in the scene's source 25 → 10; box 25; Reset on true; time bar -50.15…80.00 → -50.15…80.00
+ * (The same run with setSource returning at once, check 12's proof, gives "its impact in the scene's source 10 → 25".)
+ */
+async function checkDelaysKept(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); });
+  await boxOf(page, 2).click();
+  await boxOf(page, 2).fill('25');
+  await page.keyboard.press('Enter');
+  await settle(page, 400);
+  const read = () => pbEval(page, () => ({ snap: __pb.snapshot(), impact: __pb.source().impactOf(1) }));
+  const was = { ...(await read()), tot: await totOf(page, 2) };
+  const b = await loseAndRestore(page);
+  await settle(page);
+  const now = { ...(await read()), tot: await totOf(page, 2), box: await boxOf(page, 2).inputValue(), reset: (await page.locator('[role="dialog"] [data-reset]').getAttribute('aria-disabled')) === 'false' };
+  const same = (x, y) => Math.abs(x - y) <= 0.01;
+  step(`5c after a rebuild: the times over target are kept (${tag})`,
+    b.remounted && was.tot === 25 && was.impact === 25 && now.tot === 25 && now.impact === 25 && now.box === '25' && now.reset && same(now.snap.start, was.snap.start) && same(now.snap.end, was.snap.end),
+    `rebuilt ${b.remounted} (sceneCreates ${b.before} → ${b.after}); #2's time ${was.tot} → ${now.tot}; its impact in the scene's source ${was.impact} → ${now.impact}; box ${now.box}; Reset on ${now.reset}; time bar ${was.snap.start.toFixed(2)}…${was.snap.end.toFixed(2)} → ${now.snap.start.toFixed(2)}…${now.snap.end.toFixed(2)}`);
+  await page.locator('[role="dialog"] [data-reset]').click();
+  await settle(page);
+}
+
+/**
+ * Check 17 (the handle and the box): the keyboard stays with playback. On the four-ship: #2's handle focused,
+ * Space plays and pauses (a handle is not a control that wants Space); → adds a second to #2's time (10 → 11),
+ * Shift+← takes five off (6), Page Up adds five (11), ↓ a second off (10), and Home and End do nothing; then
+ * with #2's box clicked into, Escape leaves the box and not playback (playback still open, the box not
+ * focused, the editor's Escape untouched) and Space then plays and pauses; typing 25 in the box and pressing
+ * Enter lets go of it (focus on playback, time 25) and Space plays and pauses again; and one more Escape
+ * closes playback, still without reaching the editor. Playback is opened again for the checks after.
+ *
+ * Proven red 2026-11-15, each by one temporary edit:
+ * - PlaybackOverlay.tsx, the number box's branch of the Escape handler taken out: Escape with the box
+ *   focused closes playback, and what is left of the check is skipped:
+ *   STEP FAIL 17 the handle and the box keep the keyboard: … (1400x900-strike4) — handle focused true, Space played and paused true; times after → Shift+← PgUp ↓ Home End: 11, 6, 11, 10, 10, 10 (want 11, 6, 11, 10, 10, 10); box focused true; Escape → playback still open false, box still focused false, editor Escapes 0 → 0, Space false; typed 25 and Enter → focus on none, time NaN, Space false; Escape → closed false, editor Escapes → 0
+ * - ui.ts, `leaveBox` without its second line (the focus goes to the page behind, not to playback), so Enter
+ *   leaves the box and Space then does nothing:
+ *   STEP FAIL 17 … (1400x900-strike4) — …; Escape → playback still open true, box still focused false, editor Escapes 0 → 0, Space true; typed 25 and Enter → focus on BODY, time 25, Space false; Escape → closed true, editor Escapes → 0
+ * - PlaybackOverlay.tsx, the key's skip list taking a slider too (`[role="slider"]` added to it): Space on the handle
+ *   does nothing:
+ *   STEP FAIL 17 … (1400x900-strike4) — handle focused true, Space played and paused false; times after → …: 11, 6, 11, 10, 10, 10 (want 11, 6, 11, 10, 10, 10); …
+ */
+async function checkDiamondKeys(page, tag) {
+  const esc = async () => (await pbEval(page, () => __pb.counters)).editorEscapes;
+  const e0 = await esc();
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); });
+  const playing = () => pbEval(page, () => __pb.snapshot().playing);
+  const spacePlays = async () => {
+    await page.keyboard.press(' ');
+    const on = await playing();
+    await page.keyboard.press(' ');
+    return on && !(await playing());
+  };
+  const focusRole = () => page.evaluate(() => (document.activeElement ? document.activeElement.getAttribute('role') || document.activeElement.tagName : 'none'));
+  await handleOf(page, 2).focus();
+  const onHandle = (await focusRole()) === 'slider';
+  const spaceOnHandle = await spacePlays();
+  const times = [];
+  for (const key of ['ArrowRight', 'Shift+ArrowLeft', 'PageUp', 'ArrowDown', 'Home', 'End']) {
+    await page.keyboard.press(key);
+    times.push(await totOf(page, 2));
+  }
+  const keysOk = times.join() === '11,6,11,10,10,10';
+  await boxOf(page, 2).click();
+  const inBox = await page.evaluate(() => document.activeElement && document.activeElement.type === 'number');
+  await page.keyboard.press('Escape');
+  const stillOpen = (await page.$('[role="dialog"]')) !== null;
+  const boxFocused = await page.evaluate(() => !!document.activeElement && document.activeElement.type === 'number');
+  const e1 = await esc();
+  // If that Escape closed playback there is nothing left to type into: the rest is skipped, and the check fails on what was seen.
+  let spaceAfterEsc = false, spaceAfterEnter = false, closed = false;
+  let afterEnter = { focus: 'none', tot: NaN };
+  if (stillOpen) {
+    spaceAfterEsc = await spacePlays();
+    await boxOf(page, 2).click();
+    await boxOf(page, 2).fill('25');
+    await page.keyboard.press('Enter');
+    afterEnter = { focus: await focusRole(), tot: await totOf(page, 2) };
+    spaceAfterEnter = await spacePlays();
+    await page.keyboard.press('Escape');
+    closed = await dialogGone(page).then(() => true, () => false);
+    if (!closed) await pbEval(page, () => __pb.close());
+  }
+  const e2 = await esc();
+  await page.click('[data-testid="opener"]');
+  await page.waitForSelector('[role="dialog"]');
+  await waitReady(page);
+  step(`17 the handle and the box keep the keyboard: Space from the handle, its keys, Escape and Enter leave the box, then Escape closes playback, never the editor (${tag})`,
+    onHandle && spaceOnHandle && keysOk && inBox && stillOpen && !boxFocused && e1 === e0 && spaceAfterEsc && afterEnter.focus === 'dialog' && afterEnter.tot === 25 && spaceAfterEnter && closed && e2 === e0,
+    `handle focused ${onHandle}, Space played and paused ${spaceOnHandle}; times after → Shift+← PgUp ↓ Home End: ${times.join(', ')} (want 11, 6, 11, 10, 10, 10); box focused ${inBox}; Escape → playback still open ${stillOpen}, box still focused ${boxFocused}, editor Escapes ${e0} → ${e1}, Space ${spaceAfterEsc}; typed 25 and Enter → focus on ${afterEnter.focus}, time ${afterEnter.tot}, Space ${spaceAfterEnter}; Escape → closed ${closed}, editor Escapes → ${e2}`);
 }
 
 /**
@@ -1978,6 +2190,11 @@ async function runStrikeChecks(browser, base) {
     await checkWatchSeat(page, `${tag}-strike4`);
     if (w === 1400) {
       await checkRetimes(page, `${tag}-strike4`);
+      await checkDragRange(page, `${tag}-strike4`);
+      await checkDelaysKept(page, `${tag}-strike4`);
+      // 17 on the four-ship closes playback and opens it again (a fresh session); the Escape below shuts it for
+      // the open-and-close check.
+      await checkDiamondKeys(page, `${tag}-strike4`);
       await page.keyboard.press('Escape'); // the open-and-close check starts with playback shut
       await dialogGone(page);
       // 4b: check 4 on the four-ship, so every jet layer's GPU objects are freed, not only the lead's.

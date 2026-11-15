@@ -28,6 +28,13 @@ export const PHASE_WORDS: Record<PlaybackPhase, string> = {
  */
 export const READOUT_TITLE = "times est., relative to the lead's TOT";
 
+/** The diamond that moves a jet's time over target, by name (for a screen reader) and as a tooltip, and the box that types it. */
+export const handleLabel = (seatLabel: string) => `${seatLabel} time over target`;
+export const handleTitle = (seatLabel: string) => `Drag to change ${seatLabel}'s time over target (←/→ 1 s, Shift+←/→ 5 s)`;
+export const boxLabel = (seatLabel: string) => `${seatLabel} time over target, seconds after T`;
+/** Said beside seat #1's time in a strike of more than one jet: it has no handle and no box. */
+export const heldTitle = (seatLabel: string) => `${seatLabel} is held still: move the other jets`;
+
 /** A mark's tooltip: the planner's words for a marker, ours for the IP marks and the impact; "(est.)" where the time is an estimate. */
 export function markTitle(m: LaneMark): string {
   const t = fmtStrikeTime(m.t_s);

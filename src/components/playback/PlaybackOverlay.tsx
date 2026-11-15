@@ -76,6 +76,14 @@ export function PlaybackOverlay({ title, onClose, onTogglePlay, returnFocusTo, c
           layer.dispatchEvent(new Event('pb-esc'));
           return;
         }
+        // A box a time is being typed in lets go first: this Escape leaves it (the focus goes to the window,
+        // so Space plays again), and the next one closes playback.
+        const box = document.activeElement;
+        if (box instanceof HTMLInputElement && box.type === 'number' && rootRef.current?.contains(box)) {
+          box.blur();
+          rootRef.current.focus({ preventScroll: true });
+          return;
+        }
         latest.current.onClose();
       } else if (e.key === 'Tab') {
         trapTab(e, rootRef.current!);

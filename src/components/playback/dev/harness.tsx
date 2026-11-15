@@ -28,7 +28,6 @@ import {
   jetColor, newSceneBombPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource, type Session, type SessionAction,
   type ShowState, type Speed, type TileSource,
 } from '../../../lib/playbackScene';
-import { retime } from '../../../lib/playback';
 import { JET_COLORS } from '../../../lib/jetColors';
 import PlaybackView from '../PlaybackView';
 import { PlaybackOverlay } from '../PlaybackOverlay';
@@ -123,11 +122,6 @@ interface PbHandle {
   bombAtImpact(jet?: number): { bomb: [number, number, number]; target: [number, number, number] };
   /** The source the scene draws now (after a re-time, the re-timed one). */
   source(): SceneSource | null;
-  /**
-   * Re-time the strike the way a delay change will: each member's delay in seat order (s; undefined or
-   * left off keeps its plan delay), handed to the live scene as a new source. No remount.
-   */
-  retime(delays: (number | undefined)[]): void;
   /** Map and elevation tiles asked for since the page loaded. */
   tileRequests(): number;
   /** The seat the view watches (0 = #1), null until playback has opened. */
@@ -243,14 +237,6 @@ const pb: PbHandle = {
     return { bomb: [b.x, b.y, b.z], target: [t.x, t.y, t.z] };
   },
   source: () => scene?.source() ?? null,
-  retime(delays) {
-    const pbNow = moments.pb;
-    const d: Record<string, number> = {};
-    pbNow.members.forEach((m, i) => {
-      if (Number.isFinite(delays[i])) d[m.id] = delays[i]!;
-    });
-    scene?.setSource(sceneSourceFrom(pbNow, retime(pbNow, d)));
-  },
   tileRequests: () => tileRequests,
   watched: () => sessionNow?.watched ?? null,
   session: () => sessionNow,

@@ -8,9 +8,20 @@
  * A seat that is not flown has a lane too, with the reason in place of the
  * band, so the lanes stay in the card's seat order.
  *
+ * The time over target is moved from here. On every lane but seat #1's (the
+ * others are timed against it) the diamond is a handle: drag it along the lane,
+ * or focus it and use the arrow keys (a second a press, five with Shift); or
+ * type the seconds into the box in the times cell, which a seat that is not
+ * flown has too. Amber stripes behind the diamond mark the times that would put
+ * the jet inside another's frag, and a warning mark beside its time says it is
+ * inside one now. While a handle is held the lanes keep the scale they had (the
+ * axis is handed in frozen), so the lane does not slide under the pointer.
+ *
  * Marks before the time bar starts (usually the IP crossing) sit at the left
  * edge in one small group, "‹ IP", instead of off the end of the bar. Chips
- * take the row above or below the band so none covers another.
+ * take the row above or below the band so none covers another. A diamond
+ * dragged past either end sits at that edge with an arrow, "‹◆" or "◆›", and
+ * can still be taken hold of.
  *
  * Only the thin white line that follows the clock listens to it; the rest is
  * drawn once per change of jets, axis or width, so nothing here re-renders
@@ -20,24 +31,26 @@
  * (the egress turn into its leg is told by the dash), the band is outlined,
  * and every chip and stretch has a tooltip with the planner's own words.
  */
-import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { LABEL_STYLE, MARKER_COLOR } from '../../lib/attackPicture';
 import {
-  axisFraction, BAND_H_PX, BAND_OUTLINE, BAND_TOP_PX, CHIP_DOT_PX, CHIP_H_PX, CHIP_TEXT, chipWidth, DIAMOND_EDGE, DIAMOND_PX, IP_TEXT, laneChips,
-  PIN_CHIP_BG, PIN_CHIP_TEXT, PIN_GLYPH, PIN_MARK_PX, pinnedGroup,
-  type ActionKind, type Axis, type LaneBand, type LaneMark, type SeatMarks,
+  axisFraction, axisTime, BAND_H_PX, BAND_OUTLINE, BAND_TOP_PX, CHIP_DOT_PX, CHIP_H_PX, CHIP_TEXT, chipWidth, DIAMOND_EDGE, DIAMOND_PX, handleKeyStep,
+  HANDLE_PX, IP_TEXT, laneChips, PIN_CHIP_BG, PIN_CHIP_TEXT, PIN_GLYPH, PIN_MARK_PX, pinnedGroup, ZONE_PAD_PX,
+  type ActionKind, type Axis, type Band, type LaneBand, type LaneMark, type SeatMarks,
 } from '../../lib/playbackScene';
 import { fmtStrikeTime } from '../../lib/strike';
 import type { PlaybackScene } from './scene/createScene';
-import { bandTitle, laneSummary, markTitle, pinnedTitle, READOUT_TITLE } from './laneText';
+import { bandTitle, boxLabel, handleLabel, handleTitle, heldTitle, laneSummary, markTitle, pinnedTitle, READOUT_TITLE } from './laneText';
 import {
-  bandBackground, CHIP, CHIP_LETTERS, keepFocus, LANE, LANE_LABEL, LANE_SKIPPED, LANES, PIN_MARK, READOUT, ROW_GRID, SEAT_DOT, SEAT_OFF, SEAT_ON,
-  SEAT_SKIPPED,
+  bandBackground, CHIP, CHIP_LETTERS, CONFLICT_MARK, HANDLE, HATCH, keepFocus, LANE, LANE_LABEL, LANE_SKIPPED, LANES, leaveBox, PIN_MARK, READOUT,
+  READOUT_LINE, ROW_GRID, SEAT_DOT, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, TIME_BOX,
 } from './ui';
 
 /** One member's lane: a jet's, or a skipped member's (marks and bands empty, the reason given). */
 export interface LaneInfo {
   seat: number;
+  /** The member's id: what a new time over target names. */
+  id: string;
   /** The seat label, "#1". */
   label: string;
   callsign?: string;
@@ -49,6 +62,12 @@ export interface LaneInfo {
   tot_s: number;
   /** When the card says to leave the IP, strike time; undefined when it has no figure. */
   cardPush_s: number | undefined;
+  /** Seat #1: held still, the others are timed against it. It has no handle and no box. */
+  locked: boolean;
+  /** Where this jet's time over target would put it inside another's frag: stripes behind its diamond (none for a locked or skipped seat). */
+  zones: readonly Band[];
+  /** In words, the frag conflicts the seat is in at its time now; undefined when it is in none. */
+  conflict: string | undefined;
   /** Why the jet is not flown, when it is not: the lane says so instead of drawing a band. */
   skipped?: string;
 }
@@ -62,6 +81,10 @@ interface JetLanesProps {
   watched: number;
   /** A seat button was pressed (only a flown seat's can be). */
   onWatch(seat: number): void;
+  /** A member's time over target is now this (strike time): the handle, its keys and the box all say it here. */
+  onDelay(id: string, value_s: number): void;
+  /** A handle was taken hold of (true) or let go (false). */
+  onDrag(on: boolean): void;
 }
 
 /** The white line at the clock's time. The one part of a lane that listens to the clock (about 12 times a second). */
@@ -101,13 +124,161 @@ function SeatButton({ info, watched, onWatch }: { info: LaneInfo; watched: boole
   );
 }
 
-/** A lane's right cell: the time over target and the card's push time. `title` explains them (left off for a strike of one). */
-function Readout({ info, title }: { info: LaneInfo; title?: string }) {
+/** A time to show in the box: whole seconds as they are, a fraction to the millisecond (a re-based plan can leave one). */
+const timeText = (t_s: number) => String(Math.round(t_s * 1000) / 1000);
+
+/**
+ * The box a time over target is typed in (seconds after T, negatives too). While it has the focus it keeps
+ * its own text, because "-" on the way to "-15" is not a time yet; each text that is a number is a new time
+ * at once, and when it loses the focus it shows the session's time again. Enter lets go of it.
+ */
+function TimeBox({ info, onDelay }: { info: LaneInfo; onDelay(id: string, value_s: number): void }) {
+  const [text, setText] = useState<string | undefined>(undefined);
+  return (
+    <>
+      <input
+        type="number"
+        step={1}
+        data-box={info.seat}
+        aria-label={boxLabel(info.label)}
+        value={text ?? timeText(info.tot_s)}
+        onChange={(e) => {
+          setText(e.currentTarget.value);
+          const v = e.currentTarget.valueAsNumber;
+          if (Number.isFinite(v)) onDelay(info.id, v);
+        }}
+        onBlur={() => setText(undefined)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          leaveBox(e.currentTarget);
+        }}
+        className={TIME_BOX}
+      />
+      <span aria-hidden>s</span>
+    </>
+  );
+}
+
+/** A lane's right cell: the time over target (typed in a box, or held), the card's push time, and a mark when the jet is inside another's frag. `title` explains the times (left off for a strike of one). */
+function Readout({ info, title, strike, onDelay }: { info: LaneInfo; title?: string; strike: boolean; onDelay(id: string, value_s: number): void }) {
   return (
     <div data-readout={info.seat} className={READOUT} title={title}>
-      <div>TOT {fmtStrikeTime(info.tot_s)}</div>
+      <div className={READOUT_LINE}>
+        <span>TOT {fmtStrikeTime(info.tot_s)}</span>
+        {info.locked ? (
+          strike && <span title={heldTitle(info.label)}>· held</span>
+        ) : (
+          <TimeBox info={info} onDelay={onDelay} />
+        )}
+        {info.conflict !== undefined && (
+          <span data-conflict-mark className={CONFLICT_MARK} title={info.conflict}>⚠</span>
+        )}
+      </div>
       <div>push IP {info.cardPush_s === undefined ? '—' : fmtStrikeTime(info.cardPush_s)}</div>
     </div>
+  );
+}
+
+interface HandleProps {
+  info: LaneInfo;
+  /** The axis the lane draws on now (frozen while a handle is held). */
+  axis: Axis;
+  width: number;
+  /** The lane's axis box: a pointer's place along it is a time. */
+  axisBox: RefObject<HTMLDivElement>;
+  /** The diamond is off the axis: it sits at that edge with an arrow. */
+  pinned: 'start' | 'end' | undefined;
+  /** The diamond's tooltip, said whole (the pinned words come first when it is off the axis). */
+  title: string;
+  onDelay(id: string, value_s: number): void;
+  onDrag(on: boolean): void;
+}
+
+/**
+ * The diamond that is also the handle: the planner's red with a pale edge, at the jet's time over target.
+ * A press takes hold of it (the pointer is captured, so it follows beyond the lane), and its place along the
+ * lane is the new time, to the second. A pointer moves faster than the picture can be redrawn, so the moves are
+ * kept and handed on once a frame; when the pointer is let go, lost or the handle loses the focus, the last
+ * one is handed on at once and the drag is over.
+ */
+function Handle({ info, axis, width, axisBox, pinned, title, onDelay, onDrag }: HandleProps) {
+  const held = useRef<number | undefined>(undefined); // the pointer holding it
+  const pending = useRef<number | undefined>(undefined);
+  const frame = useRef(0);
+  // The handlers below are made once per render, but a frame callback outlives it: it reads the latest.
+  const latest = useRef({ info, axis, onDelay, onDrag });
+  latest.current = { info, axis, onDelay, onDrag };
+
+  const flush = () => {
+    if (frame.current) cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    const v = pending.current;
+    pending.current = undefined;
+    if (v !== undefined) latest.current.onDelay(latest.current.info.id, v);
+  };
+  const letGo = () => {
+    if (held.current === undefined) return;
+    held.current = undefined;
+    flush();
+    latest.current.onDrag(false);
+  };
+  // Closing playback with a move still waiting: nothing is left to hand it to.
+  useEffect(() => () => { if (frame.current) cancelAnimationFrame(frame.current); }, []);
+
+  return (
+    <span
+      role="slider"
+      tabIndex={0}
+      data-handle={info.seat}
+      aria-label={handleLabel(info.label)}
+      aria-valuemin={axis.t0_s}
+      aria-valuemax={axis.t1_s}
+      aria-valuenow={info.tot_s}
+      aria-valuetext={fmtStrikeTime(info.tot_s)}
+      title={title}
+      className={HANDLE}
+      style={{ left: axisFraction(axis, info.tot_s) * width, top: BAND_TOP_PX + BAND_H_PX / 2, width: HANDLE_PX, height: HANDLE_PX }}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        held.current = e.pointerId;
+        onDrag(true);
+      }}
+      onPointerMove={(e) => {
+        if (held.current !== e.pointerId) return;
+        const box = axisBox.current?.getBoundingClientRect();
+        if (!box || !(box.width > 0)) return;
+        pending.current = axisTime(latest.current.axis, (e.clientX - box.left) / box.width);
+        if (!frame.current) {
+          frame.current = requestAnimationFrame(() => {
+            frame.current = 0;
+            const v = pending.current;
+            pending.current = undefined;
+            if (v !== undefined) latest.current.onDelay(latest.current.info.id, v);
+          });
+        }
+      }}
+      onPointerUp={letGo}
+      onPointerCancel={letGo}
+      onLostPointerCapture={letGo}
+      onBlur={letGo}
+      onKeyDown={(e) => {
+        const step = handleKeyStep(e.key, e.shiftKey);
+        if (step === undefined || e.altKey || e.ctrlKey || e.metaKey) return;
+        e.preventDefault();
+        onDelay(info.id, info.tot_s + step);
+      }}
+    >
+      {pinned === 'start' && <span aria-hidden data-pin-arrow="start" className="absolute right-full text-[11px] leading-3" style={{ color: PIN_GLYPH }}>‹</span>}
+      <span
+        aria-hidden
+        data-impact
+        className="rotate-45"
+        style={{ width: DIAMOND_PX, height: DIAMOND_PX, background: MARKER_COLOR.TGT, border: `1px solid ${DIAMOND_EDGE}` }}
+      />
+      {pinned === 'end' && <span aria-hidden data-pin-arrow="end" className="absolute left-full text-[11px] leading-3" style={{ color: PIN_GLYPH }}>›</span>}
+    </span>
   );
 }
 
@@ -120,16 +291,21 @@ interface LaneProps {
   onWatch(seat: number): void;
   /** The times cell's tooltip: given when the strike has more than one jet. */
   readoutTitle?: string;
+  /** The strike has more than one member: seat #1 is "held", the others can be moved. */
+  strike: boolean;
+  onDelay(id: string, value_s: number): void;
+  onDrag(on: boolean): void;
 }
 
-function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle }: LaneProps) {
+function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike, onDelay, onDrag }: LaneProps) {
   const { marks, bands } = info;
   const pinned = marks.pinnedStart;
   const group = pinnedGroup(marks);
+  const axisBox = useRef<HTMLDivElement>(null);
   // Each chip's place, worked out once per change of marks, axis or width.
   const placed = useMemo(() => laneChips(marks, axis, width), [marks, axis, width]);
 
-  const impact = marks.marks.find((m) => m.kind === 'impact');
+  const impact = [...marks.pinnedStart, ...marks.marks, ...marks.pinnedEnd].find((m) => m.kind === 'impact');
   const extent = bands.length ? { f0: bands[0].f0, f1: bands[bands.length - 1].f1 } : undefined;
   const span = extent ? Math.max(extent.f1 - extent.f0, 1e-9) : 1;
 
@@ -142,7 +318,7 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle }: Lane
             <span className="truncate">not flown in 3D: {info.skipped}</span>
           </div>
         </div>
-        <Readout info={info} title={readoutTitle} />
+        <Readout info={info} title={readoutTitle} strike={strike} onDelay={onDelay} />
       </div>
     );
   }
@@ -152,7 +328,26 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle }: Lane
       <SeatButton info={info} watched={watched} onWatch={onWatch} />
 
       <div className={LANE}>
-        <div data-lane-axis role="img" aria-label={laneSummary(info.label, info.callsign, marks)} className="relative h-full">
+        <div ref={axisBox} data-lane-axis className="relative h-full">
+          {/* The lane's picture, said in one sentence for a screen reader: an image of its own, with nothing inside it (what is inside an image is not offered as a control, and the handle must be). */}
+          <span role="img" aria-label={laneSummary(info.label, info.callsign, marks)} className="pointer-events-none absolute inset-0" />
+
+          {/* Behind everything: the times at which this jet's time over target would put it inside another's frag. Nothing here takes a press. */}
+          {info.zones.map((z) => {
+            const f0 = axisFraction(axis, z.t0_s);
+            const f1 = axisFraction(axis, z.t1_s);
+            if (!(f1 > f0)) return null;
+            return (
+              <span
+                key={z.key}
+                aria-hidden
+                data-zone={z.key}
+                className="pointer-events-none absolute"
+                style={{ left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%`, top: BAND_TOP_PX - ZONE_PAD_PX, height: BAND_H_PX + 2 * ZONE_PAD_PX, background: HATCH }}
+              />
+            );
+          })}
+
           {extent && (
             // The band's outline runs round exactly the stretch the jet is flying, not the whole axis.
             <div
@@ -225,7 +420,8 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle }: Lane
             </span>
           )}
 
-          {impact && width > 0 && (
+          {impact && width > 0 && (info.locked ? (
+            // Seat #1's time is held: a plain mark, the diamond with nothing to take hold of.
             // The time over target: a diamond on the band, the planner's red with a pale edge (the red alone is faint on the panel for some eyes).
             <span
               aria-hidden
@@ -234,18 +430,29 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle }: Lane
               className="absolute z-[5] -translate-x-1/2 -translate-y-1/2 rotate-45"
               style={{ left: axisFraction(axis, impact.t_s) * width, top: BAND_TOP_PX + BAND_H_PX / 2, width: DIAMOND_PX, height: DIAMOND_PX, background: MARKER_COLOR.TGT, border: `1px solid ${DIAMOND_EDGE}` }}
             />
-          )}
+          ) : (
+            <Handle
+              info={info}
+              axis={axis}
+              width={width}
+              axisBox={axisBox}
+              pinned={impact.pinned}
+              title={impact.pinned ? `${pinnedTitle([impact])}. ${handleTitle(info.label)}` : handleTitle(info.label)}
+              onDelay={onDelay}
+              onDrag={onDrag}
+            />
+          ))}
 
           {scene && <NowLine scene={scene} axis={axis} />}
         </div>
       </div>
 
-      <Readout info={info} title={readoutTitle} />
+      <Readout info={info} title={readoutTitle} strike={strike} onDelay={onDelay} />
     </div>
   );
 }
 
-export function JetLanes({ scene, axis, lanes, watched, onWatch }: JetLanesProps) {
+export function JetLanes({ scene, axis, lanes, watched, onWatch, onDelay, onDrag }: JetLanesProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   // The lanes are all the same width (the grid sees to that), so one observer on the first axis box tells them all.
   const [width, setWidth] = useState(0);
@@ -259,10 +466,13 @@ export function JetLanes({ scene, axis, lanes, watched, onWatch }: JetLanesProps
     return () => ro.disconnect();
   }, [lanes.length]);
 
-  const readoutTitle = lanes.length >= 2 ? READOUT_TITLE : undefined;
+  const strike = lanes.length >= 2;
+  const readoutTitle = strike ? READOUT_TITLE : undefined;
   return (
     <div ref={rootRef} role="group" aria-label="Jets: pick the one to watch" className={LANES}>
-      {lanes.map((l) => <Lane key={l.seat} info={l} scene={scene} axis={axis} width={width} watched={l.seat === watched} onWatch={onWatch} readoutTitle={readoutTitle} />)}
+      {lanes.map((l) => (
+        <Lane key={l.seat} info={l} scene={scene} axis={axis} width={width} watched={l.seat === watched} onWatch={onWatch} readoutTitle={readoutTitle} strike={strike} onDelay={onDelay} onDrag={onDrag} />
+      ))}
     </div>
   );
 }

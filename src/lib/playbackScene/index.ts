@@ -17,8 +17,9 @@
  * Home frames, which camera opens), show (what the 3D view shows: the Show
  * menu's state), session (what the open playback remembers: the jet watched,
  * the camera, the Show choices, every member's time over target), lanes (the
- * timeline's axis, each jet's phase bands and lettered marks, where the chips
- * go, the stretches of frag conflict), laneStyle (the timeline's sizes and
+ * timeline's axis (kept still while a time is dragged), each jet's phase bands
+ * and lettered marks, where the chips go, the stretches of frag conflict and
+ * of each jet's danger zones, the keys that move a time), laneStyle (the timeline's sizes and
  * the colours that are not the planner's), terrain (box, tiles, heights, mesh,
  * credits), tileLoading (the loader's rules: reply bytes, the request pool,
  * all-or-nothing heights, the drape's upload pace, the skirt and the haze).

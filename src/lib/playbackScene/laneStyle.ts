@@ -37,6 +37,10 @@ export const BAND_OUTLINE = '#d1d5db';
 export const DIAMOND_EDGE = '#ffffff';
 /** The diamond's side before it is turned on its corner. */
 export const DIAMOND_PX = 9;
+/** The handle round the diamond on every lane but seat #1's: this big a square to take hold of, centred on the diamond. */
+export const HANDLE_PX = 16;
+/** The stripes of a lane's danger zone reach this far above and below the band, so they show round it as well as beyond its ends. */
+export const ZONE_PAD_PX = 3;
 /** The "‹" before the group of marks that fall before the time bar starts (tailwind gray-300). */
 export const PIN_GLYPH = '#d1d5db';
 /**
@@ -73,6 +77,16 @@ export const SEAT_ON_BG = '#374151';
 export const SEAT_ON_TEXT = '#ffffff';
 export const QUIET_TEXT = '#9ca3af';
 export const WARN_TEXT = '#fcd34d';
+
+/**
+ * A lane's right cell and the buttons under the lanes (tailwind classes in ui.ts): the times in grey-300 on the
+ * panel, the box a time is typed into grey-700 with a grey-500 edge. The edge is what shows the box's shape,
+ * since its fill is close to the panel's own colour (grey-600 would read 2.09:1 on it). Geo-check holds each
+ * class string to the tailwind colour whose hex is written here.
+ */
+export const READOUT_TEXT = '#d1d5db';
+export const BOX_FILL = '#374151';
+export const BOX_EDGE = '#6b7280';
 
 /** The Show panel's background (tailwind gray-900). */
 export const MENU_BG = '#111827';

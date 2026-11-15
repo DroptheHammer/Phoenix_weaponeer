@@ -32,8 +32,22 @@
  * What the open playback remembers (the watched seat, the camera in use, the
  * Show choices and every member's time over target) is one pure session
  * (src/lib/playbackScene/session.ts), held here for as long as the playback is
- * open; it outlives a rebuilt scene, and nothing saves it. The times are the
- * plan's for now: nothing changes them yet.
+ * open; it outlives a rebuilt scene, and nothing saves it.
+ *
+ * The times over target are moved on the lanes (a handle on each diamond, the
+ * keys, a box to type in) and put back by Reset. Every new time re-times the
+ * strike: the timing, the readout's warnings, the stripes, the lanes and the
+ * scene's source are all worked out again from the session's times, and the
+ * live scene is handed the new source, never rebuilt. While a handle is held
+ * the paths are sampled coarsely so each move can be followed, and the time bar
+ * and the lanes keep the scale they had; when it is let go the paths are
+ * sampled finely again and both re-fit to the new earliest first action.
+ *
+ * The clock's range has two writers and no more. Show › Whole run-in sets it
+ * (and a rebuilt scene is handed the one in force); a committed change of times
+ * sets it inside the scene's setSource, which moves the range before the
+ * playhead's step. Nothing re-sets it whenever the range happens to change: the
+ * range moves while a handle is held, and the bar must not.
  *
  * Failures stay inside playback: nothing to fly gives a plain sentence; a
  * frame or shader that breaks is thrown into the local error boundary; a lost
@@ -41,10 +55,11 @@
  * after 5 s without it, offers Try again).
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { buildStrikePlayback, retime, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
+import { buildStrikePlayback, dangerZones, retime, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
-  conflictBands, initSession, jetColor, laneBands, laneMarks, markerMoments, openingMode, playRange, sceneSourceFrom, sessionReducer,
-  type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TileSource,
+  conflictBands, DRAG_PATH_STEP_S, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks, markerMoments, openingMode, PATH_STEP_S, playRange,
+  sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
+  type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TileSource,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
 import { tauriTiles } from './terrain/tauriTiles';
@@ -112,23 +127,31 @@ function openSession(built: BuiltOk): Session {
 
 /**
  * DEV ONLY (`npm run tauri dev`, never in a release build): the time between
- * drawn frames while the scene is moving, so "it feels slow on my machine"
- * can be reported as a number.
+ * drawn frames while the scene is moving, and what the last change of times cost
+ * to work out and hand to the scene, so "it feels slow on my machine" can be
+ * reported as a number.
  */
-function FrameTime({ scene }: { scene: PlaybackScene }) {
+function FrameTime({ scene, reTime }: { scene: PlaybackScene; reTime: () => number | undefined }) {
   const [ms, setMs] = useState(0);
+  const [re, setRe] = useState<number>();
   useEffect(() => {
-    const id = window.setInterval(() => setMs(scene.stats().frameMs), 500);
+    const id = window.setInterval(() => {
+      setMs(scene.stats().frameMs);
+      setRe(reTime());
+    }, 500);
     return () => window.clearInterval(id);
-  }, [scene]);
+  }, [scene, reTime]);
   if (!ms) return null;
   return (
     // Bottom right: the top right belongs to the view's buttons.
     <div className="absolute bottom-2 right-3 pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-xs font-mono text-gray-300">
-      dev: {ms.toFixed(1)} ms a frame ({Math.round(1000 / ms)} fps)
+      dev: {ms.toFixed(1)} ms a frame ({Math.round(1000 / ms)} fps){re !== undefined && ` · re-time ${re.toFixed(1)} ms`}
     </div>
   );
 }
+
+/** The clock for the dev readout above: a release build never calls it. */
+const devNow = () => (import.meta.env.DEV ? performance.now() : 0);
 
 export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, onScene, onSession }: PlaybackViewOwnProps) {
   const support = probeWebGL2(); // cached: free after the first call
@@ -150,34 +173,70 @@ interface PlaybackStageProps extends Pick<PlaybackViewOwnProps, 'onClose' | 'bin
 
 /** Everything that needs a plan to hold: the session, the lanes, the scene and its wiring. */
 function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScene, onSession }: PlaybackStageProps) {
-  const { pb, timing } = built;
+  const { pb } = built;
   const tileSource = tiles === null ? undefined : (tiles ?? tauriTiles);
 
-  // The session: the watched seat, the camera in use, what the Show menu has chosen. It outlives a
-  // rebuilt scene (it is not in it), and nothing saves it. The scene and the cameras take the watched
-  // seat's jet (a playback index), never the seat itself: a skipped #2 leaves #3 flying as jet 1.
+  // The session: the watched seat, the camera in use, what the Show menu has chosen, every member's time
+  // over target. It outlives a rebuilt scene (it is not in it), and nothing saves it. The scene and the
+  // cameras take the watched seat's jet (a playback index), never the seat itself: a skipped #2 leaves
+  // #3 flying as jet 1.
   const [session, dispatch] = useReducer(sessionReducer, built, openSession);
-  const { show, watched } = session;
+  const { show, watched, dragging } = session;
   const watchedJet = pb.members[watched]?.jet ?? 0;
   // The camera the scene is told about: the side view (not built yet) leaves the scene's own camera as it is.
   const cameraMode: CameraMode = session.mode === 'side' ? 'orbit' : session.mode;
-  // The clock's range as the Show choices stand: a rebuilt scene opens with the range in force now.
-  const range = useMemo(() => playRange(pb, timing, show.wholeRunIn), [pb, timing, show.wholeRunIn]);
+
+  // The strike at the times as they stand. Playback opened with the plan's times, for which the timing and
+  // the source were already worked out (the first render reuses them); any other set is worked out afresh.
+  // While a handle is held the paths are sampled coarsely, so every move can be followed.
+  const openedWith = useRef(session.delays_s);
+  const reTime = useRef({ timing: 0, source: 0, scene: 0 }); // DEV: what the last change cost, ms
+  const timing = useMemo(() => {
+    if (session.delays_s === openedWith.current) return built.timing;
+    const t0 = devNow();
+    const t = retime(pb, session.delays_s);
+    reTime.current.timing = devNow() - t0;
+    return t;
+  }, [built, pb, session.delays_s]);
+  const source = useMemo(() => {
+    if (timing === built.timing && !dragging) return built.source;
+    const t0 = devNow();
+    const s = sceneSourceFrom(pb, timing, dragging ? DRAG_PATH_STEP_S : PATH_STEP_S);
+    reTime.current.source = devNow() - t0;
+    return s;
+  }, [built, pb, timing, dragging]);
+
+  // The clock's range as the Show choices stand, and the axis the lanes and the bar draw on: the same range,
+  // except that while a handle is held it stays as it was when the hold began (the lane must not slide under
+  // the pointer). A rebuilt scene opens with the axis in force now.
+  const live = useMemo(() => playRange(pb, timing, show.wholeRunIn), [pb, timing, show.wholeRunIn]);
+  const frozen = useRef<Axis>();
+  const axis = laneAxis(frozen.current, live, dragging);
+  useEffect(() => {
+    if (!dragging) frozen.current = live;
+  }, [dragging, live]);
   const camera = useMemo(() => ({ mode: cameraMode, jet: watchedJet }), [cameraMode, watchedJet]);
 
-  // One lane for every member, on the time bar's own axis: phase bands and lettered marks, redone only when
-  // the plan or the range changes (never while it plays).
+  // One lane for every member, on the time bar's own axis: phase bands and lettered marks, the stripes of the
+  // times that would put a jet inside another's frag, and the warning mark where it is inside one now. Redone
+  // when the times or the axis change (never while it plays).
   const moments = useMemo(() => pb.jets.map((j) => markerMoments(j)), [pb]);
+  const seatLabels = useMemo(() => pb.members.map((m) => m.label), [pb]);
   const lanes = useMemo<LaneInfo[]>(() => {
-    const bands = laneBands(pb, timing, range);
-    const marks = laneMarks(pb, timing, range, (k) => moments[k]);
+    const bands = laneBands(pb, timing, axis);
+    const marks = laneMarks(pb, timing, axis, (k) => moments[k]);
     // The seat's colour, as the scene draws the jet (a skipped #2 leaves the next jet as #3, in #3's colour).
     return pb.members.map((m, seat) => {
-      const base = { seat, label: m.label, colour: jetColor(seat), marks: marks[seat], bands: bands[seat], tot_s: timing.delays_s[m.id], cardPush_s: timing.readout.pushes[seat]?.push_s };
-      if (m.jet === undefined) return { ...base, skipped: pb.skipped.find((s) => s.id === m.id)?.reason ?? 'Not flown in 3D.' };
-      return { ...base, callsign: pb.jets[m.jet].callsign };
+      const locked = m.id === session.locked;
+      const base = {
+        id: m.id, seat, label: m.label, colour: jetColor(seat), marks: marks[seat], bands: bands[seat], tot_s: timing.delays_s[m.id],
+        cardPush_s: timing.readout.pushes[seat]?.push_s, locked,
+        conflict: seatInConflict(timing.conflicts, seat) ? seatConflictTitle(timing.conflicts, seat) : undefined,
+      };
+      if (m.jet === undefined) return { ...base, zones: [], skipped: pb.skipped.find((s) => s.id === m.id)?.reason ?? 'Not flown in 3D.' };
+      return { ...base, zones: locked ? [] : zoneBands(dangerZones(pb, timing, m.jet), m.label, seatLabels), callsign: pb.jets[m.jet].callsign };
     });
-  }, [pb, timing, range, moments]);
+  }, [pb, timing, axis, moments, seatLabels, session.locked]);
   const watchedBands = useMemo(() => lanes.find((l) => l.seat === watched)?.bands ?? [], [lanes, watched]);
   const conflicts = useMemo(() => conflictBands(timing.conflicts), [timing]);
 
@@ -221,13 +280,22 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
     groundWanted.current = mode;
     sceneRef.current?.setGround(mode);
   }, []);
-  // The one way the session is changed, by the menu and by the dev harness alike. Whole run-in also
-  // moves the live clock's range, here and only here: a rebuilt scene takes the range as a prop instead.
+  // The one way the session is changed, by the menu, the lanes and the dev harness alike. Whole run-in also
+  // moves the live clock's range, here and only here (a change of times moves it inside setSource, below): a
+  // rebuilt scene takes the range as a prop instead.
   const act = useCallback((a: SessionAction) => {
     dispatch(a);
     if (a.type === 'show' && a.a.type === 'wholeRunIn') sceneRef.current?.setRange(playRange(pb, timing, a.a.on));
   }, [pb, timing]);
   const actShow = useCallback((a: ShowAction) => act({ type: 'show', a }), [act]);
+  const setDelay = useCallback((id: string, value_s: number) => act({ type: 'delay', id, value_s }), [act]);
+  const setDrag = useCallback((on: boolean) => act({ type: 'drag', on }), [act]);
+  const reset = useCallback(() => act({ type: 'reset' }), [act]);
+  // DEV: nothing to report until the times have been changed once.
+  const reTimeMs = useCallback(() => {
+    const ms = reTime.current.timing + reTime.current.source + reTime.current.scene;
+    return import.meta.env.DEV && ms > 0 ? ms : undefined;
+  }, []);
 
   // A lost context that does not come back: offer Try again rather than a frozen picture.
   useEffect(() => {
@@ -252,6 +320,20 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
     onSession?.(session, act);
   }, [session, act, onSession]);
 
+  // Every new set of times hands the live scene its new source (never a rebuild). A committed change
+  // (a time let go of, typed, stepped by a key, or Reset) also hands over the axis, and the scene moves the
+  // clock's range inside the same call, before the playhead's step; while a handle is held it hands over the
+  // source alone, so the bar keeps its scale. The scene made a moment ago already has this source: no change.
+  useEffect(() => {
+    if (!scene) return;
+    const t0 = devNow();
+    scene.setSource(source, dragging ? {} : { range: axis });
+    reTime.current.scene = devNow() - t0;
+    // The axis and the drag flag read here are those of the render that made this source. (Whole run-in
+    // changes the axis alone, and moves the range itself, in `act`.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, source]);
+
   // What the labels, the action points and the colour code show, handed to the scene whenever the choice
   // changes and to every scene made (a rebuilt one included), so a context loss keeps them.
   useEffect(() => {
@@ -271,9 +353,9 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
       <div className="relative flex-1 min-h-0">
         <SceneHost
           key={mountKey}
-          source={built.source}
+          source={source}
           tiles={tileSource}
-          range={range}
+          range={axis}
           startAt_s={resumeAt.current}
           camera={camera}
           onReady={onReady}
@@ -285,12 +367,12 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
         />
         {/* On its own dark plate: behind it can be the navy sky, the pale haze or the map. */}
         <div className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
-        {scene && <CanvasChips scene={scene} source={built.source} jet={watchedJet} mode={cameraMode} />}
+        {scene && <CanvasChips scene={scene} source={source} jet={watchedJet} mode={cameraMode} />}
         {software && <SoftwareChip />}
         {scene && (
-          <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={cameraMode} seat={built.source.labelOf(watchedJet)} onMode={pickCamera} />
+          <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={cameraMode} seat={source.labelOf(watchedJet)} onMode={pickCamera} />
         )}
-        {import.meta.env.DEV && scene && <FrameTime scene={scene} />}
+        {import.meta.env.DEV && scene && <FrameTime scene={scene} reTime={reTimeMs} />}
         {!scene && <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">Starting 3D…</div>}
         {lost === 'stuck' && (
           <PlaybackUnavailable
@@ -303,8 +385,8 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
       </div>
       <div className="shrink-0 border-t border-gray-700 bg-dcs-navy px-4 py-2 space-y-1">
         {scene ? <Timeline scene={scene} bands={watchedBands} conflicts={conflicts} /> : <div className="h-8" />}
-        <JetLanes scene={scene} axis={range} lanes={lanes} watched={watched} onWatch={watchSeat} />
-        <DelayFooter warnings={timing.readout.warnings} />
+        <JetLanes scene={scene} axis={axis} lanes={lanes} watched={watched} onWatch={watchSeat} onDelay={setDelay} onDrag={setDrag} />
+        <DelayFooter warnings={timing.readout.warnings} dirty={isDirty(session)} single={pb.members.length < 2} onReset={reset} />
         <StatusNotes terrain={terrain} notes={built.launch.notes} restoring={lost === 'restoring'} onGround={onGround} />
       </div>
     </div>

@@ -140,11 +140,13 @@ import {
 import {
   initSession, sessionReducer, isDirty, conflictBands, SEAT_TEXT, SEAT_ON_BG, SEAT_ON_TEXT, QUIET_TEXT, WARN_TEXT, type Session, type SessionAction, type ShowAction,
 } from '../src/lib/playbackScene';
-import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary } from '../src/components/playback/laneText';
+import { laneAxis, zoneBands, seatInConflict, seatConflictTitle, handleKeyStep, READOUT_TEXT, BOX_FILL, BOX_EDGE } from '../src/lib/playbackScene';
+import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle } from '../src/components/playback/laneText';
 import {
   LANE, LANES, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, LANE_SKIPPED, FOOTER_OK, FOOTER_MORE, FOOTER_WARN, FOOTER_REST,
+  READOUT, TIME_BOX, CONFLICT_MARK, FOOTER_DIRTY, FOOTER_RESET,
 } from '../src/components/playback/ui';
-import { PHASES, PHASE_STYLE } from '../src/lib/playback';
+import { PHASES, PHASE_STYLE, dangerZones, inDangerZone } from '../src/lib/playback';
 import {
   controlsFor, topDownPose, chasePose, yawDelta, targetEye, CHASE_BACK_M, CHASE_UP_M, CHASE_MIN_M, CHASE_MAX_M, CHASE_SWING_DEG,
   ZOOM_SPEED, MAX_POLAR_DEG, TOP_POLAR_RAD, MIN_CAMERA_AGL_M, type ControlsConfig,
@@ -7729,8 +7731,34 @@ void (async () => {
     const ln2Late = laneMarks(s4Pb, s4Timing, { t0_s: -20, t1_s: s4Timing.window.t1_s }, lnMoments(s4Pb))[0];
     const lateG = pinnedGroup(ln2Late);
     if (!lateG || lateG.ip || lateG.letters !== String(ln2Late.pinnedStart.length) || ln2Late.pinnedStart.length < 4) ln2Bad ||= `#1 with the axis starting at -20 s: group ${JSON.stringify(lateG)} for ${ln2Late.pinnedStart.length} pinned`;
-    ok('playback B3 [LN2]: marks before the axis starts are pinned (the IP pair on #1, #2 and #4 of the four-ship; #3\'s own are on the axis and its lane has no group), none with Whole run-in, a mark exactly at the start is not pinned, and other pinned marks show as a count',
-       ln2Bad === '', ln2Bad || `pinned at the start: ${ln2.map((s) => s.pinnedStart.length).join('/')}; group for #1 ${JSON.stringify(pinnedGroup(ln2[0]))}`);
+    // A time over target moved past either end of the axis it is drawn on (the lanes keep their scale while a
+    // diamond is held): #2 moved to -80 s on the axis the plan had (starting at -50 s) puts every one of its marks
+    // before the start, its impact among them, so it is pinned at the start ("start", not on the axis) and the
+    // group counts the marks ("‹ 8"), never says "IP": the impact does not fold into the IP chip. #2 moved to
+    // +200 s puts its impact after the end: pinned at the end, and the left group is gone.
+    // Mutation proofs of this part (each seen red 2026-11-15): lanes.ts laneMarks without its end pin
+    // (`pinned = t_s < axis.t0_s ? 'start' : undefined`), which no other check looks at:
+    //   FAIL playback B3 [LN2]: … #2 moved past the end: impact undefined, left group undefined
+    // laneMarks never pinning the impact (`pinned = kind === 'impact' ? undefined : …`), which no other check looks at either:
+    //   FAIL playback B3 [LN2]: … #2 moved before the start: impact undefined, group {"letters":"7","ip":false,"filled":true,"reservedLeft_px":18} for 7 pinned
+    // lanes.ts pinnedGroup's `p.every(` → `p.some(` (an IP mark among the pinned marks makes the chip say "IP"; the
+    // clause above on #1 sees it too, and goes first):
+    //   FAIL playback B3 [LN2]: … #1 with the axis starting at -20 s: group {"letters":"IP","ip":true,"filled":true,"reservedLeft_px":24} for 5 pinned
+    const ln2Frozen = ln2Axis;
+    const ln2B = s4Pb.members[1].id;
+    const ln2Before = laneMarks(s4Pb, retime(s4Pb, { [ln2B]: -80 }), ln2Frozen, lnMoments(s4Pb))[1];
+    const ln2BeforeG = pinnedGroup(ln2Before);
+    const ln2BeforeImp = ln2Before.pinnedStart.find((m) => m.kind === 'impact');
+    if (!ln2BeforeImp || ln2BeforeImp.pinned !== 'start' || ln2Before.marks.some((m) => m.kind === 'impact') || !ln2BeforeG || ln2BeforeG.ip || ln2BeforeG.letters !== String(ln2Before.pinnedStart.length) || ln2Before.pinnedStart.length < 6) {
+      ln2Bad ||= `#2 moved before the start: impact ${ln2BeforeImp?.pinned}, group ${JSON.stringify(ln2BeforeG)} for ${ln2Before.pinnedStart.length} pinned`;
+    }
+    const ln2After = laneMarks(s4Pb, retime(s4Pb, { [ln2B]: 200 }), ln2Frozen, lnMoments(s4Pb))[1];
+    const ln2AfterImp = ln2After.pinnedEnd.find((m) => m.kind === 'impact');
+    if (!ln2AfterImp || ln2AfterImp.pinned !== 'end' || ln2After.marks.some((m) => m.kind === 'impact') || pinnedGroup(ln2After) !== undefined) {
+      ln2Bad ||= `#2 moved past the end: impact ${ln2AfterImp?.pinned}, left group ${JSON.stringify(pinnedGroup(ln2After))}`;
+    }
+    ok('playback B3 [LN2]: marks before the axis starts are pinned (the IP pair on #1, #2 and #4 of the four-ship; #3\'s own are on the axis and its lane has no group), none with Whole run-in, a mark exactly at the start is not pinned, other pinned marks show as a count; a time moved past an end of the frozen axis pins its impact there, counted, never as "IP"',
+       ln2Bad === '', ln2Bad || `pinned at the start: ${ln2.map((s) => s.pinnedStart.length).join('/')}; group for #1 ${JSON.stringify(pinnedGroup(ln2[0]))}; #2 at -80 s: group ${JSON.stringify(ln2BeforeG)}; at +200 s: impact pinned ${ln2AfterImp?.pinned}`);
 
     // [LN3] A lane's band runs from the jet's first visible moment to its last, clipped to the axis, in
     // unbroken stretches (1e-9), each in the phase the plan sample at its middle has, styled by
@@ -7900,6 +7928,8 @@ void (async () => {
     //   FAIL playback B3 [CT1]: … through their outlines  pinned count letters on its chip 4.02 (text, want 4.5)
     // QUIET_TEXT '#9ca3af' → '#4b5563' (the grey of a seat not flown and of the all-clear line, one step too dark), seen red 2026-11-15:
     //   FAIL playback B3 [CT1]: … through their outlines  quiet text (a seat not flown, the all-clear line) 2.09 (text, want 4.5)
+    // BOX_EDGE '#6b7280' → '#4b5563' (the edge that shows a time box's shape, one step too dark), seen red 2026-11-15 (LS2 goes red with it):
+    //   FAIL playback B3 [CT1]: … through their outlines  time box and Reset edge 2.09 (graphic, want 3)
     const tailwindNavy = /'dcs-navy':\s*'(#[0-9a-fA-F]{6})'/.exec(readFileSync('tailwind.config.js', 'utf8'))?.[1];
     const colour = (css: string) => parseColour(css)!;
     type Ct1 = { id: string; kind: 'graphic' | 'text'; fg: string; bg: string };
@@ -7923,6 +7953,11 @@ void (async () => {
       { id: 'watched seat label', kind: 'text', fg: SEAT_ON_TEXT, bg: SEAT_ON_BG },
       { id: 'quiet text (a seat not flown, the all-clear line)', kind: 'text', fg: QUIET_TEXT, bg: PANEL },
       { id: 'warning line', kind: 'text', fg: WARN_TEXT, bg: PANEL },
+      // A lane's times cell and the buttons under the lanes: the times, the box a time is typed in (its text on
+      // its fill, which is also Reset's hover fill, and its edge, which is what shows its shape on the panel).
+      { id: 'times text', kind: 'text', fg: READOUT_TEXT, bg: PANEL },
+      { id: 'time box and Reset text on the box\'s fill', kind: 'text', fg: READOUT_TEXT, bg: BOX_FILL },
+      { id: 'time box and Reset edge', kind: 'graphic', fg: BOX_EDGE, bg: PANEL },
       ...(['AP', 'ROLL', 'RUN', 'POP', 'PDP', 'TRK', 'REL'] as const).flatMap((k): Ct1[] => [
         { id: `${k} chip`, kind: 'graphic', fg: MARKER_COLOR[k], bg: PANEL },
         { id: `${k} letters on its chip`, kind: 'text', fg: CHIP_TEXT[k], bg: MARKER_COLOR[k] },
@@ -7958,6 +7993,8 @@ void (async () => {
     //   FAIL playback B3 [LS2]: … FOOTER_OK text: class gives #4b5563, laneStyle holds #9ca3af
     // ui.ts SEAT_OFF 'hover:bg-gray-700' → 'hover:bg-gray-100' (the hover fill read through its own prefix):
     //   FAIL playback B3 [LS2]: … SEAT_OFF hover fill: class gives #f3f4f6, laneStyle holds #374151
+    // ui.ts TIME_BOX 'border-gray-500' → 'border-gray-600' (the time box's edge, 2.09:1 on the panel; [CT1] stays green, it reads the constant):
+    //   FAIL playback B3 [LS2]: … TIME_BOX edge: class gives #4b5563, laneStyle holds #6b7280
     const twColours = createRequire(`${process.cwd()}/`)('tailwindcss/colors') as Record<string, string | Record<string, string> | undefined>;
     // A tailwind colour name ("gray-200", "white") as lower-case six-digit hex, or undefined when it is not one.
     const twHex = (name: string): string | undefined => {
@@ -7983,6 +8020,14 @@ void (async () => {
       ['FOOTER_MORE text', classHex(FOOTER_MORE, 'text'), QUIET_TEXT],
       ['FOOTER_WARN text', classHex(FOOTER_WARN, 'text'), WARN_TEXT],
       ['FOOTER_REST text', classHex(FOOTER_REST, 'text'), WARN_TEXT],
+      ['READOUT text', classHex(READOUT, 'text'), READOUT_TEXT],
+      ['TIME_BOX fill', classHex(TIME_BOX, 'bg'), BOX_FILL],
+      ['TIME_BOX edge', classHex(TIME_BOX, 'border'), BOX_EDGE],
+      ['CONFLICT_MARK text', classHex(CONFLICT_MARK, 'text'), WARN_TEXT],
+      ['FOOTER_DIRTY text', classHex(FOOTER_DIRTY, 'text'), WARN_TEXT],
+      ['FOOTER_RESET text', classHex(FOOTER_RESET, 'text'), READOUT_TEXT],
+      ['FOOTER_RESET edge', classHex(FOOTER_RESET, 'border'), BOX_EDGE],
+      ['FOOTER_RESET hover fill', classHex(FOOTER_RESET, 'hover:bg'), BOX_FILL],
     ];
     const ls2Bad = ls2.filter(([, got, want]) => got !== want).map(([n, got, want]) => `${n}: class gives ${got ?? 'no one colour'}, laneStyle holds ${want}`);
     ok('playback B3 [LS2]: every class string that sets the seat buttons\', the quiet text\'s or the warnings\' colour names the tailwind colour whose hex laneStyle carries (the one [CT1] holds against the panel)',
@@ -8632,6 +8677,140 @@ void (async () => {
     if (!t6Skipped) t6Bad.push('the skip variant has no conflict with its skipped member');
     ok('playback B3 [T6]: the time bar has one band per frag conflict, from the second jet\'s bombs landing to the first jet\'s frag clearing (the library\'s own t0 and t1), keys unique, a skipped member\'s conflict included',
        t6Bad.length === 0 && t6Cases[0].conflicts.length >= 1 && t6Cases[1].conflicts.length > t6Cases[0].conflicts.length, t6Bad.join('; ') || t6Cases.map((c) => `${c.name}: ${c.conflicts.length} bands`).join('; '));
+
+    // ── Moving a time over target on its lane: the stripes of the danger zones, the warning mark beside a
+    // time, the axis kept still while a diamond is held, and the keys that move it.
+
+    // [T7] A jet's lane has one stripe for each other member it would be in a frag conflict with if it were
+    // over the target then, on the library's own danger zone: the times from that member's frag before to its
+    // frag after, bracketing that member's own time over target (a zone that stopped at the member's time
+    // would leave half of the danger unmarked). Keys unique, one for each of the other members (a skipped
+    // member's zone included), the words naming that member by its seat and this jet by its own.
+    // Mutation proof (seen red 2026-11-15): lanes.ts zoneBands `t1_s: z.to_s` → `t1_s: z.T_s`:
+    //   FAIL playback B3 [T7]: … four-ship #2: the stripe against #1 is -30…0, the zone -30…30; four-ship #2: the stripe against #1 is -30…0 around its time 0 (want it inside); four-ship #2: the stripe against #3 is 10…40, the zone 10…70; …
+    const t7Cases = [
+      { name: 'four-ship #2', pb: s4Pb, timing: s4Timing, jet: 1 },
+      { name: 'four-ship #4', pb: s4Pb, timing: s4Timing, jet: 3 },
+      { name: 'skip variant #3', pb: skipPb, timing: retime(skipPb), jet: 1 },
+    ];
+    const t7Bad: string[] = [];
+    let t7N = 0;
+    for (const c of t7Cases) {
+      const labels = c.pb.members.map((m) => m.label);
+      const mine = c.pb.members.findIndex((m) => m.jet === c.jet);
+      const zones = dangerZones(c.pb, c.timing, c.jet);
+      const bands = zoneBands(zones, labels[mine], labels);
+      if (bands.length !== zones.length || bands.length !== c.pb.members.length - 1) t7Bad.push(`${c.name}: ${bands.length} stripes for ${zones.length} zones and ${c.pb.members.length - 1} other members`);
+      if (new Set(bands.map((b) => b.key)).size !== bands.length) t7Bad.push(`${c.name}: keys repeat`);
+      bands.forEach((b, i) => {
+        const z = zones[i];
+        t7N++;
+        if (b.t0_s !== z.from_s || b.t1_s !== z.to_s) t7Bad.push(`${c.name}: the stripe against ${labels[z.againstMember]} is ${b.t0_s}…${b.t1_s}, the zone ${z.from_s}…${z.to_s}`);
+        if (!(b.t0_s < z.T_s && z.T_s < b.t1_s)) t7Bad.push(`${c.name}: the stripe against ${labels[z.againstMember]} is ${b.t0_s}…${b.t1_s} around its time ${z.T_s} (want it inside)`);
+        if (b.key !== z.againstId || b.title !== `Frag conflict with ${labels[z.againstMember]} if ${labels[mine]} is over the target here (est.)`) t7Bad.push(`${c.name}: key ${b.key}, words "${b.title}"`);
+      });
+    }
+    // The skipped member's zone is there, named by its seat (the zone's own jet index is undefined for it).
+    const t7Skipped = zoneBands(dangerZones(skipPb, retime(skipPb), 1), '#3', skipPb.members.map((m) => m.label)).find((b) => b.key === skipPb.members[1].id);
+    if (!t7Skipped || !t7Skipped.title.includes('#2')) t7Bad.push(`skip variant: the skipped #2's stripe is ${JSON.stringify(t7Skipped)}`);
+    ok('playback B3 [T7]: a jet\'s lane has one stripe for each other member, on the library\'s danger zone (from that member\'s frag before to its frag after, round its time), keys unique, the words naming both seats, a skipped member\'s included',
+       t7Bad.length === 0 && t7N >= 8, t7Bad.join('; ') || `${t7Cases.length} lanes, ${t7N} stripes, each round the other member's time`);
+
+    // [T8] The warning mark beside a time and the stripes tell one story: sweeping #2's time over target from
+    // -40 s to +60 s in half seconds, the library's danger zones say it is inside another jet's frag exactly
+    // when the readout's own conflicts (re-timed at that time) have #2 as the first or the second of a pair;
+    // and the same for the skip variant's #3, whose zones include the skipped #2. A skipped member warns
+    // through the same call (it has a seat in every conflict, but no zone of its own).
+    // Mutation proof (seen red 2026-11-15): lanes.ts seatInConflict's `c.firstIndex === seat ||` dropped (the second of a pair only):
+    //   FAIL playback B3 [T8]: … four-ship #2: 80 of 201 times disagree (-29.5, -29, -28.5, -28…), 180 inside; skip variant #3: 59 of 201 times disagree (-29.5, -29, -28.5, -28…), 139 inside
+    const t8Sweep = (name: string, pb: StrikePlayback, jet: number) => {
+      const seat = pb.members.findIndex((m) => m.jet === jet), id = pb.members[seat].id;
+      const zones = dangerZones(pb, retime(pb), jet);
+      const off: number[] = [];
+      let inside = 0, n = 0;
+      for (let x = -40; x <= 60; x += 0.5) {
+        n++;
+        const z = inDangerZone(zones, x), c = seatInConflict(retime(pb, { [id]: x }).conflicts, seat);
+        if (z) inside++;
+        if (z !== c) off.push(x);
+      }
+      return { name, n, inside, off };
+    };
+    const t8Cases = [t8Sweep('four-ship #2', s4Pb, 1), t8Sweep('skip variant #3', skipPb, 1)];
+    const skipTwo = skipPb.members[1].id;
+    const t8Skipped = [5, 300].map((x) => seatInConflict(retime(skipPb, { [skipTwo]: x }).conflicts, 1));
+    const t8Bad = [
+      // Both outcomes must occur, or an agreement would prove nothing: some times inside, some outside.
+      ...t8Cases.filter((c) => c.off.length || c.inside < 20 || c.n - c.inside < 10).map((c) => `${c.name}: ${c.off.length} of ${c.n} times disagree (${c.off.slice(0, 4).join(', ')}…), ${c.inside} inside`),
+      ...(t8Skipped[0] === true && t8Skipped[1] === false ? [] : [`the skipped #2 at 5 s: ${t8Skipped[0]}, at 300 s: ${t8Skipped[1]} (want true, false)`]),
+    ];
+    ok('playback B3 [T8]: sweeping a time from -40 to +60 s in half seconds, the library\'s danger zones say a jet is inside another\'s frag exactly when the readout\'s conflicts have its seat as first or second; a skipped member warns the same way',
+       t8Bad.length === 0, t8Bad.join('; ') || t8Cases.map((c) => `${c.name}: ${c.n} times, ${c.inside} inside, 0 disagree`).join('; '));
+
+    // [T8b] What the warning mark says when you rest on it: the time bar's own sentence for each conflict the
+    // seat is in, joined, and nothing for a seat in none (no mark then). On the four-ship #2 is second of
+    // (#1, #2) and #3 is first of (#3, #4); with #2 moved to 100 s it is in none.
+    // Mutation proof (seen red 2026-11-15): lanes.ts seatConflictTitle without its `filter` (every conflict's words, not the seat's):
+    //   FAIL playback B3 [T8b]: … #2: "⚠ #2 over the target inside #1's frag (est.) · ⚠ #4 over the target inside #3's frag (est.)" (want "⚠ #2 over the target inside #1's frag (est.)"); #3: "⚠ #2 over the target inside #1's frag (est.) · ⚠ #4 …"; #2 away: ⚠ #4 over the target inside #3's frag (est.); #2 with #3 at 5 s: 2 conflicts, 3 sentences
+    const t8bGot = {
+      two: seatConflictTitle(s4Timing.conflicts, 1), three: seatConflictTitle(s4Timing.conflicts, 2),
+      away: seatConflictTitle(retime(s4Pb, { [sesB]: 100 }).conflicts, 1), twoBoth: seatConflictTitle(retime(s4Pb, { [sesC]: 5 }).conflicts, 1),
+    };
+    const t8bWant = {
+      two: `⚠ ${s4Timing.conflicts[0].second} over the target inside ${s4Timing.conflicts[0].first}'s frag (est.)`,
+      three: `⚠ ${s4Timing.conflicts[1].second} over the target inside ${s4Timing.conflicts[1].first}'s frag (est.)`,
+      away: undefined,
+    };
+    const t8bTwoBoth = retime(s4Pb, { [sesC]: 5 }).conflicts.filter((c) => c.firstIndex === 1 || c.secondIndex === 1).length;
+    ok('playback B3 [T8b]: the warning mark\'s words are the time bar\'s sentence for each conflict the seat is in (joined when it is in two), and none for a seat in none',
+       t8bGot.two === t8bWant.two && t8bGot.three === t8bWant.three && t8bGot.away === undefined && t8bTwoBoth >= 2 && (t8bGot.twoBoth ?? '').split(' · ').length === t8bTwoBoth,
+       `#2: ${JSON.stringify(t8bGot.two)} (want ${JSON.stringify(t8bWant.two)}); #3: ${JSON.stringify(t8bGot.three)} (want ${JSON.stringify(t8bWant.three)}); #2 away: ${t8bGot.away}; #2 with #3 at 5 s: ${t8bTwoBoth} conflicts, ${(t8bGot.twoBoth ?? '').split(' · ').length} sentences`);
+
+    // [LN5] The lanes and the time bar keep their scale while a diamond is held and re-fit when it is let
+    // go: while dragging the axis is the very object the drag began on (nothing downstream sees a change);
+    // otherwise the live one; with nothing frozen yet, the live one. After #2's time is moved 60 s before #1's
+    // the live axis starts at #2's first action less the run-in lead (and is more than 40 s earlier than the
+    // frozen one, which has not moved). Replaces the old hull-of-two-windows axis.
+    // Mutation proof (seen red 2026-11-15): lanes.ts laneAxis `dragging && frozen ? frozen : live` → `live` (dragging ignored):
+    //   FAIL playback B3 [LN5]: while a diamond is held the axis is the one the drag began on, … while dragging: not the axis the drag began on
+    const ln5Frozen = playRange(s4Pb, s4Timing, false);
+    const ln5Timing = retime(s4Pb, { [sesB]: -60 });
+    const ln5Live = playRange(s4Pb, ln5Timing, false);
+    const ln5Firsts = s4Pb.jets.map((j, k) => ln5Timing.jets[k].shift_s + firstActionTau(j).tau_s);
+    const ln5Bad: string[] = [];
+    if (laneAxis(ln5Frozen, ln5Live, true) !== ln5Frozen) ln5Bad.push('while dragging: not the axis the drag began on');
+    if (laneAxis(ln5Frozen, ln5Live, false) !== ln5Live) ln5Bad.push('after the drag: not the live axis');
+    if (laneAxis(undefined, ln5Live, true) !== ln5Live) ln5Bad.push('nothing frozen: not the live axis');
+    if (!(ln5Firsts[0] - ln5Firsts[1] > 50)) ln5Bad.push(`#2's first action ${ln5Firsts[1].toFixed(2)} is not 60 s before #1's ${ln5Firsts[0].toFixed(2)}`);
+    if (Math.abs(ln5Live.t0_s - (Math.min(...ln5Firsts) - RUN_LEAD_S)) > 1e-9 || ln5Live.t0_s !== ln5Firsts[1] - RUN_LEAD_S) ln5Bad.push(`live axis starts at ${ln5Live.t0_s}, want #2's first action ${ln5Firsts[1].toFixed(2)} less ${RUN_LEAD_S}`);
+    if (!(ln5Frozen.t0_s - ln5Live.t0_s > 40) || ln5Frozen.t0_s !== playRange(s4Pb, s4Timing, false).t0_s) ln5Bad.push(`the live axis is only ${(ln5Frozen.t0_s - ln5Live.t0_s).toFixed(1)} s earlier than the frozen one`);
+    ok('playback B3 [LN5]: while a diamond is held the axis is the one the drag began on, otherwise the live one; after #2 is moved 60 s before #1 the live axis starts 10 s before #2\'s first action',
+       ln5Bad.length === 0, ln5Bad.join('; ') || `frozen ${ln5Frozen.t0_s.toFixed(2)}…${ln5Frozen.t1_s.toFixed(2)}; live ${ln5Live.t0_s.toFixed(2)}…${ln5Live.t1_s.toFixed(2)}`);
+
+    // [LN7] The keys that move a time over target: ← and ↓ one second back, → and ↑ one forward, with Shift
+    // five; Page Down and Page Up five; Home, End, Enter, Space and letters are not the handle's (Space plays).
+    // Mutation proof (seen red 2026-11-15): lanes.ts handleKeyStep `case 'ArrowRight':` taken out of the +1 group (→ falls to undefined):
+    //   FAIL playback B3 [LN7]: … ArrowRight: undefined (want 1); Shift+ArrowRight: undefined (want 5)
+    const ln7: [string, boolean, number | undefined][] = [
+      ['ArrowLeft', false, -1], ['ArrowRight', false, 1], ['ArrowDown', false, -1], ['ArrowUp', false, 1],
+      ['ArrowLeft', true, -5], ['ArrowRight', true, 5], ['PageDown', false, -5], ['PageUp', false, 5],
+      ['Home', false, undefined], ['End', false, undefined], ['Enter', false, undefined], [' ', false, undefined], ['a', false, undefined], ['Escape', false, undefined],
+    ];
+    const ln7Bad = ln7.map(([key, shift, want]) => ({ key, shift, want, got: handleKeyStep(key, shift) })).filter((c) => c.got !== c.want).map((c) => `${c.shift ? 'Shift+' : ''}${c.key}: ${c.got} (want ${c.want})`);
+    ok('playback B3 [LN7]: ← ↓ and → ↑ move a time a second, with Shift five, Page Down and Page Up five; Home, End, Enter, Space, Escape and letters are not the handle\'s',
+       ln7Bad.length === 0, ln7Bad.join('; ') || `${ln7.length} keys`);
+
+    // [LN6b] The words of the handle and the box, exact (the editor's own wording for the times, the slider's
+    // name for a screen reader, the tooltip with its keys, what seat #1 says when it is held).
+    // Mutation proof (seen red 2026-11-15): laneText.ts handleTitle without its "Shift+←/→ 5 s" part:
+    //   FAIL playback B3 [LN6b]: … title "Drag to change #2's time over target (←/→ 1 s)" vs "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s)"
+    const ln6b = {
+      label: [handleLabel('#2'), '#2 time over target'], title: [handleTitle('#2'), "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s)"],
+      box: [boxLabel('#2'), '#2 time over target, seconds after T'], held: [heldTitle('#1'), '#1 is held still: move the other jets'],
+    };
+    const ln6bBad = Object.entries(ln6b).filter(([, [got, want]]) => got !== want).map(([k, [got, want]]) => `${k} "${got}" vs "${want}"`);
+    ok('playback B3 [LN6b]: the handle\'s name and tooltip, the box\'s name and what seat #1 says when held read exactly these words',
+       ln6bBad.length === 0, ln6bBad.join('; ') || 'four strings');
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
