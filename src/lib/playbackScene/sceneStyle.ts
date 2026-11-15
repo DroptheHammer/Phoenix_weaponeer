@@ -39,14 +39,20 @@ export const LINE_CASING = BG;
 export const PATH_PX = 2;
 export const PATH_CASING_PX = 4;
 /**
- * How far a path was mixed toward the background when it was drawn in the jet's seat colour. Nothing
- * reads it now that the watched jet's lines wear the planner's colours; the shade for the jets that
- * are not watched takes its place when they are drawn.
+ * The jets that are not watched (with Show › Attack colours on the watched jet) fly in their seat
+ * colour instead, thinner, so the watched jet's colour code stands out and the others never read as a
+ * leg of it: the path 1.5 px with no casing, its colour mixed this far toward the background, still
+ * dashed where the planner dashes; the trail in the plain seat colour, solid, on a thinner casing.
+ * They are told apart by width, casing, arrow and label as well as colour (seat #4's amber is also the
+ * climb's yellow).
  */
-export const PATH_SHADE = 0.45;
+export const PATH_OTHER_PX = 1.5;
+export const OTHER_SHADE = 0.15;
 /** The trail behind the jet: wider than the path, so the stretch just flown stands out. */
 export const TRAIL_PX = 3.5;
 export const TRAIL_CASING_PX = 6;
+export const TRAIL_OTHER_PX = 2.5;
+export const TRAIL_OTHER_CASING_PX = 4.5;
 /** The bomb's whole fall: thin and dashed in the planner's bomb-line red, on its casing. */
 export const BOMB_LINE_PX = 1.5;
 export const BOMB_LINE_CASING_PX = 3.5;
@@ -81,7 +87,9 @@ export const DISC_RIM_PX = 1;
  * ("IP" on the planner's IP blue) and the end of the egress leg a small dot.
  */
 export const MARKER_R_PX = 10;
+/** The jets that are not watched get smaller, fainter discs (no words, no IP disc), and their posts are as faint. */
 export const MARKER_OTHER_R_PX = 7;
+export const OTHER_MARKER_ALPHA = 0.75;
 export const MARKER_FONT = 'bold 9px ui-sans-serif, system-ui, sans-serif';
 export const EGRESS_DOT_PX = 3;
 
@@ -109,4 +117,12 @@ export const LABEL_GAP_PX = 4;
 /** Jet k's colour, the same as its tab in the strike editor. */
 export function jetColor(k: number): string {
   return JET_COLORS[((k % JET_COLORS.length) + JET_COLORS.length) % JET_COLORS.length];
+}
+
+/** '#rrggbb' `a` moved the share `k` (0…1) of the way toward `b`, channel by channel, as '#rrggbb'. */
+export function mixHex(a: string, b: string, k: number): string {
+  const ch = (s: string, i: number) => parseInt(s.slice(1 + 2 * i, 3 + 2 * i), 16);
+  let out = '#';
+  for (let i = 0; i < 3; i++) out += Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * k).toString(16).padStart(2, '0');
+  return out;
 }

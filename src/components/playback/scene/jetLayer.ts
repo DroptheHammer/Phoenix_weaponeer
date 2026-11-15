@@ -1,16 +1,26 @@
 /**
- * One jet in the 3D playback (the spike draws one): its arrow, its planned
- * path, a 20 s trail, its bomb while it falls and the line of its whole
- * fall. Its target is the target layer's (one mark per distinct target,
- * however many jets share it). Everything is sampled from
+ * One jet in the 3D playback (the scene makes one of these per flown jet):
+ * its arrow, its planned path, a 20 s trail, its bomb while it falls and the
+ * line of its whole fall. Its target is the target layer's (one mark per
+ * distinct target, however many jets share it). Everything is sampled from
  * the playback library's DISPLAY layer through the scene adapter
  * (src/lib/playbackScene/source.ts), so the picture is the planner's, timed.
  *
- * - The path and the trail wear the planner's colour code, the map's and the
- *   card's own LINE_STYLE: blue route and leg, yellow climb, orange
- *   pull-down, red attack, green egress, dashed where the planner dashes. The bomb's fall is the planner's thin red dashed bomb line.
+ * - The watched jet's path and trail wear the planner's colour code, the
+ *   map's and the card's own LINE_STYLE: blue route and leg, yellow climb,
+ *   orange pull-down, red attack, green egress, dashed where the planner
+ *   dashes. The bomb's fall is the planner's thin red dashed bomb line.
  *   Colours are never the only cue: route and leg differ by the dash, and
  *   the arrow keeps its seat colour.
+ * - The other jets (unless Show › Attack colours is All jets) fly in their
+ *   seat colour instead: a thinner path with no casing, a little darker,
+ *   still dashed where the planner dashes; a solid trail; the bomb in a
+ *   darker seat colour and no fall line. Thinner and uncased, they never
+ *   read as a leg of the watched jet's, and the watched jet's lines draw
+ *   over theirs. Which look a jet wears changes only when the watched jet or
+ *   the choice does: the colours are refilled then, never frame by frame.
+ * - A re-timed strike hands the layer a new source: the path and the fall
+ *   are refilled in place and the trail is worked out again, even paused.
  * - The arrow points along the displayed velocity, not the heading number
  *   (meridians converge away from the target, and velocity is what the eye
  *   follows), and banks with the display's bank estimate.
@@ -44,8 +54,8 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LABEL_STYLE, LINE_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import { PHASES, PHASE_STYLE } from '../../../lib/playback';
 import {
-  ARROW_LEN_M, ARROW_PX, BOMB_LEN_M, BOMB_LINE_CASING_PX, BOMB_LINE_PX, BOMB_PX, LINE_CASING, PATH_CASING_PX, PATH_PX, POST_PX,
-  TRAIL_CASING_PX, TRAIL_PX, TRAIL_S, jetColor,
+  ARROW_LEN_M, ARROW_PX, BG, BOMB_LEN_M, BOMB_LINE_CASING_PX, BOMB_LINE_PX, BOMB_PX, LINE_CASING, OTHER_MARKER_ALPHA, OTHER_SHADE,
+  PATH_CASING_PX, PATH_OTHER_PX, PATH_PX, POST_PX, TRAIL_CASING_PX, TRAIL_OTHER_CASING_PX, TRAIL_OTHER_PX, TRAIL_PX, TRAIL_S, jetColor, mixHex,
   newSceneBombPose, newSceneJetPose, screenScale, worldPerPixel, type SceneJetPose, type ScenePhase, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
@@ -82,9 +92,13 @@ const MIN_SPEED_MPS = 0.5;
  * Draw order: each line's casing just before the line itself, the path first, then the trail, the
  * bomb's fall, and the arrow and bomb last (the target layer's post and ring draw between the fall
  * and the bomb). Every casing of a line draws before any of its colour, so a casing never covers a
- * coloured stretch of its own line.
+ * coloured stretch of its own line. The other jets' path and trail draw just before the watched
+ * jet's, so where they cross the watched jet's colour code lies on top.
  */
-const ORDER = { pathCasing: 6, path: 7, trailCasing: 31, trail: 32, fallCasing: 33, fall: 34, posts: 35, bomb: 59, arrow: 60 } as const;
+const ORDER = {
+  otherPath: 5, pathCasing: 6, path: 7, otherTrailCasing: 29, otherTrail: 30, trailCasing: 31, trail: 32,
+  fallCasing: 33, fall: 34, posts: 35, bomb: 59, arrow: 60,
+} as const;
 
 /** Posts under the action points: one per marker kind and the IP, at most. */
 const POST_SEGS = 9;
@@ -175,7 +189,10 @@ function finish(c: Capacity) {
 interface CodedLine {
   solid: Capacity;
   dashed: Capacity;
+  solidMat: LineMaterial;
   dashMat: LineMaterial;
+  casingMat: LineMaterial;
+  /** The two casings (solid, dashed), then the two coloured meshes (solid, dashed). */
   meshes: LineSegments2[];
 }
 function codedLine(bag: DisposeBag, segs: number, px: number, casingPx: number, order: { casing: number; line: number }): CodedLine {
@@ -194,7 +211,16 @@ function codedLine(bag: DisposeBag, segs: number, px: number, casingPx: number, 
     m.renderOrder = i < 2 ? order.casing : order.line;
     m.frustumCulled = false;
   });
-  return { solid, dashed, dashMat, meshes };
+  return { solid, dashed, solidMat, dashMat, casingMat, meshes };
+}
+/** A coded line's widths and draw order for one look; `casingPx` 0 hides its casing. */
+function lookOf(l: CodedLine, px: number, casingPx: number, order: { casing: number; line: number }) {
+  l.solidMat.linewidth = l.dashMat.linewidth = px;
+  if (casingPx > 0) l.casingMat.linewidth = casingPx;
+  l.meshes.forEach((m, i) => {
+    if (i < 2) m.visible = casingPx > 0;
+    m.renderOrder = i < 2 ? order.casing : order.line;
+  });
 }
 /** One stretch of a coded line, on the solid or the dashed geometry by its phase. */
 function putPhase(l: CodedLine, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, phase: number, d0: number, d1: number) {
@@ -219,15 +245,21 @@ export interface JetLayer extends Layer {
 }
 
 /**
- * `colorIndex` is the editor's seat index for this jet (its JET_COLORS
- * entry): the selected jet flies alone as playback jet 0, but #2 must still
- * be magenta, as on the editor's map. Default: the playback index.
+ * The jet's colour is its seat's (source.seatOf: a skipped #2 leaves the
+ * second flown jet as #3, in #3's colour), never its playback index.
+ * `colorIndex` overrides it for a strike of one: the editor's selected jet
+ * flies alone as playback jet 0, but #2 must still be magenta, as on the
+ * editor's map.
  */
 export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex?: number; parent: Object3D; bag: DisposeBag }): JetLayer {
   const { bag, jet } = o;
   let src = o.source;
-  const colourHex = jetColor(o.colorIndex ?? jet);
+  const colourHex = jetColor(o.colorIndex ?? src.seatOf(jet));
   const colour = new Color(colourHex); // sRGB in, linear inside: shown as exactly the editor's colour
+  // The seat colour as the lines take it when this jet is not the watched one, linear RGB, worked out once.
+  const seatPathRgb = Float32Array.from(new Color(mixHex(colourHex, BG, OTHER_SHADE)).toArray());
+  const seatTrailRgb = Float32Array.from(colour.toArray());
+  const bombRed = new Color(LINE_STYLE.bomb.color), bombSeat = colour.clone().multiplyScalar(0.8);
 
   // ── The arrow.
   const arrowMat = bag.add(new MeshBasicMaterial({ color: colour, vertexColors: true, side: DoubleSide, fog: false, toneMapped: false }));
@@ -255,8 +287,9 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   fallLine.renderOrder = ORDER.fall;
   fallCasing.frustumCulled = fallLine.frustumCulled = false;
 
-  // ── The bomb, while it falls: the planner's bomb-line red.
-  const bomb = new Mesh(bag.add(bombGeometry()), bag.add(new MeshBasicMaterial({ color: new Color(LINE_STYLE.bomb.color), fog: false, toneMapped: false })));
+  // ── The bomb, while it falls: the planner's bomb-line red (a darker seat colour on the other jets).
+  const bombMat = bag.add(new MeshBasicMaterial({ color: bombRed.clone(), fog: false, toneMapped: false }));
+  const bomb = new Mesh(bag.add(bombGeometry()), bombMat);
   bomb.renderOrder = ORDER.bomb;
   bomb.frustumCulled = false;
   bomb.visible = false;
@@ -265,7 +298,8 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   // to the point, so a disc high on a climb reads as standing over its spot on the ground. Laid again
   // only when the source or the ground changes.
   const posts = capacityGeometry(bag, POST_SEGS, true, false);
-  const postLine = new LineSegments2(posts.geom, bag.add(wideLine(new Color('#ffffff'), POST_PX, { vertexColors: true })));
+  const postMat = bag.add(wideLine(new Color('#ffffff'), POST_PX, { vertexColors: true }));
+  const postLine = new LineSegments2(posts.geom, postMat);
   postLine.renderOrder = ORDER.posts;
   postLine.frustumCulled = false;
   let postsSource: SceneSource | undefined;
@@ -280,6 +314,19 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   const ORIGIN = new Vector3(0, 0, 0), UP = new Vector3(0, 1, 0), FWD = new Vector3(0, 0, -1), Z_AXIS = new Vector3(0, 0, 1);
   let lastTrailT = NaN;
   const D2R = Math.PI / 180;
+  /** Whether this jet wears the planner's colour code now (the watched jet, or every jet with All jets). */
+  let coded = true;
+
+  /** One stretch of the path: the planner's colour, or the darker seat colour still dashed where the planner dashes. */
+  function putPath(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, phase: number, d0: number, d1: number) {
+    if (coded) putPhase(path, x0, y0, z0, x1, y1, z1, phase, d0, d1);
+    else putSegment(PHASE_DASHED[phase] ? path.dashed : path.solid, x0, y0, z0, x1, y1, z1, seatPathRgb, 0, d0, d1);
+  }
+  /** One stretch of the trail: the planner's colour, or the seat colour, solid. */
+  function putTrail(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, phase: number, d0: number, d1: number) {
+    if (coded) putPhase(trail, x0, y0, z0, x1, y1, z1, phase, d0, d1);
+    else putSegment(trail.solid, x0, y0, z0, x1, y1, z1, seatTrailRgb, 0, d0, d1);
+  }
 
   /** The planned path into its buffers, stretch by stretch, with the metres along it for the dashes. */
   function refillPath() {
@@ -290,11 +337,40 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
     for (let s = 0; s < segs; s++) {
       const a = s * 3;
       const len = Math.hypot(pts[a + 3] - pts[a], pts[a + 4] - pts[a + 1], pts[a + 5] - pts[a + 2]);
-      putPhase(path, pts[a], pts[a + 1], pts[a + 2], pts[a + 3], pts[a + 4], pts[a + 5], ph[s], along, along + len);
+      putPath(pts[a], pts[a + 1], pts[a + 2], pts[a + 3], pts[a + 4], pts[a + 5], ph[s], along, along + len);
       along += len;
     }
     finish(path.solid);
     finish(path.dashed);
+  }
+
+  /**
+   * Put on the look of a coded jet or of another one: widths, casings, draw order, the bomb's colour,
+   * the fall line and the posts' strength; then the path and the trail are refilled in their colours
+   * and the posts laid again (the IP's goes with the IP disc). Only when the look changes.
+   */
+  function wear(on: boolean) {
+    coded = on;
+    lookOf(path, on ? PATH_PX : PATH_OTHER_PX, on ? PATH_CASING_PX : 0, on ? { casing: ORDER.pathCasing, line: ORDER.path } : { casing: ORDER.pathCasing, line: ORDER.otherPath });
+    lookOf(trail, on ? TRAIL_PX : TRAIL_OTHER_PX, on ? TRAIL_CASING_PX : TRAIL_OTHER_CASING_PX,
+      on ? { casing: ORDER.trailCasing, line: ORDER.trail } : { casing: ORDER.otherTrailCasing, line: ORDER.otherTrail });
+    bombMat.color.copy(on ? bombRed : bombSeat);
+    fallCasing.visible = fallLine.visible = on;
+    postMat.transparent = !on;
+    postMat.opacity = on ? 1 : OTHER_MARKER_ALPHA;
+    postMat.needsUpdate = true;
+    refillPath();
+    lastTrailT = NaN;
+    postsSource = undefined;
+  }
+
+  /** A re-timed source: the path and the fall again, in place; the trail and the posts at the next update. */
+  function takeSource(next: SceneSource) {
+    src = next;
+    refillPath();
+    refillFall();
+    lastTrailT = NaN;
+    postsSource = undefined;
   }
 
   /** The bomb's whole fall into its buffer, with the metres along it for the dashes. */
@@ -324,7 +400,8 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
       putSegment(posts, x, g + POST_LIFT_M, z, x, y, z, POST_RGB, POST_KINDS.indexOf(kind) * 3, 0, 0);
     };
     for (const m of src.markers(jet)) post(m.x, m.y, m.z, m.kind);
-    for (const l of src.labelPoints(jet)) if (l.kind === 'ip') post(l.x, l.y, l.z, 'IP');
+    // The other jets have no IP disc, so no post under it either.
+    if (coded) for (const l of src.labelPoints(jet)) if (l.kind === 'ip') post(l.x, l.y, l.z, 'IP');
     finish(posts);
     postsSource = src;
     postsGround = ctx.groundVersion;
@@ -358,7 +435,7 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
       src.jetAt(jet, tk, past);
       if (!past.visible) break;
       const d = (tk - from) * TRAIL_DASH_MPS;
-      if (k > 0) putPhase(trail, px, py, pz, past.x, past.y, past.z, PHASE_INDEX[past.phase], pd, d);
+      if (k > 0) putTrail(px, py, pz, past.x, past.y, past.z, PHASE_INDEX[past.phase], pd, d);
       px = past.x;
       py = past.y;
       pz = past.z;
@@ -377,7 +454,9 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
     pose,
 
     update(ctx) {
-      src = ctx.source;
+      if (ctx.source !== src) takeSource(ctx.source);
+      const wantCoded = src.jetCount === 1 || ctx.attackColours === 'all' || ctx.watched === jet;
+      if (wantCoded !== coded) wear(wantCoded);
       if (src !== postsSource || ctx.groundVersion !== postsGround) layPosts(ctx);
       postLine.visible = ctx.actionPoints !== 'off';
       src.jetAt(jet, ctx.t, pose);
@@ -404,6 +483,10 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
       fallMat.dashScale = ctx.focusPxPerM;
       if (arrow.visible) arrow.scale.setScalar(sizeAt(ctx, arrow.position, ARROW_PX, ARROW_LEN_M));
       if (bomb.visible) bomb.scale.setScalar(sizeAt(ctx, bomb.position, BOMB_PX, BOMB_LEN_M));
+    },
+
+    setSource(next) {
+      if (next !== src) takeSource(next);
     },
 
     jetPosition: () => (arrow.visible ? arrow.position : undefined),

@@ -9,7 +9,7 @@
  * with the final camera.
  */
 import type { PerspectiveCamera } from 'three';
-import type { ActionPointsMode, GroundMode, SceneSource } from '../../../lib/playbackScene';
+import type { ActionPointsMode, AttackColours, GroundMode, SceneSource } from '../../../lib/playbackScene';
 
 export interface FrameCtx {
   /** Strike time, s. */
@@ -31,6 +31,11 @@ export interface FrameCtx {
   heightAt(x: number, z: number): number;
   /** The jet the view is watching (a playback index): it carries the planner's colour code. */
   watched: number;
+  /**
+   * Show › Attack colours: the planner's colour code on the watched jet only (the others in their seat
+   * colour, with small discs and no words), or on every jet. With one jet it is always on that jet.
+   */
+  attackColours: AttackColours;
   /**
    * CSS pixels per metre at the distance the camera is looking at (its orbit point, or the jet it
    * looks at from the target): dashes given in metres along a line are scaled by it, so they come
@@ -55,6 +60,11 @@ export interface Layer {
   update(ctx: FrameCtx): void;
   /** Called every rendered frame after the camera has moved (sizes kept constant on screen read the final camera). Must not allocate. */
   afterCamera?(ctx: FrameCtx): void;
+  /**
+   * The strike was re-timed: a new source for the same jets. A layer that keeps something worked out
+   * from the old timing (a planned path, a trail) redoes it here, once, not frame by frame.
+   */
+  setSource?(src: SceneSource): void;
   /** Frees what the layer made that is not in the shared bag (most things are). */
   dispose(): void;
 }

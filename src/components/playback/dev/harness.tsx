@@ -5,7 +5,10 @@
  * build includes it (Vite builds index.html only).
  *
  * It mounts the real PlaybackView, inside the real PlaybackOverlay and error
- * boundary, on a made-up pop-up (fixture.ts), with tiles chosen by ?tiles=:
+ * boundary, on a made-up plan (fixture.ts) chosen by ?fixture=: one (the
+ * default, a lone pop-up), strike4 (a four-ship), late (the four-ship with #2
+ * at 300 s, watching #2) or skip (three jets, #2 skipped); ?watch=3 opens
+ * watching #3. Tiles are chosen by ?tiles=:
  *   synthetic (default)  a known hill and a two-colour map, offline, the same every run
  *   live                 real OpenStreetMap and elevation tiles, fetched by the browser
  *   none                 flat ground, nothing fetched
@@ -22,27 +25,40 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../index.css';
 import {
-  newSceneBombPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type ShowAction, type ShowState, type Speed,
+  jetColor, newSceneBombPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource, type ShowAction, type ShowState, type Speed,
+  type TileSource,
 } from '../../../lib/playbackScene';
+import { retime } from '../../../lib/playback';
 import { JET_COLORS } from '../../../lib/jetColors';
 import PlaybackView from '../PlaybackView';
 import { PlaybackOverlay } from '../PlaybackOverlay';
 import { PlaybackErrorBoundary } from '../PlaybackErrorBoundary';
 import { lastLeak, sceneCounts, type PlaybackScene } from '../scene/createScene';
-import { harnessLaunch, harnessMoments } from './fixture';
+import { harnessFixtureLaunch, harnessMoments, type HarnessFixture } from './fixture';
 import { COLOUR_SAMPLES, DRAPE_EAST, DRAPE_NORTH, DRAPE_WEST, HILL, hillHeight, syntheticTiles } from './syntheticTiles';
 import { liveTiles } from './liveTiles';
 
 const params = new URLSearchParams(location.search);
 const tilesMode = params.get('tiles') ?? 'synthetic';
+const fixtureName = (['one', 'strike4', 'late', 'skip'] as const).find((f) => f === params.get('fixture')) ?? 'one';
+const watchParam = params.get('watch');
 const notes = params.get('notes') === '1'
   ? ["Harness: coordinates unverified. This map's projection has not been checked against a known landmark, so the plan may sit offset over the ground drawn here."]
   : [];
-const launch = harnessLaunch(notes);
+const launch = harnessFixtureLaunch(fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined);
 const moments = harnessMoments(launch);
 // The same source the view builds, for the world positions the checks compare against.
 const source = sceneSourceFrom(moments.pb, moments.timing);
-const tiles = tilesMode === 'live' ? liveTiles : tilesMode === 'none' ? null : syntheticTiles(source.frame);
+
+/** Every map and elevation tile asked for, so a check can prove a re-time fetches nothing. */
+let tileRequests = 0;
+function counted(t: TileSource<CanvasImageSource>): TileSource<CanvasImageSource> {
+  return {
+    mapTile: (z, x, y) => { tileRequests++; return t.mapTile(z, x, y); },
+    terrainTile: (z, x, y) => { tileRequests++; return t.terrainTile(z, x, y); },
+  };
+}
+const tiles = tilesMode === 'live' ? counted(liveTiles) : tilesMode === 'none' ? null : counted(syntheticTiles(source.frame));
 
 const counters = { sentinel: 0, ancestorClicks: 0, editorEscapes: 0 };
 const consoleProblems: string[] = [];
@@ -52,6 +68,8 @@ let scene: PlaybackScene | null = null;
 // The Show choices as the view holds them, and the function its menu calls to change them.
 let showNow: ShowState | null = null;
 let showAct: ((a: ShowAction) => void) | null = null;
+// The seat the view watches.
+let watchedNow: number | null = null;
 let setOpenFn: (open: boolean) => void = () => {};
 let isOpen = false;
 let loseExt: WEBGL_lose_context | null = null;
@@ -102,8 +120,19 @@ interface PbHandle {
   readonly lastLeak: ReturnType<typeof lastLeak>;
   loseContext(): boolean;
   restoreContext(): boolean;
-  /** The bomb's last falling sample and the target, three.js axes, from the playback itself. */
-  bombAtImpact(): { bomb: [number, number, number]; target: [number, number, number] };
+  /** Jet `jet`'s bomb's last falling sample and its target, three.js axes, from the playback itself (default the lead). */
+  bombAtImpact(jet?: number): { bomb: [number, number, number]; target: [number, number, number] };
+  /** The source the scene draws now (after a re-time, the re-timed one). */
+  source(): SceneSource | null;
+  /**
+   * Re-time the strike the way a delay change will: each member's delay in seat order (s; undefined or
+   * left off keeps its plan delay), handed to the live scene as a new source. No remount.
+   */
+  retime(delays: (number | undefined)[]): void;
+  /** Map and elevation tiles asked for since the page loaded. */
+  tileRequests(): number;
+  /** The seat the view watches (0 = #1), null until playback has opened. */
+  watched(): number | null;
   /**
    * Show › Whole run-in, made the way a click on its box makes it (the view's own handler, so the
    * clock's range moves with it): true = from the start of the whole run-in, false = from 10 s
@@ -139,8 +168,13 @@ interface PbHandle {
     t0: number; t1: number; range: { t0_s: number; t1_s: number }; wholeRange: { t0_s: number; t1_s: number }; firstAction: number;
     markers: readonly SceneMarker[];
     push?: number; pullUp?: number; release?: number; impact?: number; events: { kind: string; label: string; t_s: number }[];
+    /** Each flown jet (playback index k): its seat, label, first action, release and impact, strike time. */
+    jets: { seat: number; label: string; firstAction: number; release: number; impact: number }[];
   };
-  readonly colours: { jet: string; west: string; north: string; east: string };
+  /** jet: the lead's colour. jets: each member's seat colour, in seat order (skipped ones included). */
+  readonly colours: { jet: string; jets: string[]; west: string; north: string; east: string };
+  /** The fixture on the page. */
+  readonly fixture: string;
   readonly samples: typeof COLOUR_SAMPLES;
   readonly hill: typeof HILL & { heightAt(e_m: number, n_m: number): number };
   readonly counters: typeof counters;
@@ -194,12 +228,23 @@ const pb: PbHandle = {
     loseExt = null;
     return true;
   },
-  bombAtImpact() {
-    const impact = moments.impact ?? 0;
-    const b = source.bombAt(0, impact - 0.001, newSceneBombPose());
-    const t = source.targetOf(0);
+  bombAtImpact(jet = 0) {
+    const impact = moments.jets[jet]?.impact ?? 0;
+    const b = source.bombAt(jet, impact - 0.001, newSceneBombPose());
+    const t = source.targetOf(jet);
     return { bomb: [b.x, b.y, b.z], target: [t.x, t.y, t.z] };
   },
+  source: () => scene?.source() ?? null,
+  retime(delays) {
+    const pbNow = moments.pb;
+    const d: Record<string, number> = {};
+    pbNow.members.forEach((m, i) => {
+      if (Number.isFinite(delays[i])) d[m.id] = delays[i]!;
+    });
+    scene?.setSource(sceneSourceFrom(pbNow, retime(pbNow, d)));
+  },
+  tileRequests: () => tileRequests,
+  watched: () => watchedNow,
   setRange: (whole) => showAct?.({ type: 'wholeRunIn', on: whole }),
   setActionPoints: (mode) => showAct?.({ type: 'actionPoints', value: mode }),
   show: () => showNow,
@@ -224,8 +269,10 @@ const pb: PbHandle = {
     t0: moments.window.t0_s, t1: moments.window.t1_s, range: moments.range, wholeRange: moments.wholeRange, firstAction: moments.firstAction,
     markers: source.markers(0),
     push: moments.push, pullUp: moments.pullUp, release: moments.release, impact: moments.impact, events: moments.events,
+    jets: moments.jets.map((j, k) => ({ seat: source.seatOf(k), label: j.label, firstAction: j.firstAction, release: j.release, impact: j.impact })),
   },
-  colours: { jet: JET_COLORS[0], west: DRAPE_WEST, north: DRAPE_NORTH, east: DRAPE_EAST },
+  colours: { jet: JET_COLORS[0], jets: moments.pb.members.map((_, i) => jetColor(i)), west: DRAPE_WEST, north: DRAPE_NORTH, east: DRAPE_EAST },
+  fixture: fixtureName,
   samples: COLOUR_SAMPLES,
   hill: { ...HILL, heightAt: hillHeight },
   counters,
@@ -249,6 +296,9 @@ function Harness() {
   const onShow = useCallback((s: ShowState, act: (a: ShowAction) => void) => {
     showNow = s;
     showAct = act;
+  }, []);
+  const onWatched = useCallback((seat: number) => {
+    watchedNow = seat;
   }, []);
 
   setOpenFn = setOpen;
@@ -277,7 +327,7 @@ function Harness() {
       {open && (
         <PlaybackOverlay title="Strike playback" onClose={close} onTogglePlay={() => toggle.current?.()} returnFocusTo={openerRef.current}>
           <PlaybackErrorBoundary key={attempt} onRetry={() => setAttempt((a) => a + 1)} onClose={close}>
-            <PlaybackView launch={launch} onClose={close} bindTogglePlay={bind} tiles={tiles} onScene={onScene} onShow={onShow} />
+            <PlaybackView launch={launch} onClose={close} bindTogglePlay={bind} tiles={tiles} onScene={onScene} onShow={onShow} onWatched={onWatched} />
           </PlaybackErrorBoundary>
         </PlaybackOverlay>
       )}

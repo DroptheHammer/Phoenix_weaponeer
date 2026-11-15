@@ -19,9 +19,9 @@ export interface SceneHostProps {
   source: SceneSource;
   /** Undefined: flat ground, nothing fetched. */
   tiles: TileSource<CanvasImageSource> | undefined;
-  /** The jet drawn (the spike draws one). */
+  /** The watched jet (a playback index): the camera follows it when `camera` names none. Every flown jet is drawn. */
   jet: number;
-  /** The editor's colour for it (index into JET_COLORS). */
+  /** A strike of one only: the editor's colour for its jet (index into JET_COLORS). */
   colorIndex?: number;
   /**
    * The stretch of strike time the clock plays, as it stands when the scene is made. After a

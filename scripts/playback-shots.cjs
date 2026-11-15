@@ -1343,7 +1343,7 @@ async function checkOverlay(page) {
  * Proven red 2026-11-14 (terrainLayer.ts, one geometry made without `bag.add`):
  *   STEP FAIL 4 open and close 20 times, nothing left behind — leaks #1: {"geometries":1,"textures":0}; #2: {"geometries":1,"textures":0}; …
  */
-async function checkOpenClose(page) {
+async function checkOpenClose(page, label = '4 open and close 20 times, nothing left behind') {
   const leaks = [];
   for (let i = 0; i < 20; i++) {
     await page.click('[data-testid="opener"]');
@@ -1354,8 +1354,320 @@ async function checkOpenClose(page) {
     if (!leak || leak.geometries !== 0 || leak.textures !== 0) leaks.push(`#${i + 1}: ${JSON.stringify(leak)}`);
   }
   const counts = await pbEval(page, () => __pb.stats());
-  step('4 open and close 20 times, nothing left behind', leaks.length === 0 && counts.liveScenes === 0,
+  step(label, leaks.length === 0 && counts.liveScenes === 0,
     `${leaks.length ? `leaks ${leaks.join('; ')}` : 'every close {geometries 0, textures 0}'}; scenes created ${counts.sceneCreates}, alive ${counts.liveScenes}`);
+}
+
+// ── The strike: every jet drawn (the four-ship, the skip variant, a late wingman).
+
+// Each seat's colour as the arrows wear it (JET_COLORS: cyan, magenta, lime, amber), one test per seat.
+// None matches a drape colour or the navy background (the drape checks run beside them). The planner's
+// colours can: the egress green passes limeLike, and the climb yellow and the pull-down orange pass
+// amberLike, so each count is taken right round an arrow and its floor sits above what the lines
+// there give without the arrow (measured below).
+const magentaLike = (p) => p[0] > p[1] + 60 && p[2] > p[1] + 60;
+const limeLike = (p) => p[1] > p[2] + 100 && p[1] > p[0] + 30;
+const amberLike = (p) => p[0] > p[2] + 120 && p[1] > p[2] + 80 && p[0] >= p[1];
+const SEAT_LIKE = [jetLike, magentaLike, limeLike, amberLike];
+
+/**
+ * Home on the default range, paused at the moment every flown jet is in the picture and the arrows are
+ * farthest apart (the smallest gap between two of them as large as it gets, every arrow 30 px inside the
+ * canvas), searched every 2 s. Returns that time and the gap. The search projects the jets' positions
+ * from the source through the camera standing still at Home, and seeks once, at the end: a seek and a
+ * draw per candidate cost the software renderer seconds.
+ */
+async function spreadMoment(page) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.goHome(); });
+  await settle(page);
+  return pbEval(page, () => {
+    const src = __pb.source(), n = __pb.moments.jets.length, snap = __pb.snapshot();
+    const c = document.querySelector('[role="dialog"] canvas').getBoundingClientRect();
+    let from = snap.start, to = snap.end;
+    for (let k = 0; k < n; k++) {
+      from = Math.max(from, src.visibleFromOf(k));
+      to = Math.min(to, src.hideOf(k));
+    }
+    const pose = {};
+    let best = null, gap = -1;
+    for (let t = from + 1; t <= to - 1; t += 2) {
+      const ps = [];
+      for (let k = 0; k < n; k++) {
+        src.jetAt(k, t, pose);
+        ps.push(pose.visible ? __pb.projectPoint(pose.x, -pose.z, pose.y) : null);
+      }
+      if (ps.some((p) => !p || p[0] < c.left + 30 || p[0] > c.right - 30 || p[1] < c.top + 30 || p[1] > c.bottom - 30)) continue;
+      let d = Infinity;
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) d = Math.min(d, Math.hypot(ps[i][0] - ps[j][0], ps[i][1] - ps[j][1]));
+      if (d > gap) { gap = d; best = t; }
+    }
+    if (best !== null) __pb.seek(best);
+    return { t: best, gap };
+  });
+}
+
+/**
+ * Check 10: every jet of the four-ship is drawn, each in its own seat's colour. At the spread moment
+ * (above), with the 2D overlay hidden (the labels and discs lie over the arrows), within ARROW_PATCH px
+ * of where the scene puts each jet's arrow (`project(k)`) at least SEAT_MIN pixels pass that seat's
+ * colour test: cyan #1, magenta #2, lime #3, amber #4.
+ *
+ * SEAT_MIN: measured 2026-11-15. Green: 188 / 112 / 145 / 131 px (#1…#4) at 1400×900, 185 / 111 / 145 /
+ * 134 at 1024×768, and #3 on the skip variant (check 20) 161. With every arrow shrunk to nothing
+ * (jetLayer.ts afterCamera, the arrow's scale × 1e-6) the lines alone give 0 / 34 / 37 / 23 and 0 / 34 /
+ * 32 / 25 (the other jets' trails run into their arrows in the seat colour), and 24 on the skip variant.
+ * The floor of 70 sits between, with room for the software renderer, so the count is the arrow's.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts, every jet coloured as seat 0
+ * (`jetColor(0)` for `jetColor(o.colorIndex ?? src.seatOf(jet))`):
+ *   STEP FAIL 10 every jet of the four-ship drawn, each in its seat's colour (1400x900-strike4) — 4 jets; t -1.2 (arrows 89 px apart at the closest); #1 at 872,354: 188 px; #2 at 784,341: 0 px; #3 at 704,387: 0 px; #4 at 623,439: 0 px (need 70)
+ *   STEP FAIL 10 … (1024x768-strike4) — …; #1 at 641,293: 185 px; #2 at 575,283: 0 px; #3 at 515,318: 0 px; #4 at 454,357: 0 px (need 70)
+ * and by the arrow-shrink edit above (at a floor of 40 then: #2 34, #3 37, #4 23 px, red).
+ */
+const SEAT_MIN = 70;
+async function checkFourArrows(page, tag) {
+  const spread = await spreadMoment(page);
+  await settle(page, 300);
+  const n = await pbEval(page, () => __pb.moments.jets.length);
+  await overlay(page, false);
+  let img;
+  try {
+    img = await shot(page, `${tag}-10-four-arrows`);
+  } finally {
+    await overlay(page, true);
+  }
+  const parts = [];
+  let ok = n === 4 && spread.t !== null;
+  for (let k = 0; k < n; k++) {
+    const p = await pbEval(page, (j) => __pb.project(j, 'jet'), k);
+    const seat = await pbEval(page, (j) => __pb.moments.jets[j].seat, k);
+    const c = p ? patch(img, p.map(Math.round), ARROW_PATCH).filter(SEAT_LIKE[seat]).length : 0;
+    ok = ok && c >= SEAT_MIN;
+    parts.push(`#${seat + 1} at ${p ? p.map(Math.round) : 'none'}: ${c} px`);
+  }
+  step(`10 every jet of the four-ship drawn, each in its seat's colour (${tag})`, ok,
+    `${n} jets; t ${spread.t === null ? 'none' : spread.t.toFixed(1)} (arrows ${spread.gap.toFixed(0)} px apart at the closest); ${parts.join('; ')} (need ${SEAT_MIN})`);
+}
+
+/**
+ * Check 11 (four jets): every jet's label. At the spread moment: four labels, none overlapping, their
+ * first lines "#1 Viper 1-1" … "#4 Viper 1-4" (one each), each with its altitude and speed; Show ›
+ * Labels unticked, four one-line labels; ticked again, two lines each.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/createScene.ts, the label layer given only the
+ * first jet layer (`jets: jets.slice(0, 1)`):
+ *   STEP FAIL 11 four jets' labels: one each, none overlapping; Labels off leaves one line each (1400x900-strike4) — on: 1 labels [#1 Viper 1-1], lines 2, overlapping false; off: 1 labels, lines 1; on again: lines 2
+ *   STEP FAIL 11 … (1024x768-strike4) — the same
+ */
+async function checkFourLabels(page, tag) {
+  await spreadMoment(page);
+  await settle(page, 300);
+  const on = await pbEval(page, () => __pb.debugLabels());
+  await shot(page, `${tag}-11-four-labels`);
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  const box = page.getByRole('checkbox', { name: /^Labels/ });
+  await box.click();
+  await settle(page, 300);
+  const off = await pbEval(page, () => __pb.debugLabels());
+  await box.click();
+  await settle(page, 300);
+  const back = await pbEval(page, () => __pb.debugLabels());
+  await page.getByRole('button', { name: 'Show ▾' }).click(); // shut it again
+  const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const overlaps = (ls) => ls.some((a, i) => ls.some((b, j) => j > i && overlap(a, b)));
+  const firsts = (ls) => ls.map((l) => l.lines[0]).sort().join(' | ');
+  const want = '#1 Viper 1-1 | #2 Viper 1-2 | #3 Viper 1-3 | #4 Viper 1-4';
+  step(`11 four jets' labels: one each, none overlapping; Labels off leaves one line each (${tag})`,
+    on.jets.length === 4 && firsts(on.jets) === want && on.jets.every((l) => l.lines.length === 2) && !overlaps(on.jets) &&
+      off.jets.length === 4 && off.jets.every((l) => l.lines.length === 1) && firsts(off.jets) === want &&
+      back.jets.length === 4 && back.jets.every((l) => l.lines.length === 2),
+    `on: ${on.jets.length} labels [${firsts(on.jets)}], lines ${on.jets.map((l) => l.lines.length).join('/')}, overlapping ${overlaps(on.jets)}; off: ${off.jets.length} labels, lines ${off.jets.map((l) => l.lines.length).join('/')}; on again: lines ${back.jets.map((l) => l.lines.length).join('/')}`);
+}
+
+/**
+ * Check 15b: Top-down is north up over the whole strike: #3's target (TGT2, 2 nm on 160° from TGT1) is
+ * right of and below #1's on screen, both inside the canvas.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/createScene.ts, project's target looked up for
+ * the default jet whatever jet is asked (`source.targetIndexOf(jet)` for `source.targetIndexOf(j)`):
+ *   STEP FAIL 15b Top-down: #3's target (TGT2) right of and below #1's (1400x900-strike4) — pressed true; #1's target at 495,509, #3's at 495,509
+ *   STEP FAIL 15b … (1024x768-strike4) — pressed true; #1's target at 361,408, #3's at 361,408
+ * (green: #3's at 539,631 and 394,497.)
+ */
+async function checkTopDownTargets(page, tag) {
+  await pbEval(page, () => __pb.pause());
+  await page.getByRole('button', { name: 'Top-down', exact: true }).click();
+  await settle(page, 300);
+  const t1 = await pbEval(page, () => __pb.project(0, 'target'));
+  const t3 = await pbEval(page, () => __pb.project(2, 'target'));
+  const cv = await canvasBox(page);
+  await shot(page, `${tag}-15b-top-down`);
+  const inside = (q) => !!q && q[0] >= cv.l && q[0] <= cv.l + cv.w && q[1] >= cv.t && q[1] <= cv.t + cv.h;
+  const pressed = (await pressedCamera(page)).join() === 'Top-down';
+  step(`15b Top-down: #3's target (TGT2) right of and below #1's (${tag})`,
+    pressed && inside(t1) && inside(t3) && t3[0] > t1[0] + 5 && t3[1] > t1[1] + 5,
+    `pressed ${pressed}; #1's target at ${t1 ? t1.map(Math.round) : 'none'}, #3's at ${t3 ? t3.map(Math.round) : 'none'}`);
+  await pbEval(page, () => __pb.goHome());
+}
+
+/**
+ * Check 12 (re-times): a re-time swaps the source in the live scene, never rebuilds it. Paused at #2's
+ * first action, #2 delayed 20 s more moves its arrow on screen (at least 20 px) while the clock stands
+ * still; 30 re-times of #2 in a row; back to the plan, #2's arrow is where it was (1 px). Through it
+ * all the scene is never created again and no tile is asked for again.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/createScene.ts, setSource returning at once (the
+ * scene keeps drawing the old timing):
+ *   STEP FAIL 12 re-times swap the source in the live scene: #2 moves, comes back, no new scene, no new tiles (1400x900-strike4) — #2 +20 s: arrow moved 0.0 px (want ≥ 20), clock still true; back to the plan: 0.00 px from where it was (want ≤ 1); sceneCreates 2 → 2; tile requests 175 → 175
+ * (green: moved 149.5 px, back 0.00 px.)
+ */
+async function checkRetimes(page, tag) {
+  const before = await pbEval(page, () => ({ creates: __pb.stats().sceneCreates, tiles: __pb.tileRequests() }));
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.goHome(); __pb.seek(__pb.moments.jets[1].firstAction); });
+  await settle(page);
+  const p0 = await pbEval(page, () => __pb.project(1, 'jet'));
+  await pbEval(page, () => __pb.retime([0, 30]));
+  await settle(page);
+  const p1 = await pbEval(page, () => __pb.project(1, 'jet'));
+  const t1 = await pbEval(page, () => __pb.snapshot().t);
+  for (let i = 0; i < 30; i++) {
+    await pbEval(page, (d) => __pb.retime([0, d]), 10 + ((i * 7) % 11) * 4 - 20);
+    if (i % 10 === 9) await settle(page, 50);
+  }
+  await pbEval(page, () => __pb.retime([]));
+  await settle(page);
+  const p2 = await pbEval(page, () => __pb.project(1, 'jet'));
+  const t2 = await pbEval(page, () => __pb.snapshot().t);
+  await shot(page, `${tag}-12-retimes`);
+  const after = await pbEval(page, () => ({ creates: __pb.stats().sceneCreates, tiles: __pb.tileRequests() }));
+  const d = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : NaN);
+  const moved = d(p0, p1), back = d(p0, p2);
+  step(`12 re-times swap the source in the live scene: #2 moves, comes back, no new scene, no new tiles (${tag})`,
+    moved >= 20 && back <= 1 && Math.abs(t2 - t1) < 1e-9 && after.creates === before.creates && after.tiles === before.tiles,
+    `#2 +20 s: arrow moved ${moved.toFixed(1)} px (want ≥ 20), clock still ${Math.abs(t2 - t1) < 1e-9}; back to the plan: ${back.toFixed(2)} px from where it was (want ≤ 1); sceneCreates ${before.creates} → ${after.creates}; tile requests ${before.tiles} → ${after.tiles}`);
+}
+
+/**
+ * Check 20: a skipped jet is not drawn and keeps its place. On the skip variant (#2's target missing):
+ * two jets flown, labelled #1 and #3, no third arrow; at the spread moment #3's arrow is lime (seat 2's
+ * colour), at least SEAT_MIN px round it with the overlay hidden.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts, the colour taken from the playback
+ * index instead of the seat (`jetColor(o.colorIndex ?? jet)`: #3 flies as jet 1, so magenta):
+ *   STEP FAIL 20 a skipped #2 is not drawn; #3 flies in #3's lime (1400x900-skip) — flown #1 #3; labels #1 #3; a third arrow none; t -49.2; #3 at 174,538: 0 lime px (need 70)
+ * (green: 161 lime px; the lines alone, arrow shrunk, 24.)
+ */
+async function checkSkipped(page, tag) {
+  const spread = await spreadMoment(page);
+  await settle(page, 300);
+  const labels = await pbEval(page, () => __pb.debugLabels());
+  const jets = await pbEval(page, () => __pb.moments.jets.map((j) => j.label));
+  const third = await pbEval(page, () => __pb.project(2, 'jet'));
+  const p = await pbEval(page, () => __pb.project(1, 'jet'));
+  await overlay(page, false);
+  let img;
+  try {
+    img = await shot(page, `${tag}-20-skipped`);
+  } finally {
+    await overlay(page, true);
+  }
+  const lime = p ? patch(img, p.map(Math.round), ARROW_PATCH).filter(limeLike).length : 0;
+  const firsts = labels.jets.map((l) => l.lines[0].split(' ')[0]).sort().join(' ');
+  step(`20 a skipped #2 is not drawn; #3 flies in #3's lime (${tag})`,
+    jets.join(' ') === '#1 #3' && firsts === '#1 #3' && third === null && lime >= SEAT_MIN,
+    `flown ${jets.join(' ')}; labels ${firsts}; a third arrow ${third ? 'yes' : 'none'}; t ${spread.t === null ? 'none' : spread.t.toFixed(1)}; #3 at ${p ? p.map(Math.round) : 'none'}: ${lime} lime px (need ${SEAT_MIN})`);
+}
+
+/**
+ * Check 35: the cameras follow the watched jet by its playback index, not its seat. On the skip variant
+ * opened watching #3 (seat 2, flown as jet 1): Chase #3 pressed, a second of play at 1× from the start
+ * of the time bar, and #3's arrow is within 15% of the canvas's middle.
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, the seat handed to the scene where
+ * its jet belongs (`watched` for `watchedJet` in the camera prop, setCamera and SceneHost's `jet`; the
+ * scene takes the out-of-range 2 as no jet and follows #1):
+ *   STEP FAIL 35 Chase #3 on the skip variant follows #3 (seat 2, jet 1) (1400x900-skip) — button true; watched seat 2; played 0.62 s; #3's arrow at none, NaN% / NaN% off the middle (want ≤ 15%)
+ * (green: #3's arrow 0.0% / 0.0% off the middle.)
+ */
+async function checkChaseBySeat(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.setSpeed(1); __pb.seek(__pb.snapshot().start); });
+  const button = page.getByRole('button', { name: 'Chase #3', exact: true });
+  const there = (await button.count()) === 1;
+  if (there) await button.click();
+  const played = await pbEval(page, async () => {
+    const t0 = __pb.snapshot().t;
+    __pb.play();
+    await new Promise((r) => setTimeout(r, 1000));
+    __pb.pause();
+    return __pb.snapshot().t - t0;
+  });
+  await settle(page);
+  const cv = await canvasBox(page);
+  const p = await pbEval(page, () => __pb.project(1, 'jet'));
+  await shot(page, `${tag}-35-chase-by-seat`);
+  const [dx, dy] = offCentre(p, cv);
+  step(`35 Chase #3 on the skip variant follows #3 (seat 2, jet 1) (${tag})`,
+    there && (await pressedCamera(page)).join() === 'Chase #3' && played > 0 && Math.abs(dx) <= 0.15 && Math.abs(dy) <= 0.15,
+    `button ${there}; watched seat ${await pbEval(page, () => __pb.watched())}; played ${played.toFixed(2)} s; #3's arrow at ${p ? p.map(Math.round) : 'none'}, ${(dx * 100).toFixed(1)}% / ${(dy * 100).toFixed(1)}% off the middle (want ≤ 15%)`);
+}
+
+/**
+ * Check 21b: a watched jet that is not in the picture when the time bar starts opens at Home. The
+ * four-ship with #2 at 300 s, opened watching #2: Orbit pressed (not Chase #2), no "isn't in the
+ * picture" chip, and the view still watching #2 (seat 1). Run on the page as it opens.
+ *
+ * Proven red 2026-11-15 by one temporary edit to PlaybackView.tsx, the opening mode 'chase' whatever
+ * openingMode says:
+ *   STEP FAIL 21b watching a jet not yet in the picture opens at Home, still watching it (1400x900-late) — pressed ["Chase #2"]; "isn't in the picture" chip true; watched seat 1
+ */
+async function checkLateOpening(page, tag) {
+  await settle(page);
+  const pressed = await pressedCamera(page);
+  const chip = await page.locator('[role="dialog"]').innerText().then((s) => /isn't in the picture/.test(s));
+  const watched = await pbEval(page, () => __pb.watched());
+  await shot(page, `${tag}-21b-late-opening`);
+  step(`21b watching a jet not yet in the picture opens at Home, still watching it (${tag})`,
+    pressed.join() === 'Orbit' && !chip && watched === 1,
+    `pressed ${JSON.stringify(pressed)}; "isn't in the picture" chip ${chip}; watched seat ${watched}`);
+}
+
+async function runStrikeChecks(browser, base) {
+  for (const [w, h] of [[1400, 900], [1024, 768]]) {
+    const tag = `${w}x${h}`;
+    const { context, page, problems } = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4`, w, h);
+    step(`ready, four-ship (${tag})`, true, JSON.stringify(await pbEval(page, () => __pb.terrain())));
+    await checkFourArrows(page, `${tag}-strike4`);
+    await checkFourLabels(page, `${tag}-strike4`);
+    await checkTopDownTargets(page, `${tag}-strike4`);
+    if (w === 1400) {
+      await checkRetimes(page, `${tag}-strike4`);
+      await page.keyboard.press('Escape'); // the open-and-close check starts with playback shut
+      await dialogGone(page);
+      // 4b: check 4 on the four-ship, so every jet layer's GPU objects are freed, not only the lead's.
+      // Proven red 2026-11-15 by one temporary edit to scene/createScene.ts, the jet layers after the
+      // first made with a bag of their own that nothing frees (`bag: k === 0 ? bag : new DisposeBag()`;
+      // the lone pop-up's one layer still goes in the shared bag, so check 4 alone could not see it):
+      //   STEP FAIL 4b open and close the four-ship 20 times, nothing left behind (1400x900) — leaks #1: {"geometries":18,"textures":0}; #2: {"geometries":18,"textures":0}; …
+      await checkOpenClose(page, `4b open and close the four-ship 20 times, nothing left behind (${tag})`);
+    }
+    // #3 and #4 share a time over target: nothing on the page may complain about it.
+    step(`8 no page errors, four-ship (${tag})`, problems.length === 0, problems.length ? problems.slice(0, 8).join(' | ') : 'none');
+    await context.close();
+  }
+  {
+    const tag = '1400x900';
+    const late = await openPage(browser, `${base}?tiles=synthetic&fixture=late`, 1400, 900);
+    await checkLateOpening(late.page, `${tag}-late`);
+    step(`8 no page errors, late wingman (${tag})`, late.problems.length === 0, late.problems.length ? late.problems.slice(0, 8).join(' | ') : 'none');
+    await late.context.close();
+    const s = await openPage(browser, `${base}?tiles=synthetic&fixture=skip`, 1400, 900);
+    await checkSkipped(s.page, `${tag}-skip`);
+    step(`8 no page errors, skip variant (${tag})`, s.problems.length === 0, s.problems.length ? s.problems.slice(0, 8).join(' | ') : 'none');
+    await s.context.close();
+    const s3 = await openPage(browser, `${base}?tiles=synthetic&fixture=skip&watch=3`, 1400, 900);
+    await checkChaseBySeat(s3.page, `${tag}-skip`);
+    await s3.context.close();
+  }
 }
 
 async function runChecks(browser, base) {
@@ -1445,7 +1757,10 @@ async function runLive(browser, base) {
     const { chromium } = loadPlaywright();
     browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: GL_FLAGS });
     if (live) await runLive(browser, base);
-    else await runChecks(browser, base);
+    else {
+      await runChecks(browser, base);
+      await runStrikeChecks(browser, base);
+    }
   } catch (e) {
     step('run', false, (e && e.stack) || String(e));
   } finally {

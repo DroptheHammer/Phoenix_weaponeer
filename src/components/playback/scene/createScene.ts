@@ -32,7 +32,7 @@ import { Color, Fog, NoToneMapping, SRGBColorSpace, Scene, Vector3, WebGLRendere
 import type { StrikeWindow } from '../../../lib/playback';
 import {
   BG, MAX_DPR, PlayClock, UI_EMIT_MS, homeBox, homePose, newSceneJetPose, FOG_FAR_K,
-  type ActionPointsMode, type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TileSource,
+  type ActionPointsMode, type AttackColours, type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TileSource,
 } from '../../../lib/playbackScene';
 import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
@@ -51,9 +51,13 @@ export interface SceneOptions {
   source: SceneSource;
   /** Where map and elevation tiles come from. Undefined: flat ground in the land colour, nothing fetched. */
   tiles?: TileSource<CanvasImageSource>;
-  /** The jet drawn (the spike draws one). Default 0, the lead. */
+  /** The jet the camera follows when `camera` names none, and project()'s jet when it is not given. Default 0, the lead. Every flown jet is drawn. */
   jet?: number;
-  /** The editor's colour for that jet (index into JET_COLORS). Default: the jet's own index. */
+  /**
+   * A strike of one only: the editor's colour for its jet (index into JET_COLORS), since the editor's
+   * selected jet flies alone as jet 0 but keeps its seat's colour. Ignored with more jets: each wears
+   * its own seat's colour.
+   */
   colorIndex?: number;
   /**
    * The stretch of strike time the clock plays (and the time bar shows). Default: the whole window
@@ -143,6 +147,17 @@ export interface PlaybackScene {
   setLabels(on: boolean): void;
   /** The action points' discs, posts and the planner's words (Show › Action points). */
   setActionPoints(mode: ActionPointsMode): void;
+  /** The planner's colour code on the watched jet only, or on every jet (Show › Attack colours). */
+  setAttackColours(mode: AttackColours): void;
+  /**
+   * The strike re-timed: a new source for the same jets (the same playback, other delays). Nothing
+   * happens when it is the source already shown. Every jet's path and trail follow it; the terrain and
+   * the targets never move. With `range`, the clock's range moves too, and the playhead steps back by
+   * `shift_s` inside it (a re-base after Apply), in one change.
+   */
+  setSource(next: SceneSource, o?: { range?: StrikeWindow; shift_s?: number }): void;
+  /** The source drawn now. */
+  source(): SceneSource;
   stats(): SceneStats;
   /**
    * Where jet `jet`'s arrow, its falling bomb, its target's ring centre or its target's TGT disc is
@@ -178,7 +193,7 @@ export function sceneCounts(): { sceneCreates: number; liveScenes: number } {
 
 export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   const { host } = opts;
-  const source = opts.source;
+  let source = opts.source; // a re-time swaps it (setSource); the jets stay the same
   const jet = opts.jet !== undefined && opts.jet >= 0 && opts.jet < source.jetCount ? opts.jet : 0;
   const bag = new DisposeBag();
   const abort = new AbortController(); // stops the tile loads on close; nothing calls back after it
@@ -233,20 +248,23 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
 
   // ── The layers and the camera. If building them throws, the context is given back before the
   // error goes on to the boundary: a failed open must not hold one of the browser's ~16 contexts.
-  let terrain: ReturnType<typeof createTerrainLayer>, targets: TargetLayer, jets: JetLayer | undefined, labels: LabelLayer, rig: CameraRig;
+  let terrain: ReturnType<typeof createTerrainLayer>, targets: TargetLayer, labels: LabelLayer, rig: CameraRig;
+  // One layer per flown jet, jets[k] drawing playback jet k.
+  const jets: JetLayer[] = [];
   try {
     terrain = createTerrainLayer({
       source, tiles: opts.tiles, renderer, parent: scene, fog, bag, signal: abort.signal, invalidate,
       onStatus: (s) => opts.onTerrain?.(s),
     });
     targets = createTargetLayer({ source, parent: scene, bag });
-    jets = source.jetCount > 0 ? createJetLayer({ source, jet, colorIndex: opts.colorIndex ?? jet, parent: scene, bag }) : undefined;
+    const colorIndex = source.jetCount === 1 ? opts.colorIndex : undefined;
+    for (let k = 0; k < source.jetCount; k++) jets.push(createJetLayer({ source, jet: k, colorIndex, parent: scene, bag }));
     // The camera at home, framing the attack (worked out again for each window shape); its far
     // plane reaches past the haze's end from the farthest the camera can stand back.
     const homeFor = (aspect: number) => homePose({ box: homeBoxNow(), axis: source.attackAxis, aspect });
     rig = new CameraRig(canvas, homeFor, homeBoxNow, viewW / viewH, terrain.halfDiag_m, (FOG_FAR_K + 1) * terrain.halfDiag_m);
     // The 2D overlay last: nothing after it can throw, so a failed open never leaves its canvas behind.
-    labels = createLabelLayer({ host, source, targets, jets: jets ? [jets] : [], bag });
+    labels = createLabelLayer({ host, source, targets, jets, bag });
   } catch (err) {
     abort.abort();
     bag.disposeAll();
@@ -257,7 +275,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     throw err;
   }
   // The targets before the labels: the overlay draws each TGT disc on the post top the target layer has just laid.
-  const layers: Layer[] = jets ? [terrain, targets, jets, labels] : [terrain, targets, labels];
+  const layers: Layer[] = [terrain, targets, ...jets, labels];
   const onControlsChange = () => invalidate();
   rig.controls.addEventListener('change', onControlsChange);
 
@@ -286,7 +304,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   const ctx: FrameCtx = {
     t: clock.time, dt: 0, source, camera: rig.camera, viewW, viewH, dpr,
     ground: terrain.ground, groundVersion: terrain.groundVersion, heightAt: terrain.heightAt,
-    watched: camJet, focusPxPerM: 1,
+    watched: camJet, attackColours: 'watched', focusPxPerM: 1,
     speed: clock.currentSpeed, labels: true, actionPoints: 'coming', again: false,
   };
   const follow: Follow = { jet: new Vector3(), vel: new Vector3(), heading_deg: 0, target: new Vector3(), targetGround: 0 };
@@ -304,12 +322,14 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   const followNow = () => {
     if (source.jetCount > 0) fillFollow(source.jetAt(camJet, clock.time, camPose));
   };
-  // The near plane never cuts off an arrow or a falling bomb: the distance to the nearest one shown.
+  // The near plane never cuts off an arrow or a falling bomb: the distance to the nearest one shown, of any jet.
   const nearestTo = (p: Vector3): number => {
     let d = Infinity;
-    const a = jets?.jetPosition(), b = jets?.bombPosition();
-    if (a) d = Math.min(d, p.distanceTo(a));
-    if (b) d = Math.min(d, p.distanceTo(b));
+    for (let k = 0; k < jets.length; k++) {
+      const a = jets[k].jetPosition(), b = jets[k].bombPosition();
+      if (a) d = Math.min(d, p.distanceTo(a));
+      if (b) d = Math.min(d, p.distanceTo(b));
+    }
     return d;
   };
   // Following needs a jet: with none, Orbit and Top-down are all there is.
@@ -345,7 +365,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     ctx.focusPxPerM = viewH / (2 * Math.max(focus, 1) * Math.tan((cam.fov * Math.PI) / 360));
     for (const l of layers) l.update(ctx); // 1. everything moves to time t
     // 2. the camera follows the watched jet (Chase, From target), eases, stays above ground; keep drawing while it settles.
-    if (source.jetCount > 0) fillFollow(jets && camJet === jet ? jets.pose : source.jetAt(camJet, ctx.t, camPose));
+    if (source.jetCount > 0) fillFollow(jets[camJet] ? jets[camJet].pose : source.jetAt(camJet, ctx.t, camPose));
     if (rig.update(terrain.heightAt, nearestTo, follow)) dirty = true;
     for (const l of layers) l.afterCamera?.(ctx); // 3. sizes on screen, read off the final camera
     if (ctx.again) dirty = true; // a layer is still easing something (a callout fading): one more frame
@@ -487,9 +507,24 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       ctx.actionPoints = mode;
       invalidate();
     },
+    setAttackColours: (mode) => {
+      ctx.attackColours = mode;
+      invalidate();
+    },
+    setSource: (next, o) => {
+      if (next === source) return;
+      source = next;
+      ctx.source = next;
+      for (const l of layers) l.setSource?.(next);
+      if (o?.range) clock.shiftRange(o.range.t0_s, o.range.t1_s, o.shift_s ?? 0); // range first, then the playhead: one change
+      homeBoxKept = undefined; // the jets fly other times now: Home frames them afresh
+      rig.refresh();
+      invalidate();
+    },
+    source: () => source,
     stats: () => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
     project(what, j = jet) {
-      if (disposed || contextLost || fatal || !jets || j < 0 || j >= source.jetCount) return undefined;
+      if (disposed || contextLost || fatal || j < 0 || j >= jets.length) return undefined;
       if (dirty) {
         try { draw(0); } catch (err) { fail(err); return undefined; }
       }
@@ -497,8 +532,8 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       if (what === 'target' || what === 'targetMark') {
         const i = source.targetIndexOf(j);
         p = what === 'target' ? targets.ringCentre(i) : targets.markTop(i);
-      } else if (j === jet) {
-        p = what === 'jet' ? jets.jetPosition() : jets.bombPosition(); // the one jet drawn
+      } else {
+        p = what === 'jet' ? jets[j].jetPosition() : jets[j].bombPosition();
       }
       if (!p) return undefined;
       return toScreen(probe.copy(p));

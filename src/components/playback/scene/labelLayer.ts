@@ -7,15 +7,19 @@
  * code that is easy to restyle.
  *
  * What it draws, bottom to top:
- * - The watched jet's action points: a disc in the planner's marker colour at
+ * - Every flown jet's action points: a disc in the planner's marker colour at
  *   each point (on the drawn line, where the arrow passes), with the marker's
- *   letters; an "IP" disc on the planner's IP blue; a small green dot at the
- *   end of the egress leg. Gone when Show › Action points is Off.
+ *   letters. The watched jet (every jet with Show › Attack colours › All
+ *   jets) also gets an "IP" disc on the planner's IP blue and a small green
+ *   dot at the end of the egress leg; the other jets' discs are smaller and
+ *   fainter, and drawn under the watched jet's. Gone when Show › Action
+ *   points is Off.
  * - Each distinct target's red TGT disc (the map's and the card's own mark) on
  *   the top of its post, with its tag on a plate to the right ("TGT1 · #1 #3":
  *   the waypoint's name, then every seat on it, so whose target it is never
  *   rests on colour). These stay whatever Action points says.
- * - The planner's words at each point, word for word what the map and the
+ * - The planner's words at the watched jet's points (every jet's with All
+ *   jets), word for word what the map and the
  *   card print, on a white plate joined to its disc by a thin line: the
  *   markers' lines, the IP and egress labels, and the TGT marker's line at the
  *   target when the bombs land. As they come (the default), each shows from a
@@ -31,15 +35,16 @@
  * The backing store follows the canvas's CSS size times the scene's capped
  * device pixel ratio, so text is sharp on a Retina screen without costing
  * more pixels than the 3D itself draws. Strings and their widths are worked
- * out once per source (a jet label's numbers only when they change), and
- * nothing is allocated frame by frame.
+ * out once per source, watched jet and Attack colours choice (a jet label's
+ * numbers only when they change), and nothing is allocated frame by frame.
  */
 import { Vector3, type PerspectiveCamera } from 'three';
 import { LABEL_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import {
   CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CalloutFader, CalloutPlacer,
   DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, EGRESS_DOT_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
-  LabelText, MARKER_FONT, MARKER_R_PX, TARGET_FONT, TARGET_R_PX, calloutTargets, letterInk, placeLabels, targetTag, type SceneSource,
+  LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, calloutTargets, letterInk, placeLabels, targetTag,
+  type AttackColours, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
 import type { JetLayer } from './jetLayer';
@@ -65,8 +70,8 @@ export interface LabelLayer extends Layer {
 
 const TGT_INK = letterInk(MARKER_COLOR.TGT);
 const IP_INK = letterInk(LABEL_STYLE.ipBg);
-/** A callout's anchor that is not one of the discs: the egress dot, or the jet's target's disc. */
-const AT_EGRESS = -1, AT_TARGET = -2;
+/** What a callout hangs from: one of the discs, an egress dot, or its jet's target's disc. */
+const AT_DISC = 0, AT_EGRESS = 1, AT_TARGET = 2;
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -102,15 +107,20 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
   const jL2: (string | undefined)[] = new Array(nJ).fill(undefined);
   let shownJets = 0;
 
-  // ── Per source and watched jet: its discs and its callouts.
+  // ── Per source, watched jet and Attack colours choice: every jet's discs, the coded jets' egress dots
+  // and callouts. A coded jet is the watched one, or every jet with All jets (with one jet, that one).
   let watched = -1;
+  let colours: AttackColours | undefined;
+  // The discs: the other jets' first, then the coded jets', so drawing in this order puts the coded ones on top.
   let discKey: string[] = [], discFill: string[] = [], discEdge: string[] = [], discInk: string[] = [], discText: string[] = [];
   let discPos: Vector3[] = [];
+  let discR = new Float32Array(0), discAlpha = new Float32Array(0);
   let discX = new Float32Array(0), discY = new Float32Array(0), discOn = new Uint8Array(0);
-  let egress: Vector3 | undefined;
-  let egX = 0, egY = 0, egOn = false;
+  let egPos: Vector3[] = [];
+  let egX = new Float32Array(0), egY = new Float32Array(0), egOn = new Uint8Array(0);
   let cKey: string[] = [], cLines: (readonly string[])[] = [], cColour: string[] = [];
-  let cMark = new Float64Array(0), cJet = new Int16Array(0), cAt = new Int16Array(0), cW = new Float32Array(0), cH = new Float32Array(0), cTW = new Float32Array(0);
+  let cMark = new Float64Array(0), cJet = new Int16Array(0), cKind = new Uint8Array(0), cAt = new Int16Array(0);
+  let cW = new Float32Array(0), cH = new Float32Array(0), cTW = new Float32Array(0);
   let cTarget = new Float32Array(0), cOrder = new Int16Array(0), cPlaced = new Uint8Array(0), cX = new Float32Array(0), cY = new Float32Array(0);
   let fader = new CalloutFader(0), placer = new CalloutPlacer(1);
   let nCallouts = 0, nCandidates = 0, showPoints = false;
@@ -132,47 +142,71 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     watched = -1; // the discs and callouts are made again for this source
   }
 
-  /** The watched jet's discs and callouts, their words measured: once per source and per watched jet. */
-  function rememberWatched(s: SceneSource, jet: number) {
+  /**
+   * Every jet's discs, and the coded jets' egress dots and callouts with their words measured: once per
+   * source, watched jet and Attack colours choice.
+   */
+  function rememberPoints(s: SceneSource, jet: number, mode: AttackColours) {
     watched = jet;
-    const ok = jet >= 0 && jet < s.jetCount;
-    const markers = ok ? s.markers(jet) : [];
-    const points = ok ? s.labelPoints(jet) : [];
-    const ip = points.find((p) => p.kind === 'ip');
-    const eg = points.find((p) => p.kind === 'egress');
-    discKey = markers.map((m) => m.key);
-    discFill = markers.map((m) => MARKER_COLOR[m.kind]);
-    discEdge = markers.map(() => DISC_EDGE);
-    discInk = markers.map((m) => letterInk(MARKER_COLOR[m.kind]));
-    discText = markers.map((m) => m.kind);
-    discPos = markers.map((m) => new Vector3(m.x, m.y, m.z));
-    if (ip) {
-      discKey.push(ip.key);
-      discFill.push(LABEL_STYLE.ipBg);
-      discEdge.push(LABEL_STYLE.ipBorder);
-      discInk.push(IP_INK);
-      discText.push('IP');
-      discPos.push(new Vector3(ip.x, ip.y, ip.z));
-    }
-    discX = new Float32Array(discKey.length);
-    discY = new Float32Array(discKey.length);
-    discOn = new Uint8Array(discKey.length);
-    egress = eg ? new Vector3(eg.x, eg.y, eg.z) : undefined;
+    colours = mode;
+    const isCoded = (k: number) => s.jetCount === 1 || mode === 'all' || k === jet;
+    const jetsInOrder: number[] = [];
+    for (let k = 0; k < s.jetCount; k++) if (!isCoded(k)) jetsInOrder.push(k);
+    for (let k = 0; k < s.jetCount; k++) if (isCoded(k)) jetsInOrder.push(k);
 
+    const discs: { key: string; fill: string; edge: string; ink: string; text: string; pos: Vector3; r: number; alpha: number }[] = [];
+    const eg: Vector3[] = [];
     // The callouts: each marker's lines at its disc, the IP label at the IP disc, the egress label at
     // the dot, and the TGT marker's line at the target's disc when the bombs land.
-    const list: { key: string; lines: readonly string[]; colour: string; t: number; at: number }[] = markers.map((m, i) => ({ key: m.key, lines: m.lines, colour: MARKER_COLOR[m.kind], t: m.t_s, at: i }));
-    if (ip) list.push({ key: ip.key, lines: [ip.text], colour: LABEL_STYLE.ipBorder, t: ip.t_s, at: markers.length });
-    if (eg) list.push({ key: eg.key, lines: [eg.text], colour: LABEL_STYLE.egressBorder, t: eg.t_s, at: AT_EGRESS });
-    const tw = ok ? s.targetWords(jet) : undefined;
-    if (tw) list.push({ key: tw.key, lines: tw.lines, colour: MARKER_COLOR.TGT, t: tw.t_s, at: AT_TARGET });
+    const list: { key: string; lines: readonly string[]; colour: string; t: number; jet: number; kind: number; at: number }[] = [];
+    for (const k of jetsInOrder) {
+      const coded = isCoded(k);
+      const points = s.labelPoints(k);
+      for (const m of s.markers(k)) {
+        if (coded) list.push({ key: m.key, lines: m.lines, colour: MARKER_COLOR[m.kind], t: m.t_s, jet: k, kind: AT_DISC, at: discs.length });
+        discs.push({
+          key: m.key, fill: MARKER_COLOR[m.kind], edge: DISC_EDGE, ink: letterInk(MARKER_COLOR[m.kind]), text: m.kind, pos: new Vector3(m.x, m.y, m.z),
+          r: coded ? MARKER_R_PX : MARKER_OTHER_R_PX, alpha: coded ? 1 : OTHER_MARKER_ALPHA,
+        });
+      }
+      if (!coded) continue; // the other jets: small discs only, no IP disc, no egress dot, no words
+      const ip = points.find((p) => p.kind === 'ip');
+      if (ip) {
+        list.push({ key: ip.key, lines: [ip.text], colour: LABEL_STYLE.ipBorder, t: ip.t_s, jet: k, kind: AT_DISC, at: discs.length });
+        discs.push({ key: ip.key, fill: LABEL_STYLE.ipBg, edge: LABEL_STYLE.ipBorder, ink: IP_INK, text: 'IP', pos: new Vector3(ip.x, ip.y, ip.z), r: MARKER_R_PX, alpha: 1 });
+      }
+      const e = points.find((p) => p.kind === 'egress');
+      if (e) {
+        list.push({ key: e.key, lines: [e.text], colour: LABEL_STYLE.egressBorder, t: e.t_s, jet: k, kind: AT_EGRESS, at: eg.length });
+        eg.push(new Vector3(e.x, e.y, e.z));
+      }
+      const tw = s.targetWords(k);
+      if (tw) list.push({ key: tw.key, lines: tw.lines, colour: MARKER_COLOR.TGT, t: tw.t_s, jet: k, kind: AT_TARGET, at: k });
+    }
+    discKey = discs.map((d) => d.key);
+    discFill = discs.map((d) => d.fill);
+    discEdge = discs.map((d) => d.edge);
+    discInk = discs.map((d) => d.ink);
+    discText = discs.map((d) => d.text);
+    discPos = discs.map((d) => d.pos);
+    discR = Float32Array.from(discs, (d) => d.r);
+    discAlpha = Float32Array.from(discs, (d) => d.alpha);
+    discX = new Float32Array(discs.length);
+    discY = new Float32Array(discs.length);
+    discOn = new Uint8Array(discs.length);
+    egPos = eg;
+    egX = new Float32Array(eg.length);
+    egY = new Float32Array(eg.length);
+    egOn = new Uint8Array(eg.length);
+
     const n = list.length;
     nCallouts = n;
     cKey = list.map((c) => c.key);
     cLines = list.map((c) => c.lines);
     cColour = list.map((c) => c.colour);
     cMark = Float64Array.from(list, (c) => c.t);
-    cJet = new Int16Array(n).fill(jet);
+    cJet = Int16Array.from(list, (c) => c.jet);
+    cKind = Uint8Array.from(list, (c) => c.kind);
     cAt = Int16Array.from(list, (c) => c.at);
     if (g) g.font = CALLOUT_FONT;
     cTW = Float32Array.from(list, (c) => Math.max(0, ...c.lines.map((l) => (g ? g.measureText(l).width : 0))));
@@ -227,21 +261,21 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
   let ax = 0, ay = 0, ar = 0;
   function anchorOf(i: number): boolean {
     const at = cAt[i];
-    if (at >= 0) {
+    if (cKind[i] === AT_DISC) {
       if (!discOn[at]) return false;
       ax = discX[at];
       ay = discY[at];
-      ar = MARKER_R_PX + DISC_EDGE_PX + DISC_RIM_PX;
+      ar = discR[at] + DISC_EDGE_PX + DISC_RIM_PX;
       return true;
     }
-    if (at === AT_EGRESS) {
-      if (!egOn) return false;
-      ax = egX;
-      ay = egY;
+    if (cKind[i] === AT_EGRESS) {
+      if (!egOn[at]) return false;
+      ax = egX[at];
+      ay = egY[at];
       ar = EGRESS_DOT_PX;
       return true;
     }
-    const ti = src && watched >= 0 && watched < src.jetCount ? src.targetIndexOf(watched) : -1;
+    const ti = src && at >= 0 && at < src.jetCount ? src.targetIndexOf(at) : -1;
     if (ti < 0 || !tOn[ti]) return false;
     ax = tx[ti];
     ay = ty[ti];
@@ -255,7 +289,7 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     afterCamera(ctx) {
       if (!g) return;
       if (ctx.source !== src) remember(ctx.source);
-      if (ctx.watched !== watched) rememberWatched(ctx.source, ctx.watched);
+      if (ctx.watched !== watched || ctx.attackColours !== colours) rememberPoints(ctx.source, ctx.watched, ctx.attackColours);
       if (ctx.viewW !== w || ctx.viewH !== h || ctx.dpr !== dpr) {
         w = ctx.viewW;
         h = ctx.viewH;
@@ -301,21 +335,21 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
       }
       placeLabels(shownJets, jax, jay, jw, jh, w, h, jx, jy, shownTargets, tbx, tby, tbw, tbh);
 
-      // The watched jet's discs.
-      showPoints = ctx.actionPoints !== 'off' && watched >= 0 && watched < ctx.source.jetCount;
-      const dEdge = MARKER_R_PX + DISC_EDGE_PX + DISC_RIM_PX;
+      // Every jet's discs and the coded jets' egress dots.
+      showPoints = ctx.actionPoints !== 'off';
       for (let i = 0; i < discPos.length; i++) {
         discOn[i] = 0;
-        if (!showPoints || !toScreen(v.copy(discPos[i]), ctx.camera, ctx) || !inView(v.x, v.y, dEdge)) continue;
+        if (!showPoints || !toScreen(v.copy(discPos[i]), ctx.camera, ctx) || !inView(v.x, v.y, discR[i] + DISC_EDGE_PX + DISC_RIM_PX)) continue;
         discOn[i] = 1;
         discX[i] = v.x;
         discY[i] = v.y;
       }
-      egOn = false;
-      if (showPoints && egress && toScreen(v.copy(egress), ctx.camera, ctx) && inView(v.x, v.y, EGRESS_DOT_PX)) {
-        egOn = true;
-        egX = v.x;
-        egY = v.y;
+      for (let i = 0; i < egPos.length; i++) {
+        egOn[i] = 0;
+        if (!showPoints || !toScreen(v.copy(egPos[i]), ctx.camera, ctx) || !inView(v.x, v.y, EGRESS_DOT_PX)) continue;
+        egOn[i] = 1;
+        egX[i] = v.x;
+        egY[i] = v.y;
       }
 
       // The callouts: which show and how much, then a spot for each, nearest the playhead first.
@@ -344,16 +378,21 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
 
       // ── Drawing, bottom to top.
       if (showPoints) {
+        // In array order: the other jets' small, faint discs first, the coded jets' on top of them.
         for (let i = 0; i < discPos.length; i++) {
-          if (discOn[i]) disc(discX[i], discY[i], MARKER_R_PX, discFill[i], discEdge[i], discText[i], discInk[i], MARKER_FONT, true);
+          if (!discOn[i]) continue;
+          g.globalAlpha = discAlpha[i];
+          disc(discX[i], discY[i], discR[i], discFill[i], discEdge[i], discText[i], discInk[i], MARKER_FONT, true);
         }
-        if (egOn) {
+        g.globalAlpha = 1;
+        for (let i = 0; i < egPos.length; i++) {
+          if (!egOn[i]) continue;
           g.beginPath();
-          g.arc(egX, egY, EGRESS_DOT_PX + 1, 0, 2 * Math.PI);
+          g.arc(egX[i], egY[i], EGRESS_DOT_PX + 1, 0, 2 * Math.PI);
           g.fillStyle = DISC_EDGE;
           g.fill();
           g.beginPath();
-          g.arc(egX, egY, EGRESS_DOT_PX, 0, 2 * Math.PI);
+          g.arc(egX[i], egY[i], EGRESS_DOT_PX, 0, 2 * Math.PI);
           g.fillStyle = LABEL_STYLE.egressBorder;
           g.fill();
         }

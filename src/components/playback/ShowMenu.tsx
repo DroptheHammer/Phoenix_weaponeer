@@ -1,8 +1,9 @@
 /**
  * The Show menu over the 3D picture: one button that opens one panel of
  * choices about what the picture shows: altitude and speed on the jets'
- * labels, the action points (off, as each jet nears them, or always), and
- * where the time bar starts; the others join as they are built. The choices
+ * labels, the action points (off, as each jet nears them, or always), the
+ * planner's colour code on the watched jet or on every jet, and where the time
+ * bar starts; the threats join when they are built. The choices
  * are the pure ShowState (src/lib/playbackScene/show.ts); nothing here is saved.
  *
  * Behaviour:
@@ -23,7 +24,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { RUN_LEAD_S, type ActionPointsMode, type ShowAction, type ShowState } from '../../lib/playbackScene';
+import { RUN_LEAD_S, type ActionPointsMode, type AttackColours, type ShowAction, type ShowState } from '../../lib/playbackScene';
 import { keepFocus, MENU_HEAD, MENU_HINT, MENU_PANEL, SEG_SMALL, TOGGLE, TOGGLE_OFF, TOGGLE_ON } from './ui';
 
 interface ShowMenuProps {
@@ -36,6 +37,12 @@ const ACTION_POINTS: readonly { value: ActionPointsMode; label: string; hint: st
   { value: 'off', label: 'Off', hint: 'No markers or words along the runs.' },
   { value: 'coming', label: 'As they come', hint: "Markers along each run; the planner's words show as each jet nears a point." },
   { value: 'always', label: 'Always', hint: "Markers and the planner's words all the time." },
+];
+
+/** Which jets wear the planner's colour code, in the menu's order, with the line that says what each does. */
+const ATTACK_COLOURS: readonly { value: AttackColours; label: string; hint: string }[] = [
+  { value: 'watched', label: 'Watched jet', hint: "The planner's colours on the watched jet; the others in their own colour." },
+  { value: 'all', label: 'All jets', hint: "The planner's colours on every jet; the arrows keep their own colour." },
 ];
 
 export function ShowMenu({ show, dispatch }: ShowMenuProps) {
@@ -137,6 +144,25 @@ export function ShowMenu({ show, dispatch }: ShowMenuProps) {
               ))}
             </div>
             <span className={`block mt-1 ${MENU_HINT}`}>{ACTION_POINTS.find((c) => c.value === show.actionPoints)?.hint}</span>
+          </div>
+          <div role="group" aria-labelledby="pb-show-ac">
+            <span id="pb-show-ac" className={`block ${MENU_HEAD}`}>Attack colours</span>
+            <div className="mt-1 inline-flex rounded border border-gray-600 overflow-hidden">
+              {ATTACK_COLOURS.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => dispatch({ type: 'attackColours', value: c.value })}
+                  onMouseDown={keepFocus}
+                  aria-pressed={show.attackColours === c.value}
+                  title={c.hint}
+                  className={`${SEG_SMALL} ${show.attackColours === c.value ? 'bg-gray-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <span className={`block mt-1 ${MENU_HINT}`}>{ATTACK_COLOURS.find((c) => c.value === show.attackColours)?.hint}</span>
           </div>
           <label className="flex items-start gap-2 cursor-pointer" onMouseDown={keepFocus}>
             <input
