@@ -11,15 +11,10 @@ import type { PlaybackInput } from '../../lib/playback';
  */
 export interface PlaybackLaunch {
   input: PlaybackInput;
-  /** The jet the editor had selected, so playback opens on it. */
+  /** What the title plate over the 3D view says: the strike's name, or the lone jet's callsign. Left out: the input's name. */
+  title?: string;
+  /** The jet the editor had selected, so playback opens watching it. */
   jetId?: string;
-  /**
-   * The seat whose colour the jet is drawn in (0 = #1), the editor's own
-   * index into JET_COLORS: the 3D view flies the selected jet alone, so its
-   * place in the playback is always 0, but it must keep the colour the
-   * editor's map and jet strip give it. Left out: the playback order.
-   */
-  colorIndex?: number;
   /** Plain sentences shown beside the 3D view (the theater's projection is unverified, and so on). */
   notes: string[];
 }

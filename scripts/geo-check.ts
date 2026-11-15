@@ -54,7 +54,7 @@ import { buildAttackPicture, buildSideProfile, pictureFitPoints, LINE_STYLE, MAR
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
 import { targetCandidates, ipCandidates, waypointLabel } from '../src/lib/waypointOptions';
-import { flightGroupOf } from '../src/lib/callsign';
+import { flightGroupOf, formatCallsign } from '../src/lib/callsign';
 import { applyDisplayFilter } from '../src/lib/displayFilter';
 import { visibleArcSpans } from '../src/lib/arcClip';
 import { compareThreatsForCard } from '../src/lib/cardThreats';
@@ -6968,13 +6968,16 @@ void (async () => {
     const vMission = {
       id: 'vm', name: 'View test', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '',
       waypoints: [{ id: 'v-ip', steerpoint: 7, name: 'STPT 7', type: 'turnpoint', coordinates: calculateDestination(tgt, 68, 15.3), elevation_ft: 5000 }, wpTgt, vTgt2],
-      threats: [], attacks: [], strikes: [], flightMembers: [vCrew('v1', 1), vCrew('v2', 2)],
+      threats: [], attacks: [], strikes: [], flightMembers: [vCrew('v1', 1), vCrew('v2', 2), vCrew('v3', 3)],
     } as never as Mission;
     const vProfiles = (JSON.parse(readFileSync('src-tauri/resources/profiles/f16c.json', 'utf8')) as { id: string }[]).filter((p) => p.id === 'f16c.popup.std');
     const vCtx = { mission: vMission, weapons: refWeapons, profiles: vProfiles, threatSystems: [] } as never;
-    // A two-ship strike as the editor opens it, then an edit not yet saved: #2 moves to the second target.
-    const vJets0 = assignFlanks(respace(['v1', 'v2'].map((id) => newJet(vMission, id, wpTgt.id, {})), 30), vCtx);
-    const vJets = vJets0.map((j, i) => (i === 1 ? { ...j, draft: { ...j.draft, targetWaypointId: vTgt2.id } } : j));
+    // A three-ship strike as the editor opens it, then edits not yet saved: #2 moves to the second
+    // target and the sliders are set. The lead's slider is left at 15 on purpose: the editor's readout
+    // and its save both take the lead's time as 0, so what Play hands over must too.
+    const vSliders = [15, -10, 25];
+    const vJets0 = assignFlanks(respace(['v1', 'v2', 'v3'].map((id) => newJet(vMission, id, wpTgt.id, {})), 30), vCtx);
+    const vJets = vJets0.map((j, i) => ({ ...j, totOffset_s: vSliders[i], draft: i === 1 ? { ...j.draft, targetWaypointId: vTgt2.id } : j.draft }));
     const vResolved = vJets.map((j) => resolveDraft(j.draft, vCtx));
     // The editor's own `drafts` (AttackEditor.tsx): the attack as it would save, under a draft id, and its IP.
     const vDrafts = vJets.map((j, i) => {
@@ -6983,29 +6986,58 @@ void (async () => {
       return { attack, ipAnchor: draftIpAnchor(attack, vMission) };
     });
 
-    // [V1] Play flies the SELECTED jet, as the editor has it now: its id, its (unsaved) target, its
-    // weapon, the editor's seat label, alone at offset 0, so its bombs land at T+0:00 on that target.
-    // Mutation proof: launch.ts `const draft = drafts[selectedIndex];` → `const draft = drafts[0];`:
-    //   FAIL playback view [V1]: … #2: id draft-0, target v-tgt2, label #2, offset 0, mk82, 1 flown, impact T+0 on v-tgt2 true; #1: id draft-0, …
-    const vDescribe = (k: number) => {
-      const launch = playbackLaunchFromEditor(vMission, vDrafts, vResolved, k);
-      if (!launch) return { ok: false, text: `#${k + 1}: nothing built` };
-      const j = launch.input.jets[0];
-      const pb = buildStrikePlayback(launch.input);
-      const impact = strikeEvents(pb, retime(pb)).events.find((e) => e.kind === 'impact');
-      const onTarget = !!impact && Math.abs(impact.t_s) < 1e-9 && calculateDistance({ lat: impact.lat, lon: impact.lon }, j.target.coordinates) < 1e-6;
+    // The launch as the editor's button builds it: every draft, the sliders as they stand.
+    const vArgs = { mission: vMission, drafts: vDrafts, resolved: vResolved, offsets: vJets.map((j) => j.totOffset_s), strikeName: 'Test strike' };
+
+    // [L1] Play flies the WHOLE strike as the editor has it now: every jet in the editor's order, with
+    // its draft's id and (unsaved) target and weapon, the editor's seat label and formatted callsign,
+    // the time its slider holds (the lead's always 0, though its slider says 15), so each jet's bombs
+    // land at its own time on its own target; the title is the strike's name, and the jet being
+    // edited is the one playback opens watching. A draft that cannot be built yet keeps its place as a
+    // member that is not flown, so the others keep their seats; with nothing buildable there is no launch.
+    // Mutation proof (2026-11-14): launch.ts `i === 0 ? 0 : Number.isFinite(offsets[i]) ? offsets[i] : 0` → `Number.isFinite(offsets[i]) ? offsets[i] : 0`:
+    //   FAIL playback B3 [L1]: … jet #1: id draft-0, target w-tgt, label #1, offset 15 (want 0), mk82, Viper 1-1, impact at 15 on its target false; jet #2: …
+    // and `jets.push({` → `jets.unshift({` (the jets handed over in reverse):
+    //   FAIL playback B3 [L1]: … jet #1: id draft-2, target w-tgt, label #3, offset 25 (want 0), mk82, Viper 1-3, impact at 25 on its target false; …
+    // and `order: i` dropped from the skipped jet (it falls to the end, so the jets after it move up a seat):
+    //   FAIL playback B3 [L1]: … no attack on #2: 2 flown, skipped draft-1 #2 at 2; …
+    const vLaunch = playbackLaunchFromEditor({ ...vArgs, selectedIndex: 1 });
+    const vPb = vLaunch && buildStrikePlayback(vLaunch.input);
+    const vImpacts = vPb ? strikeEvents(vPb, retime(vPb)).events.filter((e) => e.kind === 'impact') : [];
+    const vWantTot = [0, -10, 25];
+    const l1Jets = (vLaunch?.input.jets ?? []).map((j, k) => {
       const want = vDrafts[k].attack!;
+      const impact = vImpacts.find((e) => e.jet === k);
+      const onTarget = !!impact && Math.abs(impact.t_s - vWantTot[k]) < 1e-9 && calculateDistance({ lat: impact.lat, lon: impact.lon }, j.target.coordinates) < 1e-6;
       return {
-        ok: launch.input.jets.length === 1 && j.id === want.id && j.target.id === want.targetWaypointId && j.label === `#${k + 1}` && j.totOffset_s === 0 &&
-          j.weapon?.id === 'mk82' && launch.jetId === want.id && pb.jets.length === 1 && onTarget && j.ipAnchor !== undefined,
-        text: `#${k + 1}: id ${j.id}, target ${j.target.id}, label ${j.label}, offset ${j.totOffset_s}, ${j.weapon?.id}, ${pb.jets.length} flown, impact T+0 on ${j.target.id} ${onTarget}`,
+        ok: j.id === want.id && j.target.id === want.targetWaypointId && j.label === `#${k + 1}` && j.totOffset_s === vWantTot[k] && j.weapon?.id === 'mk82' &&
+          j.callsign === formatCallsign(`Viper 1-${k + 1}`) && j.ipAnchor !== undefined && onTarget,
+        text: `jet #${k + 1}: id ${j.id}, target ${j.target.id}, label ${j.label}, offset ${j.totOffset_s} (want ${vWantTot[k]}), ${j.weapon?.id}, ${j.callsign}, impact at ${impact ? impact.t_s : 'none'} on its target ${onTarget}`,
       };
+    });
+    // A draft with no attack yet (#2) or no target (#3): kept as a member that is not flown, in its place.
+    const vNoAttackDrafts = vDrafts.map((d, i) => (i === 1 ? { attack: undefined, ipAnchor: undefined } : d));
+    const vNoAttack = playbackLaunchFromEditor({ ...vArgs, drafts: vNoAttackDrafts, selectedIndex: 0 });
+    const vNoTarget = playbackLaunchFromEditor({ ...vArgs, resolved: vResolved.map((r, i) => (i === 2 ? { ...r, target: undefined } : r)), selectedIndex: 0 });
+    const vNoAttackPb = vNoAttack && buildStrikePlayback(vNoAttack.input);
+    const vNoTargetPb = vNoTarget && buildStrikePlayback(vNoTarget.input);
+    const l1Skip = (pb: StrikePlayback | undefined, seat: number, id: string) => {
+      const s = pb?.skipped[0];
+      return !!pb && pb.jets.length === 2 && pb.skipped.length === 1 && !!s && s.id === id && s.label === `#${seat + 1}` && s.order === seat && s.totOffset_s === vWantTot[seat] &&
+        s.weapon?.id === 'mk82' && s.reason === 'Not ready in the editor yet.' && pb.members.length === 3 && pb.members[seat].jet === undefined && pb.members.filter((m) => m.jet !== undefined).length === 2;
     };
-    const v1 = [vDescribe(1), vDescribe(0)];
-    ok('playback view [V1]: Play flies the selected jet from the unsaved drafts, alone at offset 0, its bombs on its own target at T+0:00',
-       vResolved.every((r) => r.canSave) && vDrafts[1].attack?.targetWaypointId === vTgt2.id && v1.every((d) => d.ok) &&
-       playbackLaunchFromEditor(vMission, [], [], 0) === undefined,
-       v1.map((d) => d.text).join('; '));
+    const vLone = playbackLaunchFromEditor({ mission: vMission, drafts: vDrafts.slice(0, 1), resolved: vResolved.slice(0, 1), offsets: [15], selectedIndex: 0 });
+    ok('playback B3 [L1]: Play flies every jet of the strike from the unsaved drafts, in the editor\'s order, each at its own slider time (the lead\'s 0) on its own target; a draft not ready keeps its place; the title is the strike\'s name',
+       vResolved.every((r) => r.canSave) && vDrafts[1].attack?.targetWaypointId === vTgt2.id && !!vLaunch && vLaunch.input.jets.length === 3 && l1Jets.length === 3 && l1Jets.every((d) => d.ok) &&
+       vLaunch.input.strikeId === undefined && vLaunch.title === 'Test strike' && vLaunch.input.name === 'Test strike' && vLaunch.jetId === vDrafts[1].attack?.id && vPb!.jets.length === 3 &&
+       l1Skip(vNoAttackPb, 1, 'draft-1') && vNoAttackPb!.members[2].jet === 1 && vNoAttack!.jetId === vDrafts[0].attack?.id &&
+       l1Skip(vNoTargetPb, 2, 'draft-2') &&
+       playbackLaunchFromEditor({ ...vArgs, drafts: vNoAttackDrafts, selectedIndex: 1 })?.jetId === undefined &&
+       vLone?.title === 'Viper 1-1' && vLone.input.jets.length === 1 && vLone.input.jets[0].totOffset_s === 0 &&
+       playbackLaunchFromEditor({ ...vArgs, drafts: [], resolved: [], offsets: [], selectedIndex: 0 }) === undefined &&
+       playbackLaunchFromEditor({ ...vArgs, drafts: vDrafts.map(() => ({ attack: undefined, ipAnchor: undefined })), selectedIndex: 0 }) === undefined,
+       [...l1Jets.map((d) => d.text), `no attack on #2: ${vNoAttackPb ? `${vNoAttackPb.jets.length} flown, skipped ${vNoAttackPb.skipped.map((s) => `${s.id} ${s.label} at ${s.order}`)}` : 'nothing built'}`,
+         `no target on #3: ${vNoTargetPb ? `${vNoTargetPb.jets.length} flown, skipped ${vNoTargetPb.skipped.map((s) => `${s.id} ${s.label} at ${s.order}`)}` : 'nothing built'}`].join('; '));
 
     // [V2] The notes playback shows are the planner's theater warnings: none on a verified theater,
     // the theater named on an unverified one, and the real-world line on a "strike near me" plan.
@@ -7038,16 +7070,51 @@ void (async () => {
        g3.real === REAL_GROUND_NOTE && /DCS ground can differ/.test(g3.real) && /clearance isn't shown/.test(g3.flat) && groundNote(undefined) === 'Loading terrain…',
        Object.entries(g3).map(([k, v]) => `${k}: ${v}`).join(' | '));
 
-    // ── Added after the spike's review (2026-11-14), with the same proof rule.
-    // [V4] The jet keeps the editor's colour: Play on #2 flies it alone (playback jet 0) but hands
-    // over its seat, so the 3D view draws it in JET_COLORS[1] (magenta), as the editor's map and jet
-    // strip do, not in #1's cyan.
-    // Mutation proof: launch.ts `colorIndex: selectedIndex` → `colorIndex: 0`:
-    //   FAIL playback view [V4]: … #1 colour index 0 (#22d3ee), #2 colour index 0 (#22d3ee)
-    const v4 = [0, 1].map((k) => playbackLaunchFromEditor(vMission, vDrafts, vResolved, k)?.colorIndex);
-    ok('playback view [V4]: Play hands over the selected seat\'s colour, so #2 is drawn magenta as in the editor',
-       v4[0] === 0 && v4[1] === 1 && jetColor(v4[1] ?? -1) === SCENE_JET_COLORS[1] && SCENE_JET_COLORS[1] !== SCENE_JET_COLORS[0],
-       v4.map((c, k) => `#${k + 1} colour index ${c} (${c === undefined ? 'none' : jetColor(c)})`).join(', '));
+    // [L2] Every jet is drawn in the colour the editor gives its seat (its jet strip tab and its map
+    // track): the i-th draft's jet wears JET_COLORS[i] on the scene's source, whichever jet is being
+    // edited, and a draft that is not ready leaves the seats after it where they were (the next jet
+    // is #3 in #3's colour, not #2's).
+    // Mutation proof (2026-11-14): launch.ts `jets.push({` → `jets.unshift({` (the jets handed over in reverse):
+    //   FAIL playback B3 [L2]: … selected #1: #1 #a3e635 (want #22d3ee), #2 #e879f9 (want #e879f9), #3 #22d3ee (want #a3e635); selected #2: …
+    const l2Colours = (launch: ReturnType<typeof playbackLaunchFromEditor>, drafts: typeof vDrafts) => {
+      const pb = buildStrikePlayback(launch!.input);
+      const src = sceneSourceFrom(pb, retime(pb));
+      return drafts.map((d, i) => {
+        const k = pb.jets.findIndex((j) => j.id === d.attack?.id);
+        return { seat: i, colour: k < 0 ? undefined : jetColor(src.seatOf(k)), want: SCENE_JET_COLORS[i] };
+      });
+    };
+    const l2Selected = [0, 1, 2].map((s) => ({ s, colours: l2Colours(playbackLaunchFromEditor({ ...vArgs, selectedIndex: s }), vDrafts) }));
+    const l2Skip = l2Colours(vNoAttack, vNoAttackDrafts);
+    ok('playback B3 [L2]: each jet of the editor\'s strike is drawn in the colour the editor gives its seat, whichever jet is selected, and a jet not ready leaves the seats after it in place',
+       new Set(SCENE_JET_COLORS.slice(0, 3)).size === 3 && l2Selected.every((x) => x.colours.every((c) => c.colour === c.want)) &&
+       l2Skip[0].colour === SCENE_JET_COLORS[0] && l2Skip[1].colour === undefined && l2Skip[2].colour === SCENE_JET_COLORS[2],
+       [...l2Selected.map((x) => `selected #${x.s + 1}: ${x.colours.map((c) => `#${c.seat + 1} ${c.colour} (want ${c.want})`).join(', ')}`),
+         `#2 not ready: ${l2Skip.map((c) => `#${c.seat + 1} ${c.colour ?? 'not flown'}`).join(', ')}`].join('; '));
+
+    // [L3] The strike clock Play hands over is the strike readout the editor prints: the readout
+    // playback works out (splits between neighbours, each jet's push and time over target, the frag
+    // warnings) equals the editor's own StrikeReadoutStrip input (AttackEditor.tsx builds a StrikeJet
+    // per jet, in editor order, the lead at 0), here with the lead's slider at 15 and the wingmen at
+    // -10 and +25. The jets are not sorted by time: the cards and the strip number them by position.
+    // Mutation proof (2026-11-14): launch.ts `const input: PlaybackInput = { name: title, jets, skipped };` →
+    // `{ name: title, jets: [...jets].sort((a, b) => a.totOffset_s - b.totOffset_s), skipped }`:
+    //   FAIL playback B3 [L3]: … editor's strip: pushes #1 tot 0 push -122.8, #2 tot -10 push -79.1, #3 tot 25 push -97.8; playback's: pushes #2 tot -10 push -79.1, #1 tot 0 push -122.8, #3 tot 25 push -97.8; splits … vs #2-#1 98.9, #1-#3 0
+    // and the lead's time left at its slider (the first mutation above): playback's pushes #1 tot 15 push -107.8, …
+    const editorJets = vJets.map<StrikeJet>((j, i) => ({
+      label: `#${i + 1}`,
+      picture: vDrafts[i].attack && vResolved[i].target ? buildAttackPicture(vDrafts[i].attack!, vDrafts[i].ipAnchor, vResolved[i].target!) : undefined,
+      speed_ktas: vResolved[i].profile ? attackSpeedOf(vResolved[i].profile!) : undefined,
+      totOffset_s: i === 0 ? 0 : j.totOffset_s,
+      weapon: vResolved[i].weapon,
+    }));
+    const editorReadout = strikeReadout(editorJets);
+    const playedReadout = vPb ? retime(vPb).readout : undefined;
+    ok('playback B3 [L3]: the readout of the strike Play hands over equals the editor\'s own strike readout: the lead at 0 whatever its slider says, the wingmen at theirs, in the editor\'s order',
+       !!playedReadout && editorReadout.pushes.length === 3 && editorReadout.pushes.every((p) => p.push_s !== undefined) && editorReadout.splits.length === 2 &&
+       editorReadout.pushes.map((p) => p.tot_s).join() === '0,-10,25' && JSON.stringify(playedReadout) === JSON.stringify(editorReadout),
+       `editor's strip: pushes ${editorReadout.pushes.map((p) => `${p.label} tot ${p.tot_s} push ${r(p.push_s ?? NaN)}`).join(', ')}; ` +
+       `playback's: pushes ${playedReadout?.pushes.map((p) => `${p.label} tot ${p.tot_s} push ${r(p.push_s ?? NaN)}`).join(', ')}; splits ${editorReadout.splits.map((s) => `${s.a}-${s.b} ${r(s.deg)}`).join(', ')} vs ${playedReadout?.splits.map((s) => `${s.a}-${s.b} ${r(s.deg)}`).join(', ')}`);
   } catch (e) {
     ok('playback view: the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }

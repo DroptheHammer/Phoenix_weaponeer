@@ -330,8 +330,11 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
               </button>
             )}
             {strike && jets.length < 2 && <span className="mr-auto text-xs text-amber-300">Add a second jet on the Group tab</span>}
-            {/* 3D playback of the selected jet, built from the drafts as they are now (unsaved edits included). */}
-            <PlayStrikeButton disabled={!allSavable} build={() => playbackLaunchFromEditor(mission, drafts, resolved, selectedIndex)} />
+            {/* 3D playback of the whole strike (every jet), built from the drafts and times as they are now (unsaved edits included). */}
+            <PlayStrikeButton
+              disabled={!allSavable}
+              build={() => playbackLaunchFromEditor({ mission, drafts, resolved, offsets: jets.map((j) => j.totOffset_s), strikeName: strike?.name, selectedIndex })}
+            />
             <button onClick={onClose} className="px-6 py-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors">Cancel</button>
             <button
               onClick={handleSave}

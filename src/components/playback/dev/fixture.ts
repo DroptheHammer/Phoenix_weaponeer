@@ -66,7 +66,8 @@ export function harnessLaunch(notes: string[] = []): PlaybackLaunch {
     name: 'Viper 1-1',
     jets: [{ id: attack.id, attack, ipAnchor: attackIpAnchor(m.waypoints, attack), target, weapon: weapons.find((w) => w.id === 'mk82'), totOffset_s: 0, label: '#1', callsign: 'Viper 1-1' }],
   };
-  return { input, jetId: attack.id, notes };
+  // The title the editor gives a lone attack: the jet's callsign.
+  return { input, title: 'Viper 1-1', jetId: attack.id, notes };
 }
 
 /** The four pilots and both targets, the way geo-check's B3 fixture lays them out. */
@@ -126,7 +127,8 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
   // Every member in seat order, skipped ones included, so a seat number names the same member as the card.
   const ids = [...input.jets.map((j) => ({ id: j.id, label: j.label })), ...(input.skipped ?? []).map((j) => ({ id: j.id, label: j.label }))];
   const seat = watch ?? (fixture === 'late' ? 2 : 1);
-  return { input, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes };
+  // A strike's title is its name.
+  return { input, title: input.name, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes };
 }
 
 /** The moments the screenshot checks seek to, on the strike clock (built the same way PlaybackView builds them). */

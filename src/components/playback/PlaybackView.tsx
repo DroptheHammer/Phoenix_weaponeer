@@ -93,8 +93,7 @@ function buildView(launch: PlaybackLaunch | undefined): Built {
     }
     const timing = retime(pb);
     const source = sceneSourceFrom(pb, timing);
-    const jet = pb.jets[0];
-    return { ok: true, pb, timing, source, title: `${jet.callsign ?? launch.input.name} ${jet.label}` };
+    return { ok: true, pb, timing, source, title: launch.title ?? launch.input.name };
   } catch (e) {
     return { ok: false, message: 'The playback could not be worked out from this plan.', detail: e instanceof Error ? e.message : String(e) };
   }
@@ -150,13 +149,12 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
     const bands = laneBands(pb, timing, range)[watched];
     const marks = laneMarks(pb, timing, range, (i) => moments[i])[watched];
     const jet = pb.jets[k];
-    // A strike of one keeps the editor's colour for its jet, as the scene does.
-    const colour = jetColor(pb.jets.length === 1 && launch?.colorIndex !== undefined ? launch.colorIndex : watched);
+    // The seat's colour, as the scene draws the jet (a skipped #2 leaves the next jet as #3, in #3's colour).
     return [{
-      seat: watched, label: jet.label, callsign: jet.callsign, colour, marks, bands,
+      seat: watched, label: jet.label, callsign: jet.callsign, colour: jetColor(watched), marks, bands,
       tot_s: timing.jets[k].tot_s, cardPush_s: timing.readout.pushes[watched]?.push_s,
     }];
-  }, [built, range, watched, launch?.colorIndex]);
+  }, [built, range, watched]);
 
   const [scene, setScene] = useState<PlaybackScene | null>(null);
   const [terrain, setTerrain] = useState<TerrainStatus>();
@@ -250,8 +248,6 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
           key={mountKey}
           source={built.source}
           tiles={tileSource}
-          jet={watchedJet}
-          colorIndex={launch?.colorIndex}
           range={range}
           startAt_s={resumeAt.current}
           camera={camera}

@@ -51,14 +51,6 @@ export interface SceneOptions {
   source: SceneSource;
   /** Where map and elevation tiles come from. Undefined: flat ground in the land colour, nothing fetched. */
   tiles?: TileSource<CanvasImageSource>;
-  /** The jet the camera follows when `camera` names none, and project()'s jet when it is not given. Default 0, the lead. Every flown jet is drawn. */
-  jet?: number;
-  /**
-   * A strike of one only: the editor's colour for its jet (index into JET_COLORS), since the editor's
-   * selected jet flies alone as jet 0 but keeps its seat's colour. Ignored with more jets: each wears
-   * its own seat's colour.
-   */
-  colorIndex?: number;
   /**
    * The stretch of strike time the clock plays (and the time bar shows). Default: the whole window
    * of the source. It is narrower than the window when playback opens just before the first action;
@@ -69,8 +61,9 @@ export interface SceneOptions {
   /** Strike time to open at, s. Default: the start of the range. */
   startAt_s?: number;
   /**
-   * The camera to open in and the jet it follows, set before the first frame (Chase starts behind
-   * that jet at the opening time). Default: Orbit at the home view.
+   * The camera to open in and the jet it follows (a playback index, never a seat), set before the
+   * first frame (Chase starts behind that jet at the opening time). Every flown jet is drawn; this
+   * one is the watched jet. Default: Orbit at the home view, watching jet 0, the lead.
    */
   camera?: { mode: CameraMode; jet: number };
   /** The camera's mode changed (a mode chosen, or Home view, which is Orbit): the toolbar shows it. */
@@ -160,9 +153,10 @@ export interface PlaybackScene {
   source(): SceneSource;
   stats(): SceneStats;
   /**
-   * Where jet `jet`'s arrow, its falling bomb, its target's ring centre or its target's TGT disc is
-   * on screen, at the clock's current time (a pending change is drawn first). Undefined when that
-   * thing is not shown or is behind the camera. For the screenshot checks.
+   * Where jet `jet`'s (a playback index, default 0, the lead) arrow, its falling bomb, its target's
+   * ring centre or its target's TGT disc is on screen, at the clock's current time (a pending change
+   * is drawn first). Undefined when that thing is not shown or is behind the camera. For the
+   * screenshot checks.
    */
   project(what: 'jet' | 'bomb' | 'target' | 'targetMark', jet?: number): ScreenPoint | undefined;
   /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels). For the screenshot checks. */
@@ -194,7 +188,6 @@ export function sceneCounts(): { sceneCreates: number; liveScenes: number } {
 export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   const { host } = opts;
   let source = opts.source; // a re-time swaps it (setSource); the jets stay the same
-  const jet = opts.jet !== undefined && opts.jet >= 0 && opts.jet < source.jetCount ? opts.jet : 0;
   const bag = new DisposeBag();
   const abort = new AbortController(); // stops the tile loads on close; nothing calls back after it
 
@@ -257,8 +250,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       onStatus: (s) => opts.onTerrain?.(s),
     });
     targets = createTargetLayer({ source, parent: scene, bag });
-    const colorIndex = source.jetCount === 1 ? opts.colorIndex : undefined;
-    for (let k = 0; k < source.jetCount; k++) jets.push(createJetLayer({ source, jet: k, colorIndex, parent: scene, bag }));
+    for (let k = 0; k < source.jetCount; k++) jets.push(createJetLayer({ source, jet: k, parent: scene, bag }));
     // The camera at home, framing the attack (worked out again for each window shape); its far
     // plane reaches past the haze's end from the farthest the camera can stand back.
     const homeFor = (aspect: number) => homePose({ box: homeBoxNow(), axis: source.attackAxis, aspect });
@@ -299,7 +291,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   // One mutable frame context, reused every frame: no per-frame garbage.
   // ── What the camera follows: the watched jet, filled every frame from its layer's pose (a jet
   // with no layer of its own is sampled here instead). Made once.
-  let camJet = opts.camera && opts.camera.jet >= 0 && opts.camera.jet < source.jetCount ? opts.camera.jet : jet;
+  let camJet = opts.camera && opts.camera.jet >= 0 && opts.camera.jet < source.jetCount ? opts.camera.jet : 0;
 
   const ctx: FrameCtx = {
     t: clock.time, dt: 0, source, camera: rig.camera, viewW, viewH, dpr,
@@ -523,7 +515,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     },
     source: () => source,
     stats: () => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
-    project(what, j = jet) {
+    project(what, j = 0) {
       if (disposed || contextLost || fatal || j < 0 || j >= jets.length) return undefined;
       if (dirty) {
         try { draw(0); } catch (err) { fail(err); return undefined; }

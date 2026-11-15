@@ -19,10 +19,6 @@ export interface SceneHostProps {
   source: SceneSource;
   /** Undefined: flat ground, nothing fetched. */
   tiles: TileSource<CanvasImageSource> | undefined;
-  /** The watched jet (a playback index): the camera follows it when `camera` names none. Every flown jet is drawn. */
-  jet: number;
-  /** A strike of one only: the editor's colour for its jet (index into JET_COLORS). */
-  colorIndex?: number;
   /**
    * The stretch of strike time the clock plays, as it stands when the scene is made. After a
    * remount (a lost graphics context given back) the view hands over the range it holds now.
@@ -30,7 +26,7 @@ export interface SceneHostProps {
   range?: StrikeWindow;
   /** Strike time to open at, s (kept across a remount). */
   startAt_s?: number;
-  /** The camera to open in and the jet it follows (after a remount, the mode in force before it). */
+  /** The camera to open in and the watched jet (a playback index) it follows; every flown jet is drawn. After a remount, the mode in force before it. */
   camera?: { mode: CameraMode; jet: number };
   /** The scene once made, and null when it is freed. */
   onReady(scene: PlaybackScene | null): void;
@@ -45,7 +41,7 @@ export interface SceneHostProps {
 export const SceneHost = memo(function SceneHost(props: SceneHostProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   // The callbacks are read through this at call time, so they are always the latest;
-  // the source, tiles, jet, range, start time and camera are read once, at mount, on purpose.
+  // the source, tiles, range, start time and camera are read once, at mount, on purpose.
   const latest = useRef(props);
   latest.current = props;
 
@@ -55,8 +51,6 @@ export const SceneHost = memo(function SceneHost(props: SceneHostProps) {
       host: hostRef.current!,
       source: p.source,
       tiles: p.tiles,
-      jet: p.jet,
-      colorIndex: p.colorIndex,
       range: p.range,
       startAt_s: p.startAt_s,
       camera: p.camera,

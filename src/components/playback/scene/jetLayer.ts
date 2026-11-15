@@ -246,15 +246,13 @@ export interface JetLayer extends Layer {
 
 /**
  * The jet's colour is its seat's (source.seatOf: a skipped #2 leaves the
- * second flown jet as #3, in #3's colour), never its playback index.
- * `colorIndex` overrides it for a strike of one: the editor's selected jet
- * flies alone as playback jet 0, but #2 must still be magenta, as on the
- * editor's map.
+ * second flown jet as #3, in #3's colour), never its playback index, so a
+ * jet wears the colour the editor's map and jet strip give its seat.
  */
-export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex?: number; parent: Object3D; bag: DisposeBag }): JetLayer {
+export function createJetLayer(o: { source: SceneSource; jet: number; parent: Object3D; bag: DisposeBag }): JetLayer {
   const { bag, jet } = o;
   let src = o.source;
-  const colourHex = jetColor(o.colorIndex ?? src.seatOf(jet));
+  const colourHex = jetColor(src.seatOf(jet));
   const colour = new Color(colourHex); // sRGB in, linear inside: shown as exactly the editor's colour
   // The seat colour as the lines take it when this jet is not the watched one, linear RGB, worked out once.
   const seatPathRgb = Float32Array.from(new Color(mixHex(colourHex, BG, OTHER_SHADE)).toArray());
