@@ -376,6 +376,35 @@ each gate's outcome are in `docs/V040_PLAN.md`.
      themselves. Told him the plan, his to veto: a lane's stripes show
      only while that jet's time is being set, and the footer's warning
      gets a striped key.
+  3. **Frag is DCS's blast (decided).** He asked what "inside #1's ~35 s
+     of frag" rests on. It is `fragClearTime_s` in `src/lib/strike.ts`:
+     the time a fragment thrown up to the weapon row's frag min-safe
+     altitude takes to fall back, rounded up to 5 s (30 s for a Mk-82,
+     35 s for the Mk-84 family), compared with the gap between two jets'
+     times over target. Time only: no position, no radius. That is a
+     real-world spacing habit, not what DCS does. **His decision, in his
+     words:** "the DCS rule... in DCS we dont have fallign fragments etc.
+     its just the blast measured outwards from the bomb by a distance and
+     occluded by terrain. For each bomb it will have its own radius etc so
+     we need to make sure we scrape the game files or other things. Lets
+     make it just instant when the bomb goes off to keep it simple". So:
+     a conflict is another jet inside the bomb's radius of the burst, in
+     3D, **at the instant it goes off**; **each bomb's radius comes from
+     the game's files or another source that can be cited**, shown to him
+     before it is committed; a weapon with no sourced number gets no test
+     and says so. The director's ruling, told to him: terrain in the way
+     is not credited (the app has no DCS terrain), so the test can warn
+     where DCS would not, never the reverse. Still open: whether the old
+     30/35 s rule stays as an off-by-default switch.
+- **His rule for long sessions (2026-11-15): wind down before the plan's
+  usage limit, never let runs die mid-way.** At 90% of the weekly limit:
+  launch nothing new, let the stage in hand finish and be reviewed, push
+  what is done, refresh these notes. At 95%: stop every run at once, save
+  any half-built stage as a patch in the git-ignored working folder and
+  put the tree back to the last commit, push, notes. At 98.5%: stop,
+  patch, one notes commit, push, nothing else. The session cannot see the
+  usage figure by itself: ask him for it, or use whatever monitor the
+  memory notes say was set up.
 
 **Where the work stands.** The working papers are git-ignored and exist only
 on the main Mac (`Other Items/`):
@@ -412,7 +441,9 @@ on the main Mac (`Other Items/`):
      **S10c**: a ring at the weapon row's frag radius, true size, marked
      "(est.)". **S10d**: Chase looks at the bomb from release to impact and
      holds on the burst (From target is left alone). **Stage 19** (the frag
-     cloud) is rewritten there and moved up.
+     cloud) is rewritten there and moved up. **S10c and 19 as written
+     there are superseded by his frag decision: see the frag stages
+     below.**
    - **Two stages from his look at the roll and the ring:** **LN-k** (the
      lanes' stripes show only while that jet's time is being set, with a
      striped key by the footer's warning; its whole spec is ruling 9.15.13
@@ -425,16 +456,33 @@ on the main Mac (`Other Items/`):
      and what ignoring drag costs. **BAL-a changes dive cards: it needs his
      yes, or at least no objection, before it is built, and his look
      before anything merges.**
+   - **The frag stages, from his decision above.** Two more papers in the
+     same folder, **both being written when these notes were written and
+     neither ruled on**: `BUILD_SPEC_S12_FRAG.md` (the test by distance at
+     the burst in the planner and the playback, stages FRG-a onward, and
+     **S10c and stage 19 rewritten: a ring at the tested radius at the
+     burst, no cloud that lasts 35 s**) and `DCS_BLAST_DATA.md` (web
+     research, every figure checked against its source: what DCS's
+     published weapon files hold for each bomb, how the game turns a
+     warhead into damage by distance, measured tests, and a test the user
+     can fly himself if no radius can be sourced). The owner's decision is
+     ruling 9.15.14 of `BUILD_SPEC_S9.md`; where the frag paper still asks
+     what he has already answered, that ruling is the answer. **S10c and
+     19 are not to be built as the impact paper has them.**
    - **The order from here:** S10b, LN-k, then BAL-a and BAL-b once the
-     paper is ruled on and he has not objected, then S10c, S10d,
-     19, then 16, 17, 18a, 18b, 20. **Look 4 is out** (Apply,
-     the roll, the bomb and its trace); **he looks again after 19** (the
-     flash, the ring, the bomb camera, the frag: "look 5"), then after 17
-     and 18b as before. A dive card before and after goes in front of him
-     with BAL-a.
-   - **To tell him at those looks:** the frag radius and frag height come
-     from the old weapon rows with no source on file (the roadmap already
-     lists them for audit), so they are drawn marked "(est.)". And the drawn
+     paper is ruled on and he has not objected, then S10d, then the frag
+     stages (FRG, S10c and 19 as rewritten) once their paper is ruled on
+     and the radii are sourced, then 16, 17, 18a, 18b, 20. **Look 4 is
+     out** (Apply, the roll, the bomb and its trace); **he looks again
+     once the flash, the bomb camera and the frag test are in** ("look
+     5"), then after 17 and 18b as before. A dive card before and after
+     goes in front of him with BAL-a.
+   - **Picking up a paper that was cut short:** a design or research run
+     writes its file as it goes. If a paper in that folder has no "Review
+     record" section at its end (the research paper: no section 7), it was
+     not reviewed: read it as a draft and run the review and revise steps
+     again (the scripts and run ids are in the memory notes).
+   - **To tell him at those looks:** the drawn
      path asks for more G than the card in two places (about 5.7 G against
      3.5 G through a pop-up's pull-down, and a spike for about a second
      after every release, which the roll ignores): both come from how the
@@ -469,6 +517,15 @@ on the main Mac (`Other Items/`):
    EFB-only and will need redoing).
 
 **Waiting on the user:**
+- **The dive card's change** (the roll-in point moves when the dive gains
+  an aim-off): his yes or no, with the before and after numbers from the
+  ballistic paper put to him first.
+- **Whether the roll reads** at the arrow's size in look 4, or the arrow
+  should be bigger.
+- **Whether the old 30/35 s frag rule stays** as an off-by-default switch
+  or goes.
+- **The blast radii**, once the research is back: each value with its
+  source for his approval, or the test he flies in DCS to measure them.
 - **Hidden threats.** He said "the hidden threats we dont tell to users
   unless they went into settings and allow it", but the planner today shows
   a "Probable Threats — location unknown" count by system
