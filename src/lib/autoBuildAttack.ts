@@ -5,7 +5,8 @@ import type { DbWeapon } from '../types/weapon.types';
 import type { Coordinates, Waypoint } from '../types/waypoint.types';
 import type { DeliveryProfile, WeaponClass } from '../types/profile.types';
 import { SUPPORTED_GEOMETRIES, diveParams, levelParams, loftParams, popupParams } from '../types/profile.types';
-import { weaponClassOf, offeredTo, storesMappedFor, geometrySuitsWeapon, WEAPON_CLASS_LABEL } from './weaponClass';
+import { weaponClassOf, offeredTo, storesMappedFor, geometrySuitsWeapon, isFired, WEAPON_CLASS_LABEL } from './weaponClass';
+import { diveRanges } from './diveAim';
 import { calculateBearing, calculateDistance } from './coordinates';
 import { runAttackChecks, type AttackCheck } from './attackChecks';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, type IpAnchor } from './ipAnchor';
@@ -14,7 +15,6 @@ import {
   flankSign,
   normalizeHeading,
   attackHeadingFromActionPoint,
-  diveGroundRange_nm,
   levelReleaseRange_nm,
   LEVEL_RUN_IN_NM,
   DEFAULT_ACTION_RANGE_NM,
@@ -400,7 +400,9 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
       ingress: Math.max(dive.ingressAltitude_ft ?? rollIn, rollIn),
       g: dive.pulloutG ?? 4,
     };
-    joinRange_nm = diveGroundRange_nm(rollIn, dive.diveAngle_deg);
+    // The roll-in ring from the numbers the profile will carry (floors and speed limits applied): a bomb's
+    // ring is pulled in by its aim-off, a gun's or rocket's stays on the sight line.
+    joinRange_nm = diveRanges({ ...dive, rollInAltitude_ft: rollIn, releaseAltitude_ft: release, releaseSpeed_ktas: diveNumbers.speed }, isFired(weaponClass)).rollIn_nm;
   } else if (level) {
     const releaseAgl = raiseToFloor(level.releaseAltitude_ft, 'Release', 'ft AGL');
     const speed = speedClamp(level.releaseSpeed_ktas);
@@ -684,7 +686,7 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     ipAnchor,
     attackHeading,
     directBearing,
-    runIn: directBearing != null ? describeRunIn(attackProfile, directBearing, target.elevation_ft ?? 0) : undefined,
+    runIn: directBearing != null ? describeRunIn(attackProfile, directBearing, target.elevation_ft ?? 0, isFired(weaponClass)) : undefined,
     popupPlan: popupNumbers?.plan,
     adjustments,
     problems,

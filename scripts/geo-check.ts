@@ -18,7 +18,9 @@ import {
   calculateLoftGeometry,
   turnBetween,
   egressPath,
+  diveGroundRange_nm,
 } from '../src/lib/attackGeometry';
+import { diveRanges } from '../src/lib/diveAim';
 import {
   planPopup,
   solvePullDownTurn,
@@ -35,7 +37,7 @@ import { inferIp, resolveIp, initialIpOverride, autoBuildAttack, nearestThreatSi
 import { rowsFromLoadout, pickWeapon, loadoutFromRows, loadoutPickerWeapons } from '../src/lib/loadoutRows';
 import { storesMappedFor, weaponClassOf, geometrySuitsWeapon } from '../src/lib/weaponClass';
 import { SUPPORTED_GEOMETRIES } from '../src/types/profile.types';
-import type { LoftCCRPProfile } from '../src/types/attack.types';
+import type { DiveCCIPProfile, LoftCCRPProfile } from '../src/types/attack.types';
 import type { DbWeapon } from '../src/types/weapon.types';
 import type { Attack, Mission, ThreatInstance } from '../src/types';
 import {
@@ -561,7 +563,13 @@ ok('applyPopupPlan: approach and attack headings written from the route', filled
 const story = describeRunIn(filled, directBearing)!;
 ok('describeRunIn (pop-up): 4.5 nm, turn right 25°, pull down left onto the attack heading', story.actionRange_nm === 4.5 && story.offsetTurn.deg === 25 && story.offsetTurn.direction === 'right' && story.joinTurn.direction === 'left' && story.joinLabel === 'pull down' && Math.abs(signedHeadingDelta(story.attackHeading, filled.runInHeading_deg!)) < 0.01);
 const diveStory = describeRunIn({ type: 'dive_ccip', ingressHeading_deg: joinR.attackHeading, rollInAltitude_ft: 8000, diveAngle_deg: 30, releaseAltitude_ft: 4500, releaseSpeed_ktas: 450, pulloutG: 4, egressDirection: 'right', actionRange_nm: 4.5, offsetAngle_deg: 20, offsetDirection: 'right' }, directBearing)!;
-ok('describeRunIn (dive): roll in left ~42° onto the computed heading', diveStory.joinLabel === 'roll in' && diveStory.joinTurn.direction === 'left' && Math.abs(diveStory.joinTurn.deg - joinR.joinTurn.deg) < 0.1 && Math.abs(signedHeadingDelta(diveStory.attackHeading, joinR.attackHeading)) < 0.01);
+// A bomb dive's roll-in ring is pulled in by its aim-off (diveAim.ts): 2.28 → 1.94 nm, so the roll-in turn grows ~42° → ~53°.
+// Mutation proof (2026-11-15): runIn.ts `diveRanges(profile, fired).rollIn_nm` → `diveRanges(profile, true).rollIn_nm` (the run-in forgets the aim-off):
+//   FAIL describeRunIn (dive): roll in left ~53° onto the computed heading (the bomb's aim-off ring)  42.4° onto 225.7°
+//   (and `moveIp (dive)`, [BL6], [BL6b])
+const joinRAimed = joinPointOnLeg(tgt, actionR, diveRanges({ rollInAltitude_ft: 8000, releaseAltitude_ft: 4500, diveAngle_deg: 30, releaseSpeed_ktas: 450 }).rollIn_nm)!;
+ok('describeRunIn (dive): roll in left ~53° onto the computed heading (the bomb\'s aim-off ring)', diveStory.joinLabel === 'roll in' && diveStory.joinTurn.direction === 'left' && Math.abs(diveStory.joinTurn.deg - joinRAimed.joinTurn.deg) < 0.1 && Math.abs(signedHeadingDelta(diveStory.attackHeading, joinRAimed.attackHeading)) < 0.01,
+   `${diveStory.joinTurn.deg.toFixed(1)}° onto ${diveStory.attackHeading.toFixed(1)}°`);
 
 // Egress path shape.
 const eg = egressPath(tgt, 0, 90, 450, 4);
@@ -3417,15 +3425,25 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // Re-pinned on purpose again when the card went to 3x (2304 x 3072): every card but the
   // side view gained its one setTransform line, and the map card its finer tiles (28 -> 84,
   // one zoom level up). Diffing the logs before and after showed nothing else moved.
+  // The five A-4E dive cards (a4e, a4e-map, bare, no-tiles, wingman; the gun card reuses the
+  // A-4E Mk-82 dive's picture) were re-pinned in all four themes when the bomb dive gained its
+  // aim-off: the roll-in moved 2.3 → 2.0 nm, the heading 226° → 216°, the egress 316° → 306°,
+  // the dashed line runs on past the target, and the markers and labels moved with them.
+  // Diffing the logs before and after showed no other text and no colour changed. The new pins seen
+  // red (2026-11-15) under attackGeometry.ts calculateDiveGeometry's aim-off point `aimOff_nm` → `aimOff_nm * 0.5`
+  // (the dashed line stops half-way past the target):
+  //   FAIL Day card: A-4E manual dive is drawn exactly as it always was  1024 draw calls, 4cca73a48f7da913   (and a4e-map, no-tiles, wingman in all four themes)
+  // and the gun card's under attackPicture.ts buildSideProfile `diveRanges(p, isFired(attack.weaponClass))` → `diveRanges(p, true)`:
+  //   FAIL Day card: a gun card with no threats and only a side view is drawn exactly as it always was  516 draw calls, b27c13a18d629637
   const DAY_PIN: Record<string, { ops: number; sha: string }> = {
-    a4e: { ops: 1035, sha: '8619ecf21ce984e2' },
-    'a4e-map': { ops: 1132, sha: '35b9cc5e4187634a' },
+    a4e: { ops: 1024, sha: '46e893aa7c1a7272' },
+    'a4e-map': { ops: 1141, sha: '18fb8e312aaacfda' },
     strike: { ops: 1154, sha: '62b32a0f769ddc9b' },
     popup: { ops: 1295, sha: '25b3d772d1ecbaf9' },
     side: { ops: 500, sha: '5af01fbeeba5515e' },
-    bare: { ops: 516, sha: 'e2df81b66a426da2' },
-    'no-tiles': { ops: 610, sha: 'b8df503ed65c0b3b' },
-    wingman: { ops: 1118, sha: 'f4bc2152d5064957' },
+    bare: { ops: 504, sha: 'f4f2a5a9dab7b284' },
+    'no-tiles': { ops: 616, sha: 'de17b3d8c643ab23' },
+    wingman: { ops: 1107, sha: '3a9ccd4f47277c40' },
     // The loft cards, first pinned 2026-11-14 on the code as shipped in v0.3.4 (not re-pins).
     'loft-labs': { ops: 1034, sha: '4b70354b77866b80' },
     'loft-ccrp': { ops: 1036, sha: '8ae658a6e11beb96' },
@@ -3610,14 +3628,15 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // header date and the footer, say) draw the same under Day, so swapping two of them passes
   // every check above; the marked log tells them apart. A new slot changes these: re-pin.
   // Re-pinned on purpose for 3x, like the Day pins: the setTransform line, and the map card's finer tiles.
+  // The A-4E dive cards re-pinned again for the dive's aim-off, as the Day pins say.
   const MARKED_PIN: Record<string, string> = {
-    a4e: '2effdfdfb429f55e',
-    'a4e-map': '55d5f1b6bb57f028',
+    a4e: '3dd60b0c53ce996a',
+    'a4e-map': '35980f16fc1607aa',
     strike: '438d5fa57855cc20',
     popup: '91e2321633db837d',
-    bare: 'f2e477b07991ea1a',
-    'no-tiles': '0bd6a11f04ec133d',
-    wingman: '928f3bac5498e095',
+    bare: 'c06f7d5c3df3ae67',
+    'no-tiles': '57deadfaf52ef434',
+    wingman: '1f5aac096a6c0eee',
     side: 'c5ad2258b64c94f0',
     // The loft cards, first pinned 2026-11-14 (see DAY_PIN).
     'loft-labs': '6f64e0f9df8d741f',
@@ -3780,30 +3799,31 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // and the tinted map are held as they are for the marked theme.
   // Re-pinned on purpose for 3x, like the Day pins: the setTransform line, and the map card's
   // finer tiles (each one tinted, so that card's count grows by more than Day's does).
+  // The A-4E dive cards re-pinned again for the dive's aim-off, as the Day pins say.
   const DARK_PIN: Record<string, Record<string, { ops: number; sha: string }>> = {
     night: {
-      a4e: { ops: 1036, sha: 'bd2007557636051e' },
-      'a4e-map': { ops: 1805, sha: '902214c520b24af1' },
+      a4e: { ops: 1025, sha: '2eb6dff6974f9edc' },
+      'a4e-map': { ops: 1974, sha: 'ff392eee0ed017d8' },
       strike: { ops: 1155, sha: '15fd6f15db966a3b' },
       popup: { ops: 1296, sha: '7bcd5f747d44bbb5' },
       side: { ops: 500, sha: 'ec8d27b5fb7dd3c2' },
-      bare: { ops: 516, sha: '445adf8a4e25aa10' },
-      'no-tiles': { ops: 611, sha: '38562df4e75a1df1' },
-      wingman: { ops: 1119, sha: '0eaa1bb89fc092b0' },
+      bare: { ops: 504, sha: '40db2361c27f642a' },
+      'no-tiles': { ops: 617, sha: 'ee630d5451b6064d' },
+      wingman: { ops: 1108, sha: 'f2f1f577d0a93078' },
       'loft-labs': { ops: 1035, sha: 'd083f63be490564a' },
       'loft-ccrp': { ops: 1037, sha: 'b83e766c648a0cdf' },
       'loft-strike': { ops: 1097, sha: 'a302260cff1a99fa' },
       'loft-side': { ops: 419, sha: '79436a427ed72875' },
     },
     nvg: {
-      a4e: { ops: 1036, sha: 'a3692daff0a78271' },
-      'a4e-map': { ops: 1805, sha: 'e171f657ccb8cb68' },
+      a4e: { ops: 1025, sha: 'e91121544b326132' },
+      'a4e-map': { ops: 1974, sha: '46e1278e52490cec' },
       strike: { ops: 1155, sha: '85c17c1c16afd596' },
       popup: { ops: 1296, sha: '38888a6623dc1167' },
       side: { ops: 500, sha: 'e3142dc060b86433' },
-      bare: { ops: 516, sha: 'a38d43e526bf6dd5' },
-      'no-tiles': { ops: 611, sha: '8d892daeaabc3b71' },
-      wingman: { ops: 1119, sha: 'e4bccf86c8d6621e' },
+      bare: { ops: 504, sha: 'fa3c2f2b977024bf' },
+      'no-tiles': { ops: 617, sha: 'd185268b0b9b1cc0' },
+      wingman: { ops: 1108, sha: 'a6b2b410ffb759bc' },
       'loft-labs': { ops: 1035, sha: '7c4acda898511715' },
       'loft-ccrp': { ops: 1037, sha: 'ebe1081d3327784c' },
       'loft-strike': { ops: 1097, sha: '62c0a2c3b2eae5ae' },
@@ -4988,15 +5008,18 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
        statedBad === '' && statedJets === 23, statedBad || `${statedJets} jets`);
 
     // [6] Bombs. (The fall siblings' parity grid is pinned in the prerequisites block above.)
-    // Mutation proofs: bomb.ts `if (fall.model === 'vacuumOnSightLine')` → `if (fall.model === 'loftDrag')` (the dive bomb off its sight line):
-    //   FAIL playback [6]: every bomb ends exactly on its target at AGL 0; … 30° dive @15.3 nm #1: 13.8 ft off the sight line at 0.10 s
+    // Since the bomb dive aims off, its bomb is the vacuum fall like the pop-up's; only a gun or rocket pass
+    // rides the sight line, and no case here is one (the dive aim checks below hold that pass). The two
+    // proofs that named the dive's sight line ("13.8 ft off the sight line") belong to the old dive.
+    // Mutation proof (2026-11-15): family.ts dive `vacuum(fired ? 'vacuumOnSightLine' : 'vacuum', f, f.vy0_fps)` → `…, f, 0)` (the bomb leaves level):
+    //   FAIL playback [6]: every bomb ends exactly on its target at AGL 0; … 30° dive @15.3 nm #1: mid-fall 4198.2 ft at 0.4693 nm vs vacuum 2551.8 ft at 0.4693 nm
+    //   (and [BL9], [BL10], [BL11], [AT1])
+    // Earlier proofs, on the checks that still stand:
     // bomb.ts `VACUUM_DT_S = 0.1` → `2` (coarse samples):
     //   FAIL playback [6]: … pop-up @15.3 nm #1: mid-fall 2031.6 ft at 0.5307 nm vs vacuum 2038.1 ft at 0.5307 nm
     // bomb.ts the last vacuum point's `agl: 0` → `agl: h0 − vy0·T − g·T²/2` (computed, ~1e-12 ft):
     //   FAIL playback [6]: … 30° dive @15.3 nm #1: does not end exactly on the target at AGL 0
     // clock.ts's flat-path mutation ([2]) also fails it: "30° dive @15.3 nm #1: leaves -58.2 kt off the jet's ground speed".
-    // Stage-4: "the dive bomb as a free vacuum fall": family.ts dive `vacuum('vacuumOnSightLine', f, f.vy0_fps)` → `vacuum('vacuum', f, f.vy0_fps)`:
-    //   FAIL playback [6]: every bomb ends exactly on its target at AGL 0; … 30° dive @15.3 nm #1: 13.8 ft off the sight line at 0.10 s
     // bomb.ts vacuum height `fall.h0_ft - fall.vy0_fps * t - …` → `fall.h0_ft - 0 * fall.vy0_fps * t - …` (the dive's throw dropped):
     //   FAIL playback [6]: … pop-up @15.3 nm #1: mid-fall 3211.8 ft at 0.5307 nm vs vacuum 2038.1 ft at 0.5307 nm
     // the drawn-bomb-line ending (see [1]) also fails it: "pop-up @15.3 nm #1: does not end exactly on the target at AGL 0".
@@ -5027,22 +5050,27 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
             }
           }
         }
-        if (j.family === 'dive') {
+        // A gun or rocket pass on a dive profile rides the straight sight line; a bomb dive is a vacuum fall (below).
+        if (B.model === 'vacuumOnSightLine') {
           const h0 = B.agl_ft[0], relRange = calculateDistance(rel, tgtC);
           for (let i = 0; i < n; i++) {
             const lineAlt = (h0 * calculateDistance({ lat: B.lat[i], lon: B.lon[i] }, tgtC)) / relRange;
             if (Math.abs(B.agl_ft[i] - lineAlt) > 1) { fail(`${(B.agl_ft[i] - lineAlt).toFixed(1)} ft off the sight line at ${B.tau_s[i].toFixed(2)} s`); break; }
           }
+        }
+        if (j.family === 'dive') {
           // It leaves at the jet's ground speed: the first 0.1 s averages ~1.7 kt faster (g / tan δ), plus the pop-up file's 1.69 ft/s per kt.
           const jet = sampleJet(c.pb, t, k, t.jets[k].release_s - 0.01), bomb = sampleBomb(c.pb, t, k, t.jets[k].release_s + 0.05);
           const dv = (Math.hypot(bomb.ve_mps, bomb.vn_mps) - Math.hypot(jet.ve_mps, jet.vn_mps)) / (1852 / 3600);
           if (Math.abs(dv) > 3) fail(`leaves ${dv.toFixed(1)} kt off the jet's ground speed`);
         }
-        if (j.family === 'popup' || j.family === 'level') {
+        if (j.family === 'popup' || j.family === 'level' || (j.family === 'dive' && B.model === 'vacuum')) {
           const plan = j.family === 'popup' ? popupActionOf(a.profile as never, 0).plan : undefined;
           const v = plan
             ? bombFallVacuum(plan.releaseAltitude_ft, plan.speed_ktas, plan.diveAngle_deg)
-            : { ...levelFallVacuum(Math.max(p.releaseAltitude_ft - j.target.elevation_ft, 0), p.releaseSpeed_ktas), vy0_fps: 0 };
+            : j.family === 'dive'
+              ? bombFallVacuum(p.releaseAltitude_ft, p.releaseSpeed_ktas, p.diveAngle_deg)
+              : { ...levelFallVacuum(Math.max(p.releaseAltitude_ft - j.target.elevation_ft, 0), p.releaseSpeed_ktas), vy0_fps: 0 };
           const tm = v.time_s / 2;
           const b = sampleBomb(c.pb, t, k, t.jets[k].release_s + tm);
           const wantAgl = v.h0_ft - v.vy0_fps * tm - 0.5 * v.g_fps2 * tm * tm, wantRange = (v.range_ft - v.vx_fps * tm) / NM;
@@ -5052,7 +5080,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
         }
       });
     }
-    ok('playback [6]: every bomb ends exactly on its target at AGL 0; the dive bomb rides the straight REL→TGT sight line from the jet\'s ground speed; level and pop-up bombs are the vacuum fall mid-way',
+    ok('playback [6]: every bomb ends exactly on its target at AGL 0; the dive bomb leaves at the jet\'s ground speed; level, pop-up and bomb-dive bombs are the vacuum fall mid-way (a gun or rocket pass rides the sight line)',
        bombBad === '', bombBad);
     // [6] Where each bomb starts, and the loft's whole path (spec D7). The check above pins the end and
     // the vacuum shapes; this one pins the start for every family and every loft sample against
@@ -5064,6 +5092,386 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     //     FAIL playback [6]: every bomb leaves from the jet's release …  F-16 loft @15.3 nm #1: loft bomb sample 2 at 0.51 s: 1724.5 ft, 0.0004 of the way, vs the planner's 1724.5 ft, 0.0188
     ok('playback [6]: every bomb leaves from the jet\'s release (the REL marker, the jet\'s release altitude); the loft bomb is the planner\'s drag path, sample by sample',
        bombFromBad === '', bombFromBad);
+
+    // ─── The bomb dive aims off, and its bomb falls in an arc ───────────────────────────────────
+    // A bomb released in a dive falls under the line of the dive, so a dive line through the target
+    // drops short of it (637 m for the F-16C 30°). The dive now aims off as the pop-up does
+    // (diveAim.ts): the release is where a vacuum bomb with the jet's velocity lands on the target,
+    // the line of the dive runs on past the target to the aim-off point, and the playback's bomb is
+    // that vacuum fall. A gun or rocket pass keeps the sight line through the target. Every check
+    // here was shown red once by its own mutation, applied alone and restored (2026-11-15); the
+    // mutation and the FAIL line are written beside each.
+    {
+      const blLib = (ac: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${ac}.json`, 'utf8')) as { id: string; geometry: string; weaponClasses: string[] }[];
+      const blMission = (ac: string, ipNm = 15.3) => ({
+        id: 'bl', name: 'bl', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '', strikes: [], threats: [], attacks: [],
+        waypoints: [{ ...wpIp, coordinates: calculateDestination(tgt, 68, ipNm) }, wpTgt],
+        flightMembers: [{ id: 'p1', callsign: 'Viper 1-1', aircraftId: ac, position: 1, loadout: [] }],
+      }) as never as Mission;
+      const blBuild = (ac: string, profileId: string, weaponId: string, ipNm = 15.3, extra: object = {}) => {
+        const m = blMission(ac, ipNm);
+        const b = autoBuildAttack({ mission: m, targetWaypointId: wpTgt.id, attackerId: 'p1', weapons: refWeapons, profiles: blLib(ac), threatSystems: [], overrides: { weaponId, profileId, ...extra } } as never);
+        return { m, b, attack: b.attack ? ({ ...b.attack, id: 'a' } as Attack) : undefined };
+      };
+      const blPicture = (m: Mission, a: unknown) => buildAttackPicture(a as Attack, attackIpAnchor(m.waypoints, a as Attack), wpTgt as never)!;
+      const diveOf = (a: { profile: unknown } | undefined) => a!.profile as DiveCCIPProfile;
+      const at = (pic: ReturnType<typeof blPicture>, kind: string) => pic.markers.find((q) => q.kind === kind)!.position;
+      const directFrom = (ipNm: number) => calculateBearing(calculateDestination(tgt, 68, ipNm), tgt);
+      const BL_AIRCRAFT = ['a10c', 'a4ec', 'av8b', 'f14', 'f15e', 'f16c', 'f18c', 'f1', 'f4e', 'f5e'];
+      const BL_WEAPON: Record<string, string> = { bomb_ld: 'mk82', bomb_hd: 'mk82air', rocket: 'hydra70', gun: 'gau8', cluster: 'cbu87', bomb_guided: 'gbu12', glide: 'gbu38' };
+      const bombDives = BL_AIRCRAFT.flatMap((ac) => blLib(ac).filter((p) => p.geometry === 'dive' && !['gun', 'rocket'].includes(p.weaponClasses[0])).map((p) => ({ ac, id: p.id, weapon: BL_WEAPON[p.weaponClasses[0]] ?? 'mk82' })));
+
+      // [BL1] Where the release is: over 6 altitudes × 4 speeds × 7 dive angles, diveRanges' release range is
+      // the vacuum bomb's range (1e-6 ft; measured ~1e-11), and the geometry puts the release point that far
+      // from the target (0.05 ft), which is vx·T, the vacuum bomb's ground run (0.05 ft).
+      // [BL2] The aim-off is the pop-up's own (planPopup) for the same release state, within 1e-6 ft.
+      // Mutation proofs:
+      // BL1: diveAim.ts `release_nm: line_nm - back_nm` → `line_nm - back_nm * 1.0001`:
+      //   FAIL dive aim [BL1]: … 168 cells; worst 1.3e+1 ft (ranges), 9.7e-9 ft (on the map), 9.7e-9 ft (vx·T) (first: h=300 v=250 d=5: 2.0e-1 / …)
+      //   (and the A-4E dive card pins, whose release moved)
+      // BL2: diveAim.ts `return { aimOff_ft, rollIn_nm` → `return { aimOff_ft: aimOff_ft * 1.0000001, rollIn_nm`:
+      //   FAIL dive aim [BL2]: … worst 1.3e-2 ft over 168 cells   (and [AT1])
+      {
+        let worst1 = 0, worst2 = 0, worst3 = 0, popupWorst = 0, cells = 0, first = '';
+        for (const h of [300, 1500, 3500, 4500, 6500, 12000]) {
+          for (const v of [250, 350, 450, 550]) {
+            for (const d of [5, 10, 15, 20, 30, 45, 60]) {
+              cells++;
+              const r = diveRanges({ rollInAltitude_ft: h + 2500, releaseAltitude_ft: h, diveAngle_deg: d, releaseSpeed_ktas: v });
+              const fall = bombFallVacuum(h, v, d);
+              const e1 = Math.abs(r.release_nm * NM - fall.range_ft);
+              const g = calculateDiveGeometry(tgt, 250, { rollInAltitude_ft: h + 2500, releaseAltitude_ft: h, diveAngle_deg: d, releaseSpeed_ktas: v, aimOff_ft: r.aimOff_ft });
+              const e2 = Math.abs(calculateDistance(g.releasePoint, tgt) * NM - fall.range_ft);
+              const e3 = Math.abs(calculateDistance(g.releasePoint, tgt) * NM - fall.vx_fps * fall.time_s);
+              worst1 = Math.max(worst1, e1); worst2 = Math.max(worst2, e2); worst3 = Math.max(worst3, e3);
+              if (!first && (e1 > 1e-6 || e2 > 0.05 || e3 > 0.05)) first = ` (first: h=${h} v=${v} d=${d}: ${e1.toExponential(1)} / ${e2.toExponential(1)} / ${e3.toExponential(1)})`;
+              popupWorst = Math.max(popupWorst, Math.abs(planPopup({ diveAngle_deg: d, releaseAltitude_ft: h, speed_ktas: v }).aimOff_ft - r.aimOff_ft));
+            }
+          }
+        }
+        ok('dive aim [BL1]: the dive\'s release point is where a vacuum bomb with the release velocity lands on the target',
+           cells === 168 && worst1 <= 1e-6 && worst2 <= 0.05 && worst3 <= 0.05, `${cells} cells; worst ${worst1.toExponential(1)} ft (ranges), ${worst2.toExponential(1)} ft (on the map), ${worst3.toExponential(1)} ft (vx·T)${first}`);
+        ok('dive aim [BL2]: the dive\'s aim-off is the pop-up\'s formula for the same release state', popupWorst <= 1e-6, `worst ${popupWorst.toExponential(1)} ft over ${cells} cells`);
+      }
+
+      // [BL3] For every library bomb dive × IP 15.3 and 8 nm × both flanks: roll-in → release, release → target and
+      // target → aim-off point all lie on the attack heading (0.5°); the roll-in to release leg falls at the dive
+      // angle (1.5%: planar trigonometry placed on a sphere, ~0.2% measured); the line meets the ground at the aim-off
+      // point (2 ft). [BL3b] The side view's REL and ROLL ranges are the map's (REL 0.01 nm, ROLL 1%): two code paths.
+      // Mutation proofs:
+      // BL3: attackGeometry.ts calculateDiveGeometry `calculatePointAtDistance(targetPoint, j.attackHeading, aimOff_nm)` → `…, aimOff_nm * 0.5)`:
+      //   FAIL dive aim [BL3]: … a10c.dive.ccip30 @15.3 left: bearings off by 0.089°, slope 0.5752 vs 0.5774, line at the aim-off point 660.5 ft
+      //   (and `playback [2]` for the 30° and 45° dives, whose card push counts the drawn bomb line, and the A-4E dive card pins)
+      // BL3b: attackPicture.ts buildSideProfile `diveRanges(p, isFired(attack.weaponClass))` → `diveRanges(p, true)`:
+      //   FAIL dive aim [BL3b]: … a10c.dive.ccip30 @15.3 left: the side view says REL 1.140 nm, ROLL 1.995 nm, the map 0.764 / 1.622
+      //   (and `playback [4]` and the A-4E dive card pins)
+      {
+        let bad = '', badSide = '', n = 0;
+        for (const c of bombDives) {
+          for (const ipNm of [15.3, 8]) {
+            for (const side of ['left', 'right'] as const) {
+              const { m, attack } = blBuild(c.ac, c.id, c.weapon, ipNm, { angleOffSide: side });
+              if (!attack) { bad ||= `${c.id} did not build`; continue; }
+              n++;
+              const p = diveOf(attack);
+              const pic = blPicture(m, attack);
+              const ang = (p.diveAngle_deg * Math.PI) / 180;
+              const bombLine = pic.lines.find((l) => l.style === 'bomb')!;
+              const aim = bombLine.points[bombLine.points.length - 1];
+              const roll = at(pic, 'ROLL'), rel = at(pic, 'REL');
+              const off = Math.max(...[calculateBearing(roll, rel), calculateBearing(rel, tgt), calculateBearing(tgt, aim)].map((b) => Math.abs(signedHeadingDelta(b, pic.attackHeading))));
+              const dRoll = calculateDistance(roll, tgt) * NM, dRel = calculateDistance(rel, tgt) * NM, dAim = calculateDistance(tgt, aim) * NM;
+              const slope = (p.rollInAltitude_ft - p.releaseAltitude_ft) / (dRoll - dRel);
+              const groundAtAim = p.releaseAltitude_ft - (dRel + dAim) * Math.tan(ang);
+              if (off > 0.5 || Math.abs(slope / Math.tan(ang) - 1) > 0.015 || Math.abs(groundAtAim) > 2)
+                bad ||= `${c.id} @${ipNm} ${side}: bearings off by ${off.toFixed(3)}°, slope ${slope.toFixed(4)} vs ${Math.tan(ang).toFixed(4)}, line at the aim-off point ${groundAtAim.toFixed(1)} ft`;
+              const sv = buildSideProfile(attack, 4000)!;
+              const svRel = sv.points.find((q) => q.kind === 'REL')!.dist_nm, svRoll = sv.points.find((q) => q.kind === 'ROLL')!.dist_nm;
+              if (Math.abs(svRel - dRel / NM) > 0.01 || Math.abs(svRoll - dRoll / NM) / (dRoll / NM) > 0.01)
+                badSide ||= `${c.id} @${ipNm} ${side}: the side view says REL ${svRel.toFixed(3)} nm, ROLL ${svRoll.toFixed(3)} nm, the map ${(dRel / NM).toFixed(3)} / ${(dRoll / NM).toFixed(3)}`;
+            }
+          }
+        }
+        ok('dive aim [BL3]: roll-in, release, target and aim-off point are on one line, the roll-in to release leg is at the dive angle, and the line meets the ground at the aim-off point',
+           bad === '' && n === bombDives.length * 4 && n > 0, bad || `${n} attacks`);
+        ok('dive aim [BL3b]: the side view\'s REL and ROLL ranges are the map\'s (two code paths compute them)',
+           badSide === '' && n === bombDives.length * 4 && n > 0, badSide || `${n} attacks`);
+      }
+
+      // [BL4b] For a gun or rocket pass diveRanges gives the old sight line to the bit (the census above holds the
+      // 52 fired builds' pictures and cards).
+      // Mutation proof: diveAim.ts `fired || !Number.isFinite(range_ft) ? 0 :` → `… ? 1e-9 :` (the census, rounded to 6 decimals, stays green):
+      //   FAIL dive aim [BL4b]: … {"aimOff_ft":1e-9,"rollIn_nm":2.149756394951066,"release_nm":0.9213241692646487}
+      {
+        const r = diveRanges({ rollInAltitude_ft: 3500, releaseAltitude_ft: 1500, diveAngle_deg: 15, releaseSpeed_ktas: 280 }, true);
+        ok('dive aim [BL4b]: diveRanges for a gun or rocket pass is the old sight line to the bit',
+           r.aimOff_ft === 0 && r.rollIn_nm === diveGroundRange_nm(3500, 15) && r.release_nm === diveGroundRange_nm(1500, 15), JSON.stringify(r));
+      }
+
+      // [BL6] A dive saved before the aim-off (its profile as it was stored then, the old stored heading
+      // included) loads with the ballistic release (5,703 ft out, 0.05 ft), the card's egress heading is the
+      // picture's (to the degree, not the stored heading's), and describeRunIn's heading is the picture's (0.01°).
+      // [BL6b] An old A-10C 45° save with the 20° check turn (which no longer closes on the smaller ring): no leg,
+      // no action point and its stored heading on the map; re-opened in the editor a library attack is rebuilt
+      // with a 10° turn and closes, a customized one keeps 20° and reports that it does not close.
+      // Mutation proofs:
+      // BL6: buildKneeboardCard.ts `getEgressInfo(attack, runInHeading ?? runIn.attackHeading)` → `getEgressInfo(attack, runInHeading)`:
+      //   FAIL dive aim [BL6]: … card egress 316° vs picture 306°
+      // BL6b: attackDraft.ts draftFromAttack `attack.customized || !attack.sourceProfileId` → `!attack.sourceProfileId`:
+      //   FAIL dive aim [BL6b]: … re-opened, customized: check turn 10°, closes true (want 20°, does not close)
+      //   (and `copy attack: a hand-edited dive angle and a custom IP carry to the same airframe`)
+      {
+        const oldF16 = { type: 'dive_ccip', ipWaypointId: 'w-ip', ingressHeading_deg: 225.73299304004706, ingressAltitude_ft: 8000, rollInAltitude_ft: 8000, diveAngle_deg: 30, releaseAltitude_ft: 4500, releaseSpeed_ktas: 450, pulloutG: 4, egressDirection: 'right', actionRange_nm: 4.5, offsetAngle_deg: 20, offsetDirection: 'right' };
+        const oldA10 = { type: 'dive_ccip', ipWaypointId: 'w-ip', ingressHeading_deg: 198.92382017545674, ingressAltitude_ft: 10000, rollInAltitude_ft: 10000, diveAngle_deg: 45, releaseAltitude_ft: 5500, releaseSpeed_ktas: 350, pulloutG: 4, egressDirection: 'right', actionRange_nm: 4.5, offsetAngle_deg: 20, offsetDirection: 'right' };
+        const saved = (profile: object, sourceProfileId: string, customized?: boolean) => ({ id: 'a', targetWaypointId: wpTgt.id, attackerId: 'p1', profileType: 'dive_ccip', profile, weaponId: 'mk82', releaseQuantity: 1, releaseMode: 'single', sequenceNumber: 1, sourceProfileId, sourceProfileName: 'x', deliveryMode: 'CCIP', estimated: true, weaponClass: 'bomb_ld', procedure: [], customized }) as never as Attack;
+        let why = '';
+        const m = blMission('f16c');
+        const a1 = saved(oldF16, 'f16c.dive.ccip30');
+        const pic = blPicture(m, a1);
+        const relFt = calculateDistance(at(pic, 'REL'), tgt) * NM;
+        const want = bombFallVacuum(4500, 450, 30).range_ft;
+        if (Math.abs(relFt - want) > 0.05) why ||= `F-16 release ${relFt.toFixed(1)} ft from the target, want ${want.toFixed(1)}`;
+        const card = buildKneeboardCard({ ...m, attacks: [a1] } as never, 'a', refWeapons as never, new Map(), [])!;
+        const cardHdg = Math.round(card.egressSection.heading_deg ?? NaN);
+        if (cardHdg !== Math.round(pic.egressHeading)) why ||= `card egress ${cardHdg}° vs picture ${Math.round(pic.egressHeading)}°`;
+        const story = describeRunIn(oldF16 as never, directFrom(15.3), 4000)!;
+        if (!story.closes || Math.abs(signedHeadingDelta(story.attackHeading, pic.attackHeading)) > 0.01) why ||= `F-16 run-in ${story.closes} ${story.attackHeading} vs picture ${pic.attackHeading}`;
+        ok('dive aim [BL6]: an old saved F-16 dive loads with the ballistic release, and the card\'s egress heading follows the drawn heading, not the stored one',
+           why === '', why || `REL ${relFt.toFixed(0)} ft, egress ${cardHdg}°`);
+
+        let why2 = '';
+        const m2 = blMission('a10c');
+        const a2 = saved(oldA10, 'a10c.dive.ccip45');
+        const pic2 = blPicture(m2, a2);
+        const story2 = describeRunIn(oldA10 as never, directFrom(15.3), 4000)!;
+        const hasLeg = pic2.lines.some((l) => l.style === 'leg'), hasAp = pic2.markers.some((k) => k.kind === 'AP');
+        if (story2.closes || hasLeg || hasAp) why2 ||= `the old save: closes ${story2.closes}, leg ${hasLeg}, AP marker ${hasAp} (want none)`;
+        if (Math.abs(signedHeadingDelta(pic2.attackHeading, oldA10.ingressHeading_deg)) > 1e-6) why2 ||= `the old save's heading ${pic2.attackHeading} is not its stored ${oldA10.ingressHeading_deg}`;
+        const reopen = (customized: boolean) => {
+          const sv = saved(oldA10, 'a10c.dive.ccip45', customized || undefined);
+          const mm = { ...m2, attacks: [sv] } as Mission;
+          return resolveDraft(draftFromAttack(sv, mm), { mission: mm, weapons: refWeapons, profiles: blLib('a10c'), threatSystems: [] } as never);
+        };
+        const r1 = reopen(false), r2 = reopen(true);
+        const turnOf = (r: ReturnType<typeof reopen>) => (r.profile as DiveCCIPProfile | undefined)?.offsetAngle_deg;
+        if (turnOf(r1) !== 10 || !r1.runIn?.closes) why2 ||= `re-opened, library attack: check turn ${turnOf(r1)}°, closes ${r1.runIn?.closes} (want 10°, closes)`;
+        if (turnOf(r2) !== 20 || r2.runIn?.closes) why2 ||= `re-opened, customized: check turn ${turnOf(r2)}°, closes ${r2.runIn?.closes} (want 20°, does not close)`;
+        ok('dive aim [BL6b]: an old saved A-10C 45° dive (20° check turn) draws no leg or action point and keeps its stored heading; re-opened, a library attack is rebuilt with a 10° turn and a customized one keeps 20° and says it does not close',
+           why2 === '', why2 || 'as documented');
+      }
+
+      // [BL7] For an auto-built A-10C gun pass, auto-build's stored heading and describeRunIn(…, fired) are the
+      // picture's (0.05°), the dive form's join range (diveRanges(…, true)) is the ROLL marker's range (1%), and
+      // the bomb's ring differs from it by more than 0.05 nm (so the check can tell the two apart).
+      // [BL15] The editor's own read-out (resolveDraft: the strip under the map, the Dive tab's hint) for a gun
+      // or rocket pass is what the map draws: A-10C gun, A-10C rockets, A-4E rockets × IP 15.3 and 8 nm ×
+      // library and customized: join range (1%), heading (0.05°) and whether the picture closes.
+      // Mutation proofs:
+      // BL7: autoBuildAttack.ts the heading's `joinRange_nm,\n ) ?? noIp();` → `joinRange_nm * (level ? 1 : 0.9),\n ) ?? noIp();`:
+      //   FAIL dive aim [BL7]: … auto-build: 215.48° vs picture 222.46°
+      // BL15: attackDraft.ts `, isFired(build.weaponClass)) : build.runIn;` → `) : build.runIn;`:
+      //   FAIL dive aim [BL15]: … a10c.dive.strafe @15.3 library: editor 1.72 nm, 204.9°, closes true; map 2.15 nm, 222.5°, leg true
+      {
+        let why = '';
+        const { m, attack } = blBuild('a10c', 'a10c.dive.strafe', 'gau8');
+        const p = diveOf(attack);
+        const pic = blPicture(m, attack);
+        const viaStory = describeRunIn(p, directFrom(15.3), 4000, true)!.attackHeading;
+        for (const [what, h] of [['auto-build', p.ingressHeading_deg], ['describeRunIn', viaStory]] as const)
+          if (Math.abs(signedHeadingDelta(h, pic.attackHeading)) > 0.05) why ||= `${what}: ${h.toFixed(2)}° vs picture ${pic.attackHeading.toFixed(2)}°`;
+        const roll = calculateDistance(at(pic, 'ROLL'), tgt);
+        const join = diveRanges(p, true).rollIn_nm;
+        if (Math.abs(roll / join - 1) > 0.01) why ||= `form join range ${join.toFixed(3)} nm vs picture ${roll.toFixed(3)} nm`;
+        if (Math.abs(diveRanges(p, false).rollIn_nm - join) < 0.05) why ||= 'the fired flag makes no difference to the join range';
+        ok('dive aim [BL7]: for a gun pass, auto-build\'s stored heading, describeRunIn and the form\'s join range are the picture\'s (the fired flag reaches them)', why === '', why || `${join.toFixed(2)} nm, ${pic.attackHeading.toFixed(1)}°`);
+
+        let why15 = '', n15 = 0;
+        for (const [ac, prof, w] of [['a10c', 'a10c.dive.strafe', 'gau8'], ['a10c', 'a10c.dive.rockets', 'hydra70'], ['a4ec', 'a4ec.dive.man30', 'hydra70']] as const) {
+          for (const ipNm of [15.3, 8]) {
+            for (const customized of [false, true]) {
+              const b = blBuild(ac, prof, w, ipNm);
+              if (!b.attack) { why15 ||= `${prof} @${ipNm} did not build`; continue; }
+              const mm = { ...b.m, attacks: [b.attack] } as Mission;
+              const pc = blPicture(b.m, b.attack);
+              const draft = { ...draftFromAttack(b.attack, mm), customized, customProfile: customized ? b.attack.profile : undefined };
+              const r = resolveDraft(draft, { mission: mm, weapons: refWeapons, profiles: blLib(ac), threatSystems: [] } as never);
+              const dRoll = calculateDistance(at(pc, 'ROLL'), tgt);
+              const leg = pc.lines.some((l) => l.style === 'leg');
+              n15++;
+              if (Math.abs((r.runIn?.joinRange_nm ?? NaN) / dRoll - 1) > 0.01 || Math.abs(signedHeadingDelta(r.runIn?.attackHeading ?? NaN, pc.attackHeading)) > 0.05 || r.runIn?.closes !== leg)
+                why15 ||= `${prof} @${ipNm} ${customized ? 'customized' : 'library'}: editor ${r.runIn?.joinRange_nm.toFixed(2)} nm, ${r.runIn?.attackHeading.toFixed(1)}°, closes ${r.runIn?.closes}; map ${dRoll.toFixed(2)} nm, ${pc.attackHeading.toFixed(1)}°, leg ${leg}`;
+            }
+          }
+        }
+        ok('dive aim [BL15]: the editor\'s run-in read-out for a gun or rocket pass is the map\'s: join range, heading, and whether the picture closes',
+           why15 === '' && n15 === 12, why15 || `${n15} cases`);
+      }
+
+      // [BL8] Every library bomb dive auto-builds with its offset leg drawn at 15.3 and 8 nm, and auto-build cuts
+      // the check turn for exactly the four whose roll-in ring is now shorter than the leg's abeam distance.
+      // Mutation proof: autoBuildAttack.ts the dive branch's `?? DEFAULT_OFFSET_TURN_DEG;` →
+      // `?? (isFired(weaponClass) ? DEFAULT_OFFSET_TURN_DEG : DEFAULT_OFFSET_TURN_DEG + 10);` (every bomb dive starts at 30°):
+      //   FAIL dive aim [BL8]: … reduced: a10c.dive.ccip30, a10c.dive.ccip45, a4ec.dive.man30, a4ec.dive.man45, a4ec.dive.cp741, …
+      {
+        let open = '';
+        const reduced: string[] = [];
+        for (const c of bombDives) {
+          for (const ipNm of [15.3, 8]) {
+            const { m, attack, b } = blBuild(c.ac, c.id, c.weapon, ipNm);
+            if (!attack) { open ||= `${c.id} did not build`; continue; }
+            if (!blPicture(m, attack).lines.some((l) => l.style === 'leg')) open ||= `${c.id} @${ipNm}: the offset leg is not drawn`;
+            if (ipNm === 15.3 && b.adjustments.some((a) => /Check turn reduced/.test(a))) reduced.push(c.id);
+          }
+        }
+        const want = ['a10c.dive.ccip45', 'a4ec.dive.man45', 'av8b.dive.ccip45', 'f16c.dive.lald10'];
+        ok('dive aim [BL8]: every library bomb dive auto-builds closed; the check turn is cut for exactly the four short roll-in rings',
+           open === '' && [...reduced].sort().join() === want.join(), open || `reduced: ${reduced.join(', ')}`);
+      }
+
+      // [BL16] With the release speed missing or cleared (NaN: a cleared Customize field) there is no bomb range to
+      // aim with: ROLL, REL, the attack and bomb lines and the side view stay finite, and REL is the sight line's
+      // distance (1e-6 nm), as before the aim-off. (A NaN speed's egress arc was NaN before and is not asserted.)
+      // Mutation proof: diveAim.ts `fired || !Number.isFinite(range_ft) ? 0 :` → `fired ? 0 :`:
+      //   FAIL dive aim [BL16]: … speed missing: the picture or the side view has a NaN
+      {
+        let why = '';
+        const { m, attack } = blBuild('f16c', 'f16c.dive.ccip30', 'mk82');
+        const finite = (q: { lat: number; lon: number }) => Number.isFinite(q.lat) && Number.isFinite(q.lon);
+        for (const [label, speed] of [['missing', undefined], ['cleared (NaN)', NaN]] as const) {
+          const a = { ...attack!, profile: { ...attack!.profile, releaseSpeed_ktas: speed } } as never as Attack;
+          const pic = blPicture(m, a);
+          const sv = buildSideProfile(a, 4000)!;
+          const rel = at(pic, 'REL'), roll = at(pic, 'ROLL');
+          const pts = pic.lines.filter((l) => l.style === 'attack' || l.style === 'bomb').flatMap((l) => l.points);
+          if (!finite(rel) || !finite(roll) || pts.some((q) => !finite(q)) || !sv.points.every((q) => Number.isFinite(q.dist_nm))) why ||= `speed ${label}: the picture or the side view has a NaN`;
+          const sight = diveGroundRange_nm(diveOf(attack).releaseAltitude_ft, diveOf(attack).diveAngle_deg);
+          if (!(Math.abs(calculateDistance(rel, tgt) - sight) <= 1e-6)) why ||= `speed ${label}: REL is ${calculateDistance(rel, tgt).toFixed(3)} nm out, not the sight line's ${sight.toFixed(3)}`;
+        }
+        ok('dive aim [BL16]: a missing or cleared release speed leaves the dive picture and side view finite, on the sight line', why === '', why || 'missing and cleared');
+      }
+
+      // [BL9]-[BL13] The playback, on the F-16C 30°, 45°, DTOS 20°, A-10C 30° and LALD 10° at IP 15.3 and 20 nm (plan layer).
+      // [BL9] The bomb's model is 'vacuum' and it leaves with the jet's own velocity: its first 0.05 s within 3 kt and
+      // 0.3° of the jet's 0.01 s before the release (measured +0.9 to +1.3 kt: the pop-up file's 1.69 ft/s per kt).
+      // [BL10] It never rises above the jet's own dive line (≤ 0.5 m above) and falls away from it as an arc: at
+      // least 90% of ½·g·t²·cosθ below it at mid-fall and at the end; the F-16C 30° at least 60 m and 250 m
+      // (measured 77.6 / 316.5 m).
+      // [BL11] It lands on the target at the time over target (last sample exactly the target at AGL 0, the fall
+      // time bombFallVacuum's to 1e-9 s, impact = TOT), and in between is the vacuum parabola (0.5 ft, 0.001 nm at
+      // 10, 30, 50, 70 and 90% of the fall).
+      // [BL13] Its ground track is the straight REL → TGT line at a constant ground speed: every sample within
+      // 0.2 m sideways of the line (read in the playback's own metres; measured ~0.04 m, the planar projection of a
+      // lat/lon line), its share of the way its share of the fall within 1e-4. The trace's straight line in
+      // Top-down rests on this.
+      // Mutation proofs:
+      // BL9: playback/sample.ts sampleBomb `out.vu_mps = (…) / dt;` → `… / dt * 0.9;`:
+      //   FAIL dive aim [BL9]: … F-16C 30°@15.3: model vacuum, -9.9 kt, 2.50° off the jet   (and [AT1])
+      // BL10: playback/bomb.ts `bomb.up_m[i] = upOf(frame, elev + pt.agl);` → `… + 15 * Math.sin(Math.PI * pt.f) ** 4;`:
+      //   FAIL dive aim [BL10]: … F-16C 30°@15.3: above the line by 0.00 m, below at mid 64.6 m (want ≥ 71.7), at the end 316.5 m (want ≥ 286.8)
+      //   (and `playback extras` and [AT1])
+      // BL11: playback/bomb.ts `pts.push({ t: T, f: 1, agl: 0 })` → `… agl: 5 })`:
+      //   FAIL dive aim [BL11]: … F-16C 30°@15.3: ends 5.00 ft AGL 0.00 ft off the target, fall 8.659 s vs 8.659 s
+      //   (and `playback [1]`, [6], [11], `playback extras`, `scene [P11]`, `B3 [FB7]`, [AT1])
+      // BL13: playback/bomb.ts the straight lat/lon point gets a 1 m sideways bow (`lat - 0.0005·sin(π·f)·(tgt.lon - rel.lon)`, `lon + 0.0005·sin(π·f)·(tgt.lat - rel.lat)`):
+      //   FAIL dive aim [BL13]: … F-16C 30°@15.3: 0.784 m off the straight line, its share of the way off its share of the fall by 1.2e-4   (and [AT1])
+      {
+        const MS_KT = 1852 / 3600;
+        const DIVES = [
+          { key: 'F-16C 30°', ac: 'f16c', id: 'f16c.dive.ccip30', w: 'mk82' },
+          { key: 'F-16C 45°', ac: 'f16c', id: 'f16c.dive.ccip45', w: 'mk82' },
+          { key: 'F-16C DTOS 20°', ac: 'f16c', id: 'f16c.dive.dtos20', w: 'mk82' },
+          { key: 'A-10C 30°', ac: 'a10c', id: 'a10c.dive.ccip30', w: 'mk82' },
+          { key: 'F-16C LALD 10°', ac: 'f16c', id: 'f16c.dive.lald10', w: 'mk82air' },
+        ];
+        let b9 = '', b10 = '', b11 = '', b13 = '', worstOff = 0, played = 0;
+        const mids: string[] = [], speeds: string[] = [];
+        for (const c of DIVES) {
+          for (const ipNm of [15.3, 20]) {
+            const { m, attack } = blBuild(c.ac, c.id, c.w, ipNm);
+            if (!attack) { b9 ||= `${c.key}@${ipNm} did not build`; continue; }
+            const pb = lone(m, attack, refWeapon(c.w));
+            if (!pb.jets.length) { b9 ||= `${c.key}@${ipNm} skipped`; continue; }
+            played++;
+            const j = pb.jets[0], B = j.bomb, t = retime(pb), tj = t.jets[0];
+            const js = sampleJet(pb, t, 0, tj.release_s - 0.01, 'plan', newJetState());
+            const bs = sampleBomb(pb, t, 0, tj.release_s + 0.05, 'plan', newBombState());
+            const spd = (e: number, n: number, u: number) => Math.hypot(e, n, u) / MS_KT;
+            const fpa = (e: number, n: number, u: number) => (Math.atan2(u, Math.hypot(e, n)) * 180) / Math.PI;
+            const dv = spd(bs.ve_mps, bs.vn_mps, bs.vu_mps) - spd(js.ve_mps, js.vn_mps, js.vu_mps);
+            const da = fpa(bs.ve_mps, bs.vn_mps, bs.vu_mps) - fpa(js.ve_mps, js.vn_mps, js.vu_mps);
+            if (ipNm === 15.3) speeds.push(`${c.key} ${dv >= 0 ? '+' : ''}${dv.toFixed(1)} kt ${da.toFixed(2)}°`);
+            if (B.model !== 'vacuum' || Math.abs(dv) > 3 || Math.abs(da) > 0.3) b9 ||= `${c.key}@${ipNm}: model ${B.model}, ${dv.toFixed(1)} kt, ${da.toFixed(2)}° off the jet`;
+            // Below the jet's own dive line: the extension of its velocity at the release, measured square to it.
+            const hs = Math.hypot(js.ve_mps, js.vn_mps), cosT = Math.cos(Math.atan2(-js.vu_mps, hs));
+            let above = -1e9, mid = NaN, end = NaN;
+            for (let i = 0; i < B.n; i++) {
+              const gr = Math.hypot(B.e_m[i] - B.e_m[0], B.n_m[i] - B.n_m[0]);
+              const below = (B.up_m[0] + (gr / hs) * js.vu_mps - B.up_m[i]) * cosT;
+              above = Math.max(above, -below);
+              if (Math.abs(B.tau_s[i] - B.fall_s / 2) < 0.06) mid = below;
+              if (i === B.n - 1) end = below;
+            }
+            const p = diveOf(attack);
+            const T = B.fall_s, cosD = Math.cos((p.diveAngle_deg * Math.PI) / 180);
+            const analyticMid = 0.5 * 32.2 * (T / 2) ** 2 * cosD * 0.3048, analyticEnd = 0.5 * 32.2 * T * T * cosD * 0.3048;
+            if (!(above <= 0.5) || !(mid >= 0.9 * analyticMid) || !(end >= 0.9 * analyticEnd) || (c.key === 'F-16C 30°' && !(mid >= 60 && end >= 250)))
+              b10 ||= `${c.key}@${ipNm}: above the line by ${above.toFixed(2)} m, below at mid ${mid.toFixed(1)} m (want ≥ ${(0.9 * analyticMid).toFixed(1)}), at the end ${end.toFixed(1)} m (want ≥ ${(0.9 * analyticEnd).toFixed(1)})`;
+            if (ipNm === 15.3) mids.push(`${c.key} ${mid.toFixed(0)}/${end.toFixed(0)} m`);
+            const fall = bombFallVacuum(p.releaseAltitude_ft, p.releaseSpeed_ktas, p.diveAngle_deg);
+            const last = B.n - 1;
+            if (B.lat[last] !== tgt.lat || B.lon[last] !== tgt.lon || B.agl_ft[last] !== 0 || Math.abs(B.fall_s - fall.time_s) > 1e-9 || Math.abs(tj.impact_s - tj.tot_s) > 1e-9)
+              b11 ||= `${c.key}@${ipNm}: ends ${B.agl_ft[last].toFixed(2)} ft AGL ${(calculateDistance({ lat: B.lat[last], lon: B.lon[last] }, tgt) * NM).toFixed(2)} ft off the target, fall ${B.fall_s.toFixed(3)} s vs ${fall.time_s.toFixed(3)} s`;
+            for (const u of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+              const tt = fall.time_s * u;
+              const b = sampleBomb(pb, t, 0, tj.release_s + tt, 'plan', newBombState());
+              const wantAgl = fall.h0_ft - fall.vy0_fps * tt - 0.5 * fall.g_fps2 * tt * tt;
+              const wantRange = (fall.range_ft - fall.vx_fps * tt) / NM;
+              if (Math.abs(b.agl_ft - wantAgl) > 0.5 || Math.abs(calculateDistance(b, tgt) - wantRange) > 0.001)
+                b11 ||= `${c.key}@${ipNm} u=${u}: ${b.agl_ft.toFixed(1)} ft at ${(calculateDistance(b, tgt) * NM).toFixed(0)} ft vs ${wantAgl.toFixed(1)} ft at ${(wantRange * NM).toFixed(0)} ft`;
+            }
+            const rel = at(j.picture, 'REL');
+            const total = calculateDistance(rel, tgt);
+            const L = Math.hypot(B.e_m[last] - B.e_m[0], B.n_m[last] - B.n_m[0]);
+            let maxOff = 0, maxShare = 0;
+            for (let i = 1; i < last; i++) {
+              const cross = (B.e_m[i] - B.e_m[0]) * (B.n_m[last] - B.n_m[0]) - (B.n_m[i] - B.n_m[0]) * (B.e_m[last] - B.e_m[0]);
+              maxOff = Math.max(maxOff, Math.abs(cross) / L);
+              maxShare = Math.max(maxShare, Math.abs(calculateDistance(rel, { lat: B.lat[i], lon: B.lon[i] }) / total - B.tau_s[i] / B.fall_s));
+            }
+            worstOff = Math.max(worstOff, maxOff);
+            if (!(maxOff <= 0.2) || !(maxShare <= 1e-4)) b13 ||= `${c.key}@${ipNm}: ${maxOff.toFixed(3)} m off the straight line, its share of the way off its share of the fall by ${maxShare.toExponential(1)}`;
+          }
+        }
+        const all = played === DIVES.length * 2;
+        ok('dive aim [BL9]: the dive bomb is a vacuum fall and leaves with the jet\'s own velocity (3 kt, 0.3°)', all && b9 === '', b9 || speeds.join('; '));
+        ok('dive aim [BL10]: the dive bomb never rises above the jet\'s dive line and falls away from it as an arc (≥ 90% of ½g·t² at mid-fall and at the end; the F-16 30° ≥ 60 m and 250 m)',
+           all && b10 === '', b10 || mids.join('; '));
+        ok('dive aim [BL11]: the dive bomb lands on the target at the time over target, and in between is the vacuum parabola', all && b11 === '', b11 || `${played} jets`);
+        ok('dive aim [BL13]: the dive bomb\'s ground track is the straight release → target line at a constant ground speed', all && b13 === '', b13 || `worst ${worstOff.toFixed(3)} m off the line`);
+      }
+
+      // [BL12] A gun pass on a dive profile still rides the sight line and its estimate says so, not vacuum.
+      // [BL12b] A bomb dive says vacuum, not sight line, its model is 'vacuum' and its impact is not marked estimated.
+      // Mutation proofs:
+      // BL12: playback/family.ts `estimates: [fired ? 'sightLineBomb' : 'vacuumBomb']` → `estimates: ['vacuumBomb']`:
+      //   FAIL dive aim [BL12]: … vacuumOnSightLine profileNotFlown,vacuumBomb,noWind,…
+      // BL12b: playback/events.ts `estimated: facts.fall.model !== 'vacuum'` → `estimated: true`:
+      //   FAIL dive aim [BL12b]: … vacuum profileNotFlown,vacuumBomb,…, impact estimated true   (and `playback events`, `B3 [LN6]`)
+      {
+        const gun = blBuild('a10c', 'a10c.dive.strafe', 'gau8');
+        const j = lone(gun.m, gun.attack!, refWeapon('gau8')).jets[0];
+        const codes = j?.estimates.map((e) => e.code) ?? [];
+        ok('dive aim [BL12]: a gun pass on a dive profile still rides the sight line, and its estimate says sight line, not vacuum',
+           j?.bomb.model === 'vacuumOnSightLine' && codes.includes('sightLineBomb') && !codes.includes('vacuumBomb'), `${j?.bomb.model} ${codes.join(',')}`);
+        const bomb = blBuild('f16c', 'f16c.dive.ccip30', 'mk82');
+        const j2 = lone(bomb.m, bomb.attack!, refWeapon('mk82')).jets[0];
+        const codes2 = j2?.estimates.map((e) => e.code) ?? [];
+        const impact = j2?.events.find((e) => e.kind === 'impact');
+        ok('dive aim [BL12b]: a bomb dive says vacuum, not sight line, and its impact is not marked estimated',
+           j2?.bomb.model === 'vacuum' && codes2.includes('vacuumBomb') && !codes2.includes('sightLineBomb') && impact?.estimated === false,
+           `${j2?.bomb.model} ${codes2.join(',')}, impact estimated ${impact?.estimated}`);
+      }
+    }
 
     // [7] Frag: the playback's conflicts are fragConflicts of the editor's jets, in the same order, and
     // as many as strikeReadout's frag warnings; each carries its band (second's TOT → first's TOT + frag).
@@ -5221,7 +5629,10 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     //   FAIL playback estimates: … pop-up @15.3 nm #1: codes profileNotFlown,vacuumBomb,popClimbChord,apexPlacement,pullDownShape,flatGroundAgl,…
     const estBad = eachJet((c, k) => {
       const j = c.pb.jets[k], codes = j.estimates.map((e) => e.code), has = (x: string) => codes.includes(x as never);
-      const bombCode = { dive: 'sightLineBomb', level: 'vacuumBomb', popup: 'vacuumBomb', loft: 'loftDragModel' }[j.family];
+      // A bomb dive is a vacuum fall since its release aims off; a gun or rocket pass (sight line) is checked apart, [BL12].
+      // Mutation proof (2026-11-15): family.ts `estimates: [fired ? 'sightLineBomb' : 'vacuumBomb']` → `estimates: ['sightLineBomb']`:
+      //   FAIL playback estimates: … 30° dive @15.3 nm #1: bomb codes profileNotFlown,sightLineBomb,noWind,…   (and [BL12b])
+      const bombCode = { dive: 'vacuumBomb', level: 'vacuumBomb', popup: 'vacuumBomb', loft: 'loftDragModel' }[j.family];
       if (!has(bombCode) || ['sightLineBomb', 'vacuumBomb', 'loftDragModel'].filter(has).length !== 1) return `bomb codes ${codes.join(',')}`;
       if (has('profileNotFlown') !== !!c.attackOf(j.id)?.estimated) return `profileNotFlown ${has('profileNotFlown')} vs estimated ${c.attackOf(j.id)?.estimated}`;
       if (has('fragEnvelope') !== !!j.frag || !has('noWind') || j.estimates.some((e) => !e.note)) return `codes ${codes.join(',')}`;
@@ -9355,7 +9766,11 @@ void (async () => {
         }
         return `${h.digest('hex').slice(0, 16)} (${n} samples)`;
       };
-      const at1Want = ['1dcfe28000398844 (665 samples)', '42fa10d3e3347f7b (693 samples)', 'b67a43dd0cc94f08 (911 samples)', '41f466bbb7f67d86 (707 samples)',
+      // The 30° dive's digest was re-taken on purpose when the bomb dive gained its aim-off (42fa10d3e3347f7b, 693 samples,
+      // before): its jet's path moved nearer the target and its bomb became a vacuum arc. The other seven are as recorded.
+      // The new digest seen red (2026-11-15) under family.ts dive `vacuum(…, f, f.vy0_fps)` → `vacuum(…, f, 0)`:
+      //   FAIL playback B3 [AT1]: …  30° dive: 36bc4e2ab9a53106 (701 samples) (want 249d4e12f656afd6 (701 samples))
+      const at1Want = ['1dcfe28000398844 (665 samples)', '249d4e12f656afd6 (701 samples)', 'b67a43dd0cc94f08 (911 samples)', '41f466bbb7f67d86 (707 samples)',
         '1dcfe28000398844 (665 samples)', 'e336e8d61e719720 (665 samples)', '00b3a44bcda361e8 (558 samples)', '41f466bbb7f67d86 (707 samples)'];
       const at1Got = atJets.map((c) => poseDigest(c.pb, c.k));
       const at1Bad = atJets.map((c, i) => (at1Got[i] === at1Want[i] ? '' : `${c.name}: ${at1Got[i]} (want ${at1Want[i]})`)).filter(Boolean);

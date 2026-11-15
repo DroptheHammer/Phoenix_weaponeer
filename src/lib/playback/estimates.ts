@@ -8,7 +8,7 @@ const NOTES: Record<EstimateCode, string> = {
   noWind: 'No wind: the IP crossing shown is the planned speeds along the drawn path, still an estimate.',
   flatGroundAgl: 'Altitudes are above the target\'s elevation, not above the ground under the jet.',
   vacuumBomb: 'The bomb falls in a vacuum, the planner\'s own model for its release range.',
-  sightLineBomb: 'The dive release is drawn on the sight line; the bomb is shown on it, timed by a vacuum fall.',
+  sightLineBomb: 'A gun or rocket pass is drawn on the sight line through the target, timed by a vacuum fall: rounds and rockets fly nearly straight.',
   loftDragModel: 'The lofted bomb uses one drag figure for every bomb, sea-level air, no wind.',
   popClimbChord: 'The climb to the pull-down point is the side view\'s straight line, not the label\'s climb angle.',
   apexPlacement: 'The planner gives the apex no position; it is placed where the side view draws it.',

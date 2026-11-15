@@ -21,6 +21,7 @@ import { loadoutWeapons, weaponChoicesFor } from '../../lib/autoBuildAttack';
 import { calculateDistance } from '../../lib/coordinates';
 import { loftPullUpTimer_s } from '../../lib/loftPlanning';
 import { formatCallsign } from '../../lib/callsign';
+import { isFired, weaponClassOf } from '../../lib/weaponClass';
 import { targetCandidates, ipCandidates, waypointLabel } from '../../lib/waypointOptions';
 import { SliderField } from '../common/SliderField';
 import { IpPicker } from './IpPicker';
@@ -372,7 +373,8 @@ export function ProfileForm({
   deliveryMode?: DeliveryModeCode;
   onChange: (profile: AttackProfile) => void;
 }) {
-  if (profile?.type === 'dive_ccip') return <DiveForm profile={profile as DiveCCIPProfile} onChange={onChange} directBearing_deg={directBearing_deg} />;
+  if (profile?.type === 'dive_ccip')
+    return <DiveForm profile={profile as DiveCCIPProfile} onChange={onChange} directBearing_deg={directBearing_deg} fired={!!weapon && isFired(weaponClassOf(weapon))} />;
   if (profile?.type === 'level_ccrp')
     return <LevelForm profile={profile as LevelCCRPProfile} targetElevation_ft={targetElevation_ft} onChange={onChange} directBearing_deg={directBearing_deg} />;
   if (profile?.type === 'popup_ccip')

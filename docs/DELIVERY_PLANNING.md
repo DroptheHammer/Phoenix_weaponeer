@@ -161,6 +161,51 @@ not 20°. The 7,500 ft apex belongs to a 30° pop releasing by ~4,500 ft. The
   with IAA 3.6°. Do not let the FPM fall below the planned dive angle in the
   roll-in.
 
+### The dive aims off (built 2026-11-15)
+
+Until 2026-11-15 the tool drew a dive's roll-in and release on a straight
+line at the dive angle **through the target**. A bomb released on that line
+falls under it and lands short: 2,091 ft (637 m) for the F-16C 30° profile.
+The manual's dive has an aim-off (the CCIP quotation above), and so does the
+tool's pop-up; the dive now takes the pop-up's own formula
+(`src/lib/diveAim.ts`, `diveRanges`), from the pilot's unchanged numbers
+(dive angle, roll-in and release altitude, release speed):
+
+```
+line     = release / tan(max(dive, 1°))           the old release range
+range    = vacuum bomb range (release, speed, dive)  popupPlanning.ts, 1.69 ft/s per kt, g = 32.2
+AOD      = max(line − range, 0)                   the pop-up's aimOff_ft; 0 for a gun or rocket pass
+release range from the target = range             a vacuum bomb with the jet's velocity lands on it
+roll-in range                 = rollIn / tan(dive) − AOD
+aim-off point                 = the target + AOD along the attack heading
+```
+
+Roll-in, release, target and aim-off point lie on one line at the dive angle;
+the jet flies the line, the bomb leaves along it and falls below it onto the
+target. The **initial aim-off angle** (IAA) is the BEM's angle between that
+line and the line to the target at release, `atan(release / range) − dive`:
+8.3° for the F-16C 30° profile (4,500 ft, 450 kt). A gun or rocket pass keeps
+the sight line through the target (rounds and rockets fly nearly straight),
+and so does a dive with no usable release speed (no bomb range to aim with).
+The aim-off is a vacuum figure, like the pop-up's: under 1% of range off a
+slick bomb's drag answer, but a retarded bomb (the F-16C LALD 10° profile's
+high-drag bombs) falls shorter than it, and no figure is on file for that.
+
+What moves on a dive's map and card: the ROLL and REL markers come nearer the
+target, a dashed aim line runs on past the target, the roll-in turn and the
+attack and egress headings change (the offset leg meets a smaller roll-in
+ring), the side view's ROLL, REL and EGRESS distances, and a strike's push
+times. On the F-16C 30° card: roll-in 2.3 nm · RIGHT 42° → 1.9 nm · RIGHT 53°,
+attack heading 271° → 281°, egress 001° → 011°, REL 1.28 → 0.94 nm, the aim
+line 0.34 nm past the target. No row is added to the card. The card's egress
+heading is now worked out from the live attack heading, so an old saved dive
+prints the egress its own picture draws.
+
+Three 45° profiles, the **A-10C, AV-8B and A-4E** (1.40 to 1.45 nm roll-in
+rings), now get auto-build's "Check turn reduced 20° → 10°", as the F-16C
+LALD already did: a 20° turn at 4.5 nm passes 1.54 nm abeam the target and
+never reaches the smaller ring.
+
 ## The ground track the tool draws (settled 2026-09-07, late)
 
 Type I, anchored on the route — the handbook's own example. Fly the IP→target

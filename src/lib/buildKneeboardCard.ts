@@ -101,7 +101,7 @@ function describeRunInForCard(mission: Mission, attack: Attack, target: Mission[
   if (!anchor) return {};
   const directBearing = bearingDeg(anchor.point, target.coordinates);
   const geo: RunInGeo = { ipName: anchor.label, directBearing };
-  const story = describeRunIn(p, directBearing, target.elevation_ft ?? 0);
+  const story = describeRunIn(p, directBearing, target.elevation_ft ?? 0, isFired(attack.weaponClass));
   if (!story) {
     // A save that predates the action point: the heading is all we know.
     const heading = (p as { ingressHeading_deg?: number }).ingressHeading_deg ?? (p as { runInHeading_deg?: number }).runInHeading_deg;
@@ -207,9 +207,11 @@ function getEgressInfo(attack: Attack, attackHeading?: number): { direction: str
     };
   }
   if (p.type === 'dive_ccip') {
+    // The live heading, not the stored one: a dive saved before its geometry changed keeps an old
+    // stored heading, and the card must print the egress its own picture draws.
     return {
       direction: p.egressDirection === 'straight' ? 'STRAIGHT' : p.egressDirection.toUpperCase(),
-      heading: resolveEgressHeading(p, p.ingressHeading_deg),
+      heading: resolveEgressHeading(p, attackHeading ?? p.ingressHeading_deg),
     };
   }
   if (p.type === 'level_ccrp') {
@@ -355,8 +357,8 @@ export function buildKneeboardCard(
     }
   }
 
-  const egress = getEgressInfo(attack, runInHeading);
   const runIn = describeRunInForCard(mission, attack, targetWp);
+  const egress = getEgressInfo(attack, runInHeading ?? runIn.attackHeading);
 
   // A card flown off a tablet must carry the same caveats the screen shows.
   // Fail warn-open: an unknown or not-yet-loaded theater is treated as

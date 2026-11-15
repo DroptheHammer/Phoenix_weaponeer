@@ -15,7 +15,7 @@ import { attackIpAnchor, initialIpChoice, ipFieldsFor, ipPointFromFields, seedCu
 import { runAttackChecks, hasErrors, type AttackCheck } from './attackChecks';
 import { describeRunIn, type RunInSummary } from './runIn';
 import { applyEgress, applyFlank, moveIp } from './attackFlank';
-import { weaponClassOf } from './weaponClass';
+import { isFired, weaponClassOf } from './weaponClass';
 import { calculateDistance } from './coordinates';
 import type { Side } from './attackGeometry';
 
@@ -168,9 +168,10 @@ export function resolveDraft(draft: AttackDraft, ctx: DraftContext): ResolvedDra
       })
     : [];
   const problems = build.problems ?? [];
-  // The run-in as it will be flown, read off whatever profile will be saved.
+  // The run-in as it will be flown, read off whatever profile will be saved. A gun or rocket pass is told
+  // so, or a dive's read-out would use the bomb's aim-off ring while the map draws the sight line.
   const runIn =
-    profile && build.directBearing != null ? describeRunIn(profile, build.directBearing, target?.elevation_ft ?? 0) : build.runIn;
+    profile && build.directBearing != null ? describeRunIn(profile, build.directBearing, target?.elevation_ft ?? 0, isFired(build.weaponClass)) : build.runIn;
 
   const resolved: ResolvedDraft = {
     build,

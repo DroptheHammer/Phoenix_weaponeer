@@ -191,8 +191,8 @@ export type EstimateCode =
   | 'cardPushIsEstimate' // the card's push is ipToImpact_s: one speed, no turns (strike.ts)
   | 'noWind' // the planner has no wind: the flown push is still an estimate
   | 'flatGroundAgl' // AGL is over the target's elevation, not the ground under the jet
-  | 'vacuumBomb' // level and pop-up bombs: the planner's vacuum fall
-  | 'sightLineBomb' // dive: the bomb rides the card's sight line on a vacuum clock
+  | 'vacuumBomb' // level, pop-up and bomb-dive bombs: the planner's vacuum fall
+  | 'sightLineBomb' // a gun or rocket pass on a dive profile: the card's sight line on a vacuum clock
   | 'loftDragModel' // loft: one drag for every bomb, sea-level air
   | 'popClimbChord' // pop-up POP→PDP flown as the side view's straight chord, not the label's climb angle
   | 'apexPlacement' // pop-up apex placed at the side view's APEX range on the arc

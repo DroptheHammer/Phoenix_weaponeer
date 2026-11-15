@@ -1,5 +1,6 @@
 import type { DiveCCIPProfile } from '../../../types';
-import { resolveEgressHeading, diveGroundRange_nm } from '../../../lib/attackGeometry';
+import { resolveEgressHeading } from '../../../lib/attackGeometry';
+import { diveRanges } from '../../../lib/diveAim';
 import { actionPointHeading } from '../../../lib/runIn';
 import { KNOB_RANGES } from '../../../lib/customizeKnobs';
 import { SliderField } from '../../common/SliderField';
@@ -11,6 +12,8 @@ interface DiveFormProps {
   onChange: (profile: DiveCCIPProfile) => void;
   /** Bearing IP → target: the route the action point sits on. */
   directBearing_deg?: number;
+  /** A gun or rockets: the roll-in stays on the sight line, with no aim-off, as the picture draws it. */
+  fired?: boolean;
 }
 
 const field = 'w-full bg-gray-700 text-white p-2 rounded border border-gray-600';
@@ -18,15 +21,15 @@ const label = 'block text-sm font-medium mb-1';
 const ranges = KNOB_RANGES.dive_ccip;
 
 /** The numbers behind a dive delivery, for planners who want to change them. */
-export function DiveForm({ profile, onChange, directBearing_deg }: DiveFormProps) {
+export function DiveForm({ profile, onChange, directBearing_deg, fired }: DiveFormProps) {
   // The attack heading follows from the action point, check turn and roll-in
   // range, so any change re-derives it while the geometry closes.
   const withHeading = (next: DiveCCIPProfile): DiveCCIPProfile => {
-    const heading = actionPointHeading(next, directBearing_deg, diveGroundRange_nm(next.rollInAltitude_ft, next.diveAngle_deg));
+    const heading = actionPointHeading(next, directBearing_deg, diveRanges(next, fired).rollIn_nm);
     return heading != null ? { ...next, ingressHeading_deg: heading } : next;
   };
   const set = (key: keyof DiveCCIPProfile) => (v: number | undefined) => onChange(withHeading({ ...profile, [key]: v }));
-  const joinRange_nm = diveGroundRange_nm(profile.rollInAltitude_ft, profile.diveAngle_deg);
+  const joinRange_nm = diveRanges(profile, fired).rollIn_nm;
   const computedHeading = actionPointHeading(profile, directBearing_deg, joinRange_nm);
   const heading = profile.ingressHeading_deg != null ? Math.round(profile.ingressHeading_deg) : undefined;
 

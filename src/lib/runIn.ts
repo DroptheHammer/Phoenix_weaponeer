@@ -7,7 +7,6 @@
 import type { AttackProfile } from '../types/attack.types';
 import {
   attackHeadingFromActionPoint,
-  diveGroundRange_nm,
   levelReleaseRange_nm,
   LEVEL_RUN_IN_NM,
   flankSign,
@@ -17,6 +16,7 @@ import {
   type Turn,
 } from './attackGeometry';
 import { popupActionOf } from './popupPlanning';
+import { diveRanges } from './diveAim';
 
 export interface RunInSummary {
   /** Bearing IP → target: the route leg. */
@@ -53,8 +53,12 @@ export interface RunInSummary {
  * action-point model (they carry no action range) — those draw the old
  * straight transit — and for a loft, which has no action point, check turn or
  * join turn: it runs straight from the IP at the target.
+ *
+ * `fired` is true for a gun or rocket pass: a dive's roll-in then sits on the
+ * sight line through the target, with no aim-off (diveAim.ts), as the picture
+ * draws it.
  */
-export function describeRunIn(profile: AttackProfile, directBearing_deg: number, targetElevation_ft = 0): RunInSummary | undefined {
+export function describeRunIn(profile: AttackProfile, directBearing_deg: number, targetElevation_ft = 0, fired = false): RunInSummary | undefined {
   const direct = normalizeHeading(directBearing_deg);
 
   if (profile.type === 'popup_ccip') {
@@ -81,7 +85,7 @@ export function describeRunIn(profile: AttackProfile, directBearing_deg: number,
     const s = flankSign(side);
     const joinRange_nm =
       profile.type === 'dive_ccip'
-        ? diveGroundRange_nm(profile.rollInAltitude_ft, profile.diveAngle_deg)
+        ? diveRanges(profile, fired).rollIn_nm
         : levelReleaseRange_nm(Math.max(profile.releaseAltitude_ft - targetElevation_ft, 0), profile.releaseSpeed_ktas) + LEVEL_RUN_IN_NM;
 
     // Level CCRP with offsetLegRatio: derive action range from the live join range.

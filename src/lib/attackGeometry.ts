@@ -634,6 +634,8 @@ export interface DiveGeometry {
   rollInPoint: Coordinates;
   releasePoint: Coordinates;
   targetPoint: Coordinates;
+  /** Where the line of the dive meets the ground past the target; the target itself when there is no aim-off. */
+  aimOffPoint: Coordinates;
   egress: EgressPath;
   routeHeading: number;
   approachHeading: number;
@@ -759,11 +761,13 @@ export function calculateLevelGeometry(
 export function calculateDiveGeometry(
   targetPoint: Coordinates,
   attackHeading: number,
-  params: AxisParams & { rollInAltitude_ft: number; releaseAltitude_ft: number; diveAngle_deg: number; releaseSpeed_ktas?: number },
+  params: AxisParams & { rollInAltitude_ft: number; releaseAltitude_ft: number; diveAngle_deg: number; releaseSpeed_ktas?: number; aimOff_ft?: number },
   ingressLength_nm = 8,
 ): DiveGeometry {
-  const rollInRange_nm = diveGroundRange_nm(params.rollInAltitude_ft, params.diveAngle_deg);
-  const releaseRange_nm = diveGroundRange_nm(params.releaseAltitude_ft, params.diveAngle_deg);
+  // The line of the dive runs on past the target to the aim-off point (diveAim.ts); with none it is the sight line through the target.
+  const aimOff_nm = Math.max(params.aimOff_ft ?? 0, 0) / FT_PER_NM;
+  const rollInRange_nm = diveGroundRange_nm(params.rollInAltitude_ft, params.diveAngle_deg) - aimOff_nm;
+  const releaseRange_nm = diveGroundRange_nm(params.releaseAltitude_ft, params.diveAngle_deg) - aimOff_nm;
   const j = joinGeometry(targetPoint, attackHeading, rollInRange_nm, params, ingressLength_nm);
   const releasePoint = calculatePointAtDistance(targetPoint, normalizeHeading(j.attackHeading + 180), releaseRange_nm);
   const egressHeading = resolveEgressHeading(params, j.attackHeading);
@@ -773,6 +777,7 @@ export function calculateDiveGeometry(
     rollInPoint: j.joinPoint,
     releasePoint,
     targetPoint,
+    aimOffPoint: aimOff_nm ? calculatePointAtDistance(targetPoint, j.attackHeading, aimOff_nm) : targetPoint,
     egress: egressPath(releasePoint, j.attackHeading, egressHeading, params.releaseSpeed_ktas ?? 450, params.egressG ?? 4),
     routeHeading: j.routeHeading,
     approachHeading: j.approachHeading,

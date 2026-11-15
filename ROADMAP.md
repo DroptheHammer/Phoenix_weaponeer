@@ -8,7 +8,7 @@ kneeboard cards.
 decided. The detail behind every line is in `docs/SESSION_HISTORY.md`
 (newest-first). Finished plans and reviews are in `docs/archive/`.
 
-**Last updated:** 2026-11-14
+**Last updated:** 2026-11-15
 
 ---
 
@@ -30,12 +30,25 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
   - [ ] *Smooth bomb arc in the side view* (optional): drawn today as short
         straight pieces through hidden points; a `path` on `SideSegment`
         drawn as a polyline would be cleaner.
-  - [ ] *Per-weapon drag for lofts*: one drag constant (an M117's, which
-        lands Heatblur's Mk-82 within 1%) serves every bomb; a cluster or
-        high-drag store flies shorter. Needs a sourced table per store.
+  - [ ] *Per-weapon drag, for every bomb* (widened 2026-11-15 from lofts
+        only): the loft uses one drag constant (an M117's, which lands
+        Heatblur's Mk-82 within 1%) for every bomb, and the level, pop-up and
+        dive bombs fall in a vacuum. A cluster or high-drag store flies
+        shorter than either. Needs a sourced table per store. With it: an
+        optional aim-off override on a dive profile, so a retarded bomb's dive
+        (the F-16C LALD 10°) can carry the figure the pilot's own tables give;
+        until then its vacuum aim-off overstates the range, and the profile's
+        ESTIMATED strip is the only warning.
   - [ ] *F-4E gyro angle*: LABS sets a pitch angle, about 6–8° above the
         flight-path angle the tool plans on (Fig 5-9: 36.9° for a 30°
         release). No gyro setting is printed.
+- [ ] **Repair old saved dives when they load** (wanted by the user
+      2026-11-15, later, not now: old saves are rarely opened in normal ops).
+      Since the ballistic dive, the A-10C, AV-8B and A-4E 45° profiles build
+      with a 10° check turn. An attack of those saved before it, with the old
+      20° turn, loses its offset leg and action point on the map until it is
+      opened in the editor and saved. The repair would draw the cut check turn
+      at load instead, so the old save keeps its leg without being re-saved.
 - [x] **Numbers for the twenty-six name-only rows** (2026-11-13, Session 4,
       released in v0.3.4). Each number was approved one by one and its
       source is in the row's `notes` (and `docs/DELIVERY_PLANNING.md`, "Weapon
@@ -194,6 +207,30 @@ waypoint list on 2026-10-03).
 ---
 
 ## Shipped
+
+### Unreleased (0.4.0 branch)
+- **Ballistic dive (aim-off)** (2026-11-15, the user's call after seeing the
+  F-16 30° dive card before and after): a bomb released in a dive falls under
+  the line of the dive, so a dive pointed straight at the target dropped short
+  of it (about 640 m on the F-16 30° dive). Dive attacks now aim off, as
+  pop-ups do (`src/lib/diveAim.ts`, the pop-up's own vacuum formula): the
+  release sits where a bomb released at the stated altitude, speed and dive
+  angle lands on the target, and a dashed aim line runs on past the target. On
+  the F-16 30° dive the release moves from 1.28 to 0.94 nm out, the roll-in
+  from 2.3 to 1.9 nm, the roll-in turn grows from 42° to 53° and the attack
+  heading turns about 10° wider (up to 22° on the shallower and slower
+  profiles). In the 3D playback a dive's bomb now falls in an arc. The A-10C,
+  AV-8B and A-4E 45° profiles now build with a 10° check turn so their offset
+  leg still closes. Gun and rocket passes, and level, pop-up and loft attacks,
+  are unchanged. No dive card gets an aim-off row, on any aircraft: the user
+  decided against it (2026-11-15; see "Decided — not doing").
+  - **For the release notes:** open and save again any dive attack made
+    before this version, and re-export its card. A saved A-10C, AV-8B or A-4E 45° dive made with the
+    old 20° turn loses its offset leg and action point on the map (its card
+    still lists the old action point) until it is opened in the editor and
+    saved; opened, a standard attack is rebuilt with the 10° turn, and a
+    customized one keeps its 20° and the editor says it does not close until
+    the turn is lowered.
 
 ### v0.3.4 — 2026-11-14
 - **Loft attacks** (2026-11-14): F-16 Loft 30 and F-4E LABS 45 offered again,
@@ -430,3 +467,7 @@ Settled with the user. Don't reopen these without asking.
   targets apply to the new Night and NVG cards.
 - Deleting or editing imported waypoints: the route is the mission author's
   and stays fixed (2026-09-29, memory `project-imported-waypoints-are-fixed`).
+- An aim-off row on a dive card, on any aircraft (2026-11-15). A CCIP jet's
+  pipper already gives the aim point, the A-4E and F-4E compute the release,
+  and a manual jet sets its sight from the mils in the card header (from its
+  SOP). The dashed aim line stays on the map.

@@ -89,14 +89,15 @@ export function familyFacts(attack: PlaybackAttack, family: PlaybackFamily, targ
   const common = { pushLabel: 'IP push', estimates: [] as EstimateCode[] };
   if (family === 'dive') {
     const p = attack.profile as DiveCCIPProfile;
-    // The drawn release is on the sight line through the target, not a
-    // ballistic release point: a vacuum bomb from it lands about 2,000 ft
-    // short. So the bomb rides the card's straight sight line on the vacuum
-    // clock (bomb.ts), and says so.
+    // A bomb dive's release is the ballistic one (diveAim.ts), so the vacuum
+    // fall lands on the target, as the pop-up's does. A gun or rocket pass is
+    // drawn on the sight line through the target, as it always was: rounds and
+    // rockets fly nearly straight.
+    const fired = isFired(attack.weaponClass);
     const f = bombFallVacuum(p.releaseAltitude_ft, p.releaseSpeed_ktas, p.diveAngle_deg);
     return {
       ...common, family, ingress_kt: p.releaseSpeed_ktas, egress_kt: p.releaseSpeed_ktas, flank: p.offsetDirection,
-      fall: vacuum('vacuumOnSightLine', f, f.vy0_fps), estimates: ['sightLineBomb'],
+      fall: vacuum(fired ? 'vacuumOnSightLine' : 'vacuum', f, f.vy0_fps), estimates: [fired ? 'sightLineBomb' : 'vacuumBomb'],
       commitLabel: 'Roll in', releaseLabel: releaseLabelOf(attack, family),
     };
   }

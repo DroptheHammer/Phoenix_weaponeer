@@ -29,7 +29,6 @@ import {
   resolveEgressHeading,
   flankSign,
   normalizeHeading,
-  diveGroundRange_nm,
   levelReleaseRange_nm,
   LEVEL_RUN_IN_NM,
   solveOffsetLeg,
@@ -40,6 +39,7 @@ import {
 import { popupActionOf, FT_PER_NM } from './popupPlanning';
 import { loftPlanOf, resolveLoftEgressHeading, LOFT_ESCAPE_G } from './loftPlanning';
 import { isFired } from './weaponClass';
+import { diveRanges } from './diveAim';
 
 // ─── The one palette ──────────────────────────────────────────────────────────
 
@@ -176,11 +176,13 @@ export function buildAttackPicture(attack: Attack, ipAnchor: IpAnchor | undefine
 }
 
 function divePicture(attack: Attack, profile: DiveCCIPProfile, ipAnchor: IpAnchor | undefined, targetWaypoint: Waypoint): AttackPicture {
+  const { aimOff_ft } = diveRanges(profile, isFired(attack.weaponClass));
   const g = calculateDiveGeometry(targetWaypoint.coordinates, profile.ingressHeading_deg, {
     rollInAltitude_ft: profile.rollInAltitude_ft,
     releaseAltitude_ft: profile.releaseAltitude_ft,
     diveAngle_deg: profile.diveAngle_deg,
     releaseSpeed_ktas: profile.releaseSpeed_ktas,
+    aimOff_ft,
     egressDirection: profile.egressDirection,
     egressHeading_deg: profile.egressHeading_deg,
     egressG: profile.pulloutG,
@@ -196,7 +198,9 @@ function divePicture(attack: Attack, profile: DiveCCIPProfile, ipAnchor: IpAncho
         { style: 'leg', points: [g.actionPoint, g.rollInPoint] },
       ]
     : [{ style: 'route', points: [g.ingressStart, g.rollInPoint] }];
-  lines.push({ style: 'attack', points: [g.rollInPoint, g.releasePoint] }, { style: 'bomb', points: [g.releasePoint, g.targetPoint] }, ...egressLines(g.egress));
+  // The dashed line runs on past the target to the aim-off point, the nose's aim line, as the pop-up's does;
+  // for a gun or rocket pass that point is the target itself.
+  lines.push({ style: 'attack', points: [g.rollInPoint, g.releasePoint] }, { style: 'bomb', points: [g.releasePoint, g.aimOffPoint] }, ...egressLines(g.egress));
 
   const markers: PictureMarker[] = [];
   if (g.actionPoint && g.offsetTurn) markers.push(actionMarker(g.actionPoint, profile.actionRange_nm ?? 0, g.offsetTurn, g.approachHeading));
@@ -450,8 +454,8 @@ export function buildSideProfile(attack: Attack, targetElevation_ft: number): Si
 
   if (attack.profileType === 'dive_ccip') {
     const p = attack.profile as DiveCCIPProfile;
-    const rollIn = diveGroundRange_nm(p.rollInAltitude_ft, p.diveAngle_deg);
-    const release = diveGroundRange_nm(p.releaseAltitude_ft, p.diveAngle_deg);
+    // The same ranges the plan view draws, worked out here a second time from the profile.
+    const { rollIn_nm: rollIn, release_nm: release } = diveRanges(p, isFired(attack.weaponClass));
     const ingressAlt = p.ingressAltitude_ft ?? p.rollInAltitude_ft;
     const start = add({ kind: 'AP', dist_nm: p.actionRange_nm ?? rollIn + 3, alt_ft: ingressAlt, label: p.actionRange_nm != null ? `${p.actionRange_nm}nm: ACTION` : undefined, side: 'top' });
     const roll = add({ kind: 'ROLL', dist_nm: rollIn, alt_ft: p.rollInAltitude_ft, label: `${nm1(rollIn)}nm · ${ft(p.rollInAltitude_ft)}ft · ${p.diveAngle_deg}° dive`, side: 'top' });

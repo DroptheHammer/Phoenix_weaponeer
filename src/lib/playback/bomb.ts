@@ -1,13 +1,14 @@
 /**
  * The bomb, from the release point to the target waypoint, timed by the
  * planner's own fall models. The last sample is exactly the target at AGL 0.
- * The pop-up's drawn bomb line runs on to the aim-off point past the target:
- * it is the nose's aim line, not the bomb, and is never used here.
+ * The pop-up's and the bomb dive's drawn bomb lines run on to the aim-off point
+ * past the target: that is the nose's aim line, not the bomb, and is never used here.
  *
- * - level, pop-up: the vacuum parabola the release range was computed with
- *   (`levelFallVacuum`, `bombFallVacuum`), so it lands on the target.
- * - dive: the bomb rides the card's straight REL→TGT sight line, timed by the
- *   vacuum fall (see `familyFacts`). It leaves at the jet's own ground speed.
+ * - level, pop-up, bomb dive: the vacuum parabola the release range was
+ *   computed with (`levelFallVacuum`, `bombFallVacuum`), so it lands on the target.
+ * - a gun or rocket pass on a dive profile: it rides the card's straight REL→TGT
+ *   sight line, timed by the vacuum fall (see `familyFacts`). It leaves at the
+ *   jet's own ground speed.
  * - loft: the planner's simulated drag path, with its own sample times.
  */
 
