@@ -615,6 +615,11 @@ async function checkChaseKeys(page) {
  * does not treat as urgent, so on a slow frame the panel was still on screen when the next Escape
  * arrived and that one shut the panel again instead of leaving playback. ShowMenu now shuts it
  * with flushSync, before the Escape returns.
+ *
+ * The last part (opened from the keyboard, shut with the mouse, focus ends on the Show button) was
+ * proven red 2026-11-15 with ShowMenu's two "hand the focus to the button" lines taken out: the focus
+ * was left on the vanished panel, and the next Enter then opened nothing:
+ *   STEP FAIL 30 … — … keyboard open then mouse on Show: opened true, shut true, focus on Show false; keyboard open then mouse on 1×: opened false, shut true, focus on Show false
  */
 async function checkShowKeys(page) {
   const c = () => pbEval(page, () => ({ ...__pb.counters }));
@@ -661,9 +666,25 @@ async function checkShowKeys(page) {
   const dialogStaysSecond = await dialogOpen();
   const e3 = (await c()).editorEscapes;
 
-  step('30 Escape closes the Show panel first and playback next, never the editor; Space plays after a mouse open; Tab, Enter and Escape work by keyboard',
-    openByMouse && spacePlays && spacePauses && panelGoneFirst && dialogStays && e1 === e0 && closedSecond && e2 === e0 && openByKey && onShow && focusIn && panelGoneSecond && focusOnShow && dialogStaysSecond && e3 === e0,
-    `mouse: opened ${openByMouse}, Space played ${spacePlays} then paused ${spacePauses}; Escape → panel gone ${panelGoneFirst}, playback still open ${dialogStays}, editor Escapes ${e0} → ${e1}; Escape → playback closed ${closedSecond}, editor Escapes → ${e2}; keyboard: Tab reached Show ${onShow}, Enter opened ${openByKey}, focus inside ${focusIn}; Escape → panel gone ${panelGoneSecond}, focus on Show ${focusOnShow}, playback still open ${dialogStaysSecond}, editor Escapes → ${e3}`);
+  // Opened from the keyboard, shut with the mouse (which leaves focus where it was): the focus must
+  // end on the Show button, not on the panel that has just gone. Once by the Show button itself,
+  // once by a press outside the panel (a speed button).
+  const focusOnShowNow = () => pbEval(page, () => document.activeElement?.getAttribute('aria-controls') === 'pb-show');
+  await page.keyboard.press('Enter');
+  const reopened = await panelOpen();
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  const shutByButton = !(await panelOpen());
+  const focusAfterButton = await focusOnShowNow();
+  await page.keyboard.press('Enter');
+  const reopenedAgain = await panelOpen();
+  await page.getByRole('button', { name: '1×', exact: true }).click();
+  const shutByOutside = !(await panelOpen());
+  const focusAfterOutside = await focusOnShowNow();
+
+  step('30 Escape closes the Show panel first and playback next, never the editor; Space plays after a mouse open; Tab, Enter and Escape work by keyboard; a mouse close keeps the focus',
+    openByMouse && spacePlays && spacePauses && panelGoneFirst && dialogStays && e1 === e0 && closedSecond && e2 === e0 && openByKey && onShow && focusIn && panelGoneSecond && focusOnShow && dialogStaysSecond && e3 === e0
+      && reopened && shutByButton && focusAfterButton && reopenedAgain && shutByOutside && focusAfterOutside,
+    `mouse: opened ${openByMouse}, Space played ${spacePlays} then paused ${spacePauses}; Escape → panel gone ${panelGoneFirst}, playback still open ${dialogStays}, editor Escapes ${e0} → ${e1}; Escape → playback closed ${closedSecond}, editor Escapes → ${e2}; keyboard: Tab reached Show ${onShow}, Enter opened ${openByKey}, focus inside ${focusIn}; Escape → panel gone ${panelGoneSecond}, focus on Show ${focusOnShow}, playback still open ${dialogStaysSecond}, editor Escapes → ${e3}; keyboard open then mouse on Show: opened ${reopened}, shut ${shutByButton}, focus on Show ${focusAfterButton}; keyboard open then mouse on 1×: opened ${reopenedAgain}, shut ${shutByOutside}, focus on Show ${focusAfterOutside}`);
 }
 
 /**

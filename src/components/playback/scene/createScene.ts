@@ -454,7 +454,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       rig.refresh();
       invalidate();
     },
-    stats:() => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
+    stats: () => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
     project(what) {
       if (disposed || contextLost || fatal || !jets) return undefined;
       if (dirty) {

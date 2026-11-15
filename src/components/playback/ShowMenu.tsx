@@ -45,6 +45,10 @@ export function ShowMenu({ show, dispatch }: ShowMenuProps) {
     const onPress = (e: PointerEvent) => {
       const target = e.target as Node | null;
       if (target && (panel.contains(target) || buttonRef.current?.contains(target))) return;
+      // Focus inside the panel would be left on nothing once the panel goes (and Space would stop
+      // playing and pausing): hand it to the button first. A press on something that takes focus
+      // itself, the scrubber say, still moves it there afterwards.
+      if (panel.contains(document.activeElement)) buttonRef.current?.focus();
       setOpen(false);
     };
     const onEscape = () => {
@@ -72,6 +76,9 @@ export function ShowMenu({ show, dispatch }: ShowMenuProps) {
         type="button"
         onClick={(e) => {
           openedByKeyboard.current = e.detail === 0;
+          // Shut with the mouse while focus is inside the panel (it was opened from the keyboard): the
+          // press leaves focus where it was, so move it here before the panel, and the focus with it, goes.
+          if (open && panelRef.current?.contains(document.activeElement)) buttonRef.current?.focus();
           setOpen((o) => !o);
         }}
         onMouseDown={keepFocus}
