@@ -3,6 +3,8 @@
  * the buttons look and behave alike.
  */
 import type { MouseEvent } from 'react';
+import { LINE_STYLE } from '../../lib/attackPicture';
+import { DASH_ON_PX, DASH_PERIOD_PX, type PhaseKey } from '../../lib/playbackScene';
 
 /**
  * Put on every playback button's onMouseDown: a mouse press does not take the
@@ -40,3 +42,34 @@ export const MENU_PANEL =
 /** A choice's name in the menu, and the line of plain words under it. */
 export const MENU_HEAD = 'font-semibold text-gray-100';
 export const MENU_HINT = 'text-gray-400';
+
+/**
+ * The rows under the picture share three columns, so the lanes' time axes line
+ * up with the scrubber's: the left holds Play and the clock (and each jet's
+ * seat), the middle the time bar, the right the speeds (and each jet's times).
+ */
+export const ROW_GRID = 'grid grid-cols-[160px_minmax(0,1fr)_170px] items-center gap-x-3';
+/**
+ * A lane's middle cell: 30 px tall, inset 8 px each side, the same inset the
+ * scrubber's thumb travel has, so a time sits at the same x on both.
+ */
+export const LANE = 'relative h-[30px] px-2';
+/** A lane's right cell: its time over target and the card's push time. */
+export const READOUT = 'min-w-0 font-mono text-[11px] leading-tight text-gray-300';
+/** A chip on a lane: its width is set from its letters, its colours from the mark. */
+export const CHIP = 'absolute flex h-3 items-center justify-center overflow-hidden rounded-full -translate-x-1/2';
+export const CHIP_LETTERS = 'font-mono text-[10px] leading-3 font-bold';
+/** The amber stripes over the times a jet would be over the target inside another's frag. */
+export { HATCH } from '../../lib/playbackScene';
+/** The side view's panel: the editor's own pale background. */
+export const SIDE_BG = 'bg-[#F4F4EC]';
+
+/**
+ * The CSS background of a stretch of a band: the planner's colour for that
+ * line, as dashes (6 px on, 4 px off) where the planner dashes it, so the dash
+ * tells route from leg and the egress turn from its leg without the colour.
+ */
+export function bandBackground(style: PhaseKey): string {
+  const line = LINE_STYLE[style];
+  return line.dash ? `repeating-linear-gradient(90deg, ${line.color} 0 ${DASH_ON_PX}px, transparent ${DASH_ON_PX}px ${DASH_PERIOD_PX}px)` : line.color;
+}

@@ -50,7 +50,7 @@ import { buildAltitude, pullTable } from '../src/lib/playback/altitude';
 import { buildChain } from '../src/lib/playback/chain';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, REAL_WORLD_DEFAULT_WEAPON, REAL_WORLD_DEFAULT_WEAPON_ID, isRealWorld } from '../src/lib/strikeNearMe';
-import { buildAttackPicture, buildSideProfile, pictureFitPoints, LINE_STYLE, MARKER_COLOR } from '../src/lib/attackPicture';
+import { buildAttackPicture, buildSideProfile, pictureFitPoints, LINE_STYLE, MARKER_COLOR, LABEL_STYLE } from '../src/lib/attackPicture';
 import { resolveIpAnchor, inferIpFrom, initialIpOverrideFrom, attackIpAnchor, initialIpChoice, ipRadial, ipFromRadial, ipFieldsFor, ipPointFromFields, seedCustomIp } from '../src/lib/ipAnchor';
 import { edgeCrossing, pixelSpan, labelsAreLegible } from '../src/lib/labelLayout';
 import { targetCandidates, ipCandidates, waypointLabel } from '../src/lib/waypointOptions';
@@ -65,7 +65,7 @@ import { newJet, assignFlanks, respace, groupEdit } from '../src/lib/strikeDraft
 import {
   applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
   fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot, attackSpeedOf, ipToImpact_s,
-  fragConflicts, setStrikeOffsets, type StrikeJet,
+  fragConflicts, setStrikeOffsets, fmtStrikeTime, type StrikeJet,
 } from '../src/lib/strike';
 import { removeAttackFrom, moveAttackCustomIp, renumberAttacks } from '../src/lib/missionOps';
 import { useUiStore } from '../src/stores/uiStore';
@@ -127,6 +127,11 @@ import {
   FIRST_ACTION_FALLBACK_S, RUN_LEAD_S, HOME_AFTER_S, type ShowState,
 } from '../src/lib/playbackScene';
 import { ANCHOR_VERTICES, PATH_STEP_S, LINE_CASING } from '../src/lib/playbackScene';
+import {
+  laneMarks, laneBands, laneChips, placeChips, pinnedGroup, axisFraction, axisTime, chipWidth, CHIP_GAP_PX, CHIP_TEXT, BAND_OUTLINE, DIAMOND_EDGE, IP_TEXT,
+  PANEL, HATCH_RGB, HATCH_ALPHA, MENU_BG, PIN_MARK_PX, type Axis, type SeatMarks,
+} from '../src/lib/playbackScene';
+import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary } from '../src/components/playback/laneText';
 import { PHASES, PHASE_STYLE } from '../src/lib/playback';
 import {
   controlsFor, topDownPose, chasePose, yawDelta, targetEye, CHASE_BACK_M, CHASE_UP_M, CHASE_MIN_M, CHASE_MAX_M, CHASE_SWING_DEG,
@@ -7521,8 +7526,294 @@ void (async () => {
     ok('playback B3 [FB8]: every planner line colour in 3D and the bomb line stand at least 3:1 off their casing, the window\'s background, in all three visions',
        LINE_CASING === BG && fb8.every((f) => f.worst >= 3),
        `casing ${LINE_CASING}; ` + fb8.map((f) => `${f.key} ${f.worst.toFixed(2)}`).join(', '));
+
+    // ── The timeline in attack colours (lanes.ts: each lane's marks, bands and chips; laneStyle.ts: the
+    // sizes and colours that are not the planner's; laneText.ts: the words). Axis times are strike time.
+    const lnMoments = (pb: StrikePlayback) => (k: number) => markerMoments(pb.jets[k]);
+    const lnLone = [
+      { name: 'pop-up', pb: popPb, timing: popTiming },
+      { name: '30° dive', pb: divePb, timing: retime(divePb) },
+      { name: 'level JDAM', pb: levelPb, timing: levelTiming },
+      { name: 'F-16 loft', pb: loftPb, timing: retime(loftPb) },
+    ];
+    const jdamJet = (label: string, tot: number): PlaybackJetInput => {
+      const b = autoBuildAttack({ mission: b3m, targetWaypointId: wpTgt.id, attackerId: 'p1', weapons: refWeapons, profiles: b3Profiles, threatSystems: [], overrides: { weaponId: 'gbu31', profileId: 'f16c.level.ccrp.jdam' } } as never);
+      if (!b.attack) throw new Error('B3 fixture: the level JDAM did not auto-build');
+      const a = { ...b.attack, id: `b3-jdam-${label}` } as Attack;
+      return { id: a.id, attack: a, ipAnchor: attackIpAnchor(b3m.waypoints, a), target: wpTgt as never, weapon: refWeapon('gbu31'), totOffset_s: tot, label };
+    };
+    // Two level JDAMs 30 s apart: the time bar spans more than 200 s, so a chip near its left end is only a few px from the pinned group.
+    const pairPb = buildStrikePlayback({ name: 'b3-jdam-pair', jets: [jdamJet('#1', 0), jdamJet('#2', 30)] });
+    const pairTiming = retime(pairPb);
+
+    // [LN1] A lane's marks are the IP crossing as the 3D flies it, the IP push the card prints, every
+    // marker the planner draws but the target (AP, POP, PDP, TRK, REL, ROLL, RUN, each at the time the
+    // jet reaches it, with the marker's own words) and the impact, in time order, with unique keys;
+    // a skipped seat has none. Pop-up, 30° dive, level JDAM (offset leg) and F-16 loft on the whole
+    // run-in (nothing pinned), and the four-ship and the skip variant.
+    // Mutation proof (seen red 2026-11-14): lanes.ts laneMarks' markers cut to the library's tick events
+    // (the commit and the release: `moments(k).filter((mm) => ['POP', 'ROLL', 'RUN', 'REL'].includes(mm.kind))`):
+    //   FAIL playback B3 [LN1]: … pop-up: marker kinds POP,REL vs the picture's AP,PDP,POP,REL,TRK
+    let ln1Bad = '', ln1N = 0;
+    for (const c of lnLone) {
+      const track = c.pb.jets[0], tj = c.timing.jets[0];
+      const sm = laneMarks(c.pb, c.timing, playRange(c.pb, c.timing, true), lnMoments(c.pb))[0];
+      const all = [...sm.pinnedStart, ...sm.marks, ...sm.pinnedEnd];
+      const want: [string, number][] = [
+        ...markerMoments(track).map((m) => [m.kind, m.tau_s + tj.shift_s] as [string, number]),
+        ['push', tj.push_s], ['cardPush', c.timing.readout.pushes[0].push_s!], ['impact', tj.impact_s],
+      ];
+      const pictureKinds = track.picture.markers.filter((m) => m.kind !== 'TGT').map((m) => m.kind).sort().join();
+      const markerKinds = all.filter((m) => !['push', 'cardPush', 'impact'].includes(m.kind)).map((m) => m.kind).sort().join();
+      if (markerKinds !== pictureKinds) ln1Bad ||= `${c.name}: marker kinds ${markerKinds} vs the picture's ${pictureKinds}`;
+      if (all.length !== want.length || new Set(all.map((m) => m.key)).size !== all.length) ln1Bad ||= `${c.name}: ${all.length} marks for ${want.length}, keys unique ${new Set(all.map((m) => m.key)).size === all.length}`;
+      if (sm.pinnedStart.length + sm.pinnedEnd.length) ln1Bad ||= `${c.name}: marks pinned on the whole run-in`;
+      for (const [kind, t] of want) {
+        ln1N++;
+        const m = all.find((x) => x.kind === kind);
+        if (!m || Math.abs(m.t_s - t) > 1e-9) ln1Bad ||= `${c.name}: ${kind} at ${m?.t_s} vs ${t}`;
+      }
+      sm.marks.forEach((m, i) => { if (i && m.t_s < sm.marks[i - 1].t_s) ln1Bad ||= `${c.name}: marks out of time order at ${m.kind}`; });
+      for (const mm of markerMoments(track)) {
+        const m = all.find((x) => x.kind === mm.kind);
+        if (!m || m.letters !== mm.kind || m.words !== mm.lines.join(' · ') || m.estimated) ln1Bad ||= `${c.name} ${mm.kind}: letters ${m?.letters}, words ${m?.words}`;
+      }
+      const ip = all.filter((m) => m.kind === 'push' || m.kind === 'cardPush'), imp = all.find((m) => m.kind === 'impact');
+      if (ip.some((m) => m.letters !== 'IP' || !m.estimated) || !imp || imp.letters !== '' || imp.estimated !== (track.events.find((e) => e.kind === 'impact')?.estimated ?? false)) ln1Bad ||= `${c.name}: IP or impact marks wrong`;
+    }
+    const ln1Four = laneMarks(s4Pb, s4Timing, s4Timing.window, lnMoments(s4Pb));
+    const ln1Keys = ln1Four.flatMap((s) => [...s.pinnedStart, ...s.marks, ...s.pinnedEnd].map((m) => m.key));
+    if (ln1Four.length !== 4 || new Set(ln1Keys).size !== ln1Keys.length || ln1Keys.length < 28) ln1Bad ||= `four-ship: ${ln1Four.length} seats, ${new Set(ln1Keys).size} of ${ln1Keys.length} keys unique`;
+    const ln1Skip = laneMarks(skipPb, retime(skipPb), retime(skipPb).window, lnMoments(skipPb));
+    if (ln1Skip.length !== 3 || ln1Skip[1].marks.length + ln1Skip[1].pinnedStart.length + ln1Skip[1].pinnedEnd.length !== 0 || !ln1Skip[0].marks.length || !ln1Skip[2].marks.length) ln1Bad ||= 'skip variant: the skipped seat has marks, or a flown seat has none';
+    ok('playback B3 [LN1]: a lane\'s marks are the 3D\'s IP crossing, the card\'s push, every planner marker but the target at the time the jet reaches it with its own words, and the impact (pop-up, dive, level JDAM, loft, four-ship); a skipped seat has none',
+       ln1Bad === '' && ln1N >= 25, ln1Bad || `${lnLone.length} lone jets and ${ln1Keys.length} four-ship marks, ${ln1N} times checked to 1e-9`);
+
+    // [LN2] A mark before the axis starts is pinned at the left edge, not lost. On the default range
+    // the IP crossing and the card's push are pinned on #1, #2 and #4; #3's auto IP is only 2.0 nm out,
+    // so its own two (-27.7 and -29.1) are on the axis, unpinned, and its lane has no pinned group
+    // (nothing reserved). With Whole run-in none are pinned. A mark exactly at the axis start is on it.
+    // Mutation proof (seen red 2026-11-14): lanes.ts `t_s < axis.t0_s` → `t_s <= axis.t0_s`:
+    //   FAIL playback B3 [LN2]: … and other pinned marks show as a count  a mark exactly at the axis start (AP at -40.15) is pinned
+    const ln2Axis = playRange(s4Pb, s4Timing, false);
+    const ln2 = laneMarks(s4Pb, s4Timing, ln2Axis, lnMoments(s4Pb));
+    const ln2Whole = laneMarks(s4Pb, s4Timing, s4Timing.window, lnMoments(s4Pb));
+    let ln2Bad = '';
+    ln2.forEach((sm, seat) => {
+      const kinds = (a: { kind: string }[]) => a.map((m) => m.kind).sort().join();
+      if (seat === 2) {
+        const push = sm.marks.find((m) => m.kind === 'push'), card = sm.marks.find((m) => m.kind === 'cardPush');
+        if (sm.pinnedStart.length || !push || !card || Math.abs(push.t_s + 27.7) > 0.05 || Math.abs(card.t_s + 29.1) > 0.05) ln2Bad ||= `#3: pinned ${kinds(sm.pinnedStart)}, push at ${push?.t_s.toFixed(2)}, card push at ${card?.t_s.toFixed(2)} (want -27.7 and -29.1 on the axis)`;
+        if (pinnedGroup(sm) !== undefined) ln2Bad ||= '#3: has a pinned group';
+      } else {
+        if (kinds(sm.pinnedStart) !== 'cardPush,push' || kinds(sm.marks).includes('push') || sm.pinnedStart.some((m) => m.pinned !== 'start' || m.t_s >= ln2Axis.t0_s)) ln2Bad ||= `#${seat + 1}: pinned at the start ${kinds(sm.pinnedStart)}`;
+        const g = pinnedGroup(sm);
+        if (!g || !g.ip || !g.filled || g.letters !== 'IP' || g.reservedLeft_px !== PIN_MARK_PX + chipWidth('IP') + CHIP_GAP_PX) ln2Bad ||= `#${seat + 1}: pinned group ${JSON.stringify(g)}`;
+      }
+      if (sm.pinnedEnd.length) ln2Bad ||= `#${seat + 1}: pinned at the end`;
+    });
+    if (ln2Whole.some((sm) => sm.pinnedStart.length + sm.pinnedEnd.length) || ln2Whole.some((sm) => pinnedGroup(sm) !== undefined)) ln2Bad ||= 'Whole run-in: something is pinned';
+    // A mark exactly at the axis start: an axis built on #1's AP time, and one built on #1's own IP crossing.
+    const apAt = s4Timing.jets[0].shift_s + s4Pb.jets[0].anchors.AP!.tau_s;
+    const exactAp = laneMarks(s4Pb, s4Timing, { t0_s: apAt, t1_s: s4Timing.window.t1_s }, lnMoments(s4Pb))[0];
+    if (!exactAp.marks.some((m) => m.kind === 'AP') || exactAp.pinnedStart.some((m) => m.kind === 'AP')) ln2Bad ||= `a mark exactly at the axis start (AP at ${apAt.toFixed(2)}) is pinned`;
+    const exactEnd = laneMarks(s4Pb, s4Timing, { t0_s: s4Timing.window.t0_s, t1_s: s4Timing.jets[0].impact_s }, lnMoments(s4Pb))[0];
+    if (!exactEnd.marks.some((m) => m.kind === 'impact') || exactEnd.pinnedEnd.length) ln2Bad ||= 'a mark exactly at the axis end is pinned';
+    // Pinned marks other than the IP pair: the count, not "IP".
+    const ln2Late = laneMarks(s4Pb, s4Timing, { t0_s: -20, t1_s: s4Timing.window.t1_s }, lnMoments(s4Pb))[0];
+    const lateG = pinnedGroup(ln2Late);
+    if (!lateG || lateG.ip || lateG.letters !== String(ln2Late.pinnedStart.length) || ln2Late.pinnedStart.length < 4) ln2Bad ||= `#1 with the axis starting at -20 s: group ${JSON.stringify(lateG)} for ${ln2Late.pinnedStart.length} pinned`;
+    ok('playback B3 [LN2]: marks before the axis starts are pinned (the IP pair on #1, #2 and #4 of the four-ship; #3\'s own are on the axis and its lane has no group), none with Whole run-in, a mark exactly at the start is not pinned, and other pinned marks show as a count',
+       ln2Bad === '', ln2Bad || `pinned at the start: ${ln2.map((s) => s.pinnedStart.length).join('/')}; group for #1 ${JSON.stringify(pinnedGroup(ln2[0]))}`);
+
+    // [LN3] A lane's band runs from the jet's first visible moment to its last, clipped to the axis, in
+    // unbroken stretches (1e-9), each in the phase the plan sample at its middle has, styled by
+    // PHASE_STYLE, with its fractions along the axis; every change of colour sits on a mark's time
+    // (0.01 s), the egress turn into its leg being the one told by the dash alone. The axis maths
+    // that places them: fractions held to 0…1, time back from a fraction rounded to a step.
+    // Mutation proofs (each seen red 2026-11-14): lanes.ts laneBands reading one sample late (both
+    // `S.phase[j]` / `S.phase[i]` taken at +1, so each stretch ends a sample after its phase changes):
+    //   FAIL playback B3 [LN3]: … the axis maps times to fractions and back  pop-up #1: route → leg at -40.30 is on no mark
+    // axisTime without its `Math.round` (the step ignored):
+    //   FAIL playback B3 [LN3]: … axis: fractions 0,0,0.5,1,1 (want 0,0,0.5,1,1), axisTime(…, 0.5333, 1) -2.003, f=2 40, f=-1 -50, 5 s step -5 (want -2, 40, -50, -5)
+    // axisTime's `clamp01(f)` taken out:
+    //   FAIL playback B3 [LN3]: … axisTime(…, 0.5333, 1) -2, f=2 130, f=-1 -140, 5 s step -5 (want -2, 40, -50, -5)
+    // axisFraction's `clamp01(…)` taken out:
+    //   FAIL playback B3 [LN3]: … axis: fractions -0.1111111111111111,0,0.5,1,1.1111111111111112 (want 0,0,0.5,1,1), …
+    const phaseAt = (j: JetTrack, tau: number) => {
+      const S = j.samples;
+      let lo = 0, hi = S.n - 2;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (S.tau_s[mid] <= tau) lo = mid; else hi = mid - 1; }
+      return PHASES[S.phase[lo]];
+    };
+    let ln3Bad = '', ln3Bands = 0, ln3Changes = 0;
+    const ln3Cases = [
+      ...lnLone.map((c) => ({ name: c.name, pb: c.pb, timing: c.timing })),
+      { name: 'four-ship', pb: s4Pb, timing: s4Timing }, { name: 'JDAM pair', pb: pairPb, timing: pairTiming },
+    ];
+    for (const c of ln3Cases) for (const whole of [false, true]) {
+      const axis = playRange(c.pb, c.timing, whole);
+      const bands = laneBands(c.pb, c.timing, axis), marks = laneMarks(c.pb, c.timing, axis, lnMoments(c.pb));
+      c.pb.members.forEach((mb, seat) => {
+        const k = mb.jet!, track = c.pb.jets[k], tj = c.timing.jets[k], bs = bands[seat];
+        const tag = `${c.name} ${mb.label}${whole ? ' whole' : ''}`;
+        if (!bs.length) { ln3Bad ||= `${tag}: no band`; return; }
+        ln3Bands += bs.length;
+        if (Math.abs(bs[0].t0_s - Math.max(axis.t0_s, tj.shift_s - track.display.leadIn.capTau_s)) > 1e-9 || Math.abs(bs[bs.length - 1].t1_s - Math.min(axis.t1_s, tj.hide_s)) > 1e-9) ln3Bad ||= `${tag}: covers ${bs[0].t0_s.toFixed(2)}…${bs[bs.length - 1].t1_s.toFixed(2)}`;
+        if (new Set(bs.map((b) => b.key)).size !== bs.length) ln3Bad ||= `${tag}: band keys repeat`;
+        bs.forEach((b, i) => {
+          if (i && Math.abs(b.t0_s - bs[i - 1].t1_s) > 1e-9) ln3Bad ||= `${tag}: a gap before ${b.phase} at ${b.t0_s.toFixed(2)}`;
+          const mid = (b.t0_s + b.t1_s) / 2, tau = mid - tj.shift_s, want = tau < 0 ? 'leadIn' : phaseAt(track, tau);
+          if (b.phase !== want || b.style !== PHASE_STYLE[b.phase]) ln3Bad ||= `${tag}: ${b.phase} (${b.style}) at ${mid.toFixed(2)} where the plan is ${want}`;
+          if (b.f0 !== axisFraction(axis, b.t0_s) || b.f1 !== axisFraction(axis, b.t1_s) || b.f0 < 0 || b.f1 > 1 || !(b.f1 > b.f0)) ln3Bad ||= `${tag}: fractions ${b.f0}…${b.f1}`;
+          if (i && b.style !== bs[i - 1].style) {
+            ln3Changes++;
+            const at = [...marks[seat].pinnedStart, ...marks[seat].marks, ...marks[seat].pinnedEnd].some((m) => Math.abs(m.t_s - b.t0_s) < 0.01);
+            if (!at && !(bs[i - 1].phase === 'egress' && b.phase === 'egressLeg')) ln3Bad ||= `${tag}: ${bs[i - 1].style} → ${b.style} at ${b.t0_s.toFixed(2)} is on no mark`;
+          }
+        });
+      });
+    }
+    // The four-ship's #3 comes into the picture after the axis starts: its run-in shows from -50.2 to its IP crossing (-27.7).
+    const ln3Def = laneBands(s4Pb, s4Timing, ln2Axis);
+    const ln3Lead = ln3Def.map((bs) => bs.find((b) => b.phase === 'leadIn'));
+    if (ln3Lead[0] || ln3Lead[1] || ln3Lead[3] || !ln3Lead[2] || Math.abs(ln3Lead[2].t0_s - ln2Axis.t0_s) > 1e-9 || Math.abs(ln3Lead[2].t1_s + 27.7) > 0.05) ln3Bad ||= `default range: run-in on #1/#2/#4 ${[0, 1, 3].map((i) => !!ln3Lead[i])}, on #3 ${ln3Lead[2]?.t0_s.toFixed(2)}…${ln3Lead[2]?.t1_s.toFixed(2)}`;
+    if (ln3Def.some((bs, seat) => (s4Pb.members[seat].jet === undefined) !== (bs.length === 0))) ln3Bad ||= 'a skipped seat has bands';
+    const skipBands = laneBands(skipPb, retime(skipPb), retime(skipPb).window);
+    if (skipBands.length !== 3 || skipBands[1].length || !skipBands[0].length || !skipBands[2].length) ln3Bad ||= 'skip variant: bands for the wrong seats';
+    const ax = { t0_s: -50, t1_s: 40 } as Axis, axFrac = [-60, -50, -5, 40, 50].map((t) => axisFraction(ax, t)), axT = [axisTime(ax, 0.5333, 1), axisTime(ax, 2, 1), axisTime(ax, -1, 1), axisTime(ax, 0.5, 5)];
+    if (axFrac.join() !== '0,0,0.5,1,1' || axT.join() !== '-2,40,-50,-5') ln3Bad ||= `axis: fractions ${axFrac.join()} (want 0,0,0.5,1,1), axisTime(…, 0.5333, 1) ${axT[0]}, f=2 ${axT[1]}, f=-1 ${axT[2]}, 5 s step ${axT[3]} (want -2, 40, -50, -5)`;
+    ok('playback B3 [LN3]: each band runs from the jet\'s first visible moment to its last, in unbroken stretches of the plan\'s phase and its PHASE_STYLE, clipped to the axis; every change of colour sits on a mark except the egress turn into its leg; the axis maps times to fractions and back',
+       ln3Bad === '' && ln3Bands >= 100 && ln3Changes >= 40, ln3Bad || `${ln3Cases.length * 2} plans, ${ln3Bands} stretches, ${ln3Changes} changes of colour all on marks; #3's run-in ${ln3Lead[2]?.t0_s.toFixed(2)}…${ln3Lead[2]?.t1_s.toFixed(2)}`);
+
+    // [LN3b] With Whole run-in the lane's first stretch is the run-in before the IP, from the axis start
+    // (or from where the jet comes into the picture, if later) to the IP crossing.
+    // Mutation proof (seen red 2026-11-14): lanes.ts laneBands without its `add('lead', …)` call:
+    //   FAIL playback B3 [LN3b]: … pop-up #1: first stretch is route -121.15…-40.15, want the run-in -151.15…-121.15
+    // (and [LN3]: pop-up #1 whole: covers -121.15…40.00)
+    let ln3bBad = '', ln3bN = 0;
+    for (const c of ln3Cases) {
+      const axis = playRange(c.pb, c.timing, true), bands = laneBands(c.pb, c.timing, axis);
+      c.pb.members.forEach((mb, seat) => {
+        const k = mb.jet!, tj = c.timing.jets[k], first = bands[seat][0];
+        ln3bN++;
+        const from = Math.max(axis.t0_s, tj.shift_s - c.pb.jets[k].display.leadIn.capTau_s);
+        if (!first || first.phase !== 'leadIn' || !first.key.endsWith(':lead') || Math.abs(first.t0_s - from) > 1e-9 || Math.abs(first.t1_s - tj.shift_s) > 1e-9) ln3bBad ||= `${c.name} ${mb.label}: first stretch is ${first?.phase} ${first?.t0_s.toFixed(2)}…${first?.t1_s.toFixed(2)}, want the run-in ${from.toFixed(2)}…${tj.shift_s.toFixed(2)}`;
+      });
+    }
+    const ln3bPop = laneBands(popPb, popTiming, popTiming.window)[0][0];
+    ok('playback B3 [LN3b]: with Whole run-in each lane starts with the run-in before the IP, from the axis start (or where the jet comes into the picture) to its IP crossing',
+       ln3bBad === '' && ln3bN >= 10 && Math.abs(ln3bPop.t0_s - popTiming.window.t0_s) < 1e-9, ln3bBad || `${ln3bN} lanes; the pop-up's run-in ${ln3bPop.t0_s.toFixed(2)}…${ln3bPop.t1_s.toFixed(2)} = the window's start to its IP crossing`);
+
+    // [LN4] Chips never touch, and none is lost: at the width of a lane at 1024 and at 1400 px (622 and
+    // 998 px of axis), on every lane of the four-ship, the lone jets and a pair of level JDAMs, each mark
+    // has a row (above or below the band, none a dot), no two in a row are closer than the gap, nothing
+    // in the upper row starts inside the space reserved for the pinned group, and the same input gives
+    // the same answer. The JDAM pair (a time bar over 200 s long, so an AP chip is only 26 px in) keeps
+    // its AP clear of the "‹ IP" group.
+    // Mutation proof (seen red 2026-11-14): lanes.ts placeChips ignoring `reservedLeft_px` (`left >= reservedLeft_px &&` taken out):
+    //   FAIL playback B3 [LN4]: … keep the AP clear of "‹ IP"  622 px level JDAM #1 AP: row 0 from 22.0 px, the pinned group takes 24 px
+    let ln4Bad = '', ln4Chips = 0, ln4Rows1 = 0;
+    const ln4Cases = [
+      ...lnLone.map((c) => ({ name: c.name, pb: c.pb, timing: c.timing })),
+      { name: 'four-ship', pb: s4Pb, timing: s4Timing }, { name: 'JDAM pair', pb: pairPb, timing: pairTiming },
+    ];
+    for (const c of ln4Cases) {
+      const axis = playRange(c.pb, c.timing, false), seats = laneMarks(c.pb, c.timing, axis, lnMoments(c.pb));
+      for (const W of [622, 998]) seats.forEach((sm, seat) => {
+        const tag = `${W} px ${c.name} ${c.pb.members[seat].label}`;
+        const chips = laneChips(sm, axis, W), again = laneChips(sm, axis, W), reserved = pinnedGroup(sm)?.reservedLeft_px ?? 0;
+        if (JSON.stringify(chips) !== JSON.stringify(again)) ln4Bad ||= `${tag}: not repeatable`;
+        if (chips.length !== sm.marks.filter((m) => m.kind !== 'impact').length) ln4Bad ||= `${tag}: ${chips.length} chips for ${sm.marks.length - 1} marks`;
+        for (const row of [0, 1]) {
+          const inRow = chips.filter((p) => p.row === row).sort((a, b) => a.x_px - b.x_px);
+          ln4Rows1 += row;
+          inRow.forEach((p, i) => {
+            if (i && p.x_px - p.width_px / 2 - (inRow[i - 1].x_px + inRow[i - 1].width_px / 2) < CHIP_GAP_PX - 1e-9) ln4Bad ||= `${tag}: ${p.mark.letters} touches ${inRow[i - 1].mark.letters} in row ${row}`;
+            if (row === 0 && p.x_px - p.width_px / 2 < reserved - 1e-9) ln4Bad ||= `${tag} ${p.mark.letters}: row 0 from ${(p.x_px - p.width_px / 2).toFixed(1)} px, the pinned group takes ${reserved} px`;
+          });
+        }
+        chips.forEach((p) => {
+          ln4Chips++;
+          if (p.row < 0) ln4Bad ||= `${tag}: ${p.mark.letters} has no room`;
+          if (p.x_px - p.width_px / 2 < -1e-9 || p.x_px + p.width_px / 2 > W + 1e-9) ln4Bad ||= `${tag}: ${p.mark.letters} runs off the axis`;
+        });
+      });
+    }
+    const pairAxis = playRange(pairPb, pairTiming, false);
+    const pairLane = laneMarks(pairPb, pairTiming, pairAxis, lnMoments(pairPb))[0];
+    const pairAp = laneChips(pairLane, pairAxis, 622).find((p) => p.mark.kind === 'AP');
+    if (pairAxis.t1_s - pairAxis.t0_s <= 200 || !pairAp || pairAp.row < 0 || (pairAp.row === 0 && pairAp.x_px - pairAp.width_px / 2 < pinnedGroup(pairLane)!.reservedLeft_px)) ln4Bad ||= `the JDAM pair's AP: ${JSON.stringify(pairAp)} on a ${(pairAxis.t1_s - pairAxis.t0_s).toFixed(0)} s axis`;
+    // placeChips on its own: the spaces it leaves, with and without a reserved left edge.
+    const pc = (xs: number[], ws: number[], r: number) => Array.from(placeChips(xs, ws, 2, r)).join();
+    if (pc([10, 14], [16, 16], 0) !== '0,1' || pc([10, 14], [16, 16], 30) !== '1,-1' || pc([50, 52, 54], [16, 16, 16], 0) !== '0,1,-1' || pc([54, 10], [16, 16], 0) !== '0,0') ln4Bad ||= 'placeChips on its own: rows differ from what greedy placement in time order gives';
+    ok('playback B3 [LN4]: chips on the four-ship, the lone jets and a level JDAM pair at 622 and 998 px all have a row, never touch (2 px), keep clear of the pinned group, are the same every time, and a long time bar keeps the AP clear of "‹ IP"',
+       ln4Bad === '' && ln4Chips >= 60 && ln4Rows1 > 0, ln4Bad || `${ln4Chips} chips over ${ln4Cases.length * 2} lanes sets; ${ln4Rows1} below the band; the pair's AP row ${pairAp?.row} at ${pairAp?.x_px.toFixed(0)} px on a ${(pairAxis.t1_s - pairAxis.t0_s).toFixed(0)} s axis`);
+
+    // [LN6] The lane's words, on the pop-up (default range): every phase's name, a mark's tooltip (the
+    // planner's own words for a marker, ours with "(est.)" for the two IP marks), a band's, the pinned
+    // group's, and the one sentence a screen reader gets, with the marks before the time bar named once.
+    // Mutation proof (seen red 2026-11-14): laneText.ts laneSummary without its `before` part:
+    //   FAIL playback B3 [LN6]: … summary: "#1 Viper 1-1: AP T-0:40, POP T-0:37, PDP T-0:22, TRK T-0:13, REL T-0:08, TGT T+0:00" vs "#1 Viper 1-1: before the time bar: IP; AP T-0:40, POP T-0:37, …"
+    const ln6Axis = playRange(popPb, popTiming, false);
+    const ln6 = laneMarks(popPb, popTiming, ln6Axis, lnMoments(popPb))[0], ln6Bands = laneBands(popPb, popTiming, ln6Axis)[0];
+    const ln6Line = (kind: string) => popPb.jets[0].picture.markers.find((m) => m.kind === kind)!.lines.join(' · ');
+    const ln6T = (kind: string) => fmtStrikeTime(ln6.marks.find((m) => m.kind === kind)!.t_s);
+    const ln6Push = ln6.pinnedStart.find((m) => m.kind === 'push')!, ln6Card = ln6.pinnedStart.find((m) => m.kind === 'cardPush')!, ln6Imp = ln6.marks.find((m) => m.kind === 'impact')!;
+    const ln6Want = {
+      push: `IP crossing in 3D ${fmtStrikeTime(ln6Push.t_s)} (est.)`,
+      card: `Push IP on the card ${fmtStrikeTime(ln6Card.t_s)} (est.)`,
+      ap: `AP ${ln6T('AP')}: ${ln6Line('AP')}`,
+      pop: `POP ${ln6T('POP')}: ${ln6Line('POP')}`,
+      impact: `TGT ${fmtStrikeTime(ln6Imp.t_s)}: impact, time over target`,
+      pinned: `Before the time bar starts: Push IP on the card ${fmtStrikeTime(ln6Card.t_s)} (est.); IP crossing in 3D ${fmtStrikeTime(ln6Push.t_s)} (est.)`,
+      band: `Climb ${fmtStrikeTime(ln6Bands.find((b) => b.phase === 'climb')!.t0_s)} to ${fmtStrikeTime(ln6Bands.find((b) => b.phase === 'climb')!.t1_s)}`,
+      summary: `#1 Viper 1-1: before the time bar: IP; AP ${ln6T('AP')}, POP ${ln6T('POP')}, PDP ${ln6T('PDP')}, TRK ${ln6T('TRK')}, REL ${ln6T('REL')}, TGT ${fmtStrikeTime(ln6Imp.t_s)}`,
+    };
+    const ln6Got = {
+      push: markTitle(ln6Push), card: markTitle(ln6Card), ap: markTitle(ln6.marks.find((m) => m.kind === 'AP')!), pop: markTitle(ln6.marks.find((m) => m.kind === 'POP')!), impact: markTitle(ln6Imp),
+      pinned: pinnedTitle(ln6.pinnedStart), band: bandTitle(ln6Bands.find((b) => b.phase === 'climb')!), summary: laneSummary('#1', 'Viper 1-1', ln6),
+    };
+    const ln6Bad = (Object.keys(ln6Want) as (keyof typeof ln6Want)[]).filter((k) => ln6Got[k] !== ln6Want[k]).map((k) => `${k}: "${ln6Got[k]}" vs "${ln6Want[k]}"`);
+    const ln6Phases = Object.entries(PHASE_WORDS).map(([p, w]) => `${p} ${w}`).join('; ');
+    const ln6Plain = ln6Got.band === 'Climb T-0:37 to T-0:22' && ln6Got.summary.startsWith('#1 Viper 1-1: before the time bar: IP; AP T-0:40, POP T-0:37, PDP T-0:22');
+    ok('playback B3 [LN6]: the lane\'s words are exact on the pop-up: phase names, a mark\'s tooltip, a band\'s, the pinned group\'s, and the lane\'s one sentence with the marks before the time bar named once',
+       ln6Bad.length === 0 && ln6Plain && ln6Phases === 'leadIn Run-in before the IP; route Route from the IP; leg Leg after the action point; climb Climb; pullDown Pull-down; attack Attack run; egress Egress turn; egressLeg Egress leg; extension Egress, past the drawn leg',
+       ln6Bad.length ? ln6Bad.join(' | ') : `summary "${ln6Got.summary}"`);
+
+    // [CT1] The chrome's colours stand off the panel they sit on (tailwind's dcs-navy, read from the
+    // config): graphics 3:1, text 4.5:1, to normal eyes, protans and deutans. The band, the diamond
+    // and the IP chip are held through what outlines them, not their fills: the attack red and the
+    // diamond's red are 2.94:1 on the panel for a protan eye, the IP chip's blue fill 1.5:1, so the
+    // band's grey outline, the diamond's white edge and the IP blue's border carry them.
+    // Mutation proofs (each seen red 2026-11-14): laneStyle.ts CHIP_TEXT.TRK '#ffffff' → '#000000' (black on the grey chip is 4.30:1 to a deutan eye):
+    //   FAIL playback B3 [CT1]: … through their outlines  TRK letters on its chip 4.30 (text, want 4.5)
+    // HATCH_ALPHA 0.5 → 0.35:
+    //   FAIL playback B3 [CT1]: … through their outlines  hatch stripe over the panel 2.38 (graphic, want 3)
+    const tailwindNavy = /'dcs-navy':\s*'(#[0-9a-fA-F]{6})'/.exec(readFileSync('tailwind.config.js', 'utf8'))?.[1];
+    const colour = (css: string) => parseColour(css)!;
+    type Ct1 = { id: string; kind: 'graphic' | 'text'; fg: string; bg: string };
+    const ct1Pairs: Ct1[] = [
+      { id: 'band outline', kind: 'graphic', fg: BAND_OUTLINE, bg: PANEL },
+      { id: 'diamond edge', kind: 'graphic', fg: DIAMOND_EDGE, bg: PANEL },
+      { id: 'IP border', kind: 'graphic', fg: LABEL_STYLE.ipBorder, bg: PANEL },
+      { id: 'IP letters on the filled chip', kind: 'text', fg: IP_TEXT, bg: LABEL_STYLE.ipBg },
+      { id: 'card-push letters', kind: 'text', fg: LABEL_STYLE.ipBorder, bg: PANEL },
+      { id: 'hatch stripe over the panel', kind: 'graphic', fg: `rgba(${HATCH_RGB}, ${HATCH_ALPHA})`, bg: PANEL },
+      { id: 'menu text', kind: 'text', fg: '#e5e7eb', bg: MENU_BG },
+      { id: 'menu hint', kind: 'text', fg: '#9ca3af', bg: MENU_BG },
+      ...(['AP', 'ROLL', 'RUN', 'POP', 'PDP', 'TRK', 'REL'] as const).flatMap((k): Ct1[] => [
+        { id: `${k} chip`, kind: 'graphic', fg: MARKER_COLOR[k], bg: PANEL },
+        { id: `${k} letters on its chip`, kind: 'text', fg: CHIP_TEXT[k], bg: MARKER_COLOR[k] },
+      ]),
+    ];
+    const ct1 = ct1Pairs.map((p) => ({ ...p, worst: Math.min(...VISIONS.map((v) => ratio(colour(p.fg), colour(p.bg), v))) }));
+    const ct1Bad = ct1.filter((p) => p.worst < CONTRAST_FLOOR[p.kind]);
+    ok('playback B3 [CT1]: every colour the timeline draws stands off its background (the panel, tailwind\'s dcs-navy): 3:1 for graphics, 4.5:1 for text, in all three visions; the band, diamond and IP chip through their outlines',
+       tailwindNavy?.toLowerCase() === PANEL && ct1Bad.length === 0,
+       ct1Bad.length ? ct1Bad.map((p) => `${p.id} ${p.worst.toFixed(2)} (${p.kind}, want ${CONTRAST_FLOOR[p.kind]})`).join('; ') : `tailwind navy ${tailwindNavy} = the panel; ${ct1.length} pairs, worst graphic ${Math.min(...ct1.filter((p) => p.kind === 'graphic').map((p) => p.worst)).toFixed(2)}, worst text ${Math.min(...ct1.filter((p) => p.kind === 'text').map((p) => p.worst)).toFixed(2)}`);
   } catch (e) {
-    ok('playback B3 (start, Home, Show, colours): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }
 

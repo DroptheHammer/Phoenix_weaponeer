@@ -1,7 +1,8 @@
 /**
  * The small print under the 3D view: what ground is drawn and how far to
  * trust it, the Real | Flat switch, the planner's theater warnings, and the
- * credits for the map, the elevation data and three.js.
+ * credits for the map, the elevation data and three.js, with the folded list
+ * of elevation sources on the same row (a row less under the picture).
  *
  * The credits are plain text, never links: a link inside the app's window
  * would navigate the app itself away from the planner.
@@ -16,8 +17,6 @@ interface StatusNotesProps {
   notes: readonly string[];
   /** The graphics driver took the 3D view away and it is being rebuilt. */
   restoring: boolean;
-  /** The machine draws 3D in software: it works, slowly. */
-  software: boolean;
   onGround(mode: GroundMode): void;
 }
 
@@ -49,7 +48,7 @@ export function groundNote(t: TerrainStatus | undefined): string {
   }
 }
 
-export function StatusNotes({ terrain, notes, restoring, software, onGround }: StatusNotesProps) {
+export function StatusNotes({ terrain, notes, restoring, onGround }: StatusNotesProps) {
   const realReady = terrain?.heights === 'ready';
   const drawn: GroundMode = terrain?.ground ?? 'flat';
   const realTitle = realReady
@@ -87,17 +86,19 @@ export function StatusNotes({ terrain, notes, restoring, software, onGround }: S
         // By position: two notes may read the same, and a key must not repeat.
         <p key={i} className="text-amber-300">⚠ {n}</p>
       ))}
-      {software && <p className="text-gray-400">This machine draws 3D in software, so playback may be slow.</p>}
-      <p className="text-gray-500">{terrain?.credits ?? THREE_CREDIT}</p>
-      {terrain?.ground === 'real' && (
-        // Folded, so the small print stays small: some of these sources require their own words wherever their heights are shown.
-        <details className="text-gray-500">
-          <summary className="cursor-pointer select-none">Elevation sources</summary>
-          <ul className="mt-1 space-y-0.5 pl-3">
-            {ELEVATION_SOURCES.map((s) => <li key={s}>{s}</li>)}
-          </ul>
-        </details>
-      )}
+      {/* One row: the credits take what the sources' fold leaves; opened, the fold drops to a row of its own so its long lines have the full width. */}
+      <div className="flex flex-wrap items-start gap-x-3 text-gray-500">
+        <p className="min-w-0 flex-1 basis-0">{terrain?.credits ?? THREE_CREDIT}</p>
+        {terrain?.ground === 'real' && (
+          // Folded, so the small print stays small: some of these sources require their own words wherever their heights are shown.
+          <details className="open:basis-full">
+            <summary className="cursor-pointer select-none whitespace-nowrap">Elevation sources</summary>
+            <ul className="mt-1 space-y-0.5 pl-3">
+              {ELEVATION_SOURCES.map((s) => <li key={s}>{s}</li>)}
+            </ul>
+          </details>
+        )}
+      </div>
     </div>
   );
 }

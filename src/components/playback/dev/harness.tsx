@@ -64,6 +64,12 @@ function toPage(x: number, y: number): [number, number] | null {
   return [r.left + x, r.top + y];
 }
 
+type Box = { l: number; t: number; r: number; b: number };
+const boxOf = (el: Element): Box => {
+  const r = el.getBoundingClientRect();
+  return { l: r.left, t: r.top, r: r.right, b: r.bottom };
+};
+
 interface PbHandle {
   /** A scene is up, its ground has finished loading (or failed) and a frame has been drawn. */
   readonly ready: boolean;
@@ -102,6 +108,21 @@ interface PbHandle {
   setRange(whole: boolean): void;
   /** The Show choices as the view last held them (null until playback has opened). */
   show(): ShowState | null;
+  /**
+   * What each lane under the time bar shows, read off the page as drawn (page pixels): its axis box, every
+   * chip (letters, kind, row 0 above the band / 1 below / -1 a dot, centre x from the axis box's left edge, box),
+   * the pinned group's marks and text, the diamond at the time over target, the line at the clock's time,
+   * and every band stretch (style, phase, box).
+   */
+  lanes(): {
+    seat: number;
+    axis: Box;
+    chips: { letters: string; kind: string; row: number; x: number; box: Box }[];
+    pinned: { keys: string[]; text: string; box: Box }[];
+    impact: Box | null;
+    now: Box | null;
+    bands: { style: string; phase: string; box: Box }[];
+  }[];
   /**
    * t0 and t1: the library's window, the whole run-in. range and wholeRange: what the clock plays
    * without and with Show › Whole run-in. firstAction: the lead's first action after the IP.
@@ -172,6 +193,23 @@ const pb: PbHandle = {
   },
   setRange: (whole) => showAct?.({ type: 'wholeRunIn', on: whole }),
   show: () => showNow,
+  lanes: () =>
+    [...document.querySelectorAll('[role="dialog"] [data-lane]')].map((lane) => {
+      const axis = lane.querySelector('[data-lane-axis]')!;
+      const a = boxOf(axis);
+      return {
+        seat: Number(lane.getAttribute('data-lane')),
+        axis: a,
+        chips: [...axis.querySelectorAll('[data-chip]')].map((c) => {
+          const b = boxOf(c);
+          return { letters: c.getAttribute('data-chip') ?? '', kind: c.getAttribute('data-kind') ?? '', row: Number(c.getAttribute('data-row')), x: (b.l + b.r) / 2 - a.l, box: b };
+        }),
+        pinned: [...axis.querySelectorAll('[data-pinned]')].map((p) => ({ keys: (p.getAttribute('data-keys') ?? '').split(' ').filter(Boolean), text: (p.textContent ?? '').trim(), box: boxOf(p) })),
+        impact: axis.querySelector('[data-impact]') ? boxOf(axis.querySelector('[data-impact]')!) : null,
+        now: axis.querySelector('[data-now]') ? boxOf(axis.querySelector('[data-now]')!) : null,
+        bands: [...axis.querySelectorAll('[data-band]')].map((s) => ({ style: s.getAttribute('data-band') ?? '', phase: s.getAttribute('data-phase') ?? '', box: boxOf(s) })),
+      };
+    }),
   moments: {
     t0: moments.window.t0_s, t1: moments.window.t1_s, range: moments.range, wholeRange: moments.wholeRange, firstAction: moments.firstAction,
     push: moments.push, pullUp: moments.pullUp, release: moments.release, impact: moments.impact, events: moments.events,

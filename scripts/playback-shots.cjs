@@ -275,6 +275,176 @@ async function checkFit(page, tag, w, h) {
     `${boxes.length} controls and notes; canvas ${canvas.join('x')}${outside.length ? `; outside: ${outside.map((b) => `${b.name} [${[b.l, b.t, b.r, b.b].map(Math.round)}]`).join(', ')}` : ''}`);
 }
 
+/**
+ * Check 7b: the rows under the picture leave it room. At each window size every control (buttons, the
+ * range, the selects, the small print, the sliders, the folded list's summary and the labels) is inside
+ * the window; the 3D canvas is at least FLOOR px (1000×420 at 1024×768, 1350×560 at 1400×900), with the
+ * lane, the theater note (?notes=1) and the real-ground note all showing; the credits and the
+ * "Elevation sources" summary are one row, the credits' first line level with the summary (a row
+ * saved); and the software-renderer line, when it is shown, is a chip on the picture and not a row
+ * under it.
+ *
+ * Measured 2026-11-14 (one lane, ground real, the theater note shown, the software chip up): canvas
+ * 1400×702 and 1024×554. With one lane the floors are far from tight (the row the merge saves is 16
+ * px of 702), so the floors alone could not go red under "the credits row split in two"; the "one
+ * row" clause holds the merge instead (the credits' top level with the summary's, within 6 px).
+ * The floors become the tight ones once four lanes and an Apply line stand under the picture.
+ *
+ * Proven red 2026-11-14 by one temporary edit to StatusNotes.tsx, the credits row's wrapper
+ * `flex flex-wrap items-start gap-x-3 text-gray-500` taken back to a plain `text-gray-500` block (the
+ * credits and the summary on two rows; the canvas 16 px shorter):
+ *   STEP FAIL 7b canvas at least 1350x560 with the lane and every control inside 1400x900; … (1400x900) — canvas 1400x686 (want ≥ 1350x560); 1 lane; 20 controls; credits at 860, sources at 876 (left 16) (one row false); software line a chip on the picture
+ *   STEP FAIL 7b … (1024x768) — canvas 1024x554 (want ≥ 1000x420); 1 lane; 20 controls; credits at 728, sources at 744 (left 16) (one row false); …
+ */
+const LAYOUT_FLOOR = { 1024: [1000, 420], 1400: [1350, 560] };
+async function checkLayout(page, tag, w, h) {
+  await pbEval(page, () => __pb.pause());
+  await settle(page);
+  const r = await page.evaluate(() => {
+    const d = document.querySelector('[role="dialog"]');
+    const box = (e) => {
+      const b = e.getBoundingClientRect();
+      return { l: b.left, t: b.top, r: b.right, b: b.bottom };
+    };
+    const controls = [...d.querySelectorAll('button, input, select, p, [role="slider"], summary, label')]
+      .map((e) => ({ name: (e.getAttribute('aria-label') || e.textContent || e.tagName).trim().slice(0, 30), ...box(e) }));
+    const textOf = (e) => e.textContent || '';
+    return {
+      controls,
+      canvas: box(d.querySelector('canvas')),
+      lanes: d.querySelectorAll('[data-lane]').length,
+      credits: [...d.querySelectorAll('p')].filter((p) => /three\.js/.test(textOf(p))).map(box)[0] || null,
+      sources: [...d.querySelectorAll('summary')].filter((s) => /Elevation sources/.test(textOf(s))).map(box)[0] || null,
+      softRow: [...d.querySelectorAll('p')].filter((p) => /draws 3D in software/.test(textOf(p))).length,
+      softChip: [...d.querySelectorAll('div')].filter((e) => e.children.length === 0 && /draws 3D in software/.test(textOf(e))).map(box)[0] || null,
+    };
+  });
+  const [fw, fh] = LAYOUT_FLOOR[w];
+  const cw = r.canvas.r - r.canvas.l, ch = r.canvas.b - r.canvas.t;
+  const outside = r.controls.filter((b) => b.l < 0 || b.t < 0 || b.r > w + 0.5 || b.b > h + 0.5);
+  const oneRow = !!r.credits && !!r.sources && Math.abs(r.credits.t - r.sources.t) <= 6 && r.sources.l >= r.credits.l;
+  const chipOnPicture = r.softRow === 0 && (!r.softChip || (r.softChip.l >= r.canvas.l && r.softChip.r <= r.canvas.r && r.softChip.t >= r.canvas.t && r.softChip.b <= r.canvas.b));
+  step(`7b canvas at least ${fw}x${fh} with the lane and every control inside ${w}x${h}; credits and sources on one row; the software line on the picture (${tag})`,
+    r.lanes === 1 && r.controls.length > 0 && outside.length === 0 && cw >= fw && ch >= fh && oneRow && chipOnPicture,
+    `canvas ${Math.round(cw)}x${Math.round(ch)} (want ≥ ${fw}x${fh}); ${r.lanes} lane; ${r.controls.length} controls${outside.length ? `, outside: ${outside.map((b) => b.name).join(', ')}` : ''}; credits at ${r.credits ? Math.round(r.credits.t) : 'none'}, sources at ${r.sources ? `${Math.round(r.sources.t)} (left ${Math.round(r.sources.l)})` : 'none'} (one row ${oneRow}); software line ${r.softChip ? 'a chip on the picture' : 'not shown'}${r.softRow ? ', and also a row under it' : ''}`);
+}
+
+/**
+ * Check 32: the timeline wears the planner's colours. At 1400×900, paused at the time bar's start: the
+ * lane's climb stretch is the climb yellow at its middle pixel, its attack stretch the attack red (both
+ * ±3 of the colour), its route stretch shows both the route blue (the dashes) and the panel (between
+ * them); the five letters AP, POP, PDP, TRK and REL are chips on the lane; the IP crossing, off the
+ * time bar's start, is one "‹" group; and the scrubber's own band is yellow under the climb too.
+ *
+ * Proven red 2026-11-14 by one temporary edit to ui.ts, bandBackground's `LINE_STYLE[style]` taken as
+ * `LINE_STYLE[style === 'climb' ? 'pullDown' : style]` (the climb drawn in the pull-down orange):
+ *   STEP FAIL 32 the timeline wears the planner's colours: … (1400x900) — climb at 432,795: 249,115,22 (want #fbbf24) false; attack at 631,795: 239,68,68 (want #ef4444) true; route: 62 blue and 41 panel pixels along it (dashes, want ≥ 8 and ≥ 4); chips AP POP PDP TRK REL (all five); ‹ elements 1; scrubber's climb at 428,766: 249,115,22 false
+ * Green: 251,191,36 on the lane and on the scrubber's band, 62 blue and 43 panel pixels along the route
+ * (the 10 px dash is 6 on, 4 off), the attack stretch 239,68,68.
+ */
+async function checkLaneColours(page, tag) {
+  // The default range, as a player first sees it; the range is put back as it was, for the checks after.
+  const wasWhole = await pbEval(page, () => __pb.show().wholeRunIn);
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  const img = await shot(page, `${tag}-32-lane-colours`);
+  const lane = (await pbEval(page, () => __pb.lanes()))[0];
+  const scrub = await page.$$eval('[role="dialog"] [data-scrub-band]', (els) => els.map((e) => {
+    const b = e.getBoundingClientRect();
+    return { style: e.getAttribute('data-scrub-band'), l: b.left, t: b.top, r: b.right, b: b.bottom };
+  }));
+  const parts = [];
+  let ok = !!lane;
+  const mid = (b) => [(b.l + b.r) / 2, (b.t + b.b) / 2];
+  for (const [style, colour] of [['climb', '#fbbf24'], ['attack', '#ef4444']]) {
+    const band = lane?.bands.find((s) => s.style === style);
+    const p = band ? img.at(...mid(band.box)) : null;
+    const good = !!p && near(p, hex(colour), 3);
+    ok = ok && good;
+    parts.push(`${style} at ${band ? mid(band.box).map(Math.round) : 'none'}: ${p ? p.join(',') : 'none'} (want ${colour}) ${good}`);
+  }
+  const route = lane?.bands.find((s) => s.style === 'route');
+  let blue = 0, panel = 0;
+  if (route) {
+    const y = (route.box.t + route.box.b) / 2;
+    for (let x = Math.ceil(route.box.l) + 4; x < route.box.r - 2; x++) {
+      const p = img.at(x, y);
+      if (near(p, hex('#60a5fa'), 3)) blue++;
+      else if (near(p, hex('#16213e'), 3)) panel++;
+    }
+  }
+  ok = ok && blue >= 8 && panel >= 4;
+  parts.push(`route: ${blue} blue and ${panel} panel pixels along it (dashes, want ≥ 8 and ≥ 4)`);
+  const letters = (lane?.chips || []).map((c) => c.letters);
+  const have = ['AP', 'POP', 'PDP', 'TRK', 'REL'].every((l) => letters.includes(l));
+  const pins = await page.$$eval('[role="dialog"] [data-pinned-mark]', (els) => els.filter((e) => (e.textContent || '').trim() === '‹').length);
+  ok = ok && have && pins === 1;
+  parts.push(`chips ${letters.join(' ')} (${have ? 'all five' : 'missing some'}); ‹ elements ${pins}`);
+  const sClimb = scrub.find((s) => s.style === 'climb');
+  const sp = sClimb ? img.at(...mid(sClimb)) : null;
+  const sGood = !!sp && near(sp, hex('#fbbf24'), 3);
+  ok = ok && sGood;
+  parts.push(`scrubber's climb at ${sClimb ? mid(sClimb).map(Math.round) : 'none'}: ${sp ? sp.join(',') : 'none'} ${sGood}`);
+  step(`32 the timeline wears the planner's colours: yellow climb, red attack, dashed blue route, lettered chips, one ‹ (${tag})`, ok, parts.join('; '));
+  await pbEval(page, (whole) => __pb.setRange(whole), wasWhole);
+}
+
+/**
+ * Check 19 (one jet): the lane and the time bar share one time axis. With the playhead at the time over
+ * target, the lane's diamond is within 3 px of the scrubber's thumb (its centre, which for the
+ * browser's 16 px thumb travels from 8 px in to 8 px in); the white line at the clock's time is within
+ * 3 px of the thumb at the start, at the time over target and at the end; and the lane's band starts
+ * and ends where the scrubber's own band does. The thumb's place is worked out from the input's box
+ * and the clock's position, the way a 16 px thumb moves.
+ *
+ * Measured green 2026-11-14 at both sizes: the line 0.5 px from the thumb at the start, the time over
+ * target and the end, the diamond 0.0 px, the bands' edges 0.0 px.
+ *
+ * Proven red 2026-11-14 by one temporary edit to ui.ts, LANE's `px-2` → `px-4` (the lane's axis box 8
+ * px narrower each side: the line is 8 px out at the start and the end, and only 0.4 px at the middle,
+ * so the diamond at the time over target alone would not have caught it):
+ *   STEP FAIL 19 the lane's time over target and clock line sit on the scrubber's thumb (1400x900) — start: thumb 196.0, line 204.5 (8.5 px); time over target: thumb 751.2, line 750.8 (0.4 px), diamond 750.3 (0.9 px); end: thumb 1194.0, line 1186.5 (7.5 px); band edges differ from the scrubber's band by 8.0 and 8.0 px
+ */
+async function checkLaneTime(page, tag) {
+  const wasWhole = await pbEval(page, () => __pb.show().wholeRunIn);
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); });
+  const m = await pbEval(page, () => __pb.moments);
+  const input = await page.locator('[role="dialog"] input[type="range"]').boundingBox();
+  const parts = [];
+  let ok = true;
+  for (const [name, t] of [['start', null], ['time over target', m.impact], ['end', 'end']]) {
+    await pbEval(page, (tt) => { const s = __pb.snapshot(); __pb.seek(tt === null ? s.start : tt === 'end' ? s.end : tt); }, t);
+    await settle(page, 150);
+    const snap = await pbEval(page, () => __pb.snapshot());
+    const lane = (await pbEval(page, () => __pb.lanes()))[0];
+    const f = (snap.t - snap.start) / (snap.end - snap.start);
+    const thumb = input.x + 8 + (input.width - 16) * f;
+    const nowX = lane?.now ? (lane.now.l + lane.now.r) / 2 : NaN;
+    const dNow = Math.abs(nowX - thumb);
+    let line = `${name}: thumb ${thumb.toFixed(1)}, line ${nowX.toFixed(1)} (${dNow.toFixed(1)} px)`;
+    ok = ok && dNow <= 3;
+    if (t === m.impact) {
+      const dx = lane?.impact ? (lane.impact.l + lane.impact.r) / 2 : NaN;
+      ok = ok && Math.abs(dx - thumb) <= 3;
+      line += `, diamond ${dx.toFixed(1)} (${Math.abs(dx - thumb).toFixed(1)} px)`;
+    }
+    parts.push(line);
+  }
+  const lane = (await pbEval(page, () => __pb.lanes()))[0];
+  const scrub = await page.$$eval('[role="dialog"] [data-scrub-band]', (els) => els.map((e) => {
+    const b = e.getBoundingClientRect();
+    return { l: b.left, r: b.right };
+  }));
+  const lb = lane?.bands || [];
+  const edges = lb.length && scrub.length
+    ? [Math.abs(lb[0].box.l - scrub[0].l), Math.abs(lb[lb.length - 1].box.r - scrub[scrub.length - 1].r)]
+    : [NaN, NaN];
+  ok = ok && edges.every((e) => e <= 3);
+  parts.push(`band edges differ from the scrubber's band by ${edges.map((e) => e.toFixed(1)).join(' and ')} px`);
+  step(`19 the lane's time over target and clock line sit on the scrubber's thumb (${tag})`, ok, parts.join('; '));
+  await pbEval(page, (whole) => __pb.setRange(whole), wasWhole);
+}
+
 /** Check 6: 50 scrubber drags never rebuild the scene. */
 async function checkScrub(page) {
   const before = await pbEval(page, () => __pb.stats().sceneCreates);
@@ -994,7 +1164,10 @@ async function runChecks(browser, base) {
     await checkJet(page, tag);
     await checkReal(page, tag);
     await checkFit(page, tag, w, h);
+    await checkLayout(page, tag, w, h);
     await checkToolbarFit(page, tag, w, h);
+    await checkLaneTime(page, tag);
+    if (w === 1400) await checkLaneColours(page, tag);
     if (w === 1400) {
       await checkScrub(page);
       await checkSpeeds(page, tag);

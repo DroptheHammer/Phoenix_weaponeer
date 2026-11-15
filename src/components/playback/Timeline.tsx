@@ -6,45 +6,45 @@
  *
  * Dragging the scrubber pauses playback for the drag and carries on after it
  * if it was playing, so the jet follows the finger instead of fighting it.
+ *
+ * Under the bar runs the watched jet's phase band in the planner's colours,
+ * the same band its lane draws below, so the colour code reads on the bar
+ * itself. The three columns are the lanes' own (ROW_GRID): Play and the clock
+ * on the left, the bar in the middle, the speeds on the right.
  */
 import { useSyncExternalStore } from 'react';
-import { SPEEDS, speedLabel } from '../../lib/playbackScene';
+import { SCRUB_BAND_H_PX, SPEEDS, speedLabel, type LaneBand } from '../../lib/playbackScene';
 import { fmtStrikeTime } from '../../lib/strike';
 import type { PlaybackScene } from './scene/createScene';
-import { keepFocus, SEG } from './ui';
-
-/** A moment marked under the scrubber (IP push, pull-up, release, impact). */
-export interface TimelineTick {
-  t_s: number;
-  label: string;
-}
+import { bandBackground, keepFocus, ROW_GRID, SEG } from './ui';
 
 interface TimelineProps {
   scene: PlaybackScene;
-  ticks: readonly TimelineTick[];
+  /** The watched jet's stretches on the bar's own axis. */
+  bands: readonly LaneBand[];
 }
 
-export function Timeline({ scene, ticks }: TimelineProps) {
+export function Timeline({ scene, bands }: TimelineProps) {
   const snap = useSyncExternalStore(scene.subscribe, scene.getSnapshot);
-  const span = Math.max(snap.end - snap.start, 1e-6);
   const endScrub = () => scene.endScrub();
 
   return (
-    <div className="flex items-center gap-3 min-w-0">
-      <button
-        type="button"
-        onClick={() => scene.toggle()}
-        onMouseDown={keepFocus}
-        className="shrink-0 w-24 px-3 py-1.5 rounded text-sm bg-dcs-blue hover:bg-blue-800 text-white"
-        aria-label={snap.playing ? 'Pause' : 'Play'}
-        title={snap.playing ? 'Pause (Space)' : 'Play (Space)'}
-      >
-        {snap.playing ? '❚❚ Pause' : '▶ Play'}
-      </button>
+    <div className={ROW_GRID}>
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => scene.toggle()}
+          onMouseDown={keepFocus}
+          className="shrink-0 w-24 px-3 py-1.5 rounded text-sm bg-dcs-blue hover:bg-blue-800 text-white"
+          aria-label={snap.playing ? 'Pause' : 'Play'}
+          title={snap.playing ? 'Pause (Space)' : 'Play (Space)'}
+        >
+          {snap.playing ? '❚❚ Pause' : '▶ Play'}
+        </button>
+        <span className="shrink-0 w-14 text-right font-mono text-sm text-gray-100" aria-live="off">{fmtStrikeTime(snap.t)}</span>
+      </div>
 
-      <span className="shrink-0 w-14 text-right font-mono text-sm text-gray-100" aria-live="off">{fmtStrikeTime(snap.t)}</span>
-
-      <div className="relative flex-1 min-w-[120px] pb-3">
+      <div className="relative min-w-[120px] pb-3">
         <input
           type="range"
           aria-label="Strike time"
@@ -60,21 +60,22 @@ export function Timeline({ scene, ticks }: TimelineProps) {
           onChange={(e) => scene.seek(e.currentTarget.valueAsNumber)}
           className="w-full accent-dcs-accent cursor-pointer"
         />
-        {/* The moments the card names, so the scrubber can be dropped straight on them. A moment before the bar's start (the IP crossing, when the bar starts at the first action) has no place on it. */}
-        {ticks.map((k, i) =>
-          k.t_s < snap.start || k.t_s > snap.end ? null : (
-            <span
-              // By position: two moments with the same label and time must not share a key.
-              key={i}
-              title={`${k.label} ${fmtStrikeTime(k.t_s)}`}
-              className="absolute bottom-0 w-px h-2 bg-gray-400"
-              style={{ left: `${((k.t_s - snap.start) / span) * 100}%` }}
-            />
-          ),
-        )}
+        {/* Inset 8 px each side, the thumb's own travel, so a stretch sits straight under the time it covers. Nothing here takes a press: the input is the control. */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-2 bottom-0 h-3">
+          <div className="absolute inset-x-0 top-0" style={{ height: SCRUB_BAND_H_PX }}>
+            {bands.map((b) => (
+              <span
+                key={b.key}
+                data-scrub-band={b.style}
+                className="absolute inset-y-0"
+                style={{ left: `${b.f0 * 100}%`, width: `${(b.f1 - b.f0) * 100}%`, background: bandBackground(b.style) }}
+              />
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="shrink-0 flex rounded border border-gray-600 overflow-hidden" role="group" aria-label="Speed">
+      <div className="flex rounded border border-gray-600 overflow-hidden self-center justify-self-start" role="group" aria-label="Speed">
         {SPEEDS.map((s) => (
           <button
             key={s}

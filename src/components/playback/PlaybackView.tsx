@@ -5,14 +5,16 @@
  * the editor showed, and the dev harness can mount it with a made-up plan.
  *
  * Layout: the 3D scene fills the space, with the camera buttons, Home view and
- * Show over its top right; under it, the timeline (play, pause, scrub, speeds)
- * and the small print (what ground is drawn, the Real | Flat switch, the
- * theater warnings, the credits). Fits a 1024×768 window. The overlay around it
- * has the title bar and the Close button.
+ * Show over its top right; under it, the timeline (play, pause, scrub, speeds),
+ * the watched jet's lane (its phase band in the planner's colours with the
+ * lettered marks) and the small print (what ground is drawn, the Real | Flat
+ * switch, the theater warnings, the credits). Fits a 1024×768 window. The
+ * overlay around it has the title bar and the Close button.
  *
  * The time bar (the clock's range) starts 10 s before the earliest first action
  * of the jets flown, not at the start of the whole run-in; Show › Whole run-in
- * widens it. The Show choices live here, for as long as the playback is open.
+ * widens it. The lane's axis is the same range. The Show choices live here, for
+ * as long as the playback is open.
  *
  * It opens riding behind the watched jet (Chase) at the start of the time bar,
  * unless that jet is not in the picture yet then: it opens at Home instead,
@@ -24,17 +26,18 @@
  * after 5 s without it, offers Try again).
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { buildStrikePlayback, retime, strikeEvents, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
+import { buildStrikePlayback, retime, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
-  initShow, openingMode, playRange, sceneSourceFrom, showReducer,
+  initShow, jetColor, laneBands, laneMarks, markerMoments, openingMode, playRange, sceneSourceFrom, showReducer,
   type CameraMode, type GroundMode, type SceneSource, type ShowAction, type ShowState, type TileSource,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
 import { tauriTiles } from './terrain/tauriTiles';
 import { SceneHost } from './SceneHost';
-import { Timeline, type TimelineTick } from './Timeline';
+import { Timeline } from './Timeline';
+import { JetLanes, type LaneInfo } from './JetLanes';
 import { ViewToolbar } from './ViewToolbar';
-import { CanvasChips } from './CanvasChips';
+import { CanvasChips, SoftwareChip } from './CanvasChips';
 import { StatusNotes } from './StatusNotes';
 import { PlaybackUnavailable } from './PlaybackErrorBoundary';
 import { probeWebGL2 } from './webgl';
@@ -62,7 +65,7 @@ const RESTORE_WAIT_MS = 5000;
 const WATCHED_JET = 0;
 
 type Built =
-  | { ok: true; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; ticks: TimelineTick[]; title: string }
+  | { ok: true; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; title: string }
   | { ok: false; message: string; detail?: string };
 
 /** The plan as the scene draws it, worked out once per open. */
@@ -76,10 +79,8 @@ function buildView(launch: PlaybackLaunch | undefined): Built {
     }
     const timing = retime(pb);
     const source = sceneSourceFrom(pb, timing);
-    // The spike draws one jet, the first: its four card moments go under the scrubber.
-    const ticks = strikeEvents(pb, timing).events.filter((e) => e.jet === 0 && e.tick).map((e) => ({ t_s: e.t_s, label: e.label }));
     const jet = pb.jets[0];
-    return { ok: true, pb, timing, source, ticks, title: `${jet.callsign ?? launch.input.name} ${jet.label}` };
+    return { ok: true, pb, timing, source, title: `${jet.callsign ?? launch.input.name} ${jet.label}` };
   } catch (e) {
     return { ok: false, message: 'The playback could not be worked out from this plan.', detail: e instanceof Error ? e.message : String(e) };
   }
@@ -118,6 +119,23 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
   // the range's start, else at Home; a rebuilt scene opens in the mode in force.
   const [mode, setMode] = useState<CameraMode>(() => (built.ok && range ? openingMode(built.source, range, WATCHED_JET) : 'orbit'));
   const camera = useMemo(() => ({ mode, jet: WATCHED_JET }), [mode]);
+
+  // The watched jet's lane, on the time bar's own axis: its phase bands and lettered marks, redone only
+  // when the plan or the range changes (never while it plays).
+  const lanes = useMemo<LaneInfo[]>(() => {
+    if (!built.ok || !range) return [];
+    const { pb, timing } = built;
+    const seat = pb.members.findIndex((m) => m.jet === WATCHED_JET);
+    if (seat < 0) return [];
+    const moments = pb.jets.map((j) => markerMoments(j));
+    const bands = laneBands(pb, timing, range)[seat];
+    const marks = laneMarks(pb, timing, range, (k) => moments[k])[seat];
+    const jet = pb.jets[WATCHED_JET];
+    return [{
+      seat, label: jet.label, callsign: jet.callsign, colour: jetColor(launch?.colorIndex ?? WATCHED_JET), marks, bands,
+      tot_s: timing.jets[WATCHED_JET].tot_s, cardPush_s: timing.readout.pushes[seat]?.push_s,
+    }];
+  }, [built, range, launch?.colorIndex]);
 
   const [scene, setScene] = useState<PlaybackScene | null>(null);
   const [terrain, setTerrain] = useState<TerrainStatus>();
@@ -210,6 +228,7 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
         {/* On its own dark plate: behind it can be the navy sky, the pale haze or the map. */}
         <div className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
         {scene && <CanvasChips scene={scene} source={built.source} jet={WATCHED_JET} mode={mode} />}
+        {support.software && <SoftwareChip />}
         {scene && (
           <ViewToolbar scene={scene} show={show} dispatch={act} mode={mode} seat={built.source.labelOf(WATCHED_JET)} onMode={pickCamera} />
         )}
@@ -224,9 +243,10 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
           />
         )}
       </div>
-      <div className="shrink-0 border-t border-gray-700 bg-dcs-navy px-4 py-2 space-y-2">
-        {scene ? <Timeline scene={scene} ticks={built.ticks} /> : <div className="h-8" />}
-        <StatusNotes terrain={terrain} notes={launch?.notes ?? []} restoring={lost === 'restoring'} software={support.software} onGround={onGround} />
+      <div className="shrink-0 border-t border-gray-700 bg-dcs-navy px-4 py-2 space-y-1">
+        {scene ? <Timeline scene={scene} bands={lanes[0]?.bands ?? []} /> : <div className="h-8" />}
+        {range && <JetLanes scene={scene} axis={range} lanes={lanes} />}
+        <StatusNotes terrain={terrain} notes={launch?.notes ?? []} restoring={lost === 'restoring'} onGround={onGround} />
       </div>
     </div>
   );
