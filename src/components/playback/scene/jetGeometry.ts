@@ -1,11 +1,11 @@
 /**
- * The shapes the 3D playback draws for a jet, its bomb and its target, built
- * by hand so there is nothing to load. All are drawn unlit (MeshBasicMaterial):
+ * The shapes the 3D playback draws for a jet, its bomb, the flash where it
+ * lands and its target, built by hand so there is nothing to load. All are drawn unlit (MeshBasicMaterial):
  * form comes from per-vertex shade, not lights, so a jet is exactly its
  * strike-editor colour on top and a darker shade underneath.
  */
 import { BufferGeometry, CylinderGeometry, Float32BufferAttribute } from 'three';
-import { BOMB_HULL_M, BOMB_LEN_M, BOMB_NOSE_M, BOMB_TAIL_M, arrowFaces } from '../../../lib/playbackScene';
+import { BOMB_HULL_M, BOMB_LEN_M, BOMB_NOSE_M, BOMB_TAIL_M, FLASH_SEGS, arrowFaces } from '../../../lib/playbackScene';
 
 /**
  * The jet arrow, built from the shape in src/lib/playbackScene/arrowShape.ts (a flat delta with a tall
@@ -35,6 +35,29 @@ export function bombGeometry(): BufferGeometry {
  */
 export function bombHullGeometry(): BufferGeometry {
   return new CylinderGeometry(BOMB_NOSE_M + BOMB_HULL_M, BOMB_TAIL_M + BOMB_HULL_M, BOMB_LEN_M + 2 * BOMB_HULL_M, 8).rotateX(-Math.PI / 2);
+}
+
+/**
+ * A flat disc of radius 1 facing +Z (turned to face the camera where it is drawn): a fan of FLASH_SEGS
+ * triangles from its centre, wound counter-clockwise as seen from +Z so its front faces the eye. Each vertex
+ * has a colour with its own alpha, `inner` at the centre and `outer` round the rim, as linear values (what
+ * `new Color(hex).toArray()` gives), so a disc can fade out toward its edge.
+ */
+export function flashGeometry(inner: readonly [number, number, number, number], outer: readonly [number, number, number, number]): BufferGeometry {
+  const pos = [0, 0, 0];
+  const col = [...inner];
+  for (let k = 0; k < FLASH_SEGS; k++) {
+    const a = (2 * Math.PI * k) / FLASH_SEGS;
+    pos.push(Math.cos(a), Math.sin(a), 0);
+    col.push(...outer);
+  }
+  const index: number[] = [];
+  for (let k = 0; k < FLASH_SEGS; k++) index.push(0, 1 + k, 1 + ((k + 1) % FLASH_SEGS));
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new Float32BufferAttribute(col, 4));
+  g.setIndex(index);
+  return g;
 }
 
 /** Points round the target ring. */

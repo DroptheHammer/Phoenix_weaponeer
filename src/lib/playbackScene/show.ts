@@ -16,7 +16,7 @@ export interface ShowState {
   readonly labels: boolean;
   readonly actionPoints: ActionPointsMode;
   readonly attackColours: AttackColours;
-  /** A ring round each falling bomb. Off: the bomb alone. */
+  /** A ring round each falling bomb, then a flash where it lands. Off: the bomb alone. */
   readonly impact: boolean;
   /** Start the time bar before the IP instead of just before the first action. */
   readonly wholeRunIn: boolean;

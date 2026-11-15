@@ -162,6 +162,10 @@ import {
   releasePulse, bombRingLook, type BombRingLook,
   BOMB_TRACE_PX, BOMB_TRACE_CASING_PX, BOMB_TRACE_OTHER_PX, TRAIL_PX,
 } from '../src/lib/playbackScene';
+import {
+  impactPhase, newImpactPhase, IMPACT_FLASH_GROW_WALL_S, IMPACT_FLASH_FULL_WALL_S, IMPACT_FLASH_END_WALL_S, IMPACT_RING_GROW_WALL_S,
+  IMPACT_RING_HOLD_WALL_S, IMPACT_RING_END_WALL_S, FLASH_CORE, FLASH_RIM, type ImpactPhase,
+} from '../src/lib/playbackScene';
 import { harnessLaunch } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
 import { cardTie } from '../src/components/playback/cardTie';
@@ -9940,6 +9944,145 @@ void (async () => {
          bt2Bad.length === 0, bt2Bad.join('; ') || `trace ${BOMB_TRACE_PX} px on ${BOMB_TRACE_CASING_PX} px (planned fall ${BOMB_LINE_PX}, trail ${TRAIL_PX}); the other jets' ${BOMB_TRACE_OTHER_PX} px, no casing`);
     } catch (e) {
       ok('playback B3 (the bomb\'s trace): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
+
+    // ─── The flash where a bomb lands (impactFx.ts impactPhase, sceneStyle.ts) ─────────────────────────────────
+    // A flash at each bomb's impact, at its time over target, timed in real seconds (the clock's speed setting),
+    // so it shows at any speed; the ring's timing is worked out with it for the ring on the ground that follows.
+    // Each check carries its mutation proof (2026-11-15): one temporary edit, geo-check run, the FAIL line
+    // copied (shortened with …), the edit restored.
+    try {
+      const ixFields = (p: ImpactPhase) => [p.flash, p.flashAlpha, p.ring, p.ringAlpha];
+      const ixSame = (a: ImpactPhase, b: ImpactPhase, tol: number) => ixFields(a).every((v, i) => Math.abs(v - ixFields(b)[i]) <= tol);
+      const ixFmt = (p: ImpactPhase) => ixFields(p).map((v) => v.toFixed(3)).join('/');
+      const ixAt = (age: number, speed: number) => impactPhase(age, speed, newImpactPhase());
+
+      // [IX1] The phase is the same in real seconds at every speed: for speeds 1, 2, 4, 8 and 16 and u from −0.2
+      // to 4.0 real seconds in steps of 0.05, the phase at strike age u × speed is the speed-1 phase at u. All four
+      // are 0 before the impact and for a time that is not a number; 0.3 s after it the flash is nearly full
+      // (≥ 0.9) and at full strength and the ring part grown; at 0.6 s the ring is full; at 1.3 s the flash has
+      // faded out and at 3.6 s the ring has. A speed of 0, below 0 or not a number is read as 1. Never NaN, each
+      // within 0…1.
+      // Mutation proof (seen red 2026-11-15): impactFx.ts impactPhase `const u = age_s / s;` → `const u = age_s;`:
+      //   FAIL playback B3 [IX1]: … at 2×, 0.05 real s after the impact: 0.784/1.000/0.421/1.000 vs 0.488/1.000/0.230/1.000 at 1×; at 2×, 0.10 real s after the impact: 0.992/1.000/0.704/1.000 vs 0.784/1.000/0.421/1.000 at 1×; …
+      // (IX2 goes red with it, as it must: every frame at a speed above 1 reads the wrong moment.)
+      const ix1Bad: string[] = [];
+      const ix1Add = (s: string) => { if (ix1Bad.length < 6) ix1Bad.push(s); };
+      let ix1Reads = 0;
+      for (const s of SPEEDS) {
+        for (let i = -4; i <= 80; i++) {
+          const u = i * 0.05, got = ixAt(u * s, s), want = ixAt(u, 1);
+          ix1Reads++;
+          if (!ixSame(got, want, 1e-12)) ix1Add(`at ${s}×, ${u.toFixed(2)} real s after the impact: ${ixFmt(got)} vs ${ixFmt(want)} at 1×`);
+          if (!ixFields(got).every((v) => v >= 0 && v <= 1)) ix1Add(`at ${s}×, ${u.toFixed(2)} s: ${ixFmt(got)} (not all within 0…1)`);
+        }
+      }
+      for (const [name, age] of [['just before the impact', -0.001], ['a minute before', -60], ['minus infinity', -Infinity], ['a time that is not a number', NaN]] as const) {
+        const p = ixAt(age, 1);
+        if (!ixFields(p).every((v) => v === 0)) ix1Add(`${name}: ${ixFmt(p)} (want all 0)`);
+      }
+      const ix1U03 = ixAt(0.3, 1), ix1U06 = ixAt(0.6, 1), ix1U13 = ixAt(1.3, 1), ix1U36 = ixAt(3.6, 1), ix1Inf = ixAt(Infinity, 1);
+      if (!(ix1U03.flash >= 0.9 && ix1U03.flashAlpha === 1 && ix1U03.ring > 0 && ix1U03.ring < 1)) ix1Add(`0.3 s after: ${ixFmt(ix1U03)} (want flash ≥ 0.9, at strength 1, the ring between 0 and 1)`);
+      if (ix1U06.ring !== 1) ix1Add(`0.6 s after: the ring at ${ix1U06.ring} (want 1)`);
+      if (ix1U13.flashAlpha !== 0) ix1Add(`1.3 s after: the flash at strength ${ix1U13.flashAlpha} (want 0)`);
+      if (ix1U36.ringAlpha !== 0) ix1Add(`3.6 s after: the ring at strength ${ix1U36.ringAlpha} (want 0)`);
+      if (!ixFields(ix1Inf).every((v) => Number.isFinite(v))) ix1Add(`infinitely long after: ${ixFmt(ix1Inf)}`);
+      for (const s of [0, -3, NaN, Infinity]) {
+        for (const age of [-1, 0, 0.1, 0.3, 0.5, 1, 2.6, 3.4, 10]) {
+          if (!ixSame(ixAt(age, s), ixAt(age, 1), 0)) ix1Add(`speed ${s}, ${age} s after: ${ixFmt(ixAt(age, s))} (read as 1: ${ixFmt(ixAt(age, 1))})`);
+        }
+      }
+      ok('playback B3 [IX1]: the flash and the ring at an impact are the same in real seconds at every speed, nothing before the impact, the flash full by 0.3 s and gone by 1.3 s, the ring full by 0.6 s and gone by 3.6 s, a bad speed read as 1, never NaN',
+         ix1Bad.length === 0, ix1Bad.join('; ') || `${ix1Reads} readings at 5 speeds; 0.3 s after: ${ixFmt(ix1U03)}; 4 bad speeds`);
+
+      // [IX2] No frame can skip the flash: a PlayClock playing from 1 strike second before an impact to 1 second
+      // after 3.6 real seconds past it, a frame of MAX_FRAME_DT_S at a time (the longest a frame can be, however slow
+      // the machine), at each speed 1, 2, 4, 8 and 16 and at four start phases (0, 0.025, 0.05 and 0.075 real s past a
+      // whole step), reading the phase at the clock's time each frame: at least 2 frames show the flash growing
+      // (its size strictly between 0 and 1), at least 1 shows it at full size (≥ 0.99) and full strength, and at least
+      // 15 show the ring full and at full strength. The six display times are pinned (0.25, 0.45, 1.2; 0.6, 2.5,
+      // 3.5 s): each is at least 0.2 s from the last, which is what makes this hold.
+      // A frame counts as growing while the size is below 1, not below 0.99: the easing is already at 0.992 by 0.2 s,
+      // so at the start phase 0 a line at 0.99 would leave out the frame at 0.2 s, which is still growing.
+      // Mutation proof (seen red 2026-11-15): impactFx.ts `IMPACT_FLASH_GROW_WALL_S = 0.25` → `0.02` (IX1 stays green):
+      //   FAIL playback B3 [IX2]: … the display times are 0.02, 0.45, 1.2, 0.6, 2.5, 3.5 (want …); at 1×, start phase 0 s: 0 frames growing (want 2), 4 at full size and strength (want 1), 19 with the ring full (want 15), of 57; at 1×, start phase 0.025 s: 0 frames growing (want 2), …
+      const ix2Bad: string[] = [];
+      if (IMPACT_FLASH_GROW_WALL_S !== 0.25 || IMPACT_FLASH_FULL_WALL_S !== 0.45 || IMPACT_FLASH_END_WALL_S !== 1.2 ||
+          IMPACT_RING_GROW_WALL_S !== 0.6 || IMPACT_RING_HOLD_WALL_S !== 2.5 || IMPACT_RING_END_WALL_S !== 3.5) {
+        ix2Bad.push(`the display times are ${[IMPACT_FLASH_GROW_WALL_S, IMPACT_FLASH_FULL_WALL_S, IMPACT_FLASH_END_WALL_S, IMPACT_RING_GROW_WALL_S, IMPACT_RING_HOLD_WALL_S, IMPACT_RING_END_WALL_S].join(', ')} (want 0.25, 0.45, 1.2, 0.6, 2.5, 3.5)`);
+      }
+      const ix2Impact = popTiming.jets[0].impact_s;
+      const ix2Rows: string[] = [];
+      const ix2Out = newImpactPhase();
+      for (const s of SPEEDS) {
+        let worstGrow = Infinity, worstFull = Infinity, worstRing = Infinity;
+        for (const ph of [0, 0.025, 0.05, 0.075]) {
+          const clk = new PlayClock(ix2Impact - 1, ix2Impact + 3.6 * s + 1, ix2Impact - 1 + ph * s);
+          clk.setSpeed(s);
+          clk.play();
+          let grow = 0, full = 0, ring = 0, frames = 0;
+          do {
+            impactPhase(clk.time - ix2Impact, s, ix2Out);
+            frames++;
+            if (ix2Out.flash > 0 && ix2Out.flash < 1) grow++;
+            if (ix2Out.flash >= 0.99 && ix2Out.flashAlpha === 1) full++;
+            if (ix2Out.ring === 1 && ix2Out.ringAlpha === 1) ring++;
+          } while (clk.advance(MAX_FRAME_DT_S) && frames < 10_000);
+          if (grow < 2 || full < 1 || ring < 15) ix2Bad.push(`at ${s}×, start phase ${ph} s: ${grow} frames growing (want 2), ${full} at full size and strength (want 1), ${ring} with the ring full (want 15), of ${frames}`);
+          worstGrow = Math.min(worstGrow, grow);
+          worstFull = Math.min(worstFull, full);
+          worstRing = Math.min(worstRing, ring);
+        }
+        ix2Rows.push(`${s}×: ${worstGrow}/${worstFull}/${worstRing}`);
+      }
+      ok('playback B3 [IX2]: playing frame by frame at the longest frame there can be, at every speed and start phase, the flash is seen growing on 2 frames, full on 1, and the ring full on 15',
+         ix2Bad.length === 0, ix2Bad.slice(0, 4).join('; ') || `fewest frames growing / full / ring full, by speed: ${ix2Rows.join('; ')}`);
+
+      // [IX3] Nothing is kept from one call to the next, so seeking about gives the same picture: a shuffled list of
+      // 300 (age, speed) pairs evaluated twice, once into one reused object and once into a fresh object each time,
+      // gives the same four numbers every time; a time before the impact read straight after one inside the flash
+      // leaves all four at 0 in the object that held the flash.
+      // Mutation proof (seen red 2026-11-15): impactPhase, the reset for a time before the impact skipped
+      // (`out.flash = out.flashAlpha = out.ring = out.ringAlpha = 0;` deleted, `return out` untouched; IX3 the only check red):
+      //   FAIL playback B3 [IX3]: … pass 1, -3.64 s at 8×: 1.000/0.000/1.000/0.000 reused vs 0.000/0.000/0.000/0.000 fresh; …; 0.5 s before the impact read after 0.3 s after it: 1.000/1.000/0.875/1.000 (want all 0)
+      const ix3Bad: string[] = [];
+      let ix3Seed = 20261115;
+      const ix3Rand = () => { ix3Seed = (ix3Seed * 1103515245 + 12345) % 2147483648; return ix3Seed / 2147483648; };
+      const ix3Speeds = [1, 2, 4, 8, 16, 0, -3, NaN];
+      const ix3Pairs = Array.from({ length: 300 }, (_, i) => [i % 7 === 0 ? -ix3Rand() * 5 : ix3Rand() * 60 - 1, ix3Speeds[Math.floor(ix3Rand() * ix3Speeds.length)]] as const);
+      for (let i = ix3Pairs.length - 1; i > 0; i--) {
+        const j = Math.floor(ix3Rand() * (i + 1));
+        [ix3Pairs[i], ix3Pairs[j]] = [ix3Pairs[j], ix3Pairs[i]];
+      }
+      const ix3Reused = newImpactPhase();
+      for (let pass = 0; pass < 2; pass++) {
+        for (const [age, s] of ix3Pairs) {
+          const a = impactPhase(age, s, ix3Reused), b = ixAt(age, s);
+          if (a !== ix3Reused) { ix3Bad.push('the phase was not written into the object given'); break; }
+          if (!ixSame(a, b, 0) && ix3Bad.length < 4) ix3Bad.push(`pass ${pass + 1}, ${age.toFixed(2)} s at ${s}×: ${ixFmt(a)} reused vs ${ixFmt(b)} fresh`);
+        }
+      }
+      const ix3Back = impactPhase(0.3, 1, newImpactPhase());
+      impactPhase(-0.5, 1, ix3Back);
+      if (!ixFields(ix3Back).every((v) => v === 0)) ix3Bad.push(`0.5 s before the impact read after 0.3 s after it: ${ixFmt(ix3Back)} (want all 0)`);
+      ok('playback B3 [IX3]: the impact\'s phase keeps nothing from one call to the next: 300 shuffled moments agree twice over, reused or fresh, and a time before the impact clears what the flash had',
+         ix3Bad.length === 0, ix3Bad.join('; ') || `${ix3Pairs.length} moments × 2 passes; before after inside: ${ixFmt(ix3Back)}`);
+
+      // [IX4] The flash's colours stand off the window's dark, 3:1 for graphics, to normal eyes and to protans and
+      // deutans: its amber rim and its cream core. Printed, not gated: each on pale land (the dark disc under the
+      // flash, not its colour, carries it there).
+      // Mutation proof (seen red 2026-11-15): sceneStyle.ts `FLASH_RIM = '#ffb347'` → `'#2a2a48'` (IX4 the only check red):
+      //   FAIL playback B3 [IX4]: … the rim #2a2a48 on the dark 1.23 (want 3); the core #fff6d5 on the dark 15.37; printed, not gated: on pale land 11.76 / 1.05
+      const ix4 = [{ id: 'the rim', c: FLASH_RIM }, { id: 'the core', c: FLASH_CORE }].map((p) => ({
+        ...p,
+        bg: Math.min(...VISIONS.map((v) => ratio(parseColour(p.c)!, parseColour(BG)!, v))),
+        land: Math.min(...VISIONS.map((v) => ratio(parseColour(p.c)!, parseColour(LAND_REF)!, v))),
+      }));
+      ok('playback B3 [IX4]: the flash\'s amber rim and cream core each stand 3:1 off the window\'s dark, in all three visions',
+         ix4.every((p) => p.bg >= 3),
+         ix4.map((p) => `${p.id} ${p.c} on the dark ${p.bg.toFixed(2)}${p.bg >= 3 ? '' : ' (want 3)'}`).join('; ') + `; printed, not gated: on pale land ${ix4.map((p) => p.land.toFixed(2)).join(' / ')}`);
+    } catch (e) {
+      ok('playback B3 (the flash): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));

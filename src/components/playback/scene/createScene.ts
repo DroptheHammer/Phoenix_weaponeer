@@ -36,6 +36,7 @@ import {
 } from '../../../lib/playbackScene';
 import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
+import { createImpactLayer, type ImpactDebug, type ImpactLayer } from './impactLayer';
 import { createJetLayer, type ArrowDebug, type JetLayer } from './jetLayer';
 import { createLabelLayer, type LabelDebug, type LabelLayer } from './labelLayer';
 import type { FrameCtx, Layer } from './layer';
@@ -103,6 +104,23 @@ export interface ScreenPoint {
   y: number;
 }
 
+/** The effects at each flown jet's impact as the layers drew them on the last frame (for the screenshot checks). */
+export interface EffectsDebug {
+  /** The clock's time and speed setting on that frame. */
+  t: number;
+  speed: number;
+  /** One entry per flown jet, in jet order: its playback index, its seat and its impact effect. */
+  jets: { jet: number; seat: number; impact: ImpactDebug }[];
+}
+
+/** What the graphics card was asked to do for the last frame drawn, and the objects it holds (for the screenshot checks). */
+export interface RenderInfo {
+  calls: number;
+  triangles: number;
+  geometries: number;
+  textures: number;
+}
+
 export interface PlaybackScene {
   /** The clock itself (time, playing, speed). React reads it with useSyncExternalStore(scene.subscribe, scene.getSnapshot). */
   readonly clock: PlayClock;
@@ -142,7 +160,7 @@ export interface PlaybackScene {
   setActionPoints(mode: ActionPointsMode): void;
   /** The planner's colour code on the watched jet only, or on every jet (Show › Attack colours). */
   setAttackColours(mode: AttackColours): void;
-  /** The ring round each falling bomb (Show › Impact); off leaves the bomb alone. */
+  /** The ring round each falling bomb and the flash where it lands (Show › Impact); off leaves the bomb alone. */
   setImpact(on: boolean): void;
   /**
    * The strike re-timed: a new source for the same jets (the same playback, other delays). Nothing
@@ -156,11 +174,18 @@ export interface PlaybackScene {
   stats(): SceneStats;
   /**
    * Where jet `jet`'s (a playback index, default 0, the first flown jet) arrow, its falling bomb, its target's
-   * ring centre, its target's TGT disc or the first point of its bomb's fall (the release point, shown or not)
-   * is on screen, at the clock's current time (a pending change is drawn first). Undefined when that thing
-   * is not shown or is behind the camera. For the screenshot checks.
+   * ring centre, its target's TGT disc, the first point of its bomb's fall (the release point, shown or not) or
+   * the centre of the burst where its bomb lands is on screen, at the clock's current time (a pending change is
+   * drawn first). Undefined when that thing is not shown or is behind the camera. For the screenshot checks.
    */
-  project(what: 'jet' | 'bomb' | 'target' | 'targetMark' | 'release', jet?: number): ScreenPoint | undefined;
+  project(what: 'jet' | 'bomb' | 'target' | 'targetMark' | 'release' | 'impact', jet?: number): ScreenPoint | undefined;
+  /**
+   * The effect at each flown jet's impact as its layer drew it at the clock's current time (a pending change is
+   * drawn first): the numbers it used, not worked out again. Null when the scene is gone. For the screenshot checks.
+   */
+  debugEffects(): EffectsDebug | null;
+  /** The graphics card's counts for the last frame drawn (a pending change is drawn first). Null when the scene is gone. For the screenshot checks. */
+  renderInfo(): RenderInfo | null;
   /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels, the bombs' rings). For the screenshot checks. */
   debugLabels(): LabelDebug;
   /**
@@ -257,8 +282,9 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   // ── The layers and the camera. If building them throws, the context is given back before the
   // error goes on to the boundary: a failed open must not hold one of the browser's ~16 contexts.
   let terrain: ReturnType<typeof createTerrainLayer>, targets: TargetLayer, labels: LabelLayer, rig: CameraRig;
-  // One layer per flown jet, jets[k] drawing playback jet k.
+  // One layer per flown jet, jets[k] drawing playback jet k, and beside it impacts[k] for where its bomb lands.
   const jets: JetLayer[] = [];
+  let impacts: ImpactLayer[] = [];
   try {
     terrain = createTerrainLayer({
       source, tiles: opts.tiles, renderer, parent: scene, fog, bag, signal: abort.signal, invalidate,
@@ -266,6 +292,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     });
     targets = createTargetLayer({ source, parent: scene, bag });
     for (let k = 0; k < source.jetCount; k++) jets.push(createJetLayer({ source, jet: k, parent: scene, bag }));
+    impacts = jets.map((j) => createImpactLayer({ source, jet: j.jet, parent: scene, bag }));
     // The camera at home, framing the attack (worked out again for each window shape); its far
     // plane reaches past the haze's end from the farthest the camera can stand back.
     const homeFor = (aspect: number) => homePose({ box: homeBoxNow(), axis: source.attackAxis, aspect });
@@ -282,7 +309,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     throw err;
   }
   // The targets before the labels: the overlay draws each TGT disc on the post top the target layer has just laid.
-  const layers: Layer[] = [terrain, targets, ...jets, labels];
+  const layers: Layer[] = [terrain, targets, ...jets, ...impacts, labels];
   const onControlsChange = () => invalidate();
   rig.controls.addEventListener('change', onControlsChange);
 
@@ -546,6 +573,8 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       } else if (what === 'release') {
         const pts = source.plannedBomb(j);
         p = pts.length >= 3 ? probe.set(pts[0], pts[1], pts[2]) : undefined;
+      } else if (what === 'impact') {
+        p = impacts[j].burstPosition();
       } else {
         p = what === 'jet' ? jets[j].jetPosition() : jets[j].bombPosition();
       }
@@ -553,6 +582,21 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       return toScreen(probe.copy(p));
     },
     debugLabels: () => labels.debugLabels(),
+    debugEffects() {
+      if (disposed || contextLost || fatal) return null;
+      if (dirty) {
+        try { draw(0); } catch (err) { fail(err); return null; }
+      }
+      return { t: ctx.t, speed: ctx.speed, jets: impacts.map((l) => ({ jet: l.jet, seat: source.seatOf(l.jet), impact: l.debug() })) };
+    },
+    renderInfo() {
+      if (disposed || contextLost || fatal) return null;
+      if (dirty) {
+        try { draw(0); } catch (err) { fail(err); return null; }
+      }
+      const { render, memory } = renderer.info;
+      return { calls: render.calls, triangles: render.triangles, geometries: memory.geometries, textures: memory.textures };
+    },
     debugArrow(j = 0) {
       if (disposed || contextLost || fatal || j < 0 || j >= jets.length) return null;
       if (dirty) {

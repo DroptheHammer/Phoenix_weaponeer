@@ -3,7 +3,7 @@
  * choices about what the picture shows: altitude and speed on the jets'
  * labels, the action points (off, as each jet nears them, or always), the
  * planner's colour code on the watched jet or on every jet, the ring round each
- * falling bomb, and where the time bar starts; the threats join when they are built. The choices
+ * falling bomb and the flash where it lands, and where the time bar starts; the threats join when they are built. The choices
  * are the pure ShowState (src/lib/playbackScene/show.ts); nothing here is saved.
  *
  * Behaviour:
@@ -173,7 +173,7 @@ export function ShowMenu({ show, dispatch }: ShowMenuProps) {
             />
             <span>
               <span className={`block ${MENU_HEAD}`}>Impact</span>
-              <span className={`block ${MENU_HINT}`}>A ring round each falling bomb. Off: the bomb alone.</span>
+              <span className={`block ${MENU_HINT}`}>A ring round each falling bomb, then a flash where it lands. Not a simulation of the weapon. Off: the bomb alone.</span>
             </span>
           </label>
           <label className="flex items-start gap-2 cursor-pointer" onMouseDown={keepFocus}>

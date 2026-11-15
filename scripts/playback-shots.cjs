@@ -755,6 +755,356 @@ async function checkBombTraceOthers(page, tag) {
       (g ? `release to bomb: ${g.behind.hit} of ${g.behind.n} spots in #1's bomb shade (need ${TRACE_OTHER_MIN}), bomb to target: ${g.ahead.hit} of ${g.ahead.n} (need at most 2); trace ${f.trace.drawn} of ${f.trace.points} points (${n} on screen)` : 'the fall or the bomb is not on screen'));
 }
 
+// ── The flash where a bomb lands (checks 53, 53b, 54, 55, 56 and 59). The flash is read off the 3D's own pixels with the
+// overlay hidden, against a picture of the same moment with Show › Impact off (`act`), so only the effect differs: the
+// bomb's trace, finished at the impact and lying on the target (and in Home its whole fall is within 30 px of it), the
+// jet's trail and the arrow are in both. (A picture from before the release would not do: it has the dashed fall line
+// where the trace now lies, and the two differ by more than these limits.) A pixel differs if one of its channels is more
+// than FLASH_DIFF levels apart.
+const FLASH_DISC_PX = 30;
+const FLASH_DIFF = 40;
+const FLASH_MIN = 1300;
+/** Pixels between `r0` and `r1` px of a page point whose colours differ between two pictures by more than FLASH_DIFF in a channel. */
+function differing(a, b, [cx, cy], r0, r1) {
+  let n = 0;
+  for (let y = Math.floor(cy - r1); y <= Math.ceil(cy + r1); y++) for (let x = Math.floor(cx - r1); x <= Math.ceil(cx + r1); x++) {
+    const d = Math.hypot(x - cx, y - cy);
+    if (d < r0 || d > r1 || x < 0 || y < 0 || x >= a.width || y >= a.height) continue;
+    const p = a.at(x, y), q = b.at(x, y);
+    if (Math.abs(p[0] - q[0]) > FLASH_DIFF || Math.abs(p[1] - q[1]) > FLASH_DIFF || Math.abs(p[2] - q[2]) > FLASH_DIFF) n++;
+  }
+  return n;
+}
+/** Jet `k`'s impact effect as the layers drew it on the last frame (`__pb.effects()`), or null. */
+const impactFx = (page, k) => pbEval(page, (j) => {
+  const e = __pb.effects();
+  return e && e.jets[j] ? e.jets[j].impact : null;
+}, k);
+/**
+ * Show › Impact through the session, as the menu sets it, then wait until jet `k`'s flash is drawn as `want` says. False
+ * when it never was (a switch that does not reach the flash): the check then fails on its own readings, not on the wait.
+ */
+async function impactSwitch(page, on, k, want) {
+  await pbEval(page, (o) => __pb.act({ type: 'show', a: { type: 'impact', on: o } }), on);
+  const reached = await page.waitForFunction(([j, w]) => { const e = __pb.effects(); return !!e && !!e.jets[j] && e.jets[j].impact.flashShown === w; }, [k, want], { timeout: 15000, polling: 100 })
+    .then(() => true, () => false);
+  await settle(page, 300);
+  return reached;
+}
+/**
+ * The flash of jet `k` at the clock's time now: what the layer drew, where the burst is on the page, and the pixels that
+ * differ from the same moment with Show › Impact off, within FLASH_DISC_PX of the burst (or of `at`, when the burst is not
+ * shown). Impact is on before and after.
+ */
+async function flashPicture(page, k, name, at, r0 = 0) {
+  const e = await impactFx(page, k);
+  const p = (await pbEval(page, (j) => __pb.project(j, 'impact'), k)) || at;
+  const on = await shot(page, `${name}-on`);
+  const switched = await impactSwitch(page, false, k, false);
+  const off = await shot(page, `${name}-off`);
+  await impactSwitch(page, true, k, !!(e && e.flashShown));
+  // A switch that did not take the flash away leaves nothing to compare with.
+  return { e, p, n: p && switched ? differing(on, off, p, r0, FLASH_DISC_PX) : -1 };
+}
+const fmtPt = (q) => (q ? `${Math.round(q[0])},${Math.round(q[1])}` : 'none');
+const fmtFx = (e) => (e ? `size ${e.flash.toFixed(2)}, strength ${e.flashAlpha.toFixed(2)}, shown ${e.flashShown}` : 'no effect');
+
+/**
+ * Check 53: a flash where the bomb lands, at the time over target. The lone pop-up, Orbit at Home, flat ground, 1×, paused,
+ * the overlay hidden. Pictures against the same moment with Impact off, as described above.
+ * - 0.05 s before the impact: no flash drawn.
+ * - 0.3 s after: the flash at full strength and at least 0.9 of its size, and at least FLASH_MIN pixels within 30 px of the
+ *   burst (`project(0, 'impact')`) differ.
+ * - 1.5 s after: no flash drawn, and fewer than 20 pixels differ between 14 and 30 px from where it was.
+ * - 6 s after: no flash and no ring drawn, and fewer than 5 pixels differ within 30 px.
+ *
+ * FLASH_MIN: measured 2026-11-15 on the first green run: 2,197 px at 1400×900, 2,280 at 1024×768 (and 2,306 for 55's #3,
+ * 2,197 and 2,280 again at 16× in 53b); set at 60% of the smallest, 1,300. Fewer than 20 and 5 were 0 and 0.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/impactLayer.ts, `flash.visible = phase.flashAlpha > 0 && phase.flash > 0`
+ * → `flash.visible = true` (the flash's meshes drawn at every moment; at strength 0 they paint nothing, so it is the layer's
+ * own `flashShown` that goes red; 53b goes red with it):
+ *   STEP FAIL 53 a flash where the bomb lands at the time over target, gone by 1.5 s, Home at 1× (1400x900) — 0.05 s before: size 0.00, strength 0.00, shown true; 0.3 s after: size 1.00, strength 1.00, shown true, 2197 px differ within 30 px of 945,347 (need 1300); 1.5 s after: size 1.00, strength 0.00, shown true, 0 px differ 14-30 px out (need under 20); 6 s after: size 1.00, strength 0.00, shown true, ring shown false, 0 px differ (need under 5)
+ */
+async function checkFlash(page, tag) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  let before, full, late, gone;
+  await overlay(page, false);
+  try {
+    await at(imp - 0.05);
+    before = await impactFx(page, 0);
+    await at(imp + 0.3);
+    full = await flashPicture(page, 0, `${tag}-53-flash`);
+    await at(imp + 1.5);
+    late = await flashPicture(page, 0, `${tag}-53-flash-late`, full.p, 14);
+    await at(imp + 6);
+    gone = await flashPicture(page, 0, `${tag}-53-flash-gone`, full.p);
+  } finally {
+    await overlay(page, true);
+    await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  const okBefore = !!before && !before.flashShown;
+  const okFull = !!full.e && full.e.flashShown && full.e.flashAlpha === 1 && full.e.flash >= 0.9 && full.n >= FLASH_MIN;
+  const okLate = !!late.e && !late.e.flashShown && late.n >= 0 && late.n < 20;
+  const okGone = !!gone.e && !gone.e.flashShown && !gone.e.ringShown && gone.n >= 0 && gone.n < 5;
+  step(`53 a flash where the bomb lands at the time over target, gone by 1.5 s, Home at 1× (${tag})`, okBefore && okFull && okLate && okGone,
+    `0.05 s before: ${fmtFx(before)}; 0.3 s after: ${fmtFx(full.e)}, ${full.n} px differ within 30 px of ${fmtPt(full.p)} (need ${FLASH_MIN}); ` +
+      `1.5 s after: ${fmtFx(late.e)}, ${late.n} px differ 14-30 px out (need under 20); 6 s after: ${fmtFx(gone.e)}, ring shown ${gone.e ? gone.e.ringShown : 'none'}, ${gone.n} px differ (need under 5)`);
+}
+
+/**
+ * Check 56: the Impact switch reaches the flash. The lone pop-up 0.3 s after the impact at 1×, paused: Show › Impact off
+ * through the session (`act`, the menu's own path) and the flash is not drawn and the page gives no burst point; on again
+ * and it is drawn.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/impactLayer.ts, `group.visible = ctx.impact && flash.visible` →
+ * `group.visible = flash.visible` (53 and 53b go red with it: their pictures with Impact off are taken through the switch):
+ *   STEP FAIL 56 Show › Impact turns the flash off and on again (1400x900) — on: size 1.00, strength 1.00, shown true; off: size 1.00, strength 1.00, shown true, burst point 945,347; on again: size 1.00, strength 1.00, shown true
+ */
+async function checkFlashSwitch(page, tag) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  await pbEval(page, (t) => { __pb.pause(); __pb.setSpeed(1); __pb.seek(t); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); }, imp + 0.3);
+  await settle(page, 300);
+  const on0 = await impactFx(page, 0);
+  await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'impact', on: false } }));
+  await page.waitForFunction(() => __pb.show() && __pb.show().impact === false, null, { timeout: 15000, polling: 100 });
+  await settle(page, 500);
+  const off = await impactFx(page, 0);
+  const offPoint = await pbEval(page, () => __pb.project(0, 'impact'));
+  await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'impact', on: true } }));
+  await page.waitForFunction(() => __pb.show() && __pb.show().impact === true, null, { timeout: 15000, polling: 100 });
+  await settle(page, 500);
+  const on1 = await impactFx(page, 0);
+  step(`56 Show › Impact turns the flash off and on again (${tag})`,
+    !!on0 && on0.flashShown && !!off && !off.flashShown && offPoint === null && !!on1 && on1.flashShown,
+    `on: ${fmtFx(on0)}; off: ${fmtFx(off)}, burst point ${fmtPt(offPoint)}; on again: ${fmtFx(on1)}`);
+}
+
+/**
+ * Check 53b: the flash is timed in real seconds, so it shows at 16×. The lone pop-up at 16×, Orbit at Home, flat ground,
+ * paused, the overlay hidden: 4.8 s after the impact (0.3 real s) the flash is drawn and at least FLASH_MIN pixels differ
+ * from the same moment with Impact off; 24 s after (1.5 real s) it is not drawn.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/impactLayer.ts, `impactPhase(ctx.t - impactT, ctx.speed, phase)` →
+ * `impactPhase(ctx.t - impactT, 1, phase)` (geo-check stays green; 54 and 59, which also run at 16×, go red with it):
+ *   STEP FAIL 53b the flash at 16×: shown 0.3 real s after the impact, gone 1.5 real s after (1400x900) — 4.8 s after: size 1.00, strength 0.00, shown false, -1 px differ within 30 px of none (need 1300); 24 s after: size 1.00, strength 0.00, shown false
+ */
+async function checkFlashFast(page, tag) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(16); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  let early, late;
+  await overlay(page, false);
+  try {
+    await at(imp + 4.8);
+    early = await flashPicture(page, 0, `${tag}-53b-flash-16x`);
+    await at(imp + 24);
+    late = await impactFx(page, 0);
+  } finally {
+    await overlay(page, true);
+    await pbEval(page, (w) => { __pb.setSpeed(1); __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  step(`53b the flash at 16×: shown 0.3 real s after the impact, gone 1.5 real s after (${tag})`,
+    !!early.e && early.e.flashShown && early.n >= FLASH_MIN && !!late && !late.flashShown,
+    `4.8 s after: ${fmtFx(early.e)}, ${early.n} px differ within 30 px of ${fmtPt(early.p)} (need ${FLASH_MIN}); 24 s after: ${fmtFx(late)}`);
+}
+
+/**
+ * Check 53b, the four-ship's part: at 16×, 58.6 s after #1's impact (3.66 real s) nothing of #1's impact is drawn and both
+ * strengths are 0. (The size and the radius share stay at 1 once grown, so it is the two strengths and what is drawn that
+ * are read, not all four numbers.)
+ *
+ * The edit that reddens the lone pop-up's part leaves this one green (both strengths are 0 at 58.6 s either way). Proven red
+ * 2026-11-15 by one temporary edit to scene/impactLayer.ts, each jet timed by the last jet's impact (`src.impactOf(jet)` →
+ * `src.impactOf(src.jetCount - 1)`: #1's flash then at #4's 40 s; on the lone pop-up it changes nothing):
+ *   STEP FAIL 53b at 16×, 3.66 real s after #1's impact nothing of it is drawn (1400x900-strike4) — at 58.6 s: strengths 0.04999999999999982 / 1, flash shown true, ring shown false
+ */
+async function checkFlashFastFour(page, tag) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  await pbEval(page, (t) => { __pb.pause(); __pb.setSpeed(16); __pb.seek(t); }, imp + 58.6);
+  await settle(page, 300);
+  const e = await impactFx(page, 0);
+  const t = await pbEval(page, () => __pb.snapshot().t);
+  await pbEval(page, () => __pb.setSpeed(1));
+  step(`53b at 16×, 3.66 real s after #1's impact nothing of it is drawn (${tag})`,
+    !!e && Math.abs(t - (imp + 58.6)) < 1e-6 && e.flashAlpha === 0 && e.ringAlpha === 0 && !e.flashShown && !e.ringShown,
+    `at ${t.toFixed(1)} s: ${e ? `strengths ${e.flashAlpha} / ${e.ringAlpha}, flash shown ${e.flashShown}, ring shown ${e.ringShown}` : 'no effect'}`);
+}
+
+/**
+ * Check 54: the flash is a function of the clock alone. The lone pop-up, Orbit at Home, flat ground, paused, the overlay
+ * hidden: picture A 0.4 s after the impact at 1×; seek 30 s before the impact and back; picture B. At least 99.9% of the
+ * canvas's pixels (the dev frame-time readout left out: it changes as frames are drawn) are within 2 levels of A in every
+ * channel, the flash is drawn in both, and the layer drew both with the very same numbers (its age and phase, from
+ * `effects()`). The same at 16×, 6.4 s after the impact (0.4 real s).
+ *
+ * Measured 2026-11-15 on the first green run: 100.000% and 99.988% at 1400×900, 100.000% and 100.000% at 1024×768.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/impactLayer.ts, a module-level `let mutAge = 0` and
+ * `impactPhase(ctx.t - impactT, …)` → `impactPhase(mutAge += ctx.dt, …)` (the flash's age kept from frame to frame; 53, 53b and
+ * 56 go red with it). The pictures alone stayed within 2 levels (the paused clock draws few frames, so the kept age hardly
+ * moves between A and B), which is why the numbers the layer drew with are compared too:
+ *   STEP FAIL 54 the flash after a seek away and back is the same picture, at 1× and 16× (1400x900) — 1×: 99.988% of the canvas within 2 levels (need 99.9%), flash shown both times false, drawn with the same numbers false (…); 16×: 99.988% of the canvas within 2 levels (need 99.9%), flash shown both times true, drawn with the same numbers false (…)
+ */
+async function checkFlashPure(page, tag) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  const cv = await canvasBox(page);
+  const readout = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('[role="dialog"] div')].find((d) => /^dev:/.test((d.textContent || '').trim()) && d.children.length === 0);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { l: r.left - 2, t: r.top - 2, r: r.right + 2, b: r.bottom + 2 };
+  });
+  const same = (a, b) => {
+    let n = 0, ok = 0;
+    for (let y = Math.ceil(cv.t); y < Math.floor(cv.t + cv.h); y++) for (let x = Math.ceil(cv.l); x < Math.floor(cv.l + cv.w); x++) {
+      if (readout && x >= readout.l && x <= readout.r && y >= readout.t && y <= readout.b) continue;
+      n++;
+      const p = a.at(x, y), q = b.at(x, y);
+      if (Math.abs(p[0] - q[0]) <= 2 && Math.abs(p[1] - q[1]) <= 2 && Math.abs(p[2] - q[2]) <= 2) ok++;
+    }
+    return n ? ok / n : 0;
+  };
+  const rows = [];
+  await overlay(page, false);
+  try {
+    for (const [speed, age] of [[1, 0.4], [16, 6.4]]) {
+      await pbEval(page, (s) => __pb.setSpeed(s), speed);
+      await at(imp + age);
+      const shownA = await impactFx(page, 0);
+      const a = await shot(page, `${tag}-54-pure-${speed}x-a`);
+      await at(imp - 30);
+      await at(imp + age);
+      const shownB = await impactFx(page, 0);
+      const b = await shot(page, `${tag}-54-pure-${speed}x-b`);
+      const keys = ['age_s', 'flash', 'flashAlpha', 'ring', 'ringAlpha'];
+      const sameNumbers = !!shownA && !!shownB && keys.every((key) => shownA[key] === shownB[key]);
+      rows.push({ speed, share: same(a, b), shown: !!shownA && shownA.flashShown && !!shownB && shownB.flashShown, sameNumbers, a: shownA, b: shownB });
+    }
+  } finally {
+    await overlay(page, true);
+    await pbEval(page, (w) => { __pb.setSpeed(1); __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  step(`54 the flash after a seek away and back is the same picture, at 1× and 16× (${tag})`,
+    rows.length === 2 && rows.every((r) => r.shown && r.sameNumbers && r.share >= 0.999),
+    rows.map((r) => `${r.speed}×: ${(100 * r.share).toFixed(3)}% of the canvas within 2 levels (need 99.9%), flash shown both times ${r.shown}, ` +
+      `drawn with the same numbers ${r.sameNumbers}${r.sameNumbers ? '' : ` (${r.a ? fmtFx(r.a) : 'none'} vs ${r.b ? fmtFx(r.b) : 'none'})`}`).join('; ') + (readout ? '' : '; no dev readout found'));
+}
+
+/**
+ * Check 55: a skipped member has no flash, and the jets that fly have one each. The skip variant (#2 skipped; #1 lands at 0,
+ * #3 at 40), Orbit at Home, flat ground, 1×, paused, the overlay hidden: 0.3 s after #2's time over target the page reports
+ * two effects, none for seat 1, and none drawn; 0.3 s after #3's, its entry (seat 2) draws the flash and the pixel test of 53
+ * passes at its burst.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/createScene.ts, `impacts = jets.map(…)` → `impacts = [...jets,
+ * jets[0]].map(…)` (three effects for two jets; 59 goes red with it, five flashes for four jets):
+ *   STEP FAIL 55 a skipped #2 has no flash; #3 has its own at its time over target (1400x900-skip) — 0.3 s after #2's time (10): 3 effects, seats 0 2 0, drawn false false false; 0.3 s after #3's (40.0): seat 2, size 1.00, strength 1.00, shown true, 2306 px differ within 30 px of 836,317 (need 1300)
+ */
+async function checkFlashSkipped(page, tag) {
+  const m = await pbEval(page, () => {
+    const s = __pb.session();
+    return { t2: s.delays_s[s.memberIds[1]], t3: __pb.moments.jets[1].impact, seat3: __pb.moments.jets[1].seat };
+  });
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  let atTwo, three;
+  await overlay(page, false);
+  try {
+    await at(m.t2 + 0.3);
+    atTwo = await pbEval(page, () => __pb.effects());
+    await at(m.t3 + 0.3);
+    three = await flashPicture(page, 1, `${tag}-55-flash-third`);
+  } finally {
+    await overlay(page, true);
+    await pbEval(page, () => __pb.goHome());
+  }
+  const jets = atTwo ? atTwo.jets : [];
+  const entry3 = await pbEval(page, () => __pb.effects().jets[1]);
+  step(`55 a skipped #2 has no flash; #3 has its own at its time over target (${tag})`,
+    jets.length === 2 && jets.every((j) => j.seat !== 1 && !j.impact.flashShown) && !!entry3 && entry3.seat === 2 && m.seat3 === 2 &&
+      !!three.e && three.e.flashShown && three.n >= FLASH_MIN,
+    `0.3 s after #2's time (${m.t2}): ${jets.length} effects, seats ${jets.map((j) => j.seat).join(' ')}, drawn ${jets.map((j) => j.impact.flashShown).join(' ')}; ` +
+      `0.3 s after #3's (${m.t3.toFixed(1)}): seat ${entry3 ? entry3.seat : 'none'}, ${fmtFx(three.e)}, ${three.n} px differ within 30 px of ${fmtPt(three.p)} (need ${FLASH_MIN})`);
+}
+
+/**
+ * Check 59: what four flashes cost the graphics card, and that nothing is made frame by frame. The four-ship with its times
+ * set to 0, 2, 4 and 6 s through the session, at 16×: played through the whole time bar twice, the geometries and textures
+ * the card holds are the same before and after the second pass (the card counts a geometry when it is first drawn, so the
+ * first pass is what draws every bomb and flash once); at 6.3 s all four flashes are drawn, and the draw calls and triangles with
+ * Impact on, less the same moment with Impact off (so the bombs and the lines cancel), are within 80% to 110% of two calls
+ * and 48 triangles for each flash drawn (a scorch fan and a core fan of 24 triangles each).
+ *
+ * Measured 2026-11-15 on the first green run: +8 calls and +192 triangles exactly (calls 42 → 50); 52 geometries and 1 texture
+ * before and after the second pass. (A first try compared before and after one pass: 40 → 52, the bombs and flashes being
+ * drawn for the first time.)
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/impactLayer.ts, the core's geometry made again in afterCamera each
+ * frame (`core.geometry = flashGeometry(…)`) instead of once:
+ *   STEP FAIL 59 four flashes cost two draw calls and 48 triangles each, and nothing is made frame by frame at 16× (1400x900-strike4) — played -69.9 to 46.0 s twice (the end 46.0): geometries 100 → 148, textures 1 → 1 over the second pass; at 6.3 s 4 flashes drawn: calls 42 → 50 (+8, want 8), triangles 537554 → 537746 (+192, want 192)
+ */
+async function checkFlashCost(page, tag) {
+  const ids = await pbEval(page, () => __pb.session().memberIds);
+  const delays = [0, 2, 4, 6];
+  for (let i = 0; i < ids.length; i++) await pbEval(page, (a) => __pb.act({ type: 'delay', id: a.id, value_s: a.v }), { id: ids[i], v: delays[i] });
+  await page.waitForFunction((d) => { const s = __pb.source(); return !!s && d.every((v, k) => s.impactOf(k) === v); }, delays, { timeout: 30000, polling: 200 });
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(16); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  const span = await pbEval(page, () => { const s = __pb.snapshot(); return { start: s.start, end: s.end }; });
+  // The graphics card counts a geometry the first time it is drawn (a bomb at its release, a flash at its impact), so the
+  // first pass draws everything once and the second is the one compared.
+  const runThrough = async () => {
+    await pbEval(page, () => __pb.seek(__pb.snapshot().start));
+    await settle(page, 300);
+    await pbEval(page, () => __pb.play());
+    await page.waitForFunction(() => !__pb.snapshot().playing, null, { timeout: 240000, polling: 250 });
+    await settle(page, 300);
+    return { t: await pbEval(page, () => __pb.snapshot().t), info: await pbEval(page, () => __pb.renderInfo()) };
+  };
+  const first = await runThrough();
+  const before = first.info;
+  const second = await runThrough();
+  const ran = second.t, after = second.info;
+  await pbEval(page, () => __pb.seek(6.3));
+  await settle(page, 300);
+  const fx = await pbEval(page, () => __pb.effects());
+  const shown = fx ? fx.jets.filter((j) => j.impact.flashShown).length : 0;
+  const on = await pbEval(page, () => __pb.renderInfo());
+  await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'impact', on: false } }));
+  const switched = await page.waitForFunction(() => __pb.effects().jets.every((j) => !j.impact.flashShown), null, { timeout: 15000, polling: 100 })
+    .then(() => true, () => false);
+  await settle(page, 300);
+  const off = await pbEval(page, () => __pb.renderInfo());
+  await pbEval(page, () => { __pb.act({ type: 'show', a: { type: 'impact', on: true } }); __pb.setSpeed(1); });
+  const dCalls = on.calls - off.calls, dTris = on.triangles - off.triangles;
+  const wantCalls = 2 * shown, wantTris = 48 * shown;
+  const within = (d, want) => d >= 0.8 * want && d <= 1.1 * want;
+  step(`59 four flashes cost two draw calls and 48 triangles each, and nothing is made frame by frame at 16× (${tag})`,
+    shown === 4 && fx.jets.length === 4 && switched && within(dCalls, wantCalls) && within(dTris, wantTris) && Math.abs(ran - span.end) < 1e-6 && Math.abs(first.t - span.end) < 1e-6 &&
+      after.geometries === before.geometries && after.textures === before.textures,
+    `played ${span.start.toFixed(1)} to ${ran.toFixed(1)} s twice (the end ${span.end.toFixed(1)}): geometries ${before.geometries} → ${after.geometries}, textures ${before.textures} → ${after.textures} over the second pass; ` +
+      `at 6.3 s ${shown} flashes drawn${switched ? '' : ' (Impact off did not take them away)'}: calls ${off.calls} → ${on.calls} (+${dCalls}, want ${wantCalls}), triangles ${off.triangles} → ${on.triangles} (+${dTris}, want ${wantTris})`);
+}
+
 /**
  * Check 3: real ground: the hill's sunward (north-west) flank is brighter; the bomb's last sample sits on the ring.
  *
@@ -3198,8 +3548,15 @@ async function runStrikeChecks(browser, base) {
     await checkLateOpening(late.page, `${tag}-late`);
     step(`8 no page errors, late wingman (${tag})`, late.problems.length === 0, late.problems.length ? late.problems.slice(0, 8).join(' | ') : 'none');
     await late.context.close();
+    // 53b's four-ship part and 59 on a page of their own: 59 moves every time over target.
+    const fx = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4`, 1400, 900);
+    await checkFlashFastFour(fx.page, `${tag}-strike4`);
+    await checkFlashCost(fx.page, `${tag}-strike4`);
+    step(`8 no page errors, four-ship flashes (${tag})`, fx.problems.length === 0, fx.problems.length ? fx.problems.slice(0, 8).join(' | ') : 'none');
+    await fx.context.close();
     const s = await openPage(browser, `${base}?tiles=synthetic&fixture=skip`, 1400, 900);
     await checkSkipped(s.page, `${tag}-skip`);
+    await checkFlashSkipped(s.page, `${tag}-skip`);
     step(`8 no page errors, skip variant (${tag})`, s.problems.length === 0, s.problems.length ? s.problems.slice(0, 8).join(' | ') : 'none');
     await s.context.close();
     const s3 = await openPage(browser, `${base}?tiles=synthetic&fixture=skip&watch=3`, 1400, 900);
@@ -3240,6 +3597,10 @@ async function runChecks(browser, base) {
     await checkBombSeen(page, tag);
     await checkBombRing(page, tag);
     await checkBombTrace(page, tag);
+    await checkFlash(page, tag);
+    await checkFlashSwitch(page, tag);
+    await checkFlashFast(page, tag);
+    await checkFlashPure(page, tag);
     await checkReal(page, tag);
     await checkFit(page, tag, w, h);
     await checkLayout(page, tag, w, h);

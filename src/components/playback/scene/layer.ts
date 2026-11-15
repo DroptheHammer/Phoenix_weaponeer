@@ -48,7 +48,7 @@ export interface FrameCtx {
   labels: boolean;
   /** The action points' discs, posts and words: none, as each jet nears a point, or all the time. */
   actionPoints: ActionPointsMode;
-  /** A ring round each falling bomb on the 2D overlay (Show › Impact); off leaves the bomb alone. */
+  /** A ring round each falling bomb on the 2D overlay and a flash where it lands (Show › Impact); off leaves the bomb alone. */
   impact: boolean;
   /**
    * Set false before the layers update; a layer that is still easing something (a callout fading)

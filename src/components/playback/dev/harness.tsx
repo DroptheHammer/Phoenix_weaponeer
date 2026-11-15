@@ -122,8 +122,20 @@ interface PbHandle {
   /** Home view (Orbit at the home pose), as the button does. */
   goHome(): void;
   setSpeed(s: Speed): void;
-  /** Where the jet (or its falling bomb, its target's ring centre, its target's TGT disc, or the release point, the first point of its bomb's fall) is on the page, at the clock's time. */
-  project(jet?: number, what?: 'jet' | 'bomb' | 'target' | 'targetMark' | 'release'): [number, number] | null;
+  /**
+   * Where the jet (or its falling bomb, its target's ring centre, its target's TGT disc, the release point, the first point of
+   * its bomb's fall, or the centre of the burst where its bomb lands, while it shows) is on the page, at the clock's time.
+   */
+  project(jet?: number, what?: 'jet' | 'bomb' | 'target' | 'targetMark' | 'release' | 'impact'): [number, number] | null;
+  /**
+   * The effect at each flown jet's impact as the layers drew it on the last frame, at the clock's time now: the clock's `t` and
+   * `speed`, and per flown jet in jet order its playback index, seat and `impact` (`age_s` since the impact, the phase drawn
+   * with: `flash`, `flashAlpha`, `ring`, `ringAlpha`; whether the flash's and the ring's meshes were drawn; the burst's
+   * centre, three.js axes). Null before the scene exists.
+   */
+  effects(): ReturnType<PlaybackScene['debugEffects']>;
+  /** The graphics card's counts for the last frame drawn (draw calls, triangles) and the geometries and textures it holds. Null before the scene exists. */
+  renderInfo(): ReturnType<PlaybackScene['renderInfo']>;
   /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the callouts, the jets' labels, the bombs' rings. */
   debugLabels(): ReturnType<PlaybackScene['debugLabels']> | null;
   /**
@@ -252,6 +264,8 @@ const pb: PbHandle = {
     return p ? toPage(p.x, p.y) : null;
   },
   debugLabels: () => scene?.debugLabels() ?? null,
+  effects: () => scene?.debugEffects() ?? null,
+  renderInfo: () => scene?.renderInfo() ?? null,
   arrow(jet = 0) {
     const a = scene?.debugArrow(jet);
     if (!scene || !a) return null;

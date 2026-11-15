@@ -59,6 +59,21 @@ export const BOMB_RING_R_PX = 11;
 export const BOMB_RING_OTHER_R_PX = 10;
 export const BOMB_RING_LINE_PX = 2;
 export const BOMB_RING_EDGE_PX = 6;
+/**
+ * The flash where a bomb lands: a marker for the moment and the place, kept a set size on screen so it reads
+ * at any distance, never sized by the weapon (it is not a simulation of the weapon). A bright core, cream at
+ * the centre to amber at its rim where it fades out, FLASH_R_PX in radius at full size, on a darker disc half
+ * as wide again of the window's dark at FLASH_SCORCH_ALPHA, so the pale core still reads on pale land. Each
+ * disc is a fan of FLASH_SEGS triangles. It sits IMPACT_LIFT_M over the higher of the planned target and the
+ * drawn ground, so a target planned under the ground does not burst inside the hill.
+ */
+export const FLASH_R_PX = 26;
+export const FLASH_SCORCH = 1.5;
+export const FLASH_SCORCH_ALPHA = 0.5;
+export const FLASH_SEGS = 24;
+export const FLASH_CORE = '#fff6d5';
+export const FLASH_RIM = '#ffb347';
+export const IMPACT_LIFT_M = 1;
 
 /**
  * The lines are drawn a set width in CSS pixels (three's wide lines), not
