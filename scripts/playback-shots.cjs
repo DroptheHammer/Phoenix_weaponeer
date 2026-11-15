@@ -559,6 +559,8 @@ const TRACE_SOLID_MIN = 0.9;
 const TRACE_DASH_MIN = 0.2;
 const TRACE_DASH_MAX = 0.7;
 const TRACE_GROUP_MIN = 10;
+/** The release point the page gives lies this close to the fall's own first point, px (the two go through the same camera). */
+const TRACE_RELEASE_PX = 1;
 /** Spots every `step` px along a polyline of screen points, each with its arc length, its direction and the polyline's arc lengths at its vertices. */
 function alongPolyline(poly, step) {
   const cum = [0];
@@ -614,8 +616,10 @@ const fallOnScreen = (page, jet) => pbEval(page, (k) => {
   const pts = __pb.source().plannedBomb(k);
   const poly = [];
   for (let i = 0; i + 2 < pts.length; i += 3) poly.push(__pb.projectPoint(pts[i], -pts[i + 2], pts[i + 1]));
-  return { poly, bomb: __pb.project(k, 'bomb'), release: __pb.project(k, 'release'), target: __pb.project(k, 'target'), trace: __pb.trace(k) };
+  return { poly, bomb: __pb.project(k, 'bomb'), release: __pb.project(k, 'release'), trace: __pb.trace(k) };
 }, jet);
+/** How far the release point the page gives (`project(jet, 'release')`) is from the fall's own first point, px. */
+const releaseOff = (f) => (f.release && f.poly[0] ? Math.hypot(f.release[0] - f.poly[0][0], f.release[1] - f.poly[0][1]) : NaN);
 
 /**
  * Check 63: the bomb leaves a solid trace behind it and keeps it. The lone pop-up on flat ground, Top-down, the
@@ -639,11 +643,18 @@ const fallOnScreen = (page, jet) => pbEval(page, (k) => {
  * Proven red 2026-11-15 by two temporary edits, one run each:
  * (a) scene/jetLayer.ts, the trace's two meshes made invisible when they are made (`traceCasing.visible = traceLine.visible = false`):
  *   STEP FAIL 63 the bomb's trace: … Top-down (1400x900) — 60% down: behind the bomb 43% of 65 red (need 90%), ahead 58% of 26 (need 20-70%), trace 21 of 35 points; 1 s before the release: 44% of 115 (need 20-70%), trace 0 (need 0); 5 s after the impact: 44% of 115 (need 90%), trace 35 of 35; seek back: 44% of 115, trace 0
- *   (the 1024×768 run of this edit timed out on a screenshot, the machine being busy; it was not run again)
+ *   (the 1024×768 run of this edit timed out on a screenshot, the machine being busy; a later run of it went red there too: 43% of 42 behind the bomb)
  * (b) src/lib/playbackScene/source.ts, bombFlown returning every point at every time:
  *   STEP FAIL 63 the bomb's trace: … Top-down (1400x900) — 60% down: behind the bomb 100% of 65 red (need 90%), ahead 100% of 26 (need 20-70%), trace 35 of 35 points; 1 s before the release: 100% of 115 (need 20-70%), trace 35 (need 0); 5 s after the impact: 100% of 115 (need 90%), trace 35 of 35; seek back: 100% of 115, trace 35
  *   STEP FAIL 63 … (1024x768) — … ahead 100% of 14; 1 s before the release: 100% of 80, trace 35 (need 0); …
  * (geo-check BT1 goes red with (b) too: 0 points before the release is one of its readings.)
+ *
+ * The check also reads `__pb.project(0, 'release')` at each of the four moments: it must lie within TRACE_RELEASE_PX of the
+ * fall's own first point (0.00 px on the green run, both sizes). Proven red 2026-11-15 by one temporary edit to
+ * scene/createScene.ts, the release point taken from the fall's second point (`probe.set(pts[0], pts[1], pts[2])` →
+ * `probe.set(pts[3], pts[4], pts[5])`), with every other reading of the check still green:
+ *   STEP FAIL 63 the bomb's trace: … Top-down (1400x900) — … the release point the page gives is more than 1 px, or missing, from the fall's first point (need 1)
+ *   STEP FAIL 63 … (1024x768) — … the release point the page gives is more than 1 px, or missing, from the fall's first point (need 1)
  */
 async function checkBombTrace(page, tag) {
   const m = await pbEval(page, () => ({ rel: __pb.moments.jets[0].release, imp: __pb.moments.jets[0].impact }));
@@ -665,7 +676,7 @@ async function checkBombTrace(page, tag) {
       const f = await fallOnScreen(page, 0);
       const img = await shot(page, `${tag}-63-trace-${name}`);
       const whole = f.poly.length > 1 && f.poly.every(Boolean);
-      phases[name] = { whole, trace: f.trace, hasBomb: !!f.bomb, g: whole ? traceSpots(img, f.poly, f.bomb, redLike) : null };
+      phases[name] = { whole, trace: f.trace, hasBomb: !!f.bomb, relOff: releaseOff(f), g: whole ? traceSpots(img, f.poly, f.bomb, redLike) : null };
     }
   } finally {
     await overlay(page, true);
@@ -681,12 +692,15 @@ async function checkBombTrace(page, tag) {
   const okBefore = P.before.whole && !P.before.hasBomb && dashed(before.all) && P.before.trace.drawn === 0;
   const okAfter = P.after.whole && !P.after.hasBomb && solid(after.all) && P.after.trace.points > 1 && P.after.trace.drawn === P.after.trace.points;
   const okBack = P.back.whole && dashed(back.all) && P.back.trace.drawn === 0;
+  // The release point the page gives is the fall's first point, before, during and after the fall (a NaN fails).
+  const relOff = Math.max(...['mid', 'before', 'after', 'back'].map((k) => (P[k].relOff <= TRACE_RELEASE_PX ? P[k].relOff : Infinity)));
   step(`63 the bomb's trace: solid from the release to the bomb, dashed ahead, none before the release, the whole fall after the impact, gone again on a seek back, Top-down (${tag})`,
-    okMid && okBefore && okAfter && okBack,
+    okMid && okBefore && okAfter && okBack && relOff <= TRACE_RELEASE_PX,
     `60% down: behind the bomb ${pct(mid && mid.behind)} red (need ${TRACE_SOLID_MIN * 100}%), ahead ${pct(mid && mid.ahead)} (need ${TRACE_DASH_MIN * 100}-${TRACE_DASH_MAX * 100}%), trace ${P.mid.trace.drawn} of ${P.mid.trace.points} points; ` +
       `1 s before the release: ${pct(before && before.all)} (need ${TRACE_DASH_MIN * 100}-${TRACE_DASH_MAX * 100}%), trace ${P.before.trace.drawn} (need 0); ` +
       `5 s after the impact: ${pct(after && after.all)} (need ${TRACE_SOLID_MIN * 100}%), trace ${P.after.trace.drawn} of ${P.after.trace.points}; ` +
-      `seek back: ${pct(back && back.all)}, trace ${P.back.trace.drawn}`);
+      `seek back: ${pct(back && back.all)}, trace ${P.back.trace.drawn}; ` +
+      `the release point the page gives is ${Number.isFinite(relOff) ? `${relOff.toFixed(2)} px` : 'more than 1 px, or missing,'} from the fall's first point (need ${TRACE_RELEASE_PX})`);
 }
 
 /**
