@@ -10,7 +10,8 @@
  *   the caller keeps, so nothing is allocated at 60 fps;
  * - once per open: each jet's planned path as a flat Float32Array of xyz,
  *   each jet's target point, the strike window, the box the terrain is
- *   built from, the lead's attack axis (for the home camera), the frame;
+ *   built from, the lead's attack axis (for the home camera), the frame
+ *   (what Home frames is homeBox in homeView.ts, from the poses);
  * - each jet's moments on the strike clock: in the picture from, first
  *   action, release, impact, hidden after.
  *
@@ -74,14 +75,7 @@ export interface SceneSource {
   readonly frame: LocalFrame;
   /** The box in local ENU metres every jet and bomb stays inside at any delay: the terrain box is built from it. */
   readonly bounds: PlaybackBounds;
-  /**
-   * The box, in the same local ENU metres, round what is actually played at
-   * this timing: every jet's planned path and every target. Much smaller than
-   * `bounds` (which allows for the whole lead-in and any delay): the home
-   * camera frames this one.
-   */
-  readonly played: PlaybackBounds;
-  /** The lead's attack axis, a horizontal unit vector (east, north) along the run-in toward its target. */
+  /** The lead's attack axis, a horizontal unit vector (east, north) along the run-in toward its target: the home camera stands behind it. */
   readonly attackAxis: [e: number, n: number];
   /** Jet k's planned path (display layer, sampled across the window while it is visible), xyz in three.js axes. */
   plannedPath(jet: number): Float32Array;
@@ -181,27 +175,11 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
   const lead = pb.jets[0];
   const h = ((lead?.attackHeading_deg ?? 0) * Math.PI) / 180;
 
-  // What is played: the paths and the targets (three.js axes back to ENU: n = −z).
-  const bounds = playbackBounds(pb);
-  const played: PlaybackBounds = { min_e_m: Infinity, max_e_m: -Infinity, min_n_m: Infinity, max_n_m: -Infinity, min_up_m: Infinity, max_up_m: -Infinity };
-  const hold = (x: number, y: number, z: number) => {
-    played.min_e_m = Math.min(played.min_e_m, x);
-    played.max_e_m = Math.max(played.max_e_m, x);
-    played.min_n_m = Math.min(played.min_n_m, -z);
-    played.max_n_m = Math.max(played.max_n_m, -z);
-    played.min_up_m = Math.min(played.min_up_m, y);
-    played.max_up_m = Math.max(played.max_up_m, y);
-  };
-  for (const path of paths) for (let i = 0; i < path.length; i += 3) hold(path[i], path[i + 1], path[i + 2]);
-  for (const t of targets) hold(t.x, t.y, t.z);
-
   return {
     jetCount: pb.jets.length,
     window: { t0_s, t1_s },
     frame: pb.frame,
-    bounds,
-    // Nothing to play (no jet could be built): the whole box, so the camera still has something to frame.
-    played: Number.isFinite(played.min_e_m) ? played : bounds,
+    bounds: playbackBounds(pb),
     attackAxis: [Math.sin(h), Math.cos(h)],
     plannedPath: (jet) => paths[jet],
     targetOf: (jet) => targets[jet],

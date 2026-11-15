@@ -126,6 +126,10 @@ import {
   firstActionTau, markerMoments, labelMoments, playRange, homeBox, openingMode, initShow, showReducer, isThreatOn,
   FIRST_ACTION_FALLBACK_S, RUN_LEAD_S, HOME_AFTER_S, type ShowState,
 } from '../src/lib/playbackScene';
+import {
+  controlsFor, topDownPose, chasePose, yawDelta, targetEye, CHASE_BACK_M, CHASE_UP_M, CHASE_MIN_M, CHASE_MAX_M, CHASE_SWING_DEG,
+  ZOOM_SPEED, MAX_POLAR_DEG, TOP_POLAR_RAD, MIN_CAMERA_AGL_M, type ControlsConfig,
+} from '../src/lib/playbackScene';
 import { harnessLaunch } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, theaterNotes } from '../src/components/playback/launch';
 import { groundNote, REAL_GROUND_NOTE } from '../src/components/playback/StatusNotes';
@@ -6150,21 +6154,22 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
        r1.every((v, i) => v.every((c, j) => c === r1want[i][j])), JSON.stringify(r1));
 
     // Home pose: behind the run-in, swung 30° anticlockwise (behind the jet's right shoulder), 35° up,
-    // and exactly as close as it can stand with every corner of the played strike's box in view: the
+    // and exactly as close as it can stand with every corner of the box Home frames in view: the
     // outermost corner sits at 1 / HOME_MARGIN (80%) of the half-view, no nearer the edge and no
     // farther from it, at the window's aspect (1400×900), the smallest one it fits (1024×768) and a
-    // tall one (0.6, where the width is what limits). The fixture's played box and a lopsided
-    // synthetic one (a long run-in to the west), on the lead's real axis and on 300°. A box of one
-    // point is seen from the 3 km floor.
-    // Mutation proofs (2026-11-14): cameraMath.ts homePose `Math.max(side / tanH, up / tanV)` → `up / tanV` (the height only):
-    //   FAIL playback scene: the home pose … fixture box @1.556: behind true, swing 30.0°, right of the run-in true, 35.0° up, worst 1.535 of the half-view (want 0.800), 35.6 km out
-    //   (also trips [C2]: no window shape needs the raise any more)
+    // tall one (0.6, where the width is what limits). The fixture's Home box (homeBox over the
+    // default range, from 10 s before the first action) and a lopsided synthetic one (a long run-in
+    // to the west), on the lead's real axis and on 300°. A box of one point is seen from the 3 km floor.
+    // Mutation proofs (each seen red 2026-11-14 on the Home box): cameraMath.ts homePose `Math.max(side / tanH, up / tanV)` → `up / tanV` (the height only):
+    //   FAIL playback scene: the home pose … fixture box @1.556: behind true, swing 30.0°, right of the run-in true, 35.0° up, worst 1.694 of the half-view (want 0.800), 18.3 km out
+    //   (also trips [C2]: no window shape needs the raise any more; and [FB5])
     // `rotate2([-c.axis[0], -c.axis[1]], HOME_SWING_DEG * D2R)` → `rotate2(c.axis, …)` (in front):
-    //   FAIL playback scene: the home pose … fixture box @1.556: behind false, swing 150.0°, right of the run-in false, 35.0° up, worst 0.800 of the half-view (want 0.800), 58.0 km out
+    //   FAIL playback scene: the home pose … fixture box @1.556: behind false, swing 150.0°, right of the run-in false, 35.0° up, worst 0.800 of the half-view (want 0.800), 32.3 km out
     // `toward + HOME_MARGIN * …` → `HOME_MARGIN * …` (the corner's own depth forgotten):
-    //   FAIL playback scene: the home pose … fixture box @1.556: behind true, swing 30.0°, right of the run-in true, 35.0° up, worst 0.964 of the half-view (want 0.800), 49.9 km out
+    //   FAIL playback scene: the home pose … fixture box @1.556: behind true, swing 30.0°, right of the run-in true, 35.0° up, worst 0.952 of the half-view (want 0.800), 28.0 km out
     // `let dist = HOME_MIN_DIST_M` → `let dist = 0`:
     //   FAIL playback scene: the home pose … a single point is seen from 0 m, not 3000 m
+    const homeFixBox = homeBox(src, playRange(sPb, sTiming, false));
     const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
     const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     const cross3 = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -6182,7 +6187,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
       return worst;
     };
     const homeCases = [
-      { name: 'fixture box', box: src.played, axis: src.attackAxis },
+      { name: 'fixture box', box: homeFixBox, axis: src.attackAxis },
       { name: 'lopsided box on 300°', box: { min_e_m: -80_000, max_e_m: 5_000, min_n_m: -10_000, max_n_m: 12_000, min_up_m: -50, max_up_m: 2_500 }, axis: [Math.sin(300 * D2R), Math.cos(300 * D2R)] as [number, number] },
     ];
     let homeBad = '', homeN = 0;
@@ -6210,51 +6215,11 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     const dot1 = homePose({ box: { min_e_m: 500, max_e_m: 500, min_n_m: -200, max_n_m: -200, min_up_m: 0, max_up_m: 0 }, axis: src.attackAxis, aspect: 1.5 });
     const dotDist = Math.hypot(...sub3(dot1.eye, dot1.look));
     if (Math.abs(dotDist - HOME_MIN_DIST_M) > 1e-6) homeBad ||= `a single point is seen from ${dotDist.toFixed(0)} m, not ${HOME_MIN_DIST_M} m`;
-    ok('playback scene: the home pose sits behind the run-in, 30° round and 35° up, as close as keeps every corner of the played box in view (the outermost at 80% of the half-view) at 1400×900, 1024×768 and a tall window',
+    ok('playback scene: the home pose sits behind the run-in, 30° round and 35° up, as close as keeps every corner of the Home box in view (the outermost at 80% of the half-view) at 1400×900, 1024×768 and a tall window',
        homeBad === '' && homeN === 6 && HOME_MARGIN === 1.25 && HOME_MIN_DIST_M === 3000, homeBad || `${homeN} poses, ${homeKm.join('/')} km out; a single point from ${dotDist.toFixed(0)} m`);
 
-    // The played box: what the home camera frames. It holds every jet's planned path and every
-    // target, touching them (nothing spare), and is the smaller box inside the terrain's `bounds`,
-    // which allows for the whole 20 nm lead-in: on the fixture the played run starts well short of it.
-    // Mutation proofs (2026-11-14): source.ts `for (const t of targets) hold(t.x, t.y, t.z);` deleted
-    // (the fixture's paths never come down to the lead target's ground, so its floor is lost):
-    //   FAIL playback scene: the played box … floor 152.4 m (the lowest target is at 0.0 m)
-    // hold `played.min_n_m = Math.min(played.min_n_m, -z)` → `…, z)` (north not turned back from three.js z):
-    //   FAIL playback scene: the played box … not the tight box: {…"min_n_m":-18958.716796875,"max_n_m":18958.716796875,…} vs {…"min_n_m":-3480.621467390695,"max_n_m":18958.716796875,…}
-    // `played: Number.isFinite(played.min_e_m) ? played : bounds` → `played: bounds`:
-    //   FAIL playback scene: the played box … floor -1.0 m (the lowest target is at 0.0 m)
-    {
-      const pl = src.played, bb = src.bounds;
-      let plBad = '';
-      const seen = { min_e_m: Infinity, max_e_m: -Infinity, min_n_m: Infinity, max_n_m: -Infinity, min_up_m: Infinity, max_up_m: -Infinity };
-      const see = (e: number, n: number, u: number) => {
-        seen.min_e_m = Math.min(seen.min_e_m, e); seen.max_e_m = Math.max(seen.max_e_m, e);
-        seen.min_n_m = Math.min(seen.min_n_m, n); seen.max_n_m = Math.max(seen.max_n_m, n);
-        seen.min_up_m = Math.min(seen.min_up_m, u); seen.max_up_m = Math.max(seen.max_up_m, u);
-      };
-      let lowestTarget = Infinity;
-      for (let k = 0; k < src.jetCount; k++) {
-        const path = src.plannedPath(k);
-        for (let i = 0; i < path.length; i += 3) {
-          const e = path[i], u = path[i + 1], n = -path[i + 2];
-          if (e < pl.min_e_m || e > pl.max_e_m || n < pl.min_n_m || n > pl.max_n_m || u < pl.min_up_m || u > pl.max_up_m) { plBad ||= `#${k + 1} path point ${i / 3} outside it`; break; }
-          see(e, n, u);
-        }
-        const tg = src.targetOf(k);
-        see(tg.x, -tg.z, tg.y);
-        lowestTarget = Math.min(lowestTarget, tg.y);
-      }
-      if (!plBad && pl.min_up_m !== lowestTarget) plBad = `floor ${pl.min_up_m.toFixed(1)} m (the lowest target is at ${lowestTarget.toFixed(1)} m)`;
-      if (!plBad && JSON.stringify(pl) !== JSON.stringify(seen)) plBad = `not the tight box: ${JSON.stringify(pl)} vs ${JSON.stringify(seen)}`;
-      const inside = pl.min_e_m >= bb.min_e_m && pl.max_e_m <= bb.max_e_m && pl.min_n_m >= bb.min_n_m && pl.max_n_m <= bb.max_n_m && pl.min_up_m >= bb.min_up_m && pl.max_up_m <= bb.max_up_m;
-      if (!plBad && !inside) plBad = 'not inside the terrain\'s bounds';
-      if (!plBad && !(pl.max_e_m < bb.max_e_m - 5000)) plBad = `east edge ${(pl.max_e_m / 1000).toFixed(1)} km, the same as the terrain's bounds`;
-      const farBounds = Math.hypot(...sub3(homePose({ box: bb, axis: src.attackAxis, aspect: 1400 / 900 }).eye, [(bb.min_e_m + bb.max_e_m) / 2, (bb.min_n_m + bb.max_n_m) / 2, (bb.min_up_m + bb.max_up_m) / 2]));
-      const farPlayed = Math.hypot(...sub3(homePose({ box: pl, axis: src.attackAxis, aspect: 1400 / 900 }).eye, [(pl.min_e_m + pl.max_e_m) / 2, (pl.min_n_m + pl.max_n_m) / 2, (pl.min_up_m + pl.max_up_m) / 2]));
-      ok('playback scene: the played box holds every planned path and target exactly, inside the terrain\'s wider bounds, so the home view stands closer',
-         plBad === '' && farPlayed < farBounds,
-         plBad || `east ${(pl.min_e_m / 1000).toFixed(1)}..${(pl.max_e_m / 1000).toFixed(1)} km (bounds to ${(bb.max_e_m / 1000).toFixed(1)}), north ${(pl.min_n_m / 1000).toFixed(1)}..${(pl.max_n_m / 1000).toFixed(1)} km, up ${pl.min_up_m.toFixed(0)}..${pl.max_up_m.toFixed(0)} m; home ${(farPlayed / 1000).toFixed(1)} km out against ${(farBounds / 1000).toFixed(1)} km on the bounds`);
-    }
+    // What Home frames is homeBox (homeView.ts), pinned by [FB4] and [FB5] in the B3 section below:
+    // every jet and falling bomb over the clock's range, and the targets.
 
     // [P11] restated for the library's datum: the adapter hands the scene the DISPLAY layer in three.js
     // axes, y = up_m (above the lead target's planned elevation: not MSL × 0.3048, not AGL), z = −north,
@@ -6727,19 +6692,20 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
        NEAR_SHARE === 0.5 && c1.orbit === 75 && c1.jet === 10 && c1.touching === 1 && c1.far === 158.5 && c1.low === 50,
        `orbit 150 m at 3170 m up: ${c1.orbit}; jet 20 m: ${c1.jet}; jet 1 m: ${c1.touching}; nothing near: ${c1.far}, ${c1.low}`);
 
-    // [C2] The zoom-out limit never sits inside the home view. On the fixture, at every window
-    // shape, it is the usual 2.5 terrain half-diagonals and home is well inside it. When a home
-    // view has to stand farther back than that (a very narrow window: here the fixture's strike in
-    // one a tenth as wide as it is tall), the limit is raised to 5% past home, so the controls
-    // cannot pull the camera in on its first frame.
-    // Mutation proof (2026-11-14): cameraMath.ts maxOrbitFor `Math.max(MIN_ORBIT_M * 2, MAX_ORBIT_BOXES * halfDiag_m, homeDist * HOME_ORBIT_SLACK)` → `Math.max(MIN_ORBIT_M * 2, MAX_ORBIT_BOXES * halfDiag_m)`:
-    //   FAIL playback scene [C2]: … @1.556: home 58.0 km, limit 146.1 km; @1.333: home 66.4 km, limit 146.1 km; @0.600: home 137.5 km, limit 146.1 km; @0.100: home 784.5 km, limit 146.1 km (inside home)
+    // [C2] The zoom-out limit never sits inside the home view. On the fixture's Home box (the default
+    // range), at every window shape, it is the usual 2.5 terrain half-diagonals and home is well
+    // inside it. When a home view has to stand farther back than that (a very narrow window: here
+    // the fixture's attack in one a tenth as wide as it is tall), the limit is raised to 5% past
+    // home, so the controls cannot pull the camera in on its first frame.
+    // Mutation proof (seen red 2026-11-14 on the Home box): cameraMath.ts maxOrbitFor `Math.max(MIN_ORBIT_M * 2, MAX_ORBIT_BOXES * halfDiag_m, homeDist * HOME_ORBIT_SLACK)` → `Math.max(MIN_ORBIT_M * 2, MAX_ORBIT_BOXES * halfDiag_m)`:
+    //   FAIL playback scene [C2]: … @1.556: home 32.3 km, limit 146.1 km; @1.333: home 36.7 km, limit 146.1 km; @0.600: home 76.7 km, limit 146.1 km; @0.100: home 440.3 km, limit 146.1 km (inside home)
+    // (A tenth still needs the raise on the smaller box, so no narrower shape was added.)
     const box2 = terrainBoxOf(src.bounds), half2 = Math.hypot(box2.east_m - box2.west_m, box2.north_m - box2.south_m) / 2;
     let c2bad = '';
     const c2parts: string[] = [];
     let c2raised = false;
     for (const aspect of [1400 / 900, 1024 / 768, 0.6, 0.1]) {
-      const home = homePose({ box: src.played, axis: src.attackAxis, aspect });
+      const home = homePose({ box: homeFixBox, axis: src.attackAxis, aspect });
       const homeDist = Math.hypot(...sub3(home.eye, home.look));
       const lim = maxOrbitFor(home, half2);
       const usual = MAX_ORBIT_BOXES * half2;
@@ -7443,5 +7409,145 @@ void (async () => {
        shBad.length ? shBad.join('; ') : '19 steps');
   } catch (e) {
     ok('playback B3 (start, Home, Show): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
+
+// ─── 0.4.0 playback B3: the cameras ───────────────────────────────────────────
+// The four camera modes' arithmetic (cameraMath.ts): Top-down's pose, Chase's pose and how it swings
+// with the jet, From target's eye, and what the mouse and wheel may do in each mode. ENU metres
+// throughout (east, north, up). Each check carries its mutation proof (2026-11-14): one temporary
+// edit to cameraMath.ts, geo-check run, the FAIL line copied (shortened with …), the edit restored.
+{
+  try {
+    const CD2R = Math.PI / 180;
+    const camPb = buildStrikePlayback(harnessLaunch().input);
+    const camTiming = retime(camPb);
+    const camBox = homeBox(sceneSourceFrom(camPb, camTiming), playRange(camPb, camTiming, false));
+
+    // [CM1] Top-down looks straight down (more than 89.8° below the horizon), from just south of the
+    // box's middle so north is the top of the screen, and stands as high as keeps every corner of the
+    // box in view with the outermost at 80% of the half-view (no farther out than that needs): on the
+    // lone pop-up's Home box and a lopsided one, in a tall window (0.6, the width limits) and a wide
+    // one (2.0, the height limits). A box of one point is seen from the 3 km floor.
+    // Mutation proof: cameraMath.ts topDownPose `tanH = tanV * aspect` → `tanH = tanV` (seen red 2026-11-14):
+    //   FAIL playback B3 [CM1]: … pop-up Home box @0.60: pitch 89.94°, eye south true, north up true, worst corner 1.333 of the half-view, …
+    let cm1Bad = '';
+    const cm1Parts: string[] = [];
+    const cm1Boxes = [
+      { name: 'pop-up Home box', box: camBox },
+      { name: 'lopsided box', box: { min_e_m: -80_000, max_e_m: 5_000, min_n_m: -10_000, max_n_m: 12_000, min_up_m: -50, max_up_m: 2_500 } },
+    ];
+    for (const { name, box } of cm1Boxes) {
+      for (const aspect of [0.6, 2.0]) {
+        const p = topDownPose(box, aspect);
+        const f0 = [p.look[0] - p.eye[0], p.look[1] - p.eye[1], p.look[2] - p.eye[2]];
+        const fl = Math.hypot(f0[0], f0[1], f0[2]), f = [f0[0] / fl, f0[1] / fl, f0[2] / fl];
+        const pitch = Math.atan2(-f[2], Math.hypot(f[0], f[1])) / CD2R;
+        // The screen's right is f × up (east when looking north and down), its up is right × f.
+        const rl = Math.hypot(f[1], f[0]), rr = [f[1] / rl, -f[0] / rl, 0];
+        const uu = [rr[1] * f[2] - rr[2] * f[1], rr[2] * f[0] - rr[0] * f[2], rr[0] * f[1] - rr[1] * f[0]];
+        const tv = Math.tan((p.fov_deg * CD2R) / 2), th = tv * aspect;
+        const scr = (q: number[]) => {
+          const d = [q[0] - p.eye[0], q[1] - p.eye[1], q[2] - p.eye[2]];
+          const z = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+          return [(d[0] * rr[0] + d[1] * rr[1]) / z / th, (d[0] * uu[0] + d[1] * uu[1] + d[2] * uu[2]) / z / tv, z];
+        };
+        let worst = 0;
+        for (const e of [box.min_e_m, box.max_e_m]) for (const n of [box.min_n_m, box.max_n_m]) for (const u of [box.min_up_m, box.max_up_m]) {
+          const [x, y, z] = scr([e, n, u]);
+          worst = Math.max(worst, z > 0 ? Math.max(Math.abs(x), Math.abs(y)) : Infinity);
+        }
+        const north = scr([p.look[0], p.look[1] + 1000, p.look[2]]), east = scr([p.look[0] + 1000, p.look[1], p.look[2]]);
+        const southOf = p.eye[1] < p.look[1] && p.eye[0] === p.look[0];
+        const northUp = north[1] > 0 && Math.abs(north[0]) < 1e-6 && east[0] > 0 && Math.abs(east[1]) < 1e-3;
+        const part = `${name} @${aspect.toFixed(2)}: pitch ${pitch.toFixed(2)}°, eye south ${southOf}, north up ${northUp}, worst corner ${worst.toFixed(3)} of the half-view, ${((p.eye[2] - p.look[2]) / 1000).toFixed(1)} km up`;
+        cm1Parts.push(part);
+        if (!(pitch > 89.8) || !southOf || !northUp || !(worst <= 1 / HOME_MARGIN + 0.005 && worst >= 1 / HOME_MARGIN - 0.005) || p.fov_deg !== HOME_FOV) cm1Bad ||= part;
+      }
+    }
+    const cm1Dot = topDownPose({ min_e_m: 10, max_e_m: 10, min_n_m: 20, max_n_m: 20, min_up_m: 5, max_up_m: 5 }, 1.5);
+    if (Math.abs(cm1Dot.eye[2] - 5 - HOME_MIN_DIST_M) > 1e-9) cm1Bad ||= `a single point is seen from ${(cm1Dot.eye[2] - 5).toFixed(0)} m up, not ${HOME_MIN_DIST_M} m`;
+    ok('playback B3 [CM1]: Top-down looks straight down from just south of the box\'s middle (north up), as high as keeps every corner in view with the outermost at 80% of the half-view, in a tall and a wide window',
+       cm1Bad === '' && TOP_POLAR_RAD === 0.001, cm1Bad || cm1Parts.join('; '));
+
+    // [FB13] The chase camera starts 400 m behind the jet along its velocity, swung 30° round behind
+    // its right shoulder, 120 m above it, looking at the jet: flying east (heading 090), the eye is
+    // west and to the south. Barely moving, the heading sets "behind" instead; flying north, the eye
+    // is south and to the east.
+    // Mutation proof: cameraMath.ts chasePose `CHASE_SWING_DEG * D2R` → `-CHASE_SWING_DEG * D2R` (seen red 2026-11-14):
+    //   FAIL playback B3 [FB13]: … east at 200 m/s: eye (653.6, 2200.0, 620.0) want (653.6, 1800.0, 620.0); …
+    const jet0: Vec3 = [1000, 2000, 500];
+    const c30 = Math.cos(30 * CD2R), s30 = Math.sin(30 * CD2R);
+    const fb13Cases = [
+      { name: 'east at 200 m/s', vel: [200, 0, 0] as Vec3, hdg: 0, want: [1000 - 400 * c30, 2000 - 400 * s30, 620] },
+      { name: 'barely moving, heading 090', vel: [0.1, 0.2, 0] as Vec3, hdg: 90, want: [1000 - 400 * c30, 2000 - 400 * s30, 620] },
+      { name: 'north at 150 m/s, climbing', vel: [0, 150, 40] as Vec3, hdg: 200, want: [1000 + 400 * s30, 2000 - 400 * c30, 620] },
+    ];
+    let fb13Bad = '';
+    const fb13Parts = fb13Cases.map((c) => {
+      const p = chasePose(jet0, c.vel, c.hdg);
+      const off = Math.hypot(p.eye[0] - c.want[0], p.eye[1] - c.want[1], p.eye[2] - c.want[2]);
+      const lookOk = p.look[0] === jet0[0] && p.look[1] === jet0[1] && p.look[2] === jet0[2] && p.look !== jet0;
+      const s = `${c.name}: eye (${p.eye.map((v) => v.toFixed(1)).join(', ')}) want (${c.want.map((v) => v.toFixed(1)).join(', ')})${lookOk ? '' : ', not looking at the jet'}`;
+      if (off > 1e-9 || !lookOk || p.fov_deg !== HOME_FOV) fb13Bad ||= s;
+      return s;
+    });
+    ok('playback B3 [FB13]: Chase starts 400 m behind the jet, swung 30° behind its right shoulder (heading 090: to the south), 120 m up, looking at it; barely moving, behind its heading',
+       fb13Bad === '' && CHASE_BACK_M === 400 && CHASE_UP_M === 120 && CHASE_SWING_DEG === 30, fb13Bad || fb13Parts.join('; '));
+
+    // [CM3] How far the jet turned between two frames, anticlockwise seen from above positive: east to
+    // north is +90°; across the back of the compass (179° to −179° as angles from east) it is a small
+    // +2°, not −358°, and back again −2°; a jet barely moving gives 0 (its direction means nothing).
+    // Mutation proof: cameraMath.ts yawDelta, the two wrap lines (`if (d > Math.PI) …` and `else if (d <= -Math.PI) …`) deleted (seen red 2026-11-14):
+    //   FAIL playback B3 [CM3]: … east→north 1.5708, 179°→−179° -6.2483, back 6.2483, slow 0, reversed 3.1416
+    const at = (deg: number, v = 200): Vec3 => [v * Math.cos(deg * CD2R), v * Math.sin(deg * CD2R), 0];
+    const cm3 = { en: yawDelta([200, 0, 0], [0, 200, 0]), across: yawDelta(at(179), at(-179)), back: yawDelta(at(-179), at(179)), slow: yawDelta([0.3, 0.2, 50], [0, 200, 0]), rev: yawDelta([200, 0, 0], [-200, 0, 0]) };
+    ok('playback B3 [CM3]: the turn between two frames is signed anticlockwise from above (east to north +90°), wraps across the back of the compass (179° to −179° is +2°), and is 0 for a jet barely moving',
+       Math.abs(cm3.en - Math.PI / 2) < 1e-12 && Math.abs(cm3.across - 2 * CD2R) < 1e-9 && Math.abs(cm3.back + 2 * CD2R) < 1e-9 && cm3.slow === 0 && cm3.rev > -Math.PI && cm3.rev <= Math.PI,
+       `east→north ${cm3.en.toFixed(4)}, 179°→−179° ${cm3.across.toFixed(4)}, back ${cm3.back.toFixed(4)}, slow ${cm3.slow}, reversed ${cm3.rev.toFixed(4)}`);
+
+    // [CM4] From target stands 30 m above whichever is higher, the planned target or the ground drawn
+    // under it, straight over the target: a target planned below a drawn hill must not put the camera
+    // inside the hill.
+    // Mutation proof: cameraMath.ts targetEye `Math.max(target[2], groundUp_m)` → `target[2]` (seen red 2026-11-14):
+    //   FAIL playback B3 [CM4]: … over ground 80 m, target at 50 m: eye (100, 200, 80); over ground 80 m, target at 500 m: eye (100, 200, 530)
+    const cm4a = targetEye([100, 200, 50], 80), cm4b = targetEye([100, 200, 500], 80);
+    ok('playback B3 [CM4]: From target stands 30 m above the higher of the planned target and the drawn ground, straight over the target',
+       MIN_CAMERA_AGL_M === 30 && cm4a.join() === '100,200,110' && cm4b.join() === '100,200,530',
+       `over ground 80 m, target at 50 m: eye (${cm4a.join(', ')}); over ground 80 m, target at 500 m: eye (${cm4b.join(', ')})`);
+
+    // [FB14] What the mouse and wheel may do in each mode. Orbit: turn, slide, zoom toward the cursor,
+    // straight down to 87°, 150 m to the orbit limit. Top-down: no turning, held straight down and
+    // north up, a left drag slides, zoom toward the cursor, out to the larger of the orbit limit and 5%
+    // past the top-down pose. Chase: turn round the jet and zoom toward it (not toward the cursor, no
+    // sliding), 80 m to 3 km. From target: the controls off. The wheel at twice three's speed everywhere.
+    // Mutation proofs (each seen red 2026-11-14): cameraMath.ts controlsFor chase `zoomToCursor: false` → `zoomToCursor: true`:
+    //   FAIL playback B3 [FB14]: … chase: zoomToCursor true (want false)
+    // top `leftPans: true` → `leftPans: false` (a plain drag in Top-down would do nothing):
+    //   FAIL playback B3 [FB14]: … top: leftPans false (want true); top, pose inside the orbit limit: leftPans false (want true)
+    const P87 = (87 * Math.PI) / 180;
+    const want = (o: Partial<ControlsConfig>): ControlsConfig => ({
+      enabled: true, rotate: true, pan: true, zoom: true, minPolar_rad: 0, maxPolar_rad: P87, minAzimuth_rad: -Infinity, maxAzimuth_rad: Infinity,
+      minDist_m: 150, maxDist_m: 50_000, zoomToCursor: true, zoomSpeed: 2, leftPans: false, ...o,
+    });
+    const fb14Cases: { name: string; got: ControlsConfig; want: ControlsConfig }[] = [
+      { name: 'orbit', got: controlsFor('orbit', 50_000, 0), want: want({}) },
+      { name: 'top', got: controlsFor('top', 50_000, 60_000), want: want({ rotate: false, minPolar_rad: 0.001, maxPolar_rad: 0.001, minAzimuth_rad: 0, maxAzimuth_rad: 0, maxDist_m: 63_000, leftPans: true }) },
+      { name: 'top, pose inside the orbit limit', got: controlsFor('top', 50_000, 1_000), want: want({ rotate: false, minPolar_rad: 0.001, maxPolar_rad: 0.001, minAzimuth_rad: 0, maxAzimuth_rad: 0, leftPans: true }) },
+      { name: 'chase', got: controlsFor('chase', 50_000, 0), want: want({ pan: false, minDist_m: 80, maxDist_m: 3_000, zoomToCursor: false }) },
+      { name: 'target', got: controlsFor('target', 50_000, 0), want: want({ enabled: false, rotate: false, pan: false, zoom: false, zoomToCursor: false }) },
+    ];
+    const fb14Bad: string[] = [];
+    for (const c of fb14Cases) {
+      for (const k of Object.keys(c.want) as (keyof ControlsConfig)[]) {
+        if (!Object.is(c.got[k], c.want[k]) && !(typeof c.want[k] === 'number' && Math.abs((c.got[k] as number) - (c.want[k] as number)) < 1e-9)) fb14Bad.push(`${c.name}: ${k} ${c.got[k]} (want ${c.want[k]})`);
+      }
+      if (Object.keys(c.got).length !== Object.keys(c.want).length) fb14Bad.push(`${c.name}: ${Object.keys(c.got).length} fields`);
+    }
+    ok('playback B3 [FB14]: each mode\'s controls: Orbit and Top-down zoom toward the cursor, Chase toward the jet, From target off; only Top-down slides on a left drag; the wheel at speed 2 everywhere',
+       fb14Bad.length === 0 && ZOOM_SPEED === 2 && MAX_POLAR_DEG === 87 && CHASE_MIN_M === 80 && CHASE_MAX_M === 3000 && MIN_ORBIT_M === 150 && HOME_ORBIT_SLACK === 1.05,
+       fb14Bad.length ? fb14Bad.join('; ') : `${fb14Cases.length} cases, every field`);
+  } catch (e) {
+    ok('playback B3 (cameras): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }

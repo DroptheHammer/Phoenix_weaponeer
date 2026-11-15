@@ -20,9 +20,8 @@
  */
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PerspectiveCamera, Vector3 } from 'three';
 import '../../../index.css';
-import { enuToThree, homePose, newSceneBombPose, sceneSourceFrom, type GroundMode, type ShowAction, type ShowState } from '../../../lib/playbackScene';
+import { newSceneBombPose, sceneSourceFrom, type EnuBox, type GroundMode, type ShowAction, type ShowState, type Speed } from '../../../lib/playbackScene';
 import { JET_COLORS } from '../../../lib/jetColors';
 import PlaybackView from '../PlaybackView';
 import { PlaybackOverlay } from '../PlaybackOverlay';
@@ -74,14 +73,20 @@ interface PbHandle {
   seek(t_s: number): void;
   play(): void;
   pause(): void;
-  snapshot(): { t: number; playing: boolean; speed: number } | null;
+  snapshot(): { t: number; playing: boolean; speed: number; start: number; end: number } | null;
   setGround(mode: GroundMode): void;
   terrain(): ReturnType<PlaybackScene['terrainStatus']> | null;
+  /** Home view (Orbit at the home pose), as the button does. */
   goHome(): void;
+  setSpeed(s: Speed): void;
   /** Where the jet (or its falling bomb, or its target ring) is on the page, at the clock's time. */
   project(jet?: number, what?: 'jet' | 'bomb' | 'target'): [number, number] | null;
-  /** Where a ground point (playback metres east, north, up) is on the page. Valid only in the home view. */
-  projectWorld(e_m: number, n_m: number, up_m: number): [number, number] | null;
+  /** Where a point (playback metres east, north, up) is on the page, through the camera as it is now. */
+  projectPoint(e_m: number, n_m: number, up_m: number): [number, number] | null;
+  /** The box Home frames, ENU metres. */
+  home(): EnuBox | null;
+  /** The camera's position and the point its controls turn round, three.js axes. */
+  camera(): ReturnType<PlaybackScene['debugCamera']> | null;
   stats(): (ReturnType<PlaybackScene['stats']> & { open: boolean }) | ReturnType<typeof sceneCounts>;
   /** The leak check of the last scene closed. */
   readonly lastLeak: ReturnType<typeof lastLeak>;
@@ -132,24 +137,17 @@ const pb: PbHandle = {
   setGround: (mode) => scene?.setGround(mode),
   terrain: () => scene?.terrainStatus() ?? null,
   goHome: () => scene?.goHome(),
+  setSpeed: (s) => scene?.setSpeed(s),
   project(_jet = 0, what = 'jet') {
     const p = scene?.project(what);
     return p ? toPage(p.x, p.y) : null;
   },
-  projectWorld(e, n, up) {
-    // The home camera, rebuilt from the same pure pose the scene's Home view uses: worked out for
-    // the canvas's shape now, as the scene's goHome does.
-    const c = canvas();
-    if (!c) return null;
-    const aspect = Math.max(1, c.clientWidth) / Math.max(1, c.clientHeight);
-    const home = homePose({ box: source.played, axis: source.attackAxis, aspect });
-    const cam = new PerspectiveCamera(home.fov_deg, aspect, 1, 1e7);
-    cam.position.set(...enuToThree(home.eye));
-    cam.lookAt(new Vector3(...enuToThree(home.look)));
-    cam.updateMatrixWorld();
-    const v = new Vector3(...enuToThree([e, n, up])).project(cam);
-    return toPage((v.x * 0.5 + 0.5) * c.clientWidth, (-v.y * 0.5 + 0.5) * c.clientHeight);
+  projectPoint(e, n, up) {
+    const p = scene?.projectPoint(e, up, -n); // three.js axes: x east, y up, z = −north
+    return p ? toPage(p.x, p.y) : null;
   },
+  home: () => scene?.debugHome() ?? null,
+  camera: () => scene?.debugCamera() ?? null,
   stats: () => (scene ? { ...scene.stats(), open: isOpen } : sceneCounts()),
   get lastLeak() {
     return lastLeak();

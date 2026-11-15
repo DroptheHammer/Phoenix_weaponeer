@@ -31,10 +31,10 @@
 import { Color, Fog, NoToneMapping, SRGBColorSpace, Scene, Vector3, WebGLRenderer } from 'three';
 import type { StrikeWindow } from '../../../lib/playback';
 import {
-  BG, MAX_DPR, PlayClock, UI_EMIT_MS, homePose, FOG_FAR_K,
-  type ClockSnapshot, type GroundMode, type SceneSource, type Speed, type TileSource,
+  BG, MAX_DPR, PlayClock, UI_EMIT_MS, homeBox, homePose, newSceneJetPose, FOG_FAR_K,
+  type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TileSource,
 } from '../../../lib/playbackScene';
-import { CameraRig } from './cameraRig';
+import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
 import { createJetLayer, type JetLayer } from './jetLayer';
 import type { FrameCtx, Layer } from './layer';
@@ -62,6 +62,13 @@ export interface SceneOptions {
   range?: StrikeWindow;
   /** Strike time to open at, s. Default: the start of the range. */
   startAt_s?: number;
+  /**
+   * The camera to open in and the jet it follows, set before the first frame (Chase starts behind
+   * that jet at the opening time). Default: Orbit at the home view.
+   */
+  camera?: { mode: CameraMode; jet: number };
+  /** The camera's mode changed (a mode chosen, or Home view, which is Orbit): the toolbar shows it. */
+  onCamera?(mode: CameraMode): void;
   /** Something broke beyond repair (a frame threw, a shader failed): show the error view. Called at most once. */
   onFatal(err: unknown): void;
   /** The ground's loading notes, failures, switch state and credits, whenever they change. */
@@ -116,8 +123,15 @@ export interface PlaybackScene {
   terrainStatus(): TerrainStatus;
   /** Re-measure the host now (the ResizeObserver does this by itself; for layouts it cannot see). */
   resize(): void;
-  /** The camera back to its home view. */
+  /** The camera back to its home view, in Orbit: the attack from just before the first action to just after the last bomb lands. */
   goHome(): void;
+  /**
+   * Change the camera's mode and the jet Chase and From target follow (a playback index, never a
+   * seat). A cut, no easing.
+   */
+  setCamera(mode: CameraMode, jet: number): void;
+  /** The camera's mode now. */
+  cameraMode(): CameraMode;
   /**
    * Move the clock's range. The playhead stays where it is, kept inside the new range. Nothing
    * happens when the range is the one already set.
@@ -130,6 +144,12 @@ export interface PlaybackScene {
    * that thing is not shown or is behind the camera. For the screenshot checks.
    */
   project(what: 'jet' | 'bomb' | 'target'): ScreenPoint | undefined;
+  /** Where a point (three.js axes: x east, y up, z = −north, m) is on screen through the camera as it is now. Undefined behind it. For the screenshot checks. */
+  projectPoint(x: number, y: number, z: number): ScreenPoint | undefined;
+  /** The box Home frames, ENU m (a copy). For the checks. */
+  debugHome(): EnuBox;
+  /** The camera's position and the point its controls turn round, three.js axes. For the checks. */
+  debugCamera(): { x: number; y: number; z: number; target: { x: number; y: number; z: number } };
   /** Frees everything: loop, loads, listeners, every geometry, material and texture, and the WebGL context. Returns the leak check. Safe to call twice. */
   dispose(): LeakReport;
 }
@@ -191,6 +211,18 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   // ── Size and pixel ratio (dpr −1 so the first applySize goes through).
   let viewW = Math.max(1, host.clientWidth), viewH = Math.max(1, host.clientHeight), dpr = -1, rawDpr = 0;
 
+  // What Home and Top-down frame: every jet and falling bomb from the clock's range start to just
+  // after the last impact (homeBox). Worked out when a view first asks for it, kept until the range
+  // moves; never per frame.
+  let homeBoxKept: EnuBox | undefined;
+  const homeBoxNow = (): EnuBox => {
+    if (!homeBoxKept) {
+      const s = clock.getSnapshot();
+      homeBoxKept = homeBox(source, { t0_s: s.start, t1_s: s.end });
+    }
+    return homeBoxKept;
+  };
+
   // ── The layers and the camera. If building them throws, the context is given back before the
   // error goes on to the boundary: a failed open must not hold one of the browser's ~16 contexts.
   let terrain: ReturnType<typeof createTerrainLayer>, jets: JetLayer | undefined, rig: CameraRig;
@@ -200,10 +232,10 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       onStatus: (s) => opts.onTerrain?.(s),
     });
     jets = source.jetCount > 0 ? createJetLayer({ source, jet, colorIndex: opts.colorIndex ?? jet, parent: scene, bag }) : undefined;
-    // The camera at home, framing the strike as it is played (worked out again for each window
-    // shape); its far plane reaches past the haze's end from the farthest the camera can stand back.
-    const homeFor = (aspect: number) => homePose({ box: source.played, axis: source.attackAxis, aspect });
-    rig = new CameraRig(canvas, homeFor, viewW / viewH, terrain.halfDiag_m, (FOG_FAR_K + 1) * terrain.halfDiag_m);
+    // The camera at home, framing the attack (worked out again for each window shape); its far
+    // plane reaches past the haze's end from the farthest the camera can stand back.
+    const homeFor = (aspect: number) => homePose({ box: homeBoxNow(), axis: source.attackAxis, aspect });
+    rig = new CameraRig(canvas, homeFor, homeBoxNow, viewW / viewH, terrain.halfDiag_m, (FOG_FAR_K + 1) * terrain.halfDiag_m);
   } catch (err) {
     abort.abort();
     bag.disposeAll();
@@ -240,6 +272,40 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     ground: terrain.ground, groundVersion: terrain.groundVersion, heightAt: terrain.heightAt,
   };
 
+  // ── What the camera follows: the watched jet, filled every frame from its layer's pose (a jet
+  // with no layer of its own is sampled here instead). Made once.
+  let camJet = opts.camera && opts.camera.jet >= 0 && opts.camera.jet < source.jetCount ? opts.camera.jet : jet;
+  const follow: Follow = { jet: new Vector3(), vel: new Vector3(), heading_deg: 0, target: new Vector3(), targetGround: 0 };
+  const camPose = newSceneJetPose();
+  function fillFollow(p: SceneJetPose) {
+    follow.jet.set(p.x, p.y, p.z);
+    follow.vel.set(p.vx, p.vy, p.vz);
+    follow.heading_deg = p.heading_deg;
+    if (source.jetCount === 0) return;
+    const tg = source.targetOf(camJet);
+    follow.target.set(tg.x, tg.y, tg.z);
+    follow.targetGround = terrain.heightAt(tg.x, tg.z);
+  }
+  /** The watched jet at the clock's time now, straight from the source (outside a frame). */
+  const followNow = () => {
+    if (source.jetCount > 0) fillFollow(source.jetAt(camJet, clock.time, camPose));
+  };
+  // The near plane never cuts off an arrow or a falling bomb: the distance to the nearest one shown.
+  const nearestTo = (p: Vector3): number => {
+    let d = Infinity;
+    const a = jets?.jetPosition(), b = jets?.bombPosition();
+    if (a) d = Math.min(d, p.distanceTo(a));
+    if (b) d = Math.min(d, p.distanceTo(b));
+    return d;
+  };
+  // Following needs a jet: with none, Orbit and Top-down are all there is.
+  const canFollow = (mode: CameraMode) => source.jetCount > 0 || mode === 'orbit' || mode === 'top';
+  if (opts.camera && opts.camera.mode !== 'orbit' && canFollow(opts.camera.mode)) {
+    followNow();
+    rig.setMode(opts.camera.mode, follow);
+  }
+  opts.onCamera?.(rig.mode); // the toolbar shows the mode the scene really opened in
+
   // ── The frame.
   let frames = 0, renders = 0, frameMs = 0, drewLast = false;
   let lastTime: number | null = null, lastEmit = -Infinity;
@@ -255,8 +321,9 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     ctx.ground = terrain.ground;
     ctx.groundVersion = terrain.groundVersion;
     for (const l of layers) l.update(ctx); // 1. everything moves to time t
-    // 2. the camera eases, stays above ground; keep drawing while it settles. Its near plane never cuts off the jet or its bomb.
-    if (rig.update(terrain.heightAt, jets?.jetPosition(), jets?.bombPosition())) dirty = true;
+    // 2. the camera follows the watched jet (Chase, From target), eases, stays above ground; keep drawing while it settles.
+    if (source.jetCount > 0) fillFollow(jets && camJet === jet ? jets.pose : source.jetAt(camJet, ctx.t, camPose));
+    if (rig.update(terrain.heightAt, nearestTo, follow)) dirty = true;
     for (const l of layers) l.afterCamera?.(ctx); // 3. sizes on screen, read off the final camera
     renderer.render(scene, rig.camera);
     renders++;
@@ -307,6 +374,12 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
 
   let scrubWasPlaying = false;
   const probe = new Vector3();
+  /** A world point (three.js axes, overwritten) to CSS pixels on the canvas through the camera now; undefined behind it or past the far plane. */
+  function toScreen(v: Vector3) {
+    v.project(rig.camera);
+    if (v.z < -1 || v.z > 1) return undefined;
+    return { x: (v.x * 0.5 + 0.5) * viewW, y: (-v.y * 0.5 + 0.5) * viewH };
+  }
 
   function disposeAll(): LeakReport {
     renderer.setAnimationLoop(null); // 1. no more frames
@@ -361,12 +434,24 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     resize: () => applySize(),
     goHome: () => {
       rig.goHome();
+      opts.onCamera?.('orbit');
       invalidate();
     },
+    setCamera: (mode, j) => {
+      if (!canFollow(mode)) return;
+      if (j >= 0 && j < source.jetCount) camJet = j;
+      followNow();
+      rig.setMode(mode, follow);
+      opts.onCamera?.(mode);
+      invalidate();
+    },
+    cameraMode: () => rig.mode,
     setRange: (r) => {
       const now = clock.getSnapshot();
       if (r.t0_s === now.start && r.t1_s === now.end) return;
       clock.setRange(r.t0_s, r.t1_s); // t is kept inside the new range; the clock tells the UI and asks for a frame
+      homeBoxKept = undefined; // Home frames the new range from now on
+      rig.refresh();
       invalidate();
     },
     stats:() => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
@@ -377,9 +462,19 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       }
       const p = what === 'jet' ? jets.jetPosition() : what === 'bomb' ? jets.bombPosition() : jets.targetPosition();
       if (!p) return undefined;
-      probe.copy(p).project(rig.camera);
-      if (probe.z < -1 || probe.z > 1) return undefined; // behind the camera or past the far plane
-      return { x: (probe.x * 0.5 + 0.5) * viewW, y: (-probe.y * 0.5 + 0.5) * viewH };
+      return toScreen(probe.copy(p));
+    },
+    projectPoint(x, y, z) {
+      if (disposed || contextLost || fatal) return undefined;
+      if (dirty) {
+        try { draw(0); } catch (err) { fail(err); return undefined; }
+      }
+      return toScreen(probe.set(x, y, z));
+    },
+    debugHome: () => ({ ...homeBoxNow() }),
+    debugCamera: () => {
+      const p = rig.camera.position, t = rig.controls.target;
+      return { x: p.x, y: p.y, z: p.z, target: { x: t.x, y: t.y, z: t.z } };
     },
     dispose() {
       if (disposed) return report!;

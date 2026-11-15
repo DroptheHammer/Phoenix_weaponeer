@@ -29,7 +29,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import {
   ARROW_LEN_M, ARROW_PX, BG, BOMB_LEN_M, BOMB_PX, PATH_PX, PATH_SHADE, TRAIL_CASING_PX, TRAIL_PX, TRAIL_S, jetColor,
-  newSceneBombPose, newSceneJetPose, screenScale, worldPerPixel, type SceneSource,
+  newSceneBombPose, newSceneJetPose, screenScale, worldPerPixel, type SceneJetPose, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
 import { arrowGeometry, bombGeometry, ringGeometry, RING_INNER, RING_SEGMENTS } from './jetGeometry';
@@ -62,6 +62,12 @@ function wideLine(color: Color, px: number): LineMaterial {
 }
 
 export interface JetLayer extends Layer {
+  /**
+   * The jet at the last update's time, three.js axes (the scene's own object,
+   * refilled every update: read, never kept or written). Its position is
+   * valid even while the jet is hidden, so a camera can follow it then.
+   */
+  readonly pose: SceneJetPose;
   /** Where the arrow is now (three.js axes), or undefined while the jet is not shown. */
   jetPosition(): Vector3 | undefined;
   /** Where the bomb is now, or undefined unless it is falling. */
@@ -202,6 +208,8 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
     screenScale(worldPerPixel(ctx.camera.position.distanceTo(p), ctx.camera.fov, ctx.viewH), px, len_m);
 
   return {
+    pose,
+
     update(ctx) {
       src = ctx.source;
       src.jetAt(jet, ctx.t, pose);

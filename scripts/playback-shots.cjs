@@ -155,23 +155,28 @@ const dialogGone = (page) => page.waitForFunction(() => !document.querySelector(
  * Check 1: flat ground, paused, home view: each part of the drape shows its exact colour (no tone
  * mapping, sRGB right). West and north are mirror images about the target's latitude, so a drape
  * drawn upside down (flipY lost, or an ImageBitmap source) cannot pass both; east and west catch a
- * left-right mirror.
+ * left-right mirror. Run with Show › Whole run-in on (the time bar, and so Home, from the start of the
+ * whole run-in), the view these sample points were laid out for; the points are projected through
+ * the live camera. Checks 2 and 3 run in the same state after it.
  *
  * Proven red 2026-11-14, each by one temporary edit to scene/terrainLayer.ts:
  * `texture.colorSpace = SRGBColorSpace` removed (the colours wash out; 3a goes red with it):
  *   STEP FAIL 1 drape colours exact on flat ground (1400x900) — west at (1095,280): median 229,219,196 vs 200,180,140, 0% within 3; north at (1188,373): median 219,208,229 vs 180,160,200, 0% within 3; east at (686,295): median 192,212,179 vs 134,168,115, 0% within 3
  * `texture.flipY = false` added (the drape upside down):
  *   STEP FAIL 1 drape colours exact on flat ground (1400x900) — west at (1095,280): median 180,160,200 vs 200,180,140, 0% within 3; north at (1188,373): median 180,160,200 vs 180,160,200, 100% within 3; east …, 100% within 3
+ * The first proof again once the points were projected through the live camera, Whole run-in on:
+ *   STEP FAIL 1 drape colours exact on flat ground (1400x900) — west at (1220,260): median 229,219,196 vs 200,180,140, 0% within 3; north at (1357,364): median 219,208,229 vs 180,160,200, 0% within 3; east at (755,277): median 192,212,179 vs 134,168,115, 0% within 3
+ *   STEP FAIL 3a hillshade: north-west flank brighter (1400x900) — ground real; NW 202,223,188 (lum 216), flat 157, SE 176,194,164 (lum 188)
  */
 async function checkColours(page, tag) {
-  await pbEval(page, () => { __pb.pause(); __pb.setGround('flat'); __pb.goHome(); __pb.seek(__pb.moments.t0); });
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(true); __pb.setGround('flat'); __pb.goHome(); __pb.seek(__pb.moments.t0); });
   await settle(page, 400);
   const img = await shot(page, `${tag}-01-flat-home`);
   const { samples, colours } = await pbEval(page, () => ({ samples: __pb.samples, colours: __pb.colours }));
   const parts = [];
   let ok = true;
   for (const side of ['west', 'north', 'east']) {
-    const p = await pbEval(page, ([e, n]) => __pb.projectWorld(e, n, 0), samples[side]);
+    const p = await pbEval(page, ([e, n]) => __pb.projectPoint(e, n, 0), samples[side]);
     const want = hex(colours[side]);
     const px = patch(img, p, 4);
     const hits = px.filter((q) => near(q, want, 3)).length / px.length;
@@ -191,12 +196,18 @@ async function checkColours(page, tag) {
  * runs 121); with the arrow shrunk to nothing, the lines alone give 19 / 51 / 51. Proven red by
  * that mutation (jetLayer.ts afterCamera, the arrow's scale × 1e-6):
  *   STEP FAIL 2 jet arrow on screen (1400x900) — start t=-151.2 at 141,549: 19 px; run-in t=-94.0 at 517,442: 51 px; pull-up t=-36.8 at 802,365: 51 px
+ * and again once Home framed the attack's own box (Whole run-in set first; green 170 / 144 / 130 px):
+ *   STEP FAIL 2 jet arrow on screen (1400x900) — start t=-151.2 at 144,573: 19 px; run-in t=-94.0 at 583,444: 53 px; pull-up t=-36.8 at 901,356: 51 px (need 90)
+ *   STEP FAIL 5b after the rebuild, the jet arrow on screen (1400x900-rebuilt) — start t=-151.2 at 174,554: 20 px; run-in …: 53 px; pull-up …: 50 px (need 90)
  * (The first version of this check counted within 20 px, needed 30, and included the release
  * moment beside the ring: with the arrow gone it still passed, on 35 / 99 / 211 px of lines and ring.)
  */
 const ARROW_PATCH = 10;
 const ARROW_MIN = 90;
 async function checkJet(page, tag, label = '2 jet arrow on screen') {
+  // The moments include the whole run-in's start: the time bar must reach back that far (it does after
+  // check 1, and after a rebuild, which keeps the choice; set again so the check stands on its own).
+  await pbEval(page, () => __pb.setRange(true));
   const m = await pbEval(page, () => __pb.moments);
   const parts = [];
   let ok = true;
@@ -225,7 +236,7 @@ async function checkReal(page, tag) {
   const img = await shot(page, `${tag}-03-real-hill`);
   const hill = await pbEval(page, () => {
     const h = __pb.hill, d = (0.8 * h.sigma_m) / Math.SQRT2;
-    const at = (e, n) => __pb.projectWorld(e, n, h.heightAt(e, n));
+    const at = (e, n) => __pb.projectPoint(e, n, h.heightAt(e, n));
     return { nw: at(h.e_m - d, h.n_m + d), se: at(h.e_m + d, h.n_m - d), flat: __pb.colours.east };
   });
   const nw = median(patch(img, hill.nw.map(Math.round), 3));
@@ -383,6 +394,210 @@ async function checkRange(page, tag) {
     `range ${f(m.range.t0_s)}…${f(m.range.t1_s)} (first action ${f(m.firstAction)}), whole run-in ${f(m.t0)}…${f(m.t1)}; at open start ${f(atOpen.start)}, t ${f(atOpen.t)}, end ${f(atOpen.end)}; ticked: start ${f(on.start)}, t ${f(on.t)}, shown ${JSON.stringify(shown?.wholeRunIn)}; unticked: start ${f(off.start)}, t ${f(off.t)}; menu stayed open ${stillOpen}, closed by the button ${closed}`);
 }
 
+/** The canvas's box on the page, CSS pixels. */
+const canvasBox = (page) => page.$eval('[role="dialog"] canvas', (c) => {
+  const r = c.getBoundingClientRect();
+  return { l: r.left, t: r.top, w: r.width, h: r.height };
+});
+/** The camera buttons shown pressed (the speed buttons are pressed too, so they are left out by name). */
+const pressedCamera = (page) => page.$$eval('[role="dialog"] button[aria-pressed="true"]', (els) =>
+  els.map((e) => (e.textContent || '').trim()).filter((s) => /^(Orbit|Top-down|Chase #\d+|From target)$/.test(s)));
+/** How far a page point is from the canvas's middle, as fractions of its width and height. */
+const offCentre = (p, cv) => (p ? [(p[0] - (cv.l + cv.w / 2)) / cv.w, (p[1] - (cv.t + cv.h / 2)) / cv.h] : [NaN, NaN]);
+
+/**
+ * Check 21: playback opens riding behind the jet. With nothing pressed, at open: the playhead at the
+ * start of the default range (±0.05 s), "Chase #1" shown pressed, and the arrow within 3% of the
+ * canvas's middle (the chase camera looks at the jet) with at least ARROW_MIN_CHASE jet-coloured
+ * pixels within ARROW_PATCH px of it. Run first, on the page as it opens.
+ *
+ * ARROW_MIN_CHASE: the arrow is at its real size in Chase (about 418 m off, 17° up), not at the 28 px
+ * Home size ARROW_MIN was measured for. Measured 2026-11-14 on the first green run: 138 px at 1400×900
+ * and 111 px at 1024×768; with the arrow shrunk to nothing (jetLayer.ts afterCamera, scale × 1e-6) the
+ * path and trail alone give 59 / 59 px. 85 sits between with room either side for the software
+ * renderer. To be measured again once the path and trail stop being the jet's colour.
+ *
+ * Proven red 2026-11-14 by one temporary edit to PlaybackView.tsx, the camera's opening mode 'orbit'
+ * in place of openingMode(…) (playback opens at Home):
+ *   STEP FAIL 21 opens in Chase behind #1 at the start of the time bar (1400x900) — t -50.15 (range start -50.15); pressed ["Orbit"]; arrow at 209,563, -35.0% / 24.9% off the middle, 171 px (need 85)
+ */
+const ARROW_MIN_CHASE = 85;
+async function checkOpening(page, tag) {
+  const m = await pbEval(page, () => __pb.moments);
+  const snap = await pbEval(page, () => __pb.snapshot());
+  const pressed = await pressedCamera(page);
+  await settle(page);
+  const p = await pbEval(page, () => __pb.project(0, 'jet'));
+  const cv = await canvasBox(page);
+  const img = await shot(page, `${tag}-21-opens-in-chase`);
+  const n = p ? patch(img, p.map(Math.round), ARROW_PATCH).filter(jetLike).length : 0;
+  const [dx, dy] = offCentre(p, cv);
+  step(`21 opens in Chase behind #1 at the start of the time bar (${tag})`,
+    Math.abs(snap.t - m.range.t0_s) <= 0.05 && pressed.join() === 'Chase #1' && Math.abs(dx) <= 0.03 && Math.abs(dy) <= 0.03 && n >= ARROW_MIN_CHASE,
+    `t ${snap.t.toFixed(2)} (range start ${m.range.t0_s.toFixed(2)}); pressed ${JSON.stringify(pressed)}; arrow at ${p ? p.map(Math.round) : 'none'}, ${(dx * 100).toFixed(1)}% / ${(dy * 100).toFixed(1)}% off the middle, ${n} px (need ${ARROW_MIN_CHASE})`);
+}
+
+/**
+ * Check 22: Home shows the attack. On the default range (10 s before the first action), Home view:
+ * the jet at its first action and at its release, and the target ring, all inside the canvas with
+ * a 5% margin, and the pull-up to the release at least `minSpan` px across (250 at 1400×900, 180 at
+ * 1024×768).
+ *
+ * Proven red 2026-11-14 by one temporary edit to scene/createScene.ts, the Home box built on the
+ * whole window (`homeBox(source, source.window)`, the framing of the old box round every path):
+ *   STEP FAIL 22 Home frames the attack: … ≥ 250 px (1400x900) — canvas [0,45,1400,737]; first action (877,349), release (1017,307), target (1022,309); pull-up to release 128 px
+ *   STEP FAIL 22 … ≥ 180 px (1024x768) — …; pull-up to release 97 px
+ * (green: 459 px and 343 px)
+ */
+async function checkHomeFrame(page, tag, minSpan) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.goHome(); });
+  const m = await pbEval(page, () => __pb.moments);
+  const jetAt = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 100);
+    return pbEval(page, () => __pb.project(0, 'jet'));
+  };
+  const first = await jetAt(m.firstAction);
+  const pop = await jetAt(m.pullUp);
+  const rel = await jetAt(m.release);
+  const tgt = await pbEval(page, () => __pb.project(0, 'target'));
+  await shot(page, `${tag}-22-home`);
+  const cv = await canvasBox(page);
+  const inside = (q) => !!q && q[0] >= cv.l + 0.05 * cv.w && q[0] <= cv.l + 0.95 * cv.w && q[1] >= cv.t + 0.05 * cv.h && q[1] <= cv.t + 0.95 * cv.h;
+  const span = pop && rel ? Math.hypot(pop[0] - rel[0], pop[1] - rel[1]) : 0;
+  const fmt = (q) => (q ? `(${q.map(Math.round)})` : 'none');
+  step(`22 Home frames the attack: first action, release and target inside, pull-up to release ≥ ${minSpan} px (${tag})`,
+    inside(first) && inside(rel) && inside(tgt) && span >= minSpan,
+    `canvas [${[cv.l, cv.t, cv.l + cv.w, cv.t + cv.h].map(Math.round)}]; first action ${fmt(first)}, release ${fmt(rel)}, target ${fmt(tgt)}; pull-up to release ${span.toFixed(0)} px`);
+}
+
+/**
+ * Check 27: the wheel zooms toward the cursor. Orbit at Home, the mouse on the target ring, five
+ * notches in (deltaY −100 each): the camera's distance to the point it turns round drops by at least
+ * 35% (0.95^(2·5) = 0.599 at zoom speed 2, so about 40% is expected), and the target stays under the
+ * cursor (its screen point moves at most 30 px). Not the distance to the target itself: it lies beyond
+ * the orbit point and drops less.
+ *
+ * Proven red 2026-11-14 by one temporary edit to src/lib/playbackScene/cameraMath.ts, orbit's
+ * `zoomToCursor: true` → `false` (the wheel zooms toward the middle of the view):
+ *   STEP FAIL 27 the wheel zooms toward the cursor: … (1400x900) — orbit distance 11.04 → 6.61 km (40.1% closer, want ≥ 35%); target 946,352 → 1067,333 (122.4 px, want ≤ 30)
+ * Measured green the same day: 36.6% closer at 1400×900 and 36.9% at 1024×768 (the cursor zoom moves
+ * the orbit point onto the ground under the cursor, so the distance to it drops a little less than
+ * the 40.1% the radius alone gives), target moved 0.5 / 0.3 px. The drop depends on how far off the
+ * middle the cursor is: with Home on the whole window (the target far right) it was 33.3% / 33.9%,
+ * under the 35% floor, so this check holds only for Home on the default range, as it is run.
+ */
+async function checkWheel(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.goHome(); });
+  await settle(page);
+  const dist = (c) => Math.hypot(c.x - c.target.x, c.y - c.target.y, c.z - c.target.z);
+  const t0 = await pbEval(page, () => __pb.project(0, 'target'));
+  const c0 = await pbEval(page, () => __pb.camera());
+  let t1 = null, c1 = c0;
+  if (t0) {
+    await page.mouse.move(t0[0], t0[1]);
+    for (let i = 0; i < 5; i++) {
+      await page.mouse.wheel(0, -100);
+      await page.waitForTimeout(80);
+    }
+    await settle(page);
+    t1 = await pbEval(page, () => __pb.project(0, 'target'));
+    c1 = await pbEval(page, () => __pb.camera());
+  }
+  await shot(page, `${tag}-27-wheel`);
+  const drop = 1 - dist(c1) / dist(c0);
+  const moved = t0 && t1 ? Math.hypot(t1[0] - t0[0], t1[1] - t0[1]) : Infinity;
+  step(`27 the wheel zooms toward the cursor: 5 notches on the target, 35% closer, target stays put (${tag})`,
+    drop >= 0.35 && moved <= 30,
+    `orbit distance ${(dist(c0) / 1000).toFixed(2)} → ${(dist(c1) / 1000).toFixed(2)} km (${(drop * 100).toFixed(1)}% closer, want ≥ 35%); target ${t0 ? t0.map(Math.round) : 'none'} → ${t1 ? t1.map(Math.round) : 'none'} (${moved.toFixed(1)} px, want ≤ 30)`);
+  await pbEval(page, () => __pb.goHome());
+}
+
+/**
+ * Checks 15a and 15c, one jet. 15a: Chase #1 pressed, a second of play at 4× from the start of the time
+ * bar: the arrow stays within 15% of the canvas's middle (the camera rides with the jet). At 4×, not
+ * 1×: the software renderer's second at 1× moves the jet about 160 m, and a camera left behind by that
+ * much still has the arrow within about 10% of the middle, so the check could not fail. 15c: From target
+ * pressed: #1's arrow is on screen (its point projects inside the canvas), looked at from its target.
+ * The jet-coloured pixels round it are printed, not tested: there the jet is about 10 km off, low by
+ * the horizon, and the count was the same with the arrow shrunk to nothing (36 / 32 px against
+ * 33 / 32), so it is the path's, and a pixel floor could not fail.
+ *
+ * 15a proven red 2026-11-14 by one temporary edit to scene/cameraRig.ts, the chase step (carry along,
+ * swing round, re-aim) skipped each frame, so the camera stays where Chase put it:
+ *   STEP FAIL 15a Chase #1: after a second of play the arrow stays near the middle (1400x900) — pressed true; played 2.47 s; arrow at 976,254, 19.7% / -19.8% off the middle (want ≤ 15%)
+ *   STEP FAIL 15a … (1024x768) — pressed true; played 2.90 s; arrow at 751,206, 23.4% / -21.3% off the middle (want ≤ 15%)
+ * 15c proven red 2026-11-14 by one temporary edit to scene/cameraRig.ts, placeTarget's
+ * `this.camera.lookAt(follow.jet)` taken out (the camera keeps the last mode's direction):
+ *   STEP FAIL 15c From target: #1's arrow on screen (1400x900) — pressed true; arrow at none in canvas [0,45,1400,737]: on screen false; 0 jet-coloured px round it (printed only)
+ */
+async function checkCameras(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.setSpeed(4); __pb.seek(__pb.snapshot().start); });
+  await page.getByRole('button', { name: 'Chase #1', exact: true }).click();
+  const chasePressed = (await pressedCamera(page)).join() === 'Chase #1';
+  const played = await pbEval(page, async () => {
+    const t0 = __pb.snapshot().t;
+    __pb.play();
+    await new Promise((r) => setTimeout(r, 1000));
+    __pb.pause();
+    return __pb.snapshot().t - t0;
+  });
+  await pbEval(page, () => __pb.setSpeed(1));
+  await settle(page);
+  const cv = await canvasBox(page);
+  const p = await pbEval(page, () => __pb.project(0, 'jet'));
+  await shot(page, `${tag}-15a-chase`);
+  const [dx, dy] = offCentre(p, cv);
+  step(`15a Chase #1: after a second of play the arrow stays near the middle (${tag})`,
+    chasePressed && played > 0 && Math.abs(dx) <= 0.15 && Math.abs(dy) <= 0.15,
+    `pressed ${chasePressed}; played ${played.toFixed(2)} s; arrow at ${p ? p.map(Math.round) : 'none'}, ${(dx * 100).toFixed(1)}% / ${(dy * 100).toFixed(1)}% off the middle (want ≤ 15%)`);
+
+  await page.getByRole('button', { name: 'From target', exact: true }).click();
+  await settle(page, 300);
+  const q = await pbEval(page, () => __pb.project(0, 'jet'));
+  const img = await shot(page, `${tag}-15c-from-target`);
+  const onScreen = !!q && q[0] >= cv.l && q[0] <= cv.l + cv.w && q[1] >= cv.t && q[1] <= cv.t + cv.h;
+  const n = onScreen ? patch(img, q.map(Math.round), ARROW_PATCH).filter(jetLike).length : 0;
+  const targetPressed = (await pressedCamera(page)).join() === 'From target';
+  step(`15c From target: #1's arrow on screen (${tag})`, targetPressed && onScreen,
+    `pressed ${targetPressed}; arrow at ${q ? q.map(Math.round) : 'none'} in canvas [${[cv.l, cv.t, cv.l + cv.w, cv.t + cv.h].map(Math.round)}]: on screen ${onScreen}; ${n} jet-coloured px round it (printed only)`);
+  await pbEval(page, () => __pb.goHome());
+}
+
+/**
+ * Check 17 (one jet): pressing a camera button leaves Space to play and pause, and Escape still closes
+ * playback (never the editor). Playback is closed and opened first, so the keyboard focus is where
+ * opening puts it; it is left open again at the end.
+ *
+ * Proven red 2026-11-14 by one temporary edit to ViewToolbar.tsx, the camera buttons'
+ * `onMouseDown={keepFocus}` taken out (the click focuses the button, and Space presses it again):
+ *   STEP FAIL 17 after Chase is clicked, Space plays and pauses and Escape closes playback, not the editor — Space played false, paused true; Escape closed true; editor Escapes 0 → 0
+ */
+async function checkChaseKeys(page) {
+  const esc = async () => (await pbEval(page, () => __pb.counters)).editorEscapes;
+  await page.keyboard.press('Escape');
+  await dialogGone(page);
+  await page.click('[data-testid="opener"]');
+  await page.waitForSelector('[role="dialog"]');
+  await waitReady(page);
+  const e0 = await esc();
+  await pbEval(page, () => __pb.pause());
+  await page.getByRole('button', { name: 'Chase #1', exact: true }).click();
+  await page.keyboard.press(' ');
+  const playing = (await pbEval(page, () => __pb.snapshot())).playing;
+  await page.keyboard.press(' ');
+  const paused = !(await pbEval(page, () => __pb.snapshot())).playing;
+  await page.keyboard.press('Escape');
+  const closed = await dialogGone(page).then(() => true, () => false);
+  const e1 = await esc();
+  if (!closed) await pbEval(page, () => __pb.close());
+  await page.click('[data-testid="opener"]');
+  await page.waitForSelector('[role="dialog"]');
+  await waitReady(page);
+  step('17 after Chase is clicked, Space plays and pauses and Escape closes playback, not the editor', playing && paused && closed && e1 === e0,
+    `Space played ${playing}, paused ${paused}; Escape closed ${closed}; editor Escapes ${e0} → ${e1}`);
+}
+
 /**
  * Check 30: Escape belongs to the Show panel while it is open. Opened with the mouse: Escape closes
  * the panel and leaves playback open and the editor's own Escape untouched; the next Escape closes
@@ -453,8 +668,8 @@ async function checkShowKeys(page) {
 
 /**
  * Check 31: with the Show panel open the view's own buttons fit. The panel lies inside the picture;
- * the Home view and Show buttons lie inside it too and clear of the title plate (to its right); the
- * dev frame-time box (bottom right, shown here because the checks run on the dev server; the check
+ * the toolbar (the four cameras, Home view and Show) lies inside it too and clear of the title plate
+ * (to its right); the dev frame-time box (bottom right, shown here because the checks run on the dev server; the check
  * plays a second first so there is a frame time to show) does not touch them; and every button on
  * the page lies inside the window. Run at both sizes; 1024×768 is the tight one.
  *
@@ -467,6 +682,9 @@ async function checkShowKeys(page) {
  *   STEP FAIL 31 … (1024x768) — canvas [0,45,1024,605], panel [796,85,1084,151], buttons [868,53,1012,79], title [12,53,107,77], frame-time [787,577,1012,597]
  * (Taking `max-h-[…]` out of MENU_PANEL cannot fail this check yet: the panel holds one choice and
  * is short. It becomes a proof once the panel holds enough to need scrolling.)
+ * With the camera buttons in the toolbar, the second proof again (2026-11-14, `justify-start pl-3`):
+ *   STEP FAIL 31 … (1024x768) — canvas [0,45,1024,605], panel [724,85,1012,151], buttons [12,53,449,79], title [12,53,107,77], frame-time [787,577,1012,597]
+ * (green at 1024×768: buttons [575,53,1012,79], 468 px clear of the title's right edge.)
  */
 async function checkToolbarFit(page, tag, w, h) {
   await pbEval(page, async () => {
@@ -490,11 +708,13 @@ async function checkToolbarFit(page, tag, w, h) {
     const buttons = [...dialog.querySelectorAll('button')];
     const byText = (s) => buttons.find((b) => (b.textContent || '').trim() === s);
     const frame = [...dialog.querySelectorAll('div')].find((d) => d.children.length === 0 && /^dev: /.test((d.textContent || '').trim()));
+    // The toolbar's buttons: the four cameras, Home view and Show.
+    const toolbar = ['Orbit', 'Top-down', 'From target', 'Home view', 'Show ▾'].map(byText)
+      .concat(buttons.filter((b) => /^Chase #\d+$/.test((b.textContent || '').trim())));
     return {
       canvas: box(dialog.querySelector('canvas')),
       panel: box(dialog.querySelector('#pb-show')),
-      home: box(byText('Home view')),
-      show: box(byText('Show ▾')),
+      toolbar: toolbar.map(box),
       title: box(dialog.querySelector('[class*="max-w-"]')),
       frame: box(frame),
       buttons: buttons.map((b) => ({ name: (b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 24), ...box(b) })),
@@ -503,8 +723,10 @@ async function checkToolbarFit(page, tag, w, h) {
   await page.getByRole('button', { name: 'Show ▾' }).click(); // shut again
   const inside = (a, o) => a && o && a.l >= o.l - 0.5 && a.t >= o.t - 0.5 && a.r <= o.r + 0.5 && a.b <= o.b + 0.5;
   const touch = (a, o) => a.l < o.r && a.r > o.l && a.t < o.b && a.b > o.t;
-  const found = r.canvas && r.panel && r.home && r.show && r.title && r.frame;
-  const tool = found ? { l: Math.min(r.home.l, r.show.l), t: Math.min(r.home.t, r.show.t), r: Math.max(r.home.r, r.show.r), b: Math.max(r.home.b, r.show.b) } : null;
+  const found = r.canvas && r.panel && r.toolbar.length === 6 && r.toolbar.every(Boolean) && r.title && r.frame;
+  const tool = found
+    ? { l: Math.min(...r.toolbar.map((b) => b.l)), t: Math.min(...r.toolbar.map((b) => b.t)), r: Math.max(...r.toolbar.map((b) => b.r)), b: Math.max(...r.toolbar.map((b) => b.b)) }
+    : null;
   const outside = r.buttons.filter((b) => b.l < 0 || b.t < 0 || b.r > w + 0.5 || b.b > h + 0.5);
   const ok = !!found && inside(r.panel, r.canvas) && inside(tool, r.canvas) && r.title.r < tool.l && !touch(r.frame, tool) && outside.length === 0;
   const fmt = (b) => (b ? `[${[b.l, b.t, b.r, b.b].map(Math.round)}]` : 'missing');
@@ -512,8 +734,8 @@ async function checkToolbarFit(page, tag, w, h) {
     `canvas ${fmt(r.canvas)}, panel ${fmt(r.panel)}, buttons ${tool ? fmt(tool) : 'missing'}, title ${fmt(r.title)}, frame-time ${fmt(r.frame)}${outside.length ? `; outside the window: ${outside.map((b) => b.name).join(', ')}` : ''}`);
 }
 
-/** Check 5: a lost WebGL context is rebuilt when it comes back, and the jet is drawn again. */
-async function checkContextLoss(page, tag) {
+/** Lose the WebGL context, give it back, and wait for the rebuilt scene: true when it came back. */
+async function loseAndRestore(page) {
   const before = await pbEval(page, () => __pb.stats().sceneCreates);
   const lostOk = await pbEval(page, () => __pb.loseContext());
   await page.waitForTimeout(400);
@@ -527,8 +749,44 @@ async function checkContextLoss(page, tag) {
     remounted = false;
   }
   const after = await pbEval(page, () => __pb.stats().sceneCreates);
-  step('5a context loss: "restoring" shown, then the scene rebuilt', lostOk && restoring && remounted, `lose ${lostOk}, note shown ${restoring}, sceneCreates ${before} → ${after}`);
-  if (remounted) await checkJet(page, `${tag}-rebuilt`, '5b after the rebuild, the jet arrow on screen');
+  return { lostOk, restoring, remounted, before, after };
+}
+
+/**
+ * Check 5: a lost WebGL context is rebuilt when it comes back, and the jet is drawn again (5a, 5b).
+ * 5c: the rebuilt scene keeps the camera mode, Show › Whole run-in and the time bar's range: with
+ * Top-down pressed and Whole run-in on, after a loss and a rebuild Top-down is still pressed and the
+ * camera still looks straight down (its point within 1% of its height to one side), Whole run-in is
+ * still on, and the time bar starts and ends where it did.
+ *
+ * 5c proven red 2026-11-14 by one temporary edit to PlaybackView.tsx, the camera handed to the scene
+ * made once at open (`useMemo(() => ({ mode, jet: WATCHED_JET }), [])`: a rebuild opens in Chase again):
+ *   STEP FAIL 5c after a rebuild: the camera mode, Whole run-in and the time bar are kept — rebuilt true (sceneCreates 10 → 12); pressed ["Top-down"] → ["Chase #1"]; camera lean 3.3333 of its height; Whole run-in true → true; time bar -151.15…40.00 → -151.15…40.00
+ * (5b goes red with it: its rebuild opened in Chase instead of at Home.)
+ */
+async function checkContextLoss(page, tag) {
+  const a = await loseAndRestore(page);
+  step('5a context loss: "restoring" shown, then the scene rebuilt', a.lostOk && a.restoring && a.remounted, `lose ${a.lostOk}, note shown ${a.restoring}, sceneCreates ${a.before} → ${a.after}`);
+  if (!a.remounted) return;
+  await checkJet(page, `${tag}-rebuilt`, '5b after the rebuild, the jet arrow on screen');
+
+  await pbEval(page, () => __pb.setRange(true));
+  await page.getByRole('button', { name: 'Top-down', exact: true }).click();
+  await settle(page);
+  const was = await pbEval(page, () => ({ snap: __pb.snapshot(), whole: __pb.show().wholeRunIn }));
+  const wasPressed = await pressedCamera(page);
+  const b = await loseAndRestore(page);
+  await settle(page);
+  const now = await pbEval(page, () => ({ snap: __pb.snapshot(), whole: __pb.show().wholeRunIn, cam: __pb.camera() }));
+  const nowPressed = await pressedCamera(page);
+  const c = now.cam;
+  const lean = c ? Math.hypot(c.x - c.target.x, c.z - c.target.z) / Math.max(1e-9, c.y - c.target.y) : Infinity;
+  const same = (x, y) => Math.abs(x - y) <= 0.01;
+  step('5c after a rebuild: the camera mode, Whole run-in and the time bar are kept',
+    b.remounted && wasPressed.join() === 'Top-down' && nowPressed.join() === 'Top-down' && lean < 0.01 && was.whole === true && now.whole === true &&
+      same(now.snap.start, was.snap.start) && same(now.snap.end, was.snap.end),
+    `rebuilt ${b.remounted} (sceneCreates ${b.before} → ${b.after}); pressed ${JSON.stringify(wasPressed)} → ${JSON.stringify(nowPressed)}; camera lean ${lean.toFixed(4)} of its height; Whole run-in ${was.whole} → ${now.whole}; time bar ${was.snap.start.toFixed(2)}…${was.snap.end.toFixed(2)} → ${now.snap.start.toFixed(2)}…${now.snap.end.toFixed(2)}`);
+  await pbEval(page, () => __pb.goHome());
 }
 
 /**
@@ -626,10 +884,18 @@ async function runChecks(browser, base) {
     const tag = `${w}x${h}`;
     const { context, page, problems } = await openPage(browser, `${base}?tiles=synthetic&notes=1`, w, h);
     step(`ready (${tag})`, true, JSON.stringify(await pbEval(page, () => __pb.terrain())));
-    // First, on the page as it opens: 29 reads the range before anything moves the playhead, and 30
-    // needs the keyboard focus where playback left it (a scrub, later, puts it on the scrubber).
+    // First, on the page as it opens: 21 reads the camera and 29 the range before anything moves the
+    // playhead, and 30 and 17 need the keyboard focus where playback left it (a scrub, later, puts it
+    // on the scrubber).
+    await checkOpening(page, tag);
     await checkRange(page, tag);
-    if (w === 1400) await checkShowKeys(page);
+    if (w === 1400) {
+      await checkShowKeys(page);
+      await checkChaseKeys(page);
+    }
+    await checkHomeFrame(page, tag, w === 1400 ? 250 : 180);
+    await checkWheel(page, tag);
+    await checkCameras(page, tag);
     await checkColours(page, tag);
     await checkJet(page, tag);
     await checkReal(page, tag);

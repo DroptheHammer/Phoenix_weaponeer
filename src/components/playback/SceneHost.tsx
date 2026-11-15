@@ -12,7 +12,7 @@
  */
 import { memo, useEffect, useRef } from 'react';
 import type { StrikeWindow } from '../../lib/playback';
-import type { SceneSource, TileSource } from '../../lib/playbackScene';
+import type { CameraMode, SceneSource, TileSource } from '../../lib/playbackScene';
 import { createPlaybackScene, type PlaybackScene, type TerrainStatus } from './scene/createScene';
 
 export interface SceneHostProps {
@@ -30,8 +30,12 @@ export interface SceneHostProps {
   range?: StrikeWindow;
   /** Strike time to open at, s (kept across a remount). */
   startAt_s?: number;
+  /** The camera to open in and the jet it follows (after a remount, the mode in force before it). */
+  camera?: { mode: CameraMode; jet: number };
   /** The scene once made, and null when it is freed. */
   onReady(scene: PlaybackScene | null): void;
+  /** The camera's mode changed. */
+  onCamera(mode: CameraMode): void;
   onFatal(err: unknown): void;
   onTerrain(s: TerrainStatus): void;
   onContextLost(): void;
@@ -41,7 +45,7 @@ export interface SceneHostProps {
 export const SceneHost = memo(function SceneHost(props: SceneHostProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   // The callbacks are read through this at call time, so they are always the latest;
-  // the source, tiles, jet, range and start time are read once, at mount, on purpose.
+  // the source, tiles, jet, range, start time and camera are read once, at mount, on purpose.
   const latest = useRef(props);
   latest.current = props;
 
@@ -55,6 +59,8 @@ export const SceneHost = memo(function SceneHost(props: SceneHostProps) {
       colorIndex: p.colorIndex,
       range: p.range,
       startAt_s: p.startAt_s,
+      camera: p.camera,
+      onCamera: (m) => latest.current.onCamera(m),
       onFatal: (e) => latest.current.onFatal(e),
       onTerrain: (s) => latest.current.onTerrain(s),
       onContextLost: () => latest.current.onContextLost(),

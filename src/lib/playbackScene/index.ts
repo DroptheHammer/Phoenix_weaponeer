@@ -6,7 +6,8 @@
  * stays a thin layer over it.
  *
  * File map: playClock (play, pause, seek, speed), cameraMath (home pose,
- * pixel size, arrow scale, near plane), sceneStyle (colours and sizes),
+ * pixel size, arrow scale, near plane, the four camera modes' limits and
+ * poses), sceneStyle (colours and sizes),
  * source (the only file that knows the playback library's sampling names),
  * actionPoints (each jet's first action, the moments that carry the
  * planner's words, the stretch of the clock that is played), homeView (what

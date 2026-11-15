@@ -4,15 +4,19 @@
  * press (the PlaybackLaunch), never the stores, so what plays is exactly what
  * the editor showed, and the dev harness can mount it with a made-up plan.
  *
- * Layout: the 3D scene fills the space, with the Home view and Show buttons
- * over its top right; under it, the timeline (play, pause, scrub, speeds) and
- * the small print (what ground is drawn, the Real | Flat switch, the theater
- * warnings, the credits). Fits a 1024×768 window. The overlay around it has the
- * title bar and the Close button.
+ * Layout: the 3D scene fills the space, with the camera buttons, Home view and
+ * Show over its top right; under it, the timeline (play, pause, scrub, speeds)
+ * and the small print (what ground is drawn, the Real | Flat switch, the
+ * theater warnings, the credits). Fits a 1024×768 window. The overlay around it
+ * has the title bar and the Close button.
  *
  * The time bar (the clock's range) starts 10 s before the earliest first action
  * of the jets flown, not at the start of the whole run-in; Show › Whole run-in
  * widens it. The Show choices live here, for as long as the playback is open.
+ *
+ * It opens riding behind the watched jet (Chase) at the start of the time bar,
+ * unless that jet is not in the picture yet then: it opens at Home instead,
+ * rather than on empty sky. The camera in use outlives a rebuilt scene.
  *
  * Failures stay inside playback: nothing to fly gives a plain sentence; a
  * frame or shader that breaks is thrown into the local error boundary; a lost
@@ -22,14 +26,15 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { buildStrikePlayback, retime, strikeEvents, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
-  initShow, playRange, sceneSourceFrom, showReducer,
-  type GroundMode, type SceneSource, type ShowAction, type ShowState, type TileSource,
+  initShow, openingMode, playRange, sceneSourceFrom, showReducer,
+  type CameraMode, type GroundMode, type SceneSource, type ShowAction, type ShowState, type TileSource,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
 import { tauriTiles } from './terrain/tauriTiles';
 import { SceneHost } from './SceneHost';
 import { Timeline, type TimelineTick } from './Timeline';
 import { ViewToolbar } from './ViewToolbar';
+import { CanvasChips } from './CanvasChips';
 import { StatusNotes } from './StatusNotes';
 import { PlaybackUnavailable } from './PlaybackErrorBoundary';
 import { probeWebGL2 } from './webgl';
@@ -53,6 +58,8 @@ export interface PlaybackViewOwnProps extends PlaybackViewProps {
 
 /** How long a lost WebGL context may stay away before playback offers Try again. */
 const RESTORE_WAIT_MS = 5000;
+/** The jet the cameras follow (a playback index): the one jet flown. */
+const WATCHED_JET = 0;
 
 type Built =
   | { ok: true; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; ticks: TimelineTick[]; title: string }
@@ -107,6 +114,10 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
   const [show, dispatchShow] = useReducer(showReducer, undefined, initShow);
   // The clock's range as the Show choices stand: a rebuilt scene opens with the range in force now.
   const range = useMemo(() => (built.ok ? playRange(built.pb, built.timing, show.wholeRunIn) : undefined), [built, show.wholeRunIn]);
+  // The camera in use, as the scene reports it. It opens in Chase when the watched jet is in the picture at
+  // the range's start, else at Home; a rebuilt scene opens in the mode in force.
+  const [mode, setMode] = useState<CameraMode>(() => (built.ok && range ? openingMode(built.source, range, WATCHED_JET) : 'orbit'));
+  const camera = useMemo(() => ({ mode, jet: WATCHED_JET }), [mode]);
 
   const [scene, setScene] = useState<PlaybackScene | null>(null);
   const [terrain, setTerrain] = useState<TerrainStatus>();
@@ -124,6 +135,8 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
     setScene(s);
   }, []);
   const onFatal = useCallback((e: unknown) => setFatal(e instanceof Error ? e : new Error(String(e))), []);
+  const onCamera = useCallback((m: CameraMode) => setMode(m), []);
+  const pickCamera = useCallback((m: CameraMode) => sceneRef.current?.setCamera(m, WATCHED_JET), []);
   const onTerrain = useCallback((s: TerrainStatus) => setTerrain(s), []);
   const onContextLost = useCallback(() => setLost('restoring'), []);
   const rebuild = useCallback(() => {
@@ -186,7 +199,9 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
           colorIndex={launch?.colorIndex ?? 0}
           range={range}
           startAt_s={resumeAt.current}
+          camera={camera}
           onReady={onReady}
+          onCamera={onCamera}
           onFatal={onFatal}
           onTerrain={onTerrain}
           onContextLost={onContextLost}
@@ -194,7 +209,10 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
         />
         {/* On its own dark plate: behind it can be the navy sky, the pale haze or the map. */}
         <div className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
-        {scene && <ViewToolbar scene={scene} show={show} dispatch={act} />}
+        {scene && <CanvasChips scene={scene} source={built.source} jet={WATCHED_JET} mode={mode} />}
+        {scene && (
+          <ViewToolbar scene={scene} show={show} dispatch={act} mode={mode} seat={built.source.labelOf(WATCHED_JET)} onMode={pickCamera} />
+        )}
         {import.meta.env.DEV && scene && <FrameTime scene={scene} />}
         {!scene && <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">Starting 3D…</div>}
         {lost === 'stuck' && (
