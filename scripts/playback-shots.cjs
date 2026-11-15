@@ -119,7 +119,7 @@ function median(px) {
 }
 // The arrow is the jet's colour on top and darker shades of it underneath and on the fin: cyan
 // whatever the shade. Neither drape colour nor the navy background passes this. The target ring
-// does (it is the jet's colour too); the path and the trail did until they took the planner's
+// did until it took the planner's red, and the path and the trail did until they took the planner's
 // colours: see check 2 for how it allowed for them.
 const jetLike = (p) => p[2] > p[0] + 80 && p[1] > p[0] + 80 && Math.abs(p[1] - p[2]) < 70;
 
@@ -231,6 +231,11 @@ async function checkJet(page, tag, label = '2 jet arrow on screen') {
  *
  * 3b proven red 2026-11-14 (jetLayer.ts placeRing, the ring's centre moved 600 m east: `ringCentre.set(t.x + 600, …)`):
  *   STEP FAIL 3b bomb's last sample at the target ring (1400x900) — on screen 10.8 px apart 0.05 s before impact; in the world 0.29 m apart 1 ms before impact; target at height 0.00 m
+ * The ring is the target layer's since it took the planner's red (one ring per distinct target, read
+ * through `project(0, 'target')` as before). Proven red again on it 2026-11-14 (scene/targetLayer.ts
+ * placeRing, `mk.ringCentre.set(t.x + 600, …)`):
+ *   STEP FAIL 3b bomb's last sample at the target ring (1400x900) — on screen 12.5 px apart 0.05 s before impact; in the world 0.29 m apart 1 ms before impact; target at height 0.00 m (the ground there is 0)
+ *   STEP FAIL 3b … (1024x768) — on screen 9.2 px apart 0.05 s before impact; …
  */
 async function checkReal(page, tag) {
   await pbEval(page, () => { __pb.setGround('real'); __pb.goHome(); __pb.seek(__pb.moments.t0); });
@@ -713,6 +718,45 @@ async function checkColourCode(page, tag) {
 }
 
 /**
+ * Check 24: the planner's red target, standing up. Home on the default range, paused at its start:
+ * within 14 px of where the scene projects the top of the target's post (`project(0, 'targetMark')`)
+ * at least TGT_MIN pixels are the planner's TGT red (the disc, 12 px across its radius, filled red);
+ * the overlay drew its disc there (its own record within 1 px of that point) and its tag reads
+ * "TGT1 · #1" (the waypoint's name, then the seat). The predicate matches neither drape colour, its
+ * hillshade, nor the navy background; the ring and the post are red too, but the ring lies about 40 px
+ * lower on screen and the post runs down from under the disc.
+ *
+ * Measured 2026-11-14 on the first green run: 369 red px at 1400×900, 370 at 1024×768. Proven red the
+ * same day by one temporary edit to scene/labelLayer.ts, the disc filled in the jet's seat colour
+ * (`disc(v.x, v.y, r, '#22d3ee', …)`, JET_COLORS[0]) instead of MARKER_COLOR.TGT:
+ *   STEP FAIL 24 the planner's red TGT disc on its post, tagged with the target and its seat (1400x900) — disc at 955,321: 0 red px within 14 px (need 120); overlay 1 target(s), first "TGT1 · #1" 0.00 px from the projected point
+ *   STEP FAIL 24 … (1024x768) — disc at 705,256: 0 red px within 14 px (need 120); …
+ */
+const redLike = (p) => p[0] > 180 && p[1] < 100 && p[2] < 100;
+const TGT_MIN = 120;
+async function checkTargetMark(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.goHome(); __pb.seek(__pb.moments.range.t0_s); });
+  await settle(page, 300);
+  const p = await pbEval(page, () => __pb.project(0, 'targetMark'));
+  const labels = await pbEval(page, () => __pb.debugLabels());
+  const cv = await canvasBox(page);
+  const img = await shot(page, `${tag}-24-target-mark`);
+  let n = 0;
+  if (p) {
+    const [cx, cy] = p.map(Math.round), R = 14;
+    for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
+      if (x < 0 || y < 0 || x >= img.width || y >= img.height || Math.hypot(x - p[0], y - p[1]) > R) continue;
+      if (redLike(img.at(x, y))) n++;
+    }
+  }
+  const t0 = labels && labels.targets[0];
+  const drawnAt = t0 && p ? Math.hypot(cv.l + t0.x - p[0], cv.t + t0.y - p[1]) : Infinity;
+  step(`24 the planner's red TGT disc on its post, tagged with the target and its seat (${tag})`,
+    n >= TGT_MIN && !!t0 && t0.tag === 'TGT1 · #1' && drawnAt <= 1 && labels.targets.length === 1,
+    `disc at ${p ? p.map(Math.round) : 'none'}: ${n} red px within 14 px (need ${TGT_MIN}); overlay ${labels ? labels.targets.length : 'none'} target(s), first ${t0 ? `"${t0.tag}" ${drawnAt.toFixed(2)} px from the projected point` : 'none'}`);
+}
+
+/**
  * Check 27: the wheel zooms toward the cursor. Orbit at Home, the mouse on the target ring, five
  * notches in (deltaY −100 each): the camera's distance to the point it turns round drops by at least
  * 35% (0.95^(2·5) = 0.599 at zoom speed 2, so about 40% is expected), and the target stays under the
@@ -1108,7 +1152,8 @@ async function checkOverlay(page) {
 
   // Clicks inside playback never reach the ancestor's onClick.
   const a0 = (await c()).ancestorClicks;
-  const cv = await page.locator('[role="dialog"] canvas').boundingBox();
+  // The first canvas is the 3D one; the labels' overlay canvas lies over it and lets clicks through.
+  const cv = await page.locator('[role="dialog"] canvas').first().boundingBox();
   await page.mouse.click(cv.x + cv.width / 2, cv.y + cv.height / 2);
   await page.getByRole('button', { name: 'Home view' }).click();
   await page.getByRole('button', { name: '2×' }).click();
@@ -1158,6 +1203,7 @@ async function runChecks(browser, base) {
     }
     await checkHomeFrame(page, tag, w === 1400 ? 250 : 180);
     await checkColourCode(page, tag);
+    await checkTargetMark(page, tag);
     await checkWheel(page, tag);
     await checkCameras(page, tag);
     await checkColours(page, tag);
@@ -1187,7 +1233,7 @@ async function runLive(browser, base) {
   await settle(page, 1500);
   await page.screenshot({ path: shotPath('live-01-home') });
   // A low view: drag up to bring the camera down toward the horizon, then wheel in.
-  const cv = await page.locator('[role="dialog"] canvas').boundingBox();
+  const cv = await page.locator('[role="dialog"] canvas').first().boundingBox();
   const cx = cv.x + cv.width / 2, cy = cv.y + cv.height / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down();

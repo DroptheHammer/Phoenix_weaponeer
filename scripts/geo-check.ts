@@ -127,6 +127,7 @@ import {
   FIRST_ACTION_FALLBACK_S, RUN_LEAD_S, HOME_AFTER_S, type ShowState,
 } from '../src/lib/playbackScene';
 import { ANCHOR_VERTICES, PATH_STEP_S, LINE_CASING } from '../src/lib/playbackScene';
+import { groupTargets, targetTag, targetPost, letterInk, TARGET_STAND_PX, TARGET_GROUP_M, DISC_EDGE } from '../src/lib/playbackScene';
 import {
   laneMarks, laneBands, laneChips, placeChips, pinnedGroup, axisFraction, axisTime, chipWidth, CHIP_GAP_PX, CHIP_TEXT, BAND_OUTLINE, DIAMOND_EDGE, IP_TEXT,
   PANEL, HATCH_RGB, HATCH_ALPHA, MENU_BG, PIN_MARK_PX, type Axis, type SeatMarks,
@@ -7812,6 +7813,78 @@ void (async () => {
     ok('playback B3 [CT1]: every colour the timeline draws stands off its background (the panel, tailwind\'s dcs-navy): 3:1 for graphics, 4.5:1 for text, in all three visions; the band, diamond and IP chip through their outlines',
        tailwindNavy?.toLowerCase() === PANEL && ct1Bad.length === 0,
        ct1Bad.length ? ct1Bad.map((p) => `${p.id} ${p.worst.toFixed(2)} (${p.kind}, want ${CONTRAST_FLOOR[p.kind]})`).join('; ') : `tailwind navy ${tailwindNavy} = the panel; ${ct1.length} pairs, worst graphic ${Math.min(...ct1.filter((p) => p.kind === 'graphic').map((p) => p.worst)).toFixed(2)}, worst text ${Math.min(...ct1.filter((p) => p.kind === 'text').map((p) => p.worst)).toFixed(2)}`);
+
+    // ── The target mark (source.ts: seats and the distinct targets; targets.ts: grouping, the tag, the
+    // post; callouts.ts: the letters' ink).
+
+    // [S1] A jet's seat is its place among every member of the strike, skipped ones included: on the
+    // skip variant (#2 not flown) the second flown jet is #3, at seat 2, and wears #3's colour; the
+    // seat labels are every member's. On the four-ship each jet's seat is its index.
+    // Mutation proof: source.ts `seatOf: (jet) => seats[jet]` → `seatOf: (jet) => jet`, seen red 2026-11-14:
+    //   FAIL playback B3 [S1]: … skip variant: seats 0,1 (want 0,2), labels #1 #2 #3, the second flown jet's colour #e879f9 (want #a3e635); four-ship seats 0,1,2,3
+    const skipSrc = sceneSourceFrom(skipPb, retime(skipPb));
+    const s1Seats = Array.from({ length: skipSrc.jetCount }, (_, k) => skipSrc.seatOf(k));
+    const s4Seats = Array.from({ length: s4Src.jetCount }, (_, k) => s4Src.seatOf(k));
+    const s1Colour = jetColor(skipSrc.seatOf(1));
+    ok('playback B3 [S1]: a jet\'s seat is its place among every member, skipped ones included (the skip variant\'s second flown jet is #3 at seat 2, in #3\'s colour); the seat labels are every member\'s',
+       s1Seats.join() === '0,2' && skipSrc.seatLabels.join(' ') === '#1 #2 #3' && s1Colour === SCENE_JET_COLORS[2] && SCENE_JET_COLORS[2] !== SCENE_JET_COLORS[1] &&
+       s4Seats.join() === '0,1,2,3' && s4Src.seatLabels.join(' ') === '#1 #2 #3 #4',
+       `skip variant: seats ${s1Seats.join()} (want 0,2), labels ${skipSrc.seatLabels.join(' ')}, the second flown jet's colour ${s1Colour} (want ${SCENE_JET_COLORS[2]}); four-ship seats ${s4Seats.join()}`);
+
+    // [S5] One target per distinct target point, not per jet: on the four-ship #1, #2 and #4 share TGT1
+    // and #3 has TGT2, which stands at its planned height (1,200 ft above TGT1, the datum); each jet
+    // knows its target's index; the tags name the waypoint and every seat on it. On the skip variant
+    // the flown #1 and #3 share TGT1 ("TGT1 · #1 #3"). Points 0.9 m apart are one target, 1.1 m two.
+    // Mutation proof: targets.ts groupTargets `targetOfJet[k] = i` → `targetOfJet[k] = k`, seen red 2026-11-14:
+    //   FAIL playback B3 [S5]: … four-ship: TGT1 · #1 #2 #4 [0,1,3] at (0.0, 0.00, 0.0), TGT2 · #3 [2] at (1266.8, 365.76, 3480.6); jets' targets 0,1,2,3; skip variant TGT1 · #1 #3; …
+    const s5Tags = s4Src.targets.map((t) => targetTag(t, s4Src.seatLabels));
+    const s5Idx = Array.from({ length: s4Src.jetCount }, (_, k) => s4Src.targetIndexOf(k));
+    const s5At = (i: number, k: number) => { const t = s4Src.targets[i], p = s4Src.targetOf(k); return !!t && t.x === p.x && t.y === p.y && t.z === p.z; };
+    const s5SkipTags = skipSrc.targets.map((t) => targetTag(t, skipSrc.seatLabels));
+    const s5Near = groupTargets([{ x: 0, y: 0, z: 0, name: 'A' }, { x: 0.9, y: 0, z: 0, name: 'B' }], [1, 0]);
+    const s5Far = groupTargets([{ x: 0, y: 0, z: 0, name: 'A' }, { x: 0, y: 1.1, z: 0, name: 'B' }], [0, 1]);
+    const s5Ok = s4Src.targets.length === 2 && s5Tags.join(' | ') === 'TGT1 · #1 #2 #4 | TGT2 · #3' &&
+      s4Src.targets[0].seats.join() === '0,1,3' && s4Src.targets[0].jets.join() === '0,1,3' && s4Src.targets[1].seats.join() === '2' && s4Src.targets[1].jets.join() === '2' &&
+      s5At(0, 0) && s5At(1, 2) && Math.abs(s4Src.targets[1].y - 1200 * 0.3048) < 1e-6 && s5Idx.join() === '0,0,1,0' &&
+      skipSrc.targets.length === 1 && s5SkipTags.join() === 'TGT1 · #1 #3' && skipSrc.targets[0].jets.join() === '0,1' &&
+      TARGET_GROUP_M === 1 && s5Near.targets.length === 1 && s5Near.targets[0].name === 'B' && s5Near.targetOfJet.join() === '0,0' && s5Far.targets.length === 2 && s5Far.targetOfJet.join() === '0,1';
+    ok('playback B3 [S5]: one target per distinct point (four-ship: TGT1 for #1, #2 and #4, TGT2 for #3 at its planned height), each jet\'s target index, tags with the waypoint and every seat ("TGT1 · #1 #3" on the skip variant), points within 1 m merged',
+       s5Ok,
+       `four-ship: ${s4Src.targets.map((t, i) => `${s5Tags[i]} [${t.seats.join()}] at (${t.x.toFixed(1)}, ${t.y.toFixed(2)}, ${t.z.toFixed(1)})`).join(', ')}; jets' targets ${s5Idx.join()}; ` +
+       `skip variant ${s5SkipTags.join(' | ')}; 0.9 m apart → ${s5Near.targets.length} (${s5Near.targets.map((t) => t.name).join()}), 1.1 m → ${s5Far.targets.length}`);
+
+    // [FB15] The target post runs from 1 m above the drawn ground to TARGET_STAND_PX (40 px) on screen
+    // above the higher of the planned target and the ground: planned 365.76 m up over ground at 0, at
+    // 10 m a pixel, the top is 400 m above the planned height; planned under a hill, 400 m above the hill.
+    // Mutation proof: targets.ts targetPost `top: Math.max(planned_y, ground_y) + …` → `top: ground_y + …`, seen red 2026-11-14:
+    //   FAIL playback B3 [FB15]: … planned 365.76 over ground 0: 1…400 (want 1…765.76); planned -50 under ground 100: 101…500 (want 101…500)
+    const fb15a = targetPost(365.76, 0, 10), fb15b = targetPost(-50, 100, 10);
+    ok('playback B3 [FB15]: the target post runs from 1 m above the drawn ground to 40 px on screen above the higher of the planned target and the ground',
+       TARGET_STAND_PX === 40 && Math.abs(fb15a.top - 765.76) < 1e-9 && fb15a.bottom === 1 && fb15b.top === 500 && fb15b.bottom === 101,
+       `planned 365.76 over ground 0: ${fb15a.bottom}…${fb15a.top} (want 1…765.76); planned -50 under ground 100: ${fb15b.bottom}…${fb15b.top} (want 101…500)`);
+
+    // [FB8] (markers) Every planner marker colour stands 3:1 off the dark edge every disc wears (the
+    // window's background), to normal eyes and to protans and deutans; and each disc's letters, on the
+    // marker colours, the IP's blue and the target's red, are whichever of black and white reads better
+    // there, at least 4.5:1 to normal eyes.
+    // Mutation proofs (each seen red 2026-11-14): callouts.ts letterInk always '#ffffff':
+    //   FAIL playback B3 [FB8]: … edge #1a1a2e; …; letters: AP #ffffff 3.96 (want #000000), ROLL #ffffff 2.80 (want #000000), …, POP #ffffff 1.92 (want #000000), …, TGT #ffffff 3.76 (want #000000)
+    // sceneStyle.ts `DISC_EDGE = '#f2efe9'` (the edge taken as pale land):
+    //   FAIL playback B3 [FB8]: … edge #f2efe9; AP 3.38, ROLL 2.14, RUN 2.14, POP 1.58, PDP 2.14, TRK 4.13, REL 1.58, TGT 2.77; letters: AP black 5.31, …
+    const discEdge = colour(DISC_EDGE);
+    const fb8mKinds = Object.keys(MARKER_COLOR) as (keyof typeof MARKER_COLOR)[];
+    const fb8m = fb8mKinds.map((k) => ({ k, worst: Math.min(...VISIONS.map((v) => ratio(colour(MARKER_COLOR[k]), discEdge, v))) }));
+    const fb8Fills = [...fb8mKinds.map((k) => ({ name: k as string, fill: MARKER_COLOR[k] })), { name: 'IP', fill: LABEL_STYLE.ipBg }];
+    const fb8Ink = fb8Fills.map((f) => {
+      const onB = ratio(colour('#000000'), colour(f.fill)), onW = ratio(colour('#ffffff'), colour(f.fill));
+      const best = onB >= onW ? '#000000' : '#ffffff', got = letterInk(f.fill);
+      return { ...f, got, best, r: got === '#000000' ? onB : onW };
+    });
+    const fb8InkBad = fb8Ink.filter((f) => f.got !== f.best || f.r < 4.5);
+    ok('playback B3 [FB8]: every planner marker colour stands at least 3:1 off the discs\' dark edge in all three visions, and each disc\'s letters are the better of black and white, at least 4.5:1',
+       DISC_EDGE === BG && fb8m.every((f) => f.worst >= 3) && fb8InkBad.length === 0 && letterInk(MARKER_COLOR.TGT) === '#000000' && letterInk(LABEL_STYLE.ipBg) === '#ffffff',
+       `edge ${DISC_EDGE}; ${fb8m.map((f) => `${f.k} ${f.worst.toFixed(2)}`).join(', ')}; letters: ` +
+       (fb8InkBad.length ? fb8InkBad.map((f) => `${f.name} ${f.got} ${f.r.toFixed(2)} (want ${f.best})`).join(', ') : fb8Ink.map((f) => `${f.name} ${f.got === '#000000' ? 'black' : 'white'} ${f.r.toFixed(2)}`).join(', ')));
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }

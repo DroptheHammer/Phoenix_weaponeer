@@ -49,6 +49,37 @@ export const BOMB_LINE_CASING_PX = 3.5;
 /** How far back the trail reaches behind the jet, s of strike time. */
 export const TRAIL_S = 20;
 
+/**
+ * The target, in the planner's red (MARKER_COLOR.TGT, read where it is drawn, never copied): a ring
+ * on the drawn ground RING_PX across on screen (never under RING_MIN_M across the ground, so it
+ * stays a ring close up), a post standing up from it, and the TGT disc on top.
+ */
+export const RING_PX = 14;
+export const RING_MIN_M = 60;
+/** The posts under the action points' discs, CSS pixels wide; the target's own post is a little wider. */
+export const POST_PX = 1.5;
+export const TARGET_POST_PX = 2;
+/** The TGT disc's radius on screen, CSS pixels, and the font of its letters. */
+export const TARGET_R_PX = 12;
+export const TARGET_FONT = 'bold 10px ui-sans-serif, system-ui, sans-serif';
+/**
+ * Every disc's edge: a dark band, then a thin white rim outside it, so a yellow or a red disc
+ * reads over pale land (the POP yellow on pale land is 1.67:1) and over the dark background alike.
+ */
+export const DISC_EDGE = BG;
+export const DISC_EDGE_PX = 2;
+export const DISC_RIM = '#ffffff';
+export const DISC_RIM_PX = 1;
+
+/** The words drawn beside things on the picture (the target's tag): a dark plate with light text. */
+export const LABEL_FONT = '12px ui-sans-serif, system-ui, sans-serif';
+export const LABEL_PLATE = 'rgba(26,26,46,0.85)';
+export const LABEL_TEXT = '#e5e7eb';
+/** A label plate's line height and its padding, CSS pixels, and the gap between a disc and its plate. */
+export const LABEL_LINE_PX = 16;
+export const LABEL_PAD_PX = 4;
+export const LABEL_GAP_PX = 4;
+
 /** Jet k's colour, the same as its tab in the strike editor. */
 export function jetColor(k: number): string {
   return JET_COLORS[((k % JET_COLORS.length) + JET_COLORS.length) % JET_COLORS.length];

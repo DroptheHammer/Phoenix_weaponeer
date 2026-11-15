@@ -37,7 +37,9 @@ import {
 import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
 import { createJetLayer, type JetLayer } from './jetLayer';
+import { createLabelLayer, type LabelDebug, type LabelLayer } from './labelLayer';
 import type { FrameCtx, Layer } from './layer';
+import { createTargetLayer, type TargetLayer } from './targetLayer';
 import { createTerrainLayer, type TerrainStatus } from './terrainLayer';
 
 export type { TerrainStatus } from './terrainLayer';
@@ -139,11 +141,13 @@ export interface PlaybackScene {
   setRange(range: StrikeWindow): void;
   stats(): SceneStats;
   /**
-   * Where the jet, its falling bomb or its target ring is on screen, at the
-   * clock's current time (a pending change is drawn first). Undefined when
-   * that thing is not shown or is behind the camera. For the screenshot checks.
+   * Where jet `jet`'s arrow, its falling bomb, its target's ring centre or its target's TGT disc is
+   * on screen, at the clock's current time (a pending change is drawn first). Undefined when that
+   * thing is not shown or is behind the camera. For the screenshot checks.
    */
-  project(what: 'jet' | 'bomb' | 'target'): ScreenPoint | undefined;
+  project(what: 'jet' | 'bomb' | 'target' | 'targetMark', jet?: number): ScreenPoint | undefined;
+  /** What the 2D overlay drew on the last frame (target discs and their tags). For the screenshot checks. */
+  debugLabels(): LabelDebug;
   /** Where a point (three.js axes: x east, y up, z = −north, m) is on screen through the camera as it is now. Undefined behind it. For the screenshot checks. */
   projectPoint(x: number, y: number, z: number): ScreenPoint | undefined;
   /** The box Home frames, ENU m (a copy). For the checks. */
@@ -225,17 +229,20 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
 
   // ── The layers and the camera. If building them throws, the context is given back before the
   // error goes on to the boundary: a failed open must not hold one of the browser's ~16 contexts.
-  let terrain: ReturnType<typeof createTerrainLayer>, jets: JetLayer | undefined, rig: CameraRig;
+  let terrain: ReturnType<typeof createTerrainLayer>, targets: TargetLayer, jets: JetLayer | undefined, labels: LabelLayer, rig: CameraRig;
   try {
     terrain = createTerrainLayer({
       source, tiles: opts.tiles, renderer, parent: scene, fog, bag, signal: abort.signal, invalidate,
       onStatus: (s) => opts.onTerrain?.(s),
     });
+    targets = createTargetLayer({ source, parent: scene, bag });
     jets = source.jetCount > 0 ? createJetLayer({ source, jet, colorIndex: opts.colorIndex ?? jet, parent: scene, bag }) : undefined;
     // The camera at home, framing the attack (worked out again for each window shape); its far
     // plane reaches past the haze's end from the farthest the camera can stand back.
     const homeFor = (aspect: number) => homePose({ box: homeBoxNow(), axis: source.attackAxis, aspect });
     rig = new CameraRig(canvas, homeFor, homeBoxNow, viewW / viewH, terrain.halfDiag_m, (FOG_FAR_K + 1) * terrain.halfDiag_m);
+    // The 2D overlay last: nothing after it can throw, so a failed open never leaves its canvas behind.
+    labels = createLabelLayer({ host, source, targets, bag });
   } catch (err) {
     abort.abort();
     bag.disposeAll();
@@ -245,7 +252,8 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     liveScenes--;
     throw err;
   }
-  const layers: Layer[] = jets ? [terrain, jets] : [terrain];
+  // The targets before the labels: the overlay draws each TGT disc on the post top the target layer has just laid.
+  const layers: Layer[] = jets ? [terrain, targets, jets, labels] : [terrain, targets, labels];
   const onControlsChange = () => invalidate();
   rig.controls.addEventListener('change', onControlsChange);
 
@@ -272,7 +280,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   let camJet = opts.camera && opts.camera.jet >= 0 && opts.camera.jet < source.jetCount ? opts.camera.jet : jet;
 
   const ctx: FrameCtx = {
-    t: clock.time, dt: 0, source, camera: rig.camera, viewW, viewH,
+    t: clock.time, dt: 0, source, camera: rig.camera, viewW, viewH, dpr,
     ground: terrain.ground, groundVersion: terrain.groundVersion, heightAt: terrain.heightAt,
     watched: camJet, focusPxPerM: 1,
   };
@@ -319,6 +327,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     ctx.source = source;
     ctx.viewW = viewW;
     ctx.viewH = viewH;
+    ctx.dpr = dpr;
     ctx.ground = terrain.ground;
     ctx.groundVersion = terrain.groundVersion;
     ctx.watched = camJet;
@@ -463,15 +472,22 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       invalidate();
     },
     stats: () => ({ frames, renders, frameMs, sceneCreates, liveScenes }),
-    project(what) {
-      if (disposed || contextLost || fatal || !jets) return undefined;
+    project(what, j = jet) {
+      if (disposed || contextLost || fatal || !jets || j < 0 || j >= source.jetCount) return undefined;
       if (dirty) {
         try { draw(0); } catch (err) { fail(err); return undefined; }
       }
-      const p = what === 'jet' ? jets.jetPosition() : what === 'bomb' ? jets.bombPosition() : jets.targetPosition();
+      let p: Vector3 | undefined;
+      if (what === 'target' || what === 'targetMark') {
+        const i = source.targetIndexOf(j);
+        p = what === 'target' ? targets.ringCentre(i) : targets.markTop(i);
+      } else if (j === jet) {
+        p = what === 'jet' ? jets.jetPosition() : jets.bombPosition(); // the one jet drawn
+      }
       if (!p) return undefined;
       return toScreen(probe.copy(p));
     },
+    debugLabels: () => labels.debugLabels(),
     projectPoint(x, y, z) {
       if (disposed || contextLost || fatal) return undefined;
       if (dirty) {

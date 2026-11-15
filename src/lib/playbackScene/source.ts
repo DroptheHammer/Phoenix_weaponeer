@@ -11,7 +11,8 @@
  * - once per open: each jet's planned path as a flat Float32Array of xyz
  *   with the planner's phase of each stretch (for the colour code), its
  *   bomb's whole fall, the sizes their buffers need at any delay,
- *   each jet's target point, the strike window, the box the terrain is
+ *   each jet's target point and seat, the distinct targets (one mark per
+ *   target, however many jets share it), the strike window, the box the terrain is
  *   built from, the lead's attack axis (for the home camera), the frame
  *   (what Home frames is homeBox in homeView.ts, from the poses);
  * - each jet's moments on the strike clock: in the picture from, first
@@ -31,6 +32,7 @@ import {
   type LocalFrame, type PlaybackBounds, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
 } from '../playback';
 import { firstActionTau } from './actionPoints';
+import { groupTargets, type SceneTarget } from './targets';
 
 export type ScenePhase = PlaybackPhase;
 
@@ -98,6 +100,17 @@ export interface SceneSource {
   targetOf(jet: number): ScenePoint;
   /** The jet's seat label, '#1'… */
   labelOf(jet: number): string;
+  /**
+   * Jet k's seat: its place among every member of the strike, flown or not (a skipped #2 leaves the
+   * jet flying as #3 at seat 2). Colours, labels and lanes follow the seat, never the jet index.
+   */
+  seatOf(jet: number): number;
+  /** Every member's seat label ('#1'…), in seat order, skipped members included. */
+  readonly seatLabels: readonly string[];
+  /** The distinct targets, the lead's first: one mark each, however many jets share it. */
+  readonly targets: readonly SceneTarget[];
+  /** Index into `targets` of jet k's target. */
+  targetIndexOf(jet: number): number;
   /** Jet k at strike time t, written into `out` (returned). Allocates nothing. */
   jetAt(jet: number, t_s: number, out: SceneJetPose): SceneJetPose;
   /** Jet k's bomb at strike time t, written into `out` (returned). Allocates nothing. */
@@ -225,6 +238,10 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     const p = toLocal(pb.frame, j.target.coordinates);
     return { x: p.e_m, y: upOf(pb.frame, j.targetElevation_ft), z: -p.n_m };
   });
+  // Seats and targets, once: a member's place in the strike is fixed for the open.
+  const seats = pb.jets.map((_, k) => pb.members.findIndex((m) => m.jet === k));
+  const seatLabels = pb.members.map((m) => m.label);
+  const grouped = groupTargets(targets.map((t, k) => ({ ...t, name: pb.jets[k].target.name })), seats);
 
   // Each jet's moments on the strike clock, once: the frame code and Home ask for them, never per frame.
   const firstAction_s = pb.jets.map((j, k) => timing.jets[k].shift_s + firstActionTau(j).tau_s);
@@ -246,6 +263,10 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     bombCapacity: (jet) => Math.ceil(pb.jets[jet].bomb.fall_s / PATH_STEP_S) + 3,
     targetOf: (jet) => targets[jet],
     labelOf: (jet) => pb.jets[jet].label,
+    seatOf: (jet) => seats[jet],
+    seatLabels,
+    targets: grouped.targets,
+    targetIndexOf: (jet) => grouped.targetOfJet[jet],
     jetAt,
     bombAt,
     impactOf: (jet) => timing.jets[jet].impact_s,

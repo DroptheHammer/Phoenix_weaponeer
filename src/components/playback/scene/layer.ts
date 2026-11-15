@@ -5,7 +5,7 @@
  * FrameCtx (no per-frame allocation), and frees everything on dispose.
  *
  * Frame order: the world layers move to time t, then the camera follows,
- * then the after-camera layers (screen-size scaling, later the labels) run
+ * then the after-camera layers (screen-size scaling, the 2D labels) run
  * with the final camera.
  */
 import type { PerspectiveCamera } from 'three';
@@ -21,6 +21,8 @@ export interface FrameCtx {
   /** The canvas in CSS pixels. */
   viewW: number;
   viewH: number;
+  /** Device pixels per CSS pixel the scene draws at (capped): a 2D overlay sizes its backing store by it, so its text is sharp. */
+  dpr: number;
   /** The ground being drawn. */
   ground: GroundMode;
   /** Bumped whenever the drawn ground changes (heights arrived, Real / Flat): anything seated on the ground re-seats. */

@@ -44,7 +44,7 @@ export const RING_INNER = 0.82;
 /**
  * The target ring: a flat band of RING_SEGMENTS quads, inner and outer
  * vertex pairs (inner at even indices, outer at odd). Positions are left at
- * zero: the jet layer writes them every time the ring is resized or the
+ * zero: the target layer writes them every time the ring is resized or the
  * ground changes, so the band follows the drawn ground instead of floating
  * over a valley or sinking into a slope.
  */

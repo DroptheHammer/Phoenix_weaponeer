@@ -85,8 +85,10 @@ interface PbHandle {
   /** Home view (Orbit at the home pose), as the button does. */
   goHome(): void;
   setSpeed(s: Speed): void;
-  /** Where the jet (or its falling bomb, or its target ring) is on the page, at the clock's time. */
-  project(jet?: number, what?: 'jet' | 'bomb' | 'target'): [number, number] | null;
+  /** Where the jet (or its falling bomb, its target's ring centre, or its target's TGT disc) is on the page, at the clock's time. */
+  project(jet?: number, what?: 'jet' | 'bomb' | 'target' | 'targetMark'): [number, number] | null;
+  /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc centre and its tag. */
+  debugLabels(): ReturnType<PlaybackScene['debugLabels']> | null;
   /** Where a point (playback metres east, north, up) is on the page, through the camera as it is now. */
   projectPoint(e_m: number, n_m: number, up_m: number): [number, number] | null;
   /** The box Home frames, ENU metres. */
@@ -159,10 +161,11 @@ const pb: PbHandle = {
   terrain: () => scene?.terrainStatus() ?? null,
   goHome: () => scene?.goHome(),
   setSpeed: (s) => scene?.setSpeed(s),
-  project(_jet = 0, what = 'jet') {
-    const p = scene?.project(what);
+  project(jet = 0, what = 'jet') {
+    const p = scene?.project(what, jet);
     return p ? toPage(p.x, p.y) : null;
   },
+  debugLabels: () => scene?.debugLabels() ?? null,
   projectPoint(e, n, up) {
     const p = scene?.projectPoint(e, up, -n); // three.js axes: x east, y up, z = −north
     return p ? toPage(p.x, p.y) : null;

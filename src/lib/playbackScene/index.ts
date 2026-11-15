@@ -9,6 +9,8 @@
  * pixel size, arrow scale, near plane, the four camera modes' limits and
  * poses), sceneStyle (colours and sizes),
  * source (the only file that knows the playback library's sampling names),
+ * targets (one mark per distinct target, its tag, its post), callouts (the
+ * letters on the discs),
  * actionPoints (each jet's first action, the moments that carry the
  * planner's words, the stretch of the clock that is played), homeView (what
  * Home frames, which camera opens), show (what the 3D view shows: the Show
@@ -23,6 +25,8 @@ export * from './playClock';
 export * from './cameraMath';
 export * from './sceneStyle';
 export * from './source';
+export * from './targets';
+export * from './callouts';
 export * from './actionPoints';
 export * from './homeView';
 export * from './show';

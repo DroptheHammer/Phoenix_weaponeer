@@ -1,7 +1,8 @@
 /**
  * One jet in the 3D playback (the spike draws one): its arrow, its planned
  * path, a 20 s trail, its bomb while it falls and the line of its whole
- * fall, and a ring on the ground at its target. Everything is sampled from
+ * fall. Its target is the target layer's (one mark per distinct target,
+ * however many jets share it). Everything is sampled from
  * the playback library's DISPLAY layer through the scene adapter
  * (src/lib/playbackScene/source.ts), so the picture is the planner's, timed.
  *
@@ -31,7 +32,7 @@
  * - Nothing here is hazed: the jet must stay visible over the far terrain.
  */
 import {
-  type BufferAttribute, Color, DoubleSide, DynamicDrawUsage, InstancedInterleavedBuffer, InterleavedBufferAttribute,
+  Color, DoubleSide, DynamicDrawUsage, InstancedInterleavedBuffer, InterleavedBufferAttribute,
   Matrix4, Mesh, MeshBasicMaterial, Quaternion, Vector3, type Object3D,
 } from 'three';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
@@ -45,7 +46,7 @@ import {
   newSceneBombPose, newSceneJetPose, screenScale, worldPerPixel, type SceneJetPose, type ScenePhase, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
-import { arrowGeometry, bombGeometry, ringGeometry, RING_INNER, RING_SEGMENTS } from './jetGeometry';
+import { arrowGeometry, bombGeometry } from './jetGeometry';
 import type { FrameCtx, Layer } from './layer';
 
 /** Trail samples: one every quarter second over TRAIL_S. */
@@ -71,20 +72,16 @@ PHASES.forEach((p, i) => {
 /** The dash of the dashed stretches, CSS px on, px off (the route and the egress leg share the map's 10 / 10). */
 const PATH_DASH = LINE_STYLE[PHASE_STYLE[PHASES.find((p) => LINE_STYLE[PHASE_STYLE[p]].dash) ?? 'route']].dash ?? [10, 10];
 const BOMB_DASH = LINE_STYLE.bomb.dash ?? [4, 6];
-/** The target ring's radius on screen, CSS pixels, and its smallest real radius, m. */
-export const RING_PX = 14;
-export const RING_MIN_M = 60;
-/** The ring floats this far above the drawn ground (plus a depth offset), so it never flickers into it. */
-const RING_LIFT_M = 1;
 /** Below this speed the velocity has no direction worth trusting: the heading and pitch are used. */
 const MIN_SPEED_MPS = 0.5;
 
 /**
  * Draw order: each line's casing just before the line itself, the path first, then the trail, the
- * bomb's fall, the ring, and the arrow and bomb last. Every casing of a line draws before any of its
- * colour, so a casing never covers a coloured stretch of its own line.
+ * bomb's fall, and the arrow and bomb last (the target layer's post and ring draw between the fall
+ * and the bomb). Every casing of a line draws before any of its colour, so a casing never covers a
+ * coloured stretch of its own line.
  */
-const ORDER = { pathCasing: 6, path: 7, trailCasing: 31, trail: 32, fallCasing: 33, fall: 34, ring: 40, bomb: 59, arrow: 60 } as const;
+const ORDER = { pathCasing: 6, path: 7, trailCasing: 31, trail: 32, fallCasing: 33, fall: 34, bomb: 59, arrow: 60 } as const;
 
 /** An opaque wide line of a set width in CSS pixels, tested against the ground's depth but never writing its own. */
 function wideLine(color: Color, px: number, more: { vertexColors?: boolean; dash?: number[] } = {}): LineMaterial {
@@ -198,8 +195,6 @@ export interface JetLayer extends Layer {
   jetPosition(): Vector3 | undefined;
   /** Where the bomb is now, or undefined unless it is falling. */
   bombPosition(): Vector3 | undefined;
-  /** The ring's centre on the drawn ground. */
-  targetPosition(): Vector3;
 }
 
 /**
@@ -244,25 +239,12 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
   bomb.frustumCulled = false;
   bomb.visible = false;
 
-  // ── The target ring, laid on the drawn ground and kept about RING_PX across on screen.
-  const ringGeom = bag.add(ringGeometry());
-  const ringPos = ringGeom.getAttribute('position') as BufferAttribute;
-  ringPos.setUsage(DynamicDrawUsage);
-  const ring = new Mesh(ringGeom, bag.add(new MeshBasicMaterial({
-    color: colour, side: DoubleSide, fog: false, toneMapped: false,
-    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4, // drawn just in front of the ground under it
-  })));
-  ring.renderOrder = ORDER.ring;
-  ring.frustumCulled = false;
-  const ringCentre = new Vector3();
-  let ringRadius = 0, ringGroundVersion = -1;
-
-  const drawn = [...path.meshes, ...trail.meshes, fallCasing, fallLine, ring, bomb, arrow];
+  const drawn = [...path.meshes, ...trail.meshes, fallCasing, fallLine, bomb, arrow];
   o.parent.add(...drawn);
 
   // Scratch, made once: no frame allocates.
   const pose = newSceneJetPose(), past = newSceneJetPose(), bpose = newSceneBombPose();
-  const dir = new Vector3(), probe = new Vector3(), m = new Matrix4(), qRoll = new Quaternion();
+  const dir = new Vector3(), m = new Matrix4(), qRoll = new Quaternion();
   const ORIGIN = new Vector3(0, 0, 0), UP = new Vector3(0, 1, 0), FWD = new Vector3(0, 0, -1), Z_AXIS = new Vector3(0, 0, 1);
   let lastTrailT = NaN;
   const D2R = Math.PI / 180;
@@ -339,25 +321,6 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
     finish(trail.dashed);
   }
 
-  function placeRing(radius: number, ctx: FrameCtx) {
-    const t = src.targetOf(jet);
-    ringCentre.set(t.x, ctx.heightAt(t.x, t.z) + RING_LIFT_M, t.z);
-    const a = ringPos.array as Float32Array;
-    for (let k = 0; k < RING_SEGMENTS; k++) {
-      const ang = (2 * Math.PI * k) / RING_SEGMENTS, c = Math.cos(ang), s = Math.sin(ang);
-      for (let side = 0; side < 2; side++) {
-        const r = side === 0 ? radius * RING_INNER : radius;
-        const x = t.x + r * c, z = t.z + r * s, v = (2 * k + side) * 3;
-        a[v] = x;
-        a[v + 1] = ctx.heightAt(x, z) + RING_LIFT_M;
-        a[v + 2] = z;
-      }
-    }
-    ringPos.needsUpdate = true;
-    ringRadius = radius;
-    ringGroundVersion = ctx.groundVersion;
-  }
-
   const sizeAt = (ctx: FrameCtx, p: Vector3, px: number, len_m: number) =>
     screenScale(worldPerPixel(ctx.camera.position.distanceTo(p), ctx.camera.fov, ctx.viewH), px, len_m);
 
@@ -390,17 +353,10 @@ export function createJetLayer(o: { source: SceneSource; jet: number; colorIndex
       fallMat.dashScale = ctx.focusPxPerM;
       if (arrow.visible) arrow.scale.setScalar(sizeAt(ctx, arrow.position, ARROW_PX, ARROW_LEN_M));
       if (bomb.visible) bomb.scale.setScalar(sizeAt(ctx, bomb.position, BOMB_PX, BOMB_LEN_M));
-      // The ring: re-laid only when its size on the ground moves by 3% or the ground itself changed.
-      const t = src.targetOf(jet);
-      probe.set(t.x, ctx.heightAt(t.x, t.z), t.z);
-      const wpp = worldPerPixel(ctx.camera.position.distanceTo(probe), ctx.camera.fov, ctx.viewH);
-      const radius = Math.max(RING_MIN_M, RING_PX * wpp);
-      if (ringGroundVersion !== ctx.groundVersion || Math.abs(radius - ringRadius) > ringRadius * 0.03) placeRing(radius, ctx);
     },
 
     jetPosition: () => (arrow.visible ? arrow.position : undefined),
     bombPosition: () => (bomb.visible ? bomb.position : undefined),
-    targetPosition: () => ringCentre,
 
     dispose() {
       o.parent.remove(...drawn);
