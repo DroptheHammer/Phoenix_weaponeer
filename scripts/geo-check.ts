@@ -4428,8 +4428,9 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
 // before hashing, so a heading that is worked out two ways and agrees to 1e-13° does not trip it;
 // the printed card is what is held.
 // The two literals were taken on the tree as it stood before any change to the dive's geometry.
-// They move only when a profile, a weapon class or an aircraft is added to the library, in a
-// commit of its own that says so, never in one that touches the dive.
+// They move when a library profile, an aircraft or one of the five weapon rows the census builds with
+// is added or edited (a floor or a weight reaches the card), in a commit of its own that says so,
+// never in one that touches the dive.
 // Mutation proofs (2026-11-15, each applied alone, run, restored):
 // - attackPicture.ts divePicture `? 'Fire by'` → `? 'Fire at'` (only a fired pass says it: the fired digest moves, the other does not):
 //     FAIL census [BL4]: every gun and rocket pass on a dive profile (52 builds) is drawn and printed exactly as it was: …  52 builds, acbfaab7fa7b4fa6

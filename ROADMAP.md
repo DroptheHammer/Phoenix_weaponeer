@@ -106,6 +106,17 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       no sight number, on purpose: the A-4E, F-4E, Mirage F1 and F-5E profiles
       carry Mk-82 values that auto-build applies to bombs only. Needs
       per-rocket numbers from the manuals.
+- [ ] **A manual sight's mils follow a customized attack** (wanted by the
+      user 2026-11-15). Today each manual-dive profile carries one fixed sight
+      number, printed in the card header, and nothing changes it when the
+      pilot changes the speed, the release height, the dive angle or the bomb.
+      It should be looked up from the aircraft's own depression tables, or
+      estimated and flagged. What a search of public sources found
+      (2026-11-15): none of the eight numbers on file traces to a table. Whether the DCS F-5E drops like the real jet is not known. The Mirage F1 module manual covers only 10° and 20°
+      dives with the SAMP-250. Nothing was found for the F-4E (its module has
+      a bombing calculator in the game) or for the A-4E-C's dives. A fixed number is wrong after any one change. Suggested first
+      step, not yet decided: stop printing the fixed number once the attack is
+      customized, and give a box for the pilot's own figure.
 - [x] **Loadout from a CLI/.miz import** (2026-11-13, Session 3,
       released in v0.3.4). The CLI writes pylons as DCS CLSIDs; a generated table
       (`scripts/gen-clsids.mjs` → `crates/core/src/parsers/clsid_data.rs`, from
@@ -209,8 +220,8 @@ waypoint list on 2026-10-03).
 ## Shipped
 
 ### Unreleased (0.4.0 branch)
-- **Ballistic dive (aim-off)** (2026-11-15, the user's call after seeing the
-  F-16 30° dive card before and after): a bomb released in a dive falls under
+- **Ballistic dive (aim-off)** (2026-11-15, the user's call after seeing what
+  would move on the F-16 30° dive card): a bomb released in a dive falls under
   the line of the dive, so a dive pointed straight at the target dropped short
   of it (about 640 m on the F-16 30° dive). Dive attacks now aim off, as
   pop-ups do (`src/lib/diveAim.ts`, the pop-up's own vacuum formula): the
@@ -225,8 +236,9 @@ waypoint list on 2026-10-03).
   are unchanged. No dive card gets an aim-off row, on any aircraft: the user
   decided against it (2026-11-15; see "Decided — not doing").
   - **For the release notes:** open and save again any dive attack made
-    before this version, and re-export its card. A saved A-10C, AV-8B or A-4E 45° dive made with the
-    old 20° turn loses its offset leg and action point on the map (its card
+    before this version, and re-export its card. A saved A-10C, AV-8B or A-4E
+    45° dive made with the old 20° turn loses its offset leg and action point
+    on the map (its card
     still lists the old action point) until it is opened in the editor and
     saved; opened, a standard attack is rebuilt with the 10° turn, and a
     customized one keeps its 20° and the editor says it does not close until
