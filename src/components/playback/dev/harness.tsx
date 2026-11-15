@@ -124,7 +124,7 @@ interface PbHandle {
   setSpeed(s: Speed): void;
   /** Where the jet (or its falling bomb, its target's ring centre, or its target's TGT disc) is on the page, at the clock's time. */
   project(jet?: number, what?: 'jet' | 'bomb' | 'target' | 'targetMark'): [number, number] | null;
-  /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the callouts, the jets' labels. */
+  /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the callouts, the jets' labels, the bombs' rings. */
   debugLabels(): ReturnType<PlaybackScene['debugLabels']> | null;
   /**
    * Jet `jet`'s arrow (default the lead) at the clock's time now, read off its mesh: `visible` (it is drawn), `bank_deg`
@@ -173,6 +173,12 @@ interface PbHandle {
   setRange(whole: boolean): void;
   /** Show › Action points, made the way a click on its button makes it. */
   setActionPoints(mode: ActionPointsMode): void;
+  /**
+   * Any change to the session, through the very function the menu, the lanes and the seat buttons call (so a
+   * check can switch a Show choice, change a time or move the watch exactly as a click would). Nothing before
+   * playback has opened.
+   */
+  act(a: SessionAction): void;
   /** The Show choices as the view last held them (null until playback has opened). */
   show(): ShowState | null;
   /**
@@ -290,6 +296,7 @@ const pb: PbHandle = {
     })),
   setRange: (whole) => sessionAct?.({ type: 'show', a: { type: 'wholeRunIn', on: whole } }),
   setActionPoints: (mode) => sessionAct?.({ type: 'show', a: { type: 'actionPoints', value: mode } }),
+  act: (a) => sessionAct?.(a),
   show: () => sessionNow?.show ?? null,
   lanes: () =>
     [...document.querySelectorAll('[role="dialog"] [data-lane]')].map((lane) => {

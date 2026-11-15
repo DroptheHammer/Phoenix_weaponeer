@@ -380,6 +380,169 @@ async function checkArrowUnderside(page, tag) {
 }
 
 /**
+ * Check 51: the bomb is found on its own fall line. The 2D overlay hidden (the ring would carry it: this is the 3D's
+ * own bomb, in try/finally as checks 2, 5b and 23), the lone pop-up on flat ground, paused.
+ * - Top-down, 4 s after the release: at least BOMB_WHITE_MIN white-ish pixels (every channel over 200: the bomb's
+ *   outline, which the planner's red, the casing and the drape never are) within 12 px of the bomb; and fewer than 3
+ *   within 12 px of where the bomb was 3 s earlier (48 px away, on the same dashed line, so the line alone does not
+ *   pass).
+ * - Home (Orbit), the same screen point read 4 s after the release (the bomb is there, seen end-on) has at least
+ *   BOMB_WHITE_MIN_HOME; the control is that same screen point 1 s before the release (no bomb yet; the bomb moves
+ *   only about 28 px over its whole fall at Home, so no earlier position on the fall is far enough from it) and
+ *   has fewer than 3.
+ *
+ * BOMB_WHITE_MIN and BOMB_WHITE_MIN_HOME: measured 2026-11-15 on the first green run, set at 60% of the smaller count.
+ * Top-down 4 s after the release: 50 white px at 1400×900 and 47 at 1024×768 (the control 3 s earlier on the same line: 0 at
+ * both), so 28. Home, the bomb seen end-on: 22 and 21 (the control before the release: 0), and 38 and 34 for the watched #2's own
+ * bomb on the four-ship at Home (check 52), so 12 (60% of 21; the white outline's rim round a 5 px tail is all there is to see).
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts, `bomb.add(hull)` deleted (the bomb without its outline; geo-check
+ * stays green):
+ *   STEP FAIL 51 the bomb is found on its own fall line, overlay hidden: Top-down and Home (1400x900) — Top-down 4 s after the release: bomb at 400,484: 0 white px (need 28); 3 s earlier on its line at 424,437: 0 (need under 3); Home: bomb at 932,343: 0 white px (need 12), the same point 1 s before the release: 0 (need under 3)
+ *   STEP FAIL 51 … (1024x768) — Top-down …: bomb at 290,392: 0 white px (need 28); …; Home: bomb at 687,287: 0 white px (need 12), …
+ * (check 52 goes red with it by its watched-jet arm: #2's own bomb 0 white px, need 12; geo-check stays green.)
+ */
+const whiteLike = (p) => p[0] > 200 && p[1] > 200 && p[2] > 200;
+const whiteIn = (img, [x, y], r) => patch(img, [Math.round(x), Math.round(y)], r).filter(whiteLike).length;
+const BOMB_WHITE_MIN = 28;
+const BOMB_WHITE_MIN_HOME = 12;
+const BOMB_PATCH = 12;
+async function checkBombSeen(page, tag) {
+  const rel = await pbEval(page, () => __pb.moments.jets[0].release);
+  // The time bar and the ground as the step found them are put back at the end: the checks after it (3a's hill) are laid out for them.
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  const out = {};
+  await overlay(page, false);
+  try {
+    await page.getByRole('button', { name: 'Top-down', exact: true }).click();
+    await at(rel + 4);
+    const p = await pbEval(page, () => __pb.project(0, 'bomb'));
+    const earlier = await pbEval(page, (t) => {
+      const b = __pb.source().bombAt(0, t, {});
+      return __pb.projectPoint(b.x, -b.z, b.y);
+    }, rel + 1);
+    const img = await shot(page, `${tag}-51-bomb-topdown`);
+    out.top = { p, earlier, n: p ? whiteIn(img, p, BOMB_PATCH) : 0, control: earlier ? whiteIn(img, earlier, BOMB_PATCH) : -1 };
+    await pbEval(page, () => __pb.goHome());
+    await at(rel + 4);
+    const home = await pbEval(page, () => __pb.project(0, 'bomb'));
+    const imgHome = await shot(page, `${tag}-51-bomb-home`);
+    await at(rel - 1);
+    const imgBefore = await shot(page, `${tag}-51-bomb-home-before`);
+    out.home = { p: home, n: home ? whiteIn(imgHome, home, BOMB_PATCH) : 0, control: home ? whiteIn(imgBefore, home, BOMB_PATCH) : -1 };
+  } finally {
+    await overlay(page, true);
+    await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  const fmt = (q) => (q ? `${Math.round(q[0])},${Math.round(q[1])}` : 'none');
+  step(`51 the bomb is found on its own fall line, overlay hidden: Top-down and Home (${tag})`,
+    !!out.top.p && !!out.top.earlier && out.top.n >= BOMB_WHITE_MIN && out.top.control >= 0 && out.top.control < 3 &&
+      !!out.home.p && out.home.n >= BOMB_WHITE_MIN_HOME && out.home.control >= 0 && out.home.control < 3,
+    `Top-down 4 s after the release: bomb at ${fmt(out.top.p)}: ${out.top.n} white px (need ${BOMB_WHITE_MIN}); 3 s earlier on its line at ${fmt(out.top.earlier)}: ${out.top.control} (need under 3); ` +
+      `Home: bomb at ${fmt(out.home.p)}: ${out.home.n} white px (need ${BOMB_WHITE_MIN_HOME}), the same point 1 s before the release: ${out.home.control} (need under 3)`);
+}
+
+/**
+ * Check 51b: the ring round the falling bomb, on the real overlay and the real Show panel. The lone pop-up on flat ground,
+ * paused, Top-down.
+ * - 4 s after the release: the overlay's bombs list (`debugLabels().bombs`) has exactly one entry, within 1 px of the bomb
+ *   the scene projects, with r 11 and alpha 1; at least 18 of 24 points on the circle of that radius have a white-ish pixel
+ *   within 1.5 px (the ring's white line is really on the screen).
+ * - 0.05 s after the release the radius is the pulse's, 11 × 1.81 = 19.9 (to 0.5); 0.5 s before it and 0.3 s after the
+ *   impact there is no ring.
+ * - On the real Show panel: Show ▾ opened, its Impact box (a native checkbox, found by its label) ticked off by a mouse
+ *   click, and the list is empty 4 s after the release; then Tab from the Show button reaches the box and Space ticks it on,
+ *   and there is one entry again.
+ *
+ * Measured 2026-11-15 at both sizes: the ring 0.00 px off the bomb and 24 of 24 ring points white, r 19.9 at 0.05 s, 7 Tabs from the
+ * Show button to the box.
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/labelLayer.ts, `ctx.impact ? o.jets[k].bombPosition() : undefined` → `!ctx.impact ? …`
+ * (the rings drawn exactly when Impact is off; geo-check stays green, 51 stays green):
+ *   STEP FAIL 51b the ring round the falling bomb on the overlay: … (1400x900) — 4 s after the release: 0 rings; 0.05 s after: r none (want 19.9 ± 0.5); 0.5 s before the release 0 rings, 0.3 s after the impact 0; Show panel: a native checkbox, ticked true; clicked off: 1 rings, impact false; Tab reached it true (7 Tabs), Space on: 0 ring, impact true
+ *   STEP FAIL 51b … (1024x768) — the same
+ * (check 52 goes red with it too, by its ring arms: no ring at -4.5.)
+ */
+async function checkBombRing(page, tag) {
+  const rel = await pbEval(page, () => __pb.moments.jets[0].release);
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  await page.getByRole('button', { name: 'Top-down', exact: true }).click();
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  const bombs = () => pbEval(page, () => __pb.debugLabels().bombs);
+  const cv = await canvasBox(page);
+  const parts = [];
+  let ok = true;
+
+  await at(rel + 4);
+  const proj = await pbEval(page, () => __pb.project(0, 'bomb'));
+  const list = await bombs();
+  const img = await shot(page, `${tag}-51b-ring`);
+  const b = list[0];
+  const off = b && proj ? Math.hypot(b.x + cv.l - proj[0], b.y + cv.t - proj[1]) : NaN;
+  let onRing = 0;
+  if (b) {
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * 2 * Math.PI, x = b.x + cv.l + b.r * Math.cos(a), y = b.y + cv.t + b.r * Math.sin(a);
+      if (whiteIn(img, [x, y], 1) > 0) onRing++;
+    }
+  }
+  const ringOk = list.length === 1 && b.jet === 0 && off <= 1 && b.r === 11 && b.alpha === 1 && onRing >= 18;
+  ok = ok && ringOk;
+  parts.push(`4 s after the release: ${list.length} ring${list.length === 1 ? '' : 's'}${b ? ` (jet ${b.jet}, r ${b.r}, alpha ${b.alpha}, ${off.toFixed(2)} px off the bomb, ${onRing} of 24 ring points white)` : ''}`);
+
+  await at(rel + 0.05);
+  const pulse = await bombs();
+  const pulseOk = pulse.length === 1 && Math.abs(pulse[0].r - 11 * 1.81) <= 0.5;
+  ok = ok && pulseOk;
+  parts.push(`0.05 s after: r ${pulse[0] ? pulse[0].r.toFixed(1) : 'none'} (want 19.9 ± 0.5)`);
+
+  await at(rel - 0.5);
+  const before = await bombs();
+  await at(imp + 0.3);
+  const after = await bombs();
+  ok = ok && before.length === 0 && after.length === 0;
+  parts.push(`0.5 s before the release ${before.length} rings, 0.3 s after the impact ${after.length}`);
+
+  // The real Show panel.
+  await at(rel + 4);
+  await page.getByRole('button', { name: 'Show ▾' }).click();
+  const box = page.getByRole('checkbox', { name: /^Impact/ });
+  const native = (await box.count()) === 1 && (await box.evaluate((e) => e.tagName === 'INPUT' && e.type === 'checkbox' && e.checked));
+  await box.click();
+  await settle(page, 300);
+  const offList = await bombs();
+  const offState = await pbEval(page, () => __pb.show().impact);
+  // Tab from the Show button until the box has the focus (the panel follows the button in the page).
+  await page.getByRole('button', { name: 'Show ▾' }).focus();
+  let reached = false, tabs = 0;
+  for (; tabs < 14 && !reached; tabs++) {
+    await page.keyboard.press('Tab');
+    reached = await pbEval(page, () => { const a = document.activeElement; return !!a && a.tagName === 'INPUT' && /^Impact/.test((a.closest('label')?.textContent || '').trim()); });
+  }
+  await page.keyboard.press(' ');
+  await settle(page, 300);
+  const onList = await bombs();
+  const onState = await pbEval(page, () => __pb.show().impact);
+  await page.getByRole('button', { name: 'Show ▾' }).click(); // shut it again
+  const panelOk = native && offList.length === 0 && offState === false && reached && onList.length === 1 && onState === true;
+  ok = ok && panelOk;
+  parts.push(`Show panel: a native checkbox, ticked ${native}; clicked off: ${offList.length} rings, impact ${offState}; Tab reached it ${reached} (${tabs} Tabs), Space on: ${onList.length} ring, impact ${onState}`);
+
+  await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  step(`51b the ring round the falling bomb on the overlay: found, 11 px, pulsing at the release, gone before and after, switched by the real Impact box (${tag})`, ok, parts.join('; '));
+}
+
+/**
  * Check 3: real ground: the hill's sunward (north-west) flank is brighter; the bomb's last sample sits on the ring.
  *
  * 3b proven red 2026-11-14 (jetLayer.ts placeRing, the ring's centre moved 600 m east: `ringCentre.set(t.x + 600, …)`):
@@ -1762,6 +1925,73 @@ async function checkAttackColours(page, tag) {
   await pbEval(page, () => __pb.goHome());
 }
 
+/**
+ * Check 52: on the four-ship watching #2, the other jets' bombs are smaller-ringed, fainter and have a dark outline.
+ * Home, flat ground, paused at -4.5 s (#1's bomb is falling, #2's is not yet released).
+ * - The overlay's bombs list has one ring, jet 0's, 10 px with alpha 0.75 (a jet that does not wear the planner's colour code).
+ * - With the overlay hidden, fewer than 3 white-ish pixels within 10 px of #1's bomb (its outline is dark), while the watched #2's own bomb,
+ *   4 s after its release, shows at least BOMB_WHITE_MIN_HOME.
+ * - Show › Attack colours › All jets (through the session's own `act`): #1's ring is 11 px, alpha 1; back to Watched jet: 10 px again; and
+ *   pressing #1's seat button (the real watch): 11 px, alpha 1. (`act` of a watch moves the session only; the seat button also moves
+ *   the scene, which is what is being tested.)
+ *
+ * Measured 2026-11-15: #1's bomb 0 white px within 10 px at both sizes; #2's own 38 (1400×900) and 34 (1024×768).
+ *
+ * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts `wear()`: `hullMat.color.copy(on ? hullWhite : hullDark)` →
+ * `hullMat.color.copy(hullWhite)` (every jet's outline white; BM2, BM5, 51 and 51b stay green):
+ *   STEP FAIL 52 the other jets' bombs: … (1400x900-strike4-watch2) — times as the check expects; at -4.5: jet 0 r 10 alpha 0.75; #1's bomb at 836,321: 11 white px (need under 3); #2's own bomb at 819,307: 38 (need 12); All jets: jet 0 r 11 alpha 1; Watched jet: jet 0 r 10 alpha 0.75; #1's seat button: jet 0 r 11 alpha 1
+ *   STEP FAIL 52 … (1024x768-strike4-watch2) — … #1's bomb at 616,262: 8 white px (need under 3); #2's own bomb at 603,251: 34 (need 12); …
+ * The ring half of 52 (the colour code and the watch changing the ring's size) goes red with 51b's labelLayer edit above.
+ */
+const OTHER_PATCH = 10;
+async function checkBombOthers(page, tag) {
+  const T = -4.5;
+  const m = await pbEval(page, () => __pb.moments.jets.map((j) => ({ release: j.release, impact: j.impact })));
+  const setup = m[0].release < T && T < m[0].impact && m[1].release > T;
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  const bombs = () => pbEval(page, () => __pb.debugLabels().bombs);
+  const fmt = (l) => (l.length ? l.map((b) => `jet ${b.jet} r ${b.r} alpha ${b.alpha}`).join(', ') : 'none');
+  await at(T);
+  const first = await bombs();
+  const p0 = await pbEval(page, () => __pb.project(0, 'bomb'));
+  let n0 = -1, n1 = -1, p1 = null;
+  await overlay(page, false);
+  try {
+    const img = await shot(page, `${tag}-52-bomb-other`);
+    n0 = p0 ? whiteIn(img, p0, OTHER_PATCH) : -1;
+    await at(m[1].release + 4);
+    p1 = await pbEval(page, () => __pb.project(1, 'bomb'));
+    const img1 = await shot(page, `${tag}-52-bomb-watched`);
+    n1 = p1 ? whiteIn(img1, p1, OTHER_PATCH) : -1;
+  } finally {
+    await overlay(page, true);
+  }
+  await at(T);
+  await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'attackColours', value: 'all' } }));
+  await settle(page, 300);
+  const all = await bombs();
+  await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'attackColours', value: 'watched' } }));
+  await settle(page, 300);
+  const back = await bombs();
+  await page.getByRole('button', { name: 'Watch #1 Viper 1-1', exact: true }).click();
+  await settle(page, 300);
+  const seat1 = await bombs();
+  await page.getByRole('button', { name: 'Watch #2 Viper 1-2', exact: true }).click(); // as it opened
+  await settle(page, 300);
+  const only = (l, r, a) => l.length === 1 && l[0].jet === 0 && l[0].r === r && l[0].alpha === a;
+  step(`52 the other jets' bombs: a 10 px ring at 0.75, a dark outline; the colour code and the watch change them (${tag})`,
+    setup && only(first, 10, 0.75) && !!p0 && n0 >= 0 && n0 < 3 && !!p1 && n1 >= BOMB_WHITE_MIN_HOME &&
+      only(all, 11, 1) && only(back, 10, 0.75) && only(seat1, 11, 1),
+    `${setup ? 'times as the check expects' : `times are not as the check expects (#1 ${m[0].release.toFixed(1)}…${m[0].impact.toFixed(1)}, #2 released ${m[1].release.toFixed(1)})`}; at ${T}: ${fmt(first)}; ` +
+      `#1's bomb at ${p0 ? Math.round(p0[0]) + ',' + Math.round(p0[1]) : 'none'}: ${n0} white px (need under 3); #2's own bomb at ${p1 ? Math.round(p1[0]) + ',' + Math.round(p1[1]) : 'none'}: ${n1} (need ${BOMB_WHITE_MIN_HOME}); ` +
+      `All jets: ${fmt(all)}; Watched jet: ${fmt(back)}; #1's seat button: ${fmt(seat1)}`);
+  await pbEval(page, () => __pb.goHome());
+}
+
 // ── Moving a time over target on its lane (the four-ship): the handle on each diamond, the box, Reset.
 
 /** Seat `n`'s (1-based) handle on its lane. */
@@ -2725,6 +2955,11 @@ async function runStrikeChecks(browser, base) {
     //   STEP FAIL 8 no page errors, skip variant (1400x900) — …
     step(`8 no page errors, four-ship (${tag})`, problems.length === 0, problems.length ? problems.slice(0, 8).join(' | ') : 'none');
     await context.close();
+    // 52 on a page of its own: the four-ship opened watching #2, so #1's bomb is one of the others'.
+    const bo = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&watch=2`, w, h);
+    await checkBombOthers(bo.page, `${tag}-strike4-watch2`);
+    step(`8 no page errors, four-ship watching #2 (${tag})`, bo.problems.length === 0, bo.problems.length ? bo.problems.slice(0, 8).join(' | ') : 'none');
+    await bo.context.close();
     // 7b on the four-ship with its theater note: four lanes and the warnings line under the picture, the
     // tightest the rows get (a page of its own: the note takes a row from the pictures the checks above measure).
     const lay = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1`, w, h);
@@ -2788,6 +3023,8 @@ async function runChecks(browser, base) {
     await checkJet(page, tag);
     await checkArrowRoll(page, tag);
     await checkArrowUnderside(page, tag);
+    await checkBombSeen(page, tag);
+    await checkBombRing(page, tag);
     await checkReal(page, tag);
     await checkFit(page, tag, w, h);
     await checkLayout(page, tag, w, h);

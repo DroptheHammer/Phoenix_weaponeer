@@ -18,7 +18,7 @@
  * widens it. The lanes' axis is the same range. Show › Labels and Show ›
  * Action points say what the 3D draws beside the jets and along the runs; Show ›
  * Attack colours whether the planner's colour code is on the watched jet only
- * or on every jet.
+ * or on every jet; Show › Impact whether each falling bomb has a ring round it.
  *
  * Every flown jet is drawn. One of them is watched: the jet the editor had
  * selected, else the first one flown, and the seat buttons beside the lanes
@@ -391,7 +391,7 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, source]);
 
-  // What the labels, the action points and the colour code show, handed to the scene whenever the choice
+  // What the labels, the action points, the colour code and the bombs' rings show, handed to the scene whenever the choice
   // changes and to every scene made (a rebuilt one included), so a context loss keeps them.
   useEffect(() => {
     scene?.setLabels(show.labels);
@@ -402,6 +402,9 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   useEffect(() => {
     scene?.setAttackColours(show.attackColours);
   }, [scene, show.attackColours]);
+  useEffect(() => {
+    scene?.setImpact(show.impact);
+  }, [scene, show.impact]);
 
   if (fatal) throw fatal; // into the local error boundary, which keeps the plan safe and offers Try again
 

@@ -142,6 +142,8 @@ export interface PlaybackScene {
   setActionPoints(mode: ActionPointsMode): void;
   /** The planner's colour code on the watched jet only, or on every jet (Show › Attack colours). */
   setAttackColours(mode: AttackColours): void;
+  /** The ring round each falling bomb (Show › Impact); off leaves the bomb alone. */
+  setImpact(on: boolean): void;
   /**
    * The strike re-timed: a new source for the same jets (the same playback, other delays). Nothing
    * happens when it is the source already shown. Every jet's path and trail follow it; the terrain and
@@ -159,7 +161,7 @@ export interface PlaybackScene {
    * screenshot checks.
    */
   project(what: 'jet' | 'bomb' | 'target' | 'targetMark', jet?: number): ScreenPoint | undefined;
-  /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels). For the screenshot checks. */
+  /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels, the bombs' rings). For the screenshot checks. */
   debugLabels(): LabelDebug;
   /**
    * Jet `jet`'s (a playback index, default 0) arrow as its mesh has it at the clock's current time (a pending
@@ -303,7 +305,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     t: clock.time, dt: 0, source, camera: rig.camera, viewW, viewH, dpr,
     ground: terrain.ground, groundVersion: terrain.groundVersion, heightAt: terrain.heightAt,
     watched: camJet, attackColours: 'watched', focusPxPerM: 1,
-    speed: clock.currentSpeed, labels: true, actionPoints: 'coming', again: false,
+    speed: clock.currentSpeed, labels: true, actionPoints: 'coming', impact: true, again: false,
   };
   const follow: Follow = { jet: new Vector3(), vel: new Vector3(), heading_deg: 0, target: new Vector3(), targetGround: 0 };
   const camPose = newSceneJetPose();
@@ -507,6 +509,10 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     },
     setAttackColours: (mode) => {
       ctx.attackColours = mode;
+      invalidate();
+    },
+    setImpact: (on) => {
+      ctx.impact = on;
       invalidate();
     },
     setSource: (next, o) => {

@@ -7,7 +7,8 @@
  *
  * File map: playClock (play, pause, seek, speed), cameraMath (home pose,
  * pixel size, arrow scale, near plane, the four camera modes' limits and
- * poses), sceneStyle (colours and sizes), arrowShape (the jet arrow's triangles and shades: a fin and
+ * poses), sceneStyle (colours and sizes), impactFx (the ring round a falling bomb and its pulse at the
+ * release), arrowShape (the jet arrow's triangles and shades: a fin and
  * raised wings so a roll reads),
  * source (the only file that knows the playback library's sampling names),
  * targets (one mark per distinct target, its tag, its post), callouts (the
@@ -31,6 +32,7 @@
 export * from './playClock';
 export * from './cameraMath';
 export * from './sceneStyle';
+export * from './impactFx';
 export * from './arrowShape';
 export * from './source';
 export * from './targets';

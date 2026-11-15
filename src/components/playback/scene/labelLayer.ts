@@ -18,6 +18,12 @@
  *   the top of its post, with its tag on a plate to the right ("TGT1 · #1 #3":
  *   the waypoint's name, then every seat on it, so whose target it is never
  *   rests on colour). These stay whatever Action points says.
+ * - A ring round every falling bomb (Show › Impact): an open circle, the same size on screen at
+ *   any distance, so the bomb is found whatever its line, its size and the view do to it. A jet that wears
+ *   the planner's colour code gets the larger solid ring, the others a smaller, fainter one. It starts
+ *   twice its size at the release and settles to its size in half a real second (a pure function of the
+ *   clock's time and speed, so it is the same after a seek or a re-time). A callout plate or a jet's label
+ *   always covers a ring, never the reverse.
  * - The planner's words at the watched jet's points (every jet's with All
  *   jets), word for word what the map and the
  *   card print, on a white plate joined to its disc by a thin line: the
@@ -41,10 +47,10 @@
 import { Vector3, type PerspectiveCamera } from 'three';
 import { LABEL_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import {
-  CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CalloutFader, CalloutPlacer,
+  BOMB_RING_EDGE_PX, BOMB_RING_LINE_PX, CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CalloutFader, CalloutPlacer,
   DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, EGRESS_DOT_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
-  LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, calloutTargets, letterInk, placeLabels, targetTag,
-  type AttackColours, type SceneSource,
+  LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, bombRingLook, calloutTargets, letterInk, placeLabels, releasePulse,
+  targetTag, type AttackColours, type BombRingLook, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
 import type { JetLayer } from './jetLayer';
@@ -61,6 +67,8 @@ export interface LabelDebug {
   callouts: { key: string; lines: readonly string[]; alpha: number; x: number; y: number; w: number; h: number; placed: boolean }[];
   /** Each jet's label: its lines as shown, and its plate. */
   jets: { key: string; lines: string[]; x: number; y: number; w: number; h: number }[];
+  /** The ring round each falling bomb as drawn (a playback jet index, its centre, its radius with the release pulse in it, its alpha). */
+  bombs: { jet: number; x: number; y: number; r: number; alpha: number }[];
 }
 
 export interface LabelLayer extends Layer {
@@ -106,6 +114,10 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
   const jx = new Float32Array(nJ), jy = new Float32Array(nJ), jOf = new Int16Array(nJ);
   const jL2: (string | undefined)[] = new Array(nJ).fill(undefined);
   let shownJets = 0;
+  // Per jet layer: whether it wears the planner's colour code (set with the discs), and each frame its bomb's ring.
+  const jCoded = new Uint8Array(nJ);
+  const bx = new Float32Array(nJ), by = new Float32Array(nJ), br = new Float32Array(nJ), ba = new Float32Array(nJ), bOn = new Uint8Array(nJ);
+  const ringLook: BombRingLook = { r: 0, alpha: 0 };
 
   // ── Per source, watched jet and Attack colours choice: every jet's discs, the coded jets' egress dots
   // and callouts. A coded jet is the watched one, or every jet with All jets (with one jet, that one).
@@ -153,6 +165,7 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     const jetsInOrder: number[] = [];
     for (let k = 0; k < s.jetCount; k++) if (!isCoded(k)) jetsInOrder.push(k);
     for (let k = 0; k < s.jetCount; k++) if (isCoded(k)) jetsInOrder.push(k);
+    for (let i = 0; i < nJ; i++) jCoded[i] = isCoded(o.jets[i].jet) ? 1 : 0;
 
     const discs: { key: string; fill: string; edge: string; ink: string; text: string; pos: Vector3; r: number; alpha: number }[] = [];
     const eg: Vector3[] = [];
@@ -352,6 +365,23 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
         egY[i] = v.y;
       }
 
+      // The rings round the falling bombs: where, how big (the pulse at the release is in it) and how solid.
+      // A bomb behind the camera or past its far plane has none; a bomb hidden behind a hill in the 3D still has
+      // its ring, as a disc does.
+      for (let k = 0; k < nJ; k++) {
+        bOn[k] = 0;
+        const at = ctx.impact ? o.jets[k].bombPosition() : undefined;
+        if (!at || !toScreen(v.copy(at), ctx.camera, ctx)) continue;
+        bombRingLook(jCoded[k] === 1, ringLook);
+        const r = ringLook.r * releasePulse(ctx.t - ctx.source.releaseOf(o.jets[k].jet), ctx.speed);
+        if (!inView(v.x, v.y, r + 4)) continue;
+        bOn[k] = 1;
+        bx[k] = v.x;
+        by[k] = v.y;
+        br[k] = r;
+        ba[k] = ringLook.alpha;
+      }
+
       // The callouts: which show and how much, then a spot for each, nearest the playhead first.
       nCandidates = 0;
       if (!showPoints) {
@@ -411,6 +441,24 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
         g.textBaseline = 'middle';
         g.fillText(tags[i], px + LABEL_PAD_PX, ty[i] + 0.5);
       }
+
+      // The bombs' rings: a dark band under a white line, the discs' own edge, open so the bomb shows through.
+      // The other jets' first and fainter, the coded jets' on top of them.
+      for (let pass = 0; pass < 2; pass++) {
+        for (let k = 0; k < nJ; k++) {
+          if (!bOn[k] || jCoded[k] !== pass) continue;
+          g.globalAlpha = ba[k];
+          g.beginPath();
+          g.arc(bx[k], by[k], br[k], 0, 2 * Math.PI);
+          g.strokeStyle = DISC_EDGE;
+          g.lineWidth = BOMB_RING_EDGE_PX;
+          g.stroke();
+          g.strokeStyle = DISC_RIM;
+          g.lineWidth = BOMB_RING_LINE_PX;
+          g.stroke();
+        }
+      }
+      g.globalAlpha = 1;
 
       for (let p = 0; p < nCandidates; p++) {
         const i = cOrder[p];
@@ -482,7 +530,11 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
         const k = jOf[n], l2 = jL2[n];
         jets.push({ key: src ? src.labelOf(o.jets[k].jet) : '', lines: l2 === undefined ? [jetText[k].line1] : [jetText[k].line1, l2], x: jx[n], y: jy[n], w: jw[n], h: jh[n] });
       }
-      return { targets, markers, callouts, jets };
+      const bombs: LabelDebug['bombs'] = [];
+      for (let k = 0; k < nJ; k++) {
+        if (bOn[k]) bombs.push({ jet: o.jets[k].jet, x: bx[k], y: by[k], r: br[k], alpha: ba[k] });
+      }
+      return { targets, markers, callouts, jets, bombs };
     },
 
     dispose() {

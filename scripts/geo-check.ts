@@ -155,7 +155,12 @@ import {
   ZOOM_SPEED, MAX_POLAR_DEG, TOP_POLAR_RAD, MIN_CAMERA_AGL_M, type ControlsConfig,
 } from '../src/lib/playbackScene';
 import { arrowFaces, ARROW_HALF_SPAN_M, ARROW_DIHEDRAL_DEG, ARROW_TOP_SHADE, ARROW_FIN_SHADE, ARROW_UNDER_SHADE } from '../src/lib/playbackScene';
-import { arrowGeometry } from '../src/components/playback/scene/jetGeometry';
+import { arrowGeometry, bombGeometry, bombHullGeometry } from '../src/components/playback/scene/jetGeometry';
+import {
+  BOMB_PX, BOMB_LEN_M, BOMB_NOSE_M, BOMB_TAIL_M, BOMB_HULL_M, BOMB_HULL, BOMB_HULL_OTHER, BOMB_LINE_PX, OTHER_BOMB_SHADE, otherBombHex,
+  BOMB_RING_R_PX, BOMB_RING_OTHER_R_PX, BOMB_RING_LINE_PX, BOMB_RING_EDGE_PX, OTHER_MARKER_ALPHA, LAND_REF, DISC_RIM, RELEASE_PULSE_WALL_S, RELEASE_PULSE_EXTRA,
+  releasePulse, bombRingLook, type BombRingLook,
+} from '../src/lib/playbackScene';
 import { harnessLaunch } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
 import { cardTie } from '../src/components/playback/cardTie';
@@ -8598,7 +8603,7 @@ void (async () => {
     // (and by reference, `s.delays_s !== s.plan_s`, all eight Show actions: SS3, SS4 and SS5 go red with it too)
     const sh3S = initSession(s4Pb, undefined, { show: initShow(sesRows) });
     const sh3Actions: ShowAction[] = [
-      { type: 'labels', on: false }, { type: 'actionPoints', value: 'always' }, { type: 'attackColours', value: 'all' }, { type: 'wholeRunIn', on: true },
+      { type: 'labels', on: false }, { type: 'actionPoints', value: 'always' }, { type: 'attackColours', value: 'all' }, { type: 'impact', on: false }, { type: 'wholeRunIn', on: true },
       { type: 'threat', key: 'p19', on: true }, { type: 'threat', key: 'sa6', on: false }, { type: 'threatsAll' }, { type: 'threatsNone' },
     ];
     const sh3Bad: string[] = [];
@@ -8608,8 +8613,31 @@ void (async () => {
       else if (isDirty(next) || next.delays_s !== sh3S.delays_s || next.plan_s !== sh3S.plan_s) sh3Bad.push(`${sesJson(a)} made the times dirty`);
     }
     if (!isDirty(sessionReducer(sh3S, { type: 'delay', id: sesB, value_s: 11 }))) sh3Bad.push('a delay did not make them dirty');
-    ok('playback B3 [SH3]: no Show action makes the times dirty or touches them (labels, action points, colours, whole run-in, a threat on and off, all, none), and a delay still does',
-       sh3Bad.length === 0 && sh3Actions.length === 8, sh3Bad.join('; ') || `${sh3Actions.length} Show actions, all clean; a delay dirty`);
+    ok('playback B3 [SH3]: no Show action makes the times dirty or touches them (labels, action points, colours, impact, whole run-in, a threat on and off, all, none), and a delay still does',
+       sh3Bad.length === 0 && sh3Actions.length === 9, sh3Bad.join('; ') || `${sh3Actions.length} Show actions, all clean; a delay dirty`);
+
+    // [SH4] The ring round each falling bomb is a Show choice, on as the menu opens (with or without threat
+    // rows): Impact off changes that one choice and nothing else and gives a new object, the same action
+    // again gives the same object back, and on restores the choices. Whether it leaves the times alone is
+    // SH3's, whose list holds it.
+    // Mutation proof (seen red 2026-11-15): show.ts showReducer `case 'impact'`: `{ ...s, impact: a.on }` → `{ ...s, labels: a.on }`:
+    //   FAIL playback B3 [SH4]: … Impact off left impact true; Impact off changed labels; Impact off again gave a new object; Impact back on did not restore the choices; …
+    // (SH3, whose list holds the same action, stays green: the times are not touched either way)
+    const sh4Rows = [{ systemId: 'sa6', defaultOn: true }, { systemId: 'p19', defaultOn: false }];
+    const sh4Bad: string[] = [];
+    for (const s0 of [initShow(), initShow(sh4Rows)]) {
+      if (s0.impact !== true) sh4Bad.push(`opens with impact ${s0.impact}`);
+      const off = showReducer(s0, { type: 'impact', on: false });
+      if (off === s0 || off.impact !== false) sh4Bad.push(`Impact off ${off === s0 ? 'gave the same object' : `left impact ${off.impact}`}`);
+      const changed = (Object.keys(s0) as (keyof ShowState)[]).filter((k) => k !== 'impact' && JSON.stringify(off[k]) !== JSON.stringify(s0[k]));
+      if (changed.length > 0) sh4Bad.push(`Impact off changed ${changed.join(', ')}`);
+      if (showReducer(off, { type: 'impact', on: false }) !== off) sh4Bad.push('Impact off again gave a new object');
+      if (showReducer(s0, { type: 'impact', on: true }) !== s0) sh4Bad.push('Impact on when on gave a new object');
+      const back = showReducer(off, { type: 'impact', on: true });
+      if (back === off || JSON.stringify(back) !== JSON.stringify(s0)) sh4Bad.push('Impact back on did not restore the choices');
+    }
+    ok('playback B3 [SH4]: Show opens with Impact on; Impact off changes only that choice and gives a new object, the same action again gives the same object back, and on restores it',
+       sh4Bad.length === 0, sh4Bad.join('; ') || 'two openings (with and without threat rows), off, off again, on when on, back on');
 
     // [T1] Lane marks' keys are unique across every seat's lane together (the two marks #3 and #4 share
     // a time over target, and each seat has its own IP, action points and impact), on the default time
@@ -9664,6 +9692,166 @@ void (async () => {
          arBad.length === 0, arBad.join('; ') || `fin apex (${arApex.map((n) => n.toFixed(2)).join(', ')}), wing tips ${(arRise).toFixed(3)} m up; worst margin by seat: ${arSeatRows.join('; ')}`);
     } catch (e) {
       ok('playback B3 (arrow shape): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
+
+    // ─── The bomb the eye finds (impactFx.ts, sceneStyle.ts, scene/jetGeometry.ts, scene/jetLayer.ts) ────────
+    // A falling bomb is a 14 px body with an even white outline (dark on the jets that do not wear the planner's
+    // colours), and a ring round it on the 2D overlay that pulses at the release. Each check carries its mutation
+    // proof (2026-11-15): one temporary edit, geo-check run, the FAIL line copied (shortened with …), the edit restored.
+    try {
+      // [BM1] The release pulse is 2 at the release (age 0) and settles to 1 over half a real second, in real
+      // seconds at the clock's speed setting: 1 before the release, for a time that is not a number, and from
+      // 0.5 real seconds on; it never rises in between; at speeds 1, 2, 4, 8 and 16 the pulse `u` real seconds
+      // after the release is the speed-1 pulse at `u`; a speed of 0, below 0 or not a number is read as 1.
+      // Mutation proof (seen red 2026-11-15): impactFx.ts releasePulse `const u = age_s / s;` → `const u = age_s;`:
+      //   FAIL playback B3 [BM1]: … at 2×, 0.05 s after: 1.64 vs 1.81 at 1×; at 2×, 0.10 s after: 1.36 vs 1.64 at 1×; at 2×, 0.15 s after: 1.16 vs 1.49 at 1×; …
+      const bm1Bad: string[] = [];
+      const bm1Near = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol;
+      if (!bm1Near(releasePulse(0, 1), 2, 1e-9) || RELEASE_PULSE_WALL_S !== 0.5 || RELEASE_PULSE_EXTRA !== 1) bm1Bad.push(`at the release ${releasePulse(0, 1)} (want 2)`);
+      for (const [name, age] of [['before the release', -0.001], ['long before', -50], ['a time that is not a number', NaN], ['0.5 s after', 0.5], ['1 s after', 1], ['a minute after', 60]] as const) {
+        if (releasePulse(age, 1) !== 1) bm1Bad.push(`${name}: ${releasePulse(age, 1)} (want 1)`);
+      }
+      let bm1Prev = releasePulse(0, 1);
+      for (let i = 1; i <= 120; i++) {
+        const p = releasePulse(i * 0.005, 1);
+        if (p > bm1Prev + 1e-12 || p < 1 || p > 2) bm1Bad.push(`${(i * 0.005).toFixed(3)} s after: ${p} after ${bm1Prev}`);
+        bm1Prev = p;
+      }
+      for (const s of [1, 2, 4, 8, 16]) {
+        for (let i = 0; i <= 12; i++) {
+          const u = i * 0.05, got = releasePulse(u * s, s), want = releasePulse(u, 1);
+          if (!bm1Near(got, want, 1e-12)) bm1Bad.push(`at ${s}×, ${u.toFixed(2)} s after: ${got.toFixed(2)} vs ${want.toFixed(2)} at 1×`);
+        }
+      }
+      for (const s of [0, -3, NaN, Infinity]) {
+        for (const age of [-1, 0, 0.1, 0.25, 0.49, 0.5]) if (releasePulse(age, s) !== releasePulse(age, 1)) bm1Bad.push(`speed ${s}, ${age} s after: ${releasePulse(age, s)} (read as 1: ${releasePulse(age, 1)})`);
+      }
+      ok('playback B3 [BM1]: the release pulse is 2 at the release, 1 before it and from half a real second on, never rises, is the same in real seconds at every speed, and reads a bad speed as 1',
+         bm1Bad.length === 0, bm1Bad.slice(0, 4).join('; ') || `2 at the release; 0.05 s after ${releasePulse(0.05, 1).toFixed(2)}, 0.25 s ${releasePulse(0.25, 1).toFixed(2)}; 5 speeds × 13 ages, 4 bad speeds`);
+
+      // [BM2] A coded jet's ring is 11 px and solid, another jet's is 10 px and at the discs' faint alpha, so the
+      // others are strictly smaller and fainter; both rings clear the bomb's outline (half its longest drawn
+      // length, a bomb lying across the picture) by the ring line's half-width, so the bomb never pokes
+      // through its ring; the look is written into the object it is given, and that object comes back.
+      // Mutation proof (seen red 2026-11-15): impactFx.ts bombRingLook, both `coded ? main : other` swapped to `coded ? other : main`:
+      //   FAIL playback B3 [BM2]: … a coded jet's ring is {"r":10,"alpha":0.75} (want 11 px, alpha 1); another jet's is {"r":11,"alpha":1} (want 10 px, alpha 0.75); the others are not both smaller and fainter
+      // (shot 52 goes red with it too)
+      const bm2Out: BombRingLook = { r: 0, alpha: 0 };
+      const bm2Coded = { ...bombRingLook(true, bm2Out) }, bm2Other = { ...bombRingLook(false, bm2Out) };
+      const bm2Bad: string[] = [];
+      if (bombRingLook(true, bm2Out) !== bm2Out) bm2Bad.push('the look was not written into the object given');
+      if (bm2Coded.r !== 11 || bm2Coded.alpha !== 1 || BOMB_RING_R_PX !== 11) bm2Bad.push(`a coded jet's ring is ${JSON.stringify(bm2Coded)} (want 11 px, alpha 1)`);
+      if (bm2Other.r !== 10 || bm2Other.alpha !== OTHER_MARKER_ALPHA || BOMB_RING_OTHER_R_PX !== 10) bm2Bad.push(`another jet's is ${JSON.stringify(bm2Other)} (want 10 px, alpha ${OTHER_MARKER_ALPHA})`);
+      if (!(bm2Other.r < bm2Coded.r && bm2Other.alpha < bm2Coded.alpha)) bm2Bad.push('the others are not both smaller and fainter');
+      const bm2Clear = ((BOMB_LEN_M + 2 * BOMB_HULL_M) / BOMB_LEN_M) * BOMB_PX / 2 + BOMB_RING_LINE_PX / 2;
+      if (!(bm2Coded.r >= bm2Clear && bm2Other.r >= bm2Clear)) bm2Bad.push(`a ring (${bm2Coded.r} / ${bm2Other.r} px) does not clear the outline's half-length plus half the ring line (${bm2Clear.toFixed(2)} px)`);
+      ok('playback B3 [BM2]: a coded jet\'s bomb ring is 11 px and solid, another\'s 10 px and fainter, and both clear the bomb\'s outline by the ring line\'s half-width',
+         bm2Bad.length === 0, bm2Bad.join('; ') || `${bm2Coded.r} px / ${bm2Other.r} px at alpha ${bm2Coded.alpha} / ${bm2Other.alpha}; the outline needs ${bm2Clear.toFixed(2)} px`);
+
+      // [BM3] The 3D bomb can be told from its own fall line, by its size: its tail is at least three times the
+      // line's width across (5.0 px against 1.5), and its outline is an even rim, between 1 and 1.5 px on the
+      // sides (1.39 at the nose, 1.12 at the tail, from the two radius lines of the taper) and at the ends (1.25).
+      // Read twice: from the constants, and from the geometries the scene really draws (the radius at each end
+      // and the length, off their vertices), which must match the constants.
+      // Mutation proofs (each seen red 2026-11-15):
+      // sceneStyle.ts `BOMB_TAIL_M = 0.43` → `0.18` (a slim tail, 2.1 px across):
+      //   FAIL playback B3 [BM3]: … tail 2.1 px across (want ≥ 4.5); the drawn geometry: nose radius 0.120 / outline 0.335 m, tail 0.180 / 0.395 m, length 2.400 / 2.830 m: tail 2.1 px, …
+      // sceneStyle.ts `BOMB_HULL_M = 0.215` → `0.03` (an outline of 0.2 px):
+      //   FAIL playback B3 [BM3]: … nose rim 0.20 px, tail rim 0.15 px (want 1.0 to 1.5); end overhang 0.18 px (want 1.0 to 1.5); the drawn geometry: …: tail 5.0 px, side rims 0.20 / 0.15 px, end overhangs 0.17 / 0.17 px (…)
+      // jetGeometry.ts bombHullGeometry `BOMB_NOSE_M + BOMB_HULL_M` → `BOMB_NOSE_M` (the drawn outline not grown at the nose; the constants stay right, so only the geometry arm fails):
+      //   FAIL playback B3 [BM3]: … the drawn geometry: nose radius 0.120 / outline 0.120 m, tail 0.430 / 0.645 m, length 2.400 / 2.830 m: tail 5.0 px, side rims 0.23 / 1.02 px, end overhangs 1.25 / 1.25 px (…)
+      // In each run BM3 was the only check red.
+      const bm3Bad: string[] = [];
+      const bm3Px = BOMB_PX / BOMB_LEN_M;
+      const bm3Tail = 2 * BOMB_TAIL_M * bm3Px;
+      if (!(bm3Tail >= 3 * BOMB_LINE_PX)) bm3Bad.push(`tail ${bm3Tail.toFixed(1)} px across (want ≥ ${3 * BOMB_LINE_PX})`);
+      const bm3Rims = (rBody: (z: number) => number, rHull: (z: number) => number, lo: number, hi: number, ppm: number) => [lo, hi].map((z) => (rHull(z) - rBody(z)) * ppm);
+      const bm3L = BOMB_LEN_M, bm3D = BOMB_HULL_M, bm3N = BOMB_NOSE_M, bm3T = BOMB_TAIL_M;
+      const bm3Side = bm3Rims(
+        (z) => bm3N + ((bm3T - bm3N) * (z + bm3L / 2)) / bm3L,
+        (z) => bm3N + bm3D + ((bm3T - bm3N) * (z + bm3L / 2 + bm3D)) / (bm3L + 2 * bm3D),
+        -bm3L / 2, bm3L / 2, bm3Px,
+      );
+      const bm3Over = bm3D * bm3Px;
+      const bm3In = (v: number) => v >= 1.0 && v <= 1.5;
+      if (!bm3Side.every(bm3In)) bm3Bad.push(`nose rim ${bm3Side[0].toFixed(2)} px, tail rim ${bm3Side[1].toFixed(2)} px (want 1.0 to 1.5)`);
+      if (!bm3In(bm3Over)) bm3Bad.push(`end overhang ${bm3Over.toFixed(2)} px (want 1.0 to 1.5)`);
+      // The geometries: after the turn the bomb lies along z, its nose at −z.
+      const bm3Ends = (g: { getAttribute(n: string): { array: ArrayLike<number> } }) => {
+        const p = g.getAttribute('position').array;
+        let zLo = Infinity, zHi = -Infinity;
+        for (let i = 2; i < p.length; i += 3) { zLo = Math.min(zLo, p[i]); zHi = Math.max(zHi, p[i]); }
+        let rLo = 0, rHi = 0;
+        for (let i = 0; i < p.length; i += 3) {
+          const r = Math.hypot(p[i], p[i + 1]);
+          if (Math.abs(p[i + 2] - zLo) < 1e-6) rLo = Math.max(rLo, r);
+          if (Math.abs(p[i + 2] - zHi) < 1e-6) rHi = Math.max(rHi, r);
+        }
+        return { zLo, zHi, rLo, rHi };
+      };
+      const bm3BodyG = bombGeometry(), bm3HullG = bombHullGeometry();
+      const bm3Body = bm3Ends(bm3BodyG), bm3Hull = bm3Ends(bm3HullG);
+      bm3BodyG.dispose();
+      bm3HullG.dispose();
+      const bm3GPx = BOMB_PX / (bm3Body.zHi - bm3Body.zLo);
+      const bm3At = (e: { zLo: number; zHi: number; rLo: number; rHi: number }, z: number) => e.rLo + ((e.rHi - e.rLo) * (z - e.zLo)) / (e.zHi - e.zLo);
+      const bm3GSide = [bm3Body.zLo, bm3Body.zHi].map((z) => (bm3At(bm3Hull, z) - bm3At(bm3Body, z)) * bm3GPx);
+      const bm3GOver = [(bm3Body.zLo - bm3Hull.zLo) * bm3GPx, (bm3Hull.zHi - bm3Body.zHi) * bm3GPx];
+      const bm3GTail = 2 * bm3Body.rHi * bm3GPx;
+      const bm3Match = bm3Body.zHi - bm3Body.zLo > 0 && [
+        bm3Body.zHi - bm3Body.zLo - BOMB_LEN_M, bm3Body.rLo - BOMB_NOSE_M, bm3Body.rHi - BOMB_TAIL_M,
+        bm3Hull.zHi - bm3Hull.zLo - (BOMB_LEN_M + 2 * BOMB_HULL_M), bm3Hull.rLo - (BOMB_NOSE_M + BOMB_HULL_M), bm3Hull.rHi - (BOMB_TAIL_M + BOMB_HULL_M),
+      ].every((e) => Math.abs(e) < 1e-5);
+      if (!bm3Match || !(bm3GTail >= 3 * BOMB_LINE_PX) || !bm3GSide.every(bm3In) || !bm3GOver.every(bm3In)) {
+        bm3Bad.push(`the drawn geometry: nose radius ${bm3Body.rLo.toFixed(3)} / outline ${bm3Hull.rLo.toFixed(3)} m, tail ${bm3Body.rHi.toFixed(3)} / ${bm3Hull.rHi.toFixed(3)} m, length ${(bm3Body.zHi - bm3Body.zLo).toFixed(3)} / ${(bm3Hull.zHi - bm3Hull.zLo).toFixed(3)} m: ` +
+          `tail ${bm3GTail.toFixed(1)} px, side rims ${bm3GSide.map((v) => v.toFixed(2)).join(' / ')} px, end overhangs ${bm3GOver.map((v) => v.toFixed(2)).join(' / ')} px (the constants say ${BOMB_NOSE_M} / ${BOMB_TAIL_M} / ${BOMB_LEN_M} m, outline +${BOMB_HULL_M} m)`);
+      }
+      ok('playback B3 [BM3]: the 3D bomb\'s tail is at least three times its fall line\'s width across and its outline is an even rim of 1 to 1.5 px on the sides and at the ends, from the constants and from the geometries drawn',
+         bm3Bad.length === 0, bm3Bad.join('; ') || `tail ${bm3Tail.toFixed(1)} px across; rims ${bm3Side.map((v) => v.toFixed(2)).join(' / ')} px; ends ${bm3Over.toFixed(2)} px; the drawn geometries agree (${bm3GTail.toFixed(1)} px, ${bm3GSide.map((v) => v.toFixed(2)).join(' / ')}, ${bm3GOver.map((v) => v.toFixed(2)).join(' / ')})`);
+
+      // [BM4] The bomb's colours stand off what they sit on, 3:1 for graphics, to normal eyes and to protans and
+      // deutans: the white outline on the window's dark; the planner's bomb red on the white outline and on the
+      // dark casing of its fall line; the ring's white line on its dark band. (The outline on pale land is
+      // printed, not gated: white on pale land is 1.1:1, which is why the ring and the dark casing carry it.)
+      // Mutation proof (seen red 2026-11-15): sceneStyle.ts `BOMB_HULL = '#ffffff'` → `'#3a3a5e'` (shot 51 also red):
+      //   FAIL playback B3 [BM4]: … the outline on the window's dark 1.57 (want 3); the planner's bomb red on the outline 2.01 (want 3); …; printed, not gated: the outline on pale land 9.15
+      const bm4Pairs: { id: string; fg: string; bg: string }[] = [
+        { id: 'the outline on the window\'s dark', fg: BOMB_HULL, bg: BG },
+        { id: 'the planner\'s bomb red on the outline', fg: LINE_STYLE.bomb.color, bg: BOMB_HULL },
+        { id: 'the planner\'s bomb red on its fall line\'s casing', fg: LINE_STYLE.bomb.color, bg: LINE_CASING },
+        { id: 'the ring\'s white line on its dark band', fg: DISC_RIM, bg: DISC_EDGE },
+      ];
+      const bm4 = bm4Pairs.map((p) => ({ ...p, worst: Math.min(...VISIONS.map((v) => ratio(parseColour(p.fg)!, parseColour(p.bg)!, v))) }));
+      const bm4Land = Math.min(...VISIONS.map((v) => ratio(parseColour(BOMB_HULL)!, parseColour(LAND_REF)!, v)));
+      ok('playback B3 [BM4]: the bomb\'s outline, its planner red and the ring\'s white line each stand 3:1 off what they sit on, in all three visions',
+         bm4.every((p) => p.worst >= 3) && BOMB_HULL === '#ffffff',
+         bm4.map((p) => `${p.id} ${p.worst.toFixed(2)}${p.worst >= 3 ? '' : ' (want 3)'}`).join('; ') + `; printed, not gated: the outline on pale land ${bm4Land.toFixed(2)}`);
+
+      // [BM5] The other jets' bombs are the colour the checks think: their seat colour shaded the way three.js
+      // shades (in linear light, so cyan #22d3ee gives #1ebfd8; the plain product of the sRGB numbers, #1ba9be,
+      // is not what is drawn), and the scene's jet layer takes its bomb colour from that very function. Each
+      // stands 3:1 off the dark outline they wear (5.2 to 9.3) in all three visions, and the dark outline off
+      // pale land. Printed, not gated: each on white (1.8 to 3.3, why their outline is dark, not white).
+      // Mutation proofs (each seen red 2026-11-15): sceneStyle.ts `OTHER_BOMB_SHADE = 0.8` → `0.5`:
+      //   FAIL playback B3 [BM5]: … otherBombHex('#22d3ee') = #169baf (want #1ebfd8); otherBombHex('#e879f9') = #aa57b7 (want #d26de2); …; shade 0.5, outline #1a1a2e (want 0.8, #1a1a2e)
+      // scene/jetLayer.ts `bombSeat = new Color(otherBombHex(colourHex))` → `colour.clone().multiplyScalar(0.8)` (the layer off the shared function):
+      //   FAIL playback B3 [BM5]: … scene/jetLayer.ts does not take the other jets' bomb colour from otherBombHex
+      const bm5Want: [string, string][] = [['#22d3ee', '#1ebfd8'], ['#e879f9', '#d26de2'], ['#a3e635', '#93d02f'], ['#fbbf24', '#e3ad20']];
+      const bm5Bad: string[] = [];
+      for (const [seat, want] of bm5Want) if (otherBombHex(seat) !== want) bm5Bad.push(`otherBombHex('${seat}') = ${otherBombHex(seat)} (want ${want})`);
+      if (OTHER_BOMB_SHADE !== 0.8 || BOMB_HULL_OTHER !== BG) bm5Bad.push(`shade ${OTHER_BOMB_SHADE}, outline ${BOMB_HULL_OTHER} (want 0.8, ${BG})`);
+      const bm5Worst = bm5Want.map(([seat]) => Math.min(...VISIONS.map((v) => ratio(parseColour(otherBombHex(seat))!, parseColour(BOMB_HULL_OTHER)!, v))));
+      if (!bm5Worst.every((r) => r >= 3)) bm5Bad.push(`on the dark outline ${bm5Worst.map((r) => r.toFixed(2)).join(' / ')} (want 3)`);
+      const bm5Land = Math.min(...VISIONS.map((v) => ratio(parseColour(BOMB_HULL_OTHER)!, parseColour(LAND_REF)!, v)));
+      if (!(bm5Land >= 3)) bm5Bad.push(`the dark outline on pale land ${bm5Land.toFixed(2)} (want 3)`);
+      const bm5White = bm5Want.map(([seat]) => Math.min(...VISIONS.map((v) => ratio(parseColour(otherBombHex(seat))!, parseColour('#ffffff')!, v))));
+      if (!/bombSeat\s*=\s*new Color\(otherBombHex\(colourHex\)\)/.test(readFileSync('src/components/playback/scene/jetLayer.ts', 'utf8'))) {
+        bm5Bad.push('scene/jetLayer.ts does not take the other jets\' bomb colour from otherBombHex');
+      }
+      ok('playback B3 [BM5]: the other jets\' bombs are their seat colour shaded in linear light (#1ebfd8, #d26de2, #93d02f, #e3ad20), from the one function the jet layer uses, and stand 3:1 off their dark outline',
+         bm5Bad.length === 0, bm5Bad.join('; ') || `on the dark outline ${bm5Worst.map((r) => r.toFixed(2)).join(' / ')}; the outline on pale land ${bm5Land.toFixed(2)}; printed, not gated: each on white ${bm5White.map((r) => r.toFixed(2)).join(' / ')}`);
+    } catch (e) {
+      ok('playback B3 (the bomb): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));

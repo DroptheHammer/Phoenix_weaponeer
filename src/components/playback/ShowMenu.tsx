@@ -2,8 +2,8 @@
  * The Show menu over the 3D picture: one button that opens one panel of
  * choices about what the picture shows: altitude and speed on the jets'
  * labels, the action points (off, as each jet nears them, or always), the
- * planner's colour code on the watched jet or on every jet, and where the time
- * bar starts; the threats join when they are built. The choices
+ * planner's colour code on the watched jet or on every jet, the ring round each
+ * falling bomb, and where the time bar starts; the threats join when they are built. The choices
  * are the pure ShowState (src/lib/playbackScene/show.ts); nothing here is saved.
  *
  * Behaviour:
@@ -100,7 +100,7 @@ export function ShowMenu({ show, dispatch }: ShowMenuProps) {
         aria-expanded={open}
         aria-controls="pb-show"
         className={`${TOGGLE} ${open ? TOGGLE_ON : TOGGLE_OFF} pointer-events-auto`}
-        title="What the 3D view shows: labels, action points, attack colours, where the time bar starts, threats"
+        title="What the 3D view shows: labels, action points, attack colours, bombs, where the time bar starts, threats"
       >
         Show ▾
       </button>
@@ -164,6 +164,18 @@ export function ShowMenu({ show, dispatch }: ShowMenuProps) {
             </div>
             <span className={`block mt-1 ${MENU_HINT}`}>{ATTACK_COLOURS.find((c) => c.value === show.attackColours)?.hint}</span>
           </div>
+          <label className="flex items-start gap-2 cursor-pointer" onMouseDown={keepFocus}>
+            <input
+              type="checkbox"
+              className="mt-0.5 accent-dcs-accent"
+              checked={show.impact}
+              onChange={(e) => dispatch({ type: 'impact', on: e.currentTarget.checked })}
+            />
+            <span>
+              <span className={`block ${MENU_HEAD}`}>Impact</span>
+              <span className={`block ${MENU_HINT}`}>A ring round each falling bomb. Off: the bomb alone.</span>
+            </span>
+          </label>
           <label className="flex items-start gap-2 cursor-pointer" onMouseDown={keepFocus}>
             <input
               type="checkbox"

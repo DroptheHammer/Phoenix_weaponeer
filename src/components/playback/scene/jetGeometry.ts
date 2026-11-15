@@ -5,7 +5,7 @@
  * strike-editor colour on top and a darker shade underneath.
  */
 import { BufferGeometry, CylinderGeometry, Float32BufferAttribute } from 'three';
-import { BOMB_LEN_M, arrowFaces } from '../../../lib/playbackScene';
+import { BOMB_HULL_M, BOMB_LEN_M, BOMB_NOSE_M, BOMB_TAIL_M, arrowFaces } from '../../../lib/playbackScene';
 
 /**
  * The jet arrow, built from the shape in src/lib/playbackScene/arrowShape.ts (a flat delta with a tall
@@ -25,7 +25,16 @@ export function arrowGeometry(): BufferGeometry {
 /** The bomb: a tapered body BOMB_LEN_M (2.4 m) long, its narrow nose turned to point along local −Z, like the arrow. */
 export function bombGeometry(): BufferGeometry {
   // A cylinder stands along +Y with its top (the narrow end) at +Y; turning it −90° about X takes +Y to −Z.
-  return new CylinderGeometry(0.05, 0.18, BOMB_LEN_M, 8).rotateX(-Math.PI / 2);
+  return new CylinderGeometry(BOMB_NOSE_M, BOMB_TAIL_M, BOMB_LEN_M, 8).rotateX(-Math.PI / 2);
+}
+
+/**
+ * The bomb's outline: the same tapered body grown by BOMB_HULL_M all round (every radius and each end), turned
+ * the same way. Drawn from inside (back faces only) behind the bomb, it shows as an even rim; a scaled copy
+ * of the body would leave a thin rim on its sides and a thick one at its ends.
+ */
+export function bombHullGeometry(): BufferGeometry {
+  return new CylinderGeometry(BOMB_NOSE_M + BOMB_HULL_M, BOMB_TAIL_M + BOMB_HULL_M, BOMB_LEN_M + 2 * BOMB_HULL_M, 8).rotateX(-Math.PI / 2);
 }
 
 /** Points round the target ring. */

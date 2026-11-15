@@ -18,9 +18,47 @@ export const MAX_DPR = 1.5;
 export const ARROW_PX = 28;
 /** The arrow model's real length, m: close up (a chase camera) it is drawn at this size, never smaller. */
 export const ARROW_LEN_M = 18;
-/** The bomb's length on screen, CSS pixels, and its real length, m: the same rule as the arrow. */
-export const BOMB_PX = 10;
+/**
+ * The bomb's length on screen, CSS pixels, and its real length, m: the same rule as the arrow. It is
+ * drawn 14 px long so it can be found on its own fall line: a 10 px one, 1.5 px across, read as one more
+ * dash of that red line.
+ */
+export const BOMB_PX = 14;
 export const BOMB_LEN_M = 2.4;
+/**
+ * The bomb's shape: a tapered body, the narrow nose and the wide tail's radii, m. At 14 px long the tail
+ * is 5 px across, over three times the fall line's width.
+ */
+export const BOMB_NOSE_M = 0.12;
+export const BOMB_TAIL_M = 0.43;
+/**
+ * The bomb's outline: a second, slightly larger body seen from inside, so it shows as an even rim round
+ * the real one. It is the same shape grown by this much all round (a scaled copy would leave a thin rim
+ * on the sides and a thick one at the ends): at 14 px per 2.4 m that is an end overhang of 1.25 px and a
+ * side rim of 1.1 to 1.4 px.
+ */
+export const BOMB_HULL_M = 0.215;
+/**
+ * The outline's colour. White on a jet that wears the planner's colour code, where the bomb is the
+ * planner's red: white on the dark casing of its fall line, and the red on white reads. The other jets
+ * have no fall line and their seat colours (cyan, lime, amber) are too pale on white, so their outline is
+ * the window's dark instead.
+ */
+export const BOMB_HULL = '#ffffff';
+export const BOMB_HULL_OTHER = BG;
+/** The share the other jets' bombs are darkened to from their seat colour, in linear light (see otherBombHex). */
+export const OTHER_BOMB_SHADE = 0.8;
+/**
+ * A ring round each falling bomb on the 2D overlay: an open circle (the bomb and its line show through)
+ * of a dark band with a white line on top, the discs' own edge, so it reads on pale land, on dark ground
+ * and over the red line. A jet that wears the planner's colour code gets the larger, solid ring; the
+ * others a smaller, fainter one. Both clear the outline's half-length (8.25 px at its longest, a bomb
+ * lying across the picture) by the ring line's half-width, so the bomb never pokes through its ring.
+ */
+export const BOMB_RING_R_PX = 11;
+export const BOMB_RING_OTHER_R_PX = 10;
+export const BOMB_RING_LINE_PX = 2;
+export const BOMB_RING_EDGE_PX = 6;
 
 /**
  * The lines are drawn a set width in CSS pixels (three's wide lines), not
@@ -117,6 +155,22 @@ export const LABEL_GAP_PX = 4;
 /** Jet k's colour, the same as its tab in the strike editor. */
 export function jetColor(k: number): string {
   return JET_COLORS[((k % JET_COLORS.length) + JET_COLORS.length) % JET_COLORS.length];
+}
+
+/**
+ * The colour the other jets' bombs are drawn in: the seat colour darkened by OTHER_BOMB_SHADE the way
+ * three.js darkens a colour (each channel to linear light, scaled, back to sRGB), not as a plain product
+ * of the sRGB numbers, so the picture and the checks that read this agree. '#rrggbb' in and out.
+ */
+export function otherBombHex(hex: string): string {
+  const toLinear = (c: number) => (c < 0.04045 ? c * 0.0773993808 : (c * 0.9478672986 + 0.0521327014) ** 2.4);
+  const toSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** 0.41666 - 0.055);
+  let out = '#';
+  for (let i = 0; i < 3; i++) {
+    const c = parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16) / 255;
+    out += Math.round(Math.min(1, Math.max(0, toSrgb(toLinear(c) * OTHER_BOMB_SHADE))) * 255).toString(16).padStart(2, '0');
+  }
+  return out;
 }
 
 /** '#rrggbb' `a` moved the share `k` (0…1) of the way toward `b`, channel by channel, as '#rrggbb'. */
