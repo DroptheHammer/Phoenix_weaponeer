@@ -50,8 +50,10 @@ export interface SceneJetPose {
   vz: number;
   heading_deg: number;
   pitch_deg: number;
-  /** Display estimate, right wing down positive. */
+  /** The jet's roll about its velocity, right wing down positive, degrees, not wrapped: what a pilot would hold to fly the drawn track. */
   bank_deg: number;
+  /** The load factor the drawn track needs, g. */
+  load_g: number;
   phase: ScenePhase;
   /** The numbers the jet's label prints, off the same display sample: height above the jet's own target, above sea level, and true airspeed. */
   agl_ft: number;
@@ -210,7 +212,7 @@ export interface SceneSource {
 }
 
 export function newSceneJetPose(): SceneJetPose {
-  return { visible: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, heading_deg: 0, pitch_deg: 0, bank_deg: 0, phase: 'leadIn', agl_ft: 0, msl_ft: 0, tas_kt: 0 };
+  return { visible: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, heading_deg: 0, pitch_deg: 0, bank_deg: 0, load_g: 1, phase: 'leadIn', agl_ft: 0, msl_ft: 0, tas_kt: 0 };
 }
 
 export function newSceneBombPose(): SceneBombPose {
@@ -257,6 +259,7 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     out.heading_deg = js.heading_deg;
     out.pitch_deg = js.pitch_deg;
     out.bank_deg = js.bank_deg;
+    out.load_g = js.load_g;
     out.phase = js.phase;
     out.agl_ft = js.agl_ft;
     out.msl_ft = js.msl_ft;

@@ -14,6 +14,7 @@ import { calculateBearing } from '../coordinates';
 import { attackSpeedOf, ipToImpact_s } from '../strike';
 import { buildAltitude, type AltitudeModel } from './altitude';
 import { anchorMarkers } from './anchors';
+import { buildAttitude } from './attitude';
 import { buildBomb } from './bomb';
 import { type Chain, buildChain, pointAt, REVERSAL_DEG } from './chain';
 import { integrateTau, spanTimings, type StatedSpan } from './clock';
@@ -135,7 +136,7 @@ export function buildJetTrack(input: PlaybackJetInput, frame: LocalFrame, option
   if (cardSpeed_kt) codes.push('cardPushIsEstimate');
   if (frag) codes.push('fragEnvelope');
 
-  return {
+  const built: Omit<JetTrack, 'attitude'> = {
     id: input.id, label: input.label, callsign: input.callsign, family,
     altRef: family === 'level' ? 'MSL' : 'AGL',
     flank: facts.flank,
@@ -153,4 +154,8 @@ export function buildJetTrack(input: PlaybackJetInput, frame: LocalFrame, option
     estimates: estimatesOf(codes),
     warnings,
   };
+  // The roll table reads the finished track through the display layer, so it is added last.
+  const track = built as JetTrack;
+  track.attitude = buildAttitude(track);
+  return track;
 }

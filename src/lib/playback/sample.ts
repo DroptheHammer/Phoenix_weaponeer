@@ -7,10 +7,12 @@
  *   after `hideTau_s` it is not visible either.
  * - display: the plan with its corners rounded in time (display.ts), the
  *   lead-in before the IP, and the formation slot (formation.ts). Visible
- *   from 20 nm behind the IP (maxLeadIn_nm) to the hide time.
+ *   from 20 nm behind the IP (maxLeadIn_nm) to the hide time. Its roll and
+ *   load factor are read from the jet's table (attitude.ts).
  */
 
 import { calculateDistance } from '../coordinates';
+import { loadAt, rollAt } from './attitude';
 import { disp, displayAt, displayHeading, intervalOf, slotDir, slotDirection } from './display';
 import { formationLateral_m } from './formation';
 import { FT_TO_M, NM_TO_M, fromLocalInto } from './frame';
@@ -40,7 +42,7 @@ const blend = (a: Float64Array) => a[at.i] + (a[at.j] - a[at.i]) * at.u;
 export function newJetState(): JetState {
   return {
     visible: false, t_s: 0, tau_s: 0, phase: 'leadIn', lat: 0, lon: 0, e_m: 0, n_m: 0, up_m: 0, agl_ft: 0, msl_ft: 0,
-    tas_kt: 0, gs_kt: 0, heading_deg: 0, pitch_deg: 0, bank_deg: 0, ve_mps: 0, vn_mps: 0, vu_mps: 0, slot_m: 0, released: false,
+    tas_kt: 0, gs_kt: 0, heading_deg: 0, pitch_deg: 0, bank_deg: 0, load_g: 1, ve_mps: 0, vn_mps: 0, vu_mps: 0, slot_m: 0, released: false,
   };
 }
 
@@ -65,6 +67,7 @@ function planInto(track: JetTrack, tau: number, out: JetState): void {
   out.heading_deg = S.heading_deg[i];
   out.pitch_deg = S.pitch_deg[i];
   out.bank_deg = 0;
+  out.load_g = 1;
   out.ve_mps = S.ve_mps[i];
   out.vn_mps = S.vn_mps[i];
   out.vu_mps = S.vu_mps[i];
@@ -80,6 +83,8 @@ function displayInto(pb: StrikePlayback, track: JetTrack, tau: number, out: JetS
   displayAt(track, tau);
   if (disp.kind === 'plan') {
     planInto(track, tau, out);
+    out.bank_deg = rollAt(track.attitude, tau);
+    out.load_g = loadAt(track.attitude, tau);
     return;
   }
   out.e_m = disp.e;
@@ -100,7 +105,8 @@ function displayInto(pb: StrikePlayback, track: JetTrack, tau: number, out: JetS
     out.tas_kt = L.tas_kt;
     out.heading_deg = L.heading_deg;
     out.pitch_deg = 0;
-    out.bank_deg = 0;
+    out.bank_deg = rollAt(track.attitude, tau);
+    out.load_g = loadAt(track.attitude, tau);
     return;
   }
   out.up_m = disp.up;
@@ -108,7 +114,8 @@ function displayInto(pb: StrikePlayback, track: JetTrack, tau: number, out: JetS
   out.agl_ft = out.msl_ft - track.targetElevation_ft;
   out.heading_deg = displayHeading(track, tau, disp.ve, disp.vn);
   out.pitch_deg = Math.atan2(disp.vu, Math.hypot(disp.ve, disp.vn)) * DEG;
-  out.bank_deg = disp.bank;
+  out.bank_deg = rollAt(track.attitude, tau);
+  out.load_g = loadAt(track.attitude, tau);
   if (tau < 0) {
     out.phase = 'leadIn';
     out.tas_kt = L.tas_kt;

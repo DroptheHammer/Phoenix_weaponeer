@@ -42,12 +42,14 @@ import {
   buildStrikePlayback, retime, sampleJet, sampleBomb, strikeEvents, delaysToOffsets, playbackInputFromMission,
   makeLocalFrame, toLocal, fromLocal, fromLocalInto, toThree, newJetState, newBombState,
   dangerZones, inDangerZone, readoutJets, threatDomes, domeHeightAt_m, insideDome, playbackBounds, sideCoords, fragCloudAt,
-  fragSpecOf,
+  fragSpecOf, buildAttitude, rollAt, liftOf, rollWeight, wantedRoll, coneMean,
   type PlaybackJetInput, type StrikePlayback, type JetState, type JetTrack,
 } from '../src/lib/playback';
-// Two internals, for checks that only the model functions can answer (the apex slope, the pull table).
+// Internals, for checks that only the model functions can answer (the apex slope, the pull table, where
+// the display is exactly the plan).
 import { buildAltitude, pullTable } from '../src/lib/playback/altitude';
 import { buildChain } from '../src/lib/playback/chain';
+import { disp, displayAt } from '../src/lib/playback/display';
 import { calculateBearing, calculateDistance, calculateDestination } from '../src/lib/coordinates';
 import { realWorldMission, realWorldIpBearing, REAL_WORLD_IP_DISTANCE_NM, REAL_WORLD_DEFAULT_WEAPON, REAL_WORLD_DEFAULT_WEAPON_ID, isRealWorld } from '../src/lib/strikeNearMe';
 import { buildAttackPicture, buildSideProfile, pictureFitPoints, LINE_STYLE, MARKER_COLOR, LABEL_STYLE } from '../src/lib/attackPicture';
@@ -7242,12 +7244,15 @@ void (async () => {
        `four-ship: ${s4Desc}, skipped ${s4Pb.skipped.length}; skip variant: ${skipDesc}`);
 
     // Lone jets, auto-built on the real profile file and reference rows.
-    const lone = (m: Mission, profileId: string, weaponId: string, opts: { withIp?: boolean; leadIn_s?: number } = {}) => {
+    const lone = (m: Mission, profileId: string, weaponId: string, opts: { withIp?: boolean; leadIn_s?: number; smooth_s?: number } = {}) => {
       const b = autoBuildAttack({ mission: m, targetWaypointId: wpTgt.id, attackerId: 'p1', weapons: refWeapons, profiles: b3Profiles, threatSystems: [], overrides: { weaponId, profileId } } as never);
       if (!b.attack) throw new Error(`B3 fixture: ${profileId} did not auto-build`);
       const a = { ...b.attack, id: `b3-${profileId}` } as Attack;
       const jet: PlaybackJetInput = { id: a.id, attack: a, ipAnchor: opts.withIp === false ? undefined : attackIpAnchor(m.waypoints, a), target: wpTgt as never, weapon: refWeapon(weaponId), totOffset_s: 0, label: '#1' };
-      const pb = buildStrikePlayback({ name: a.id, jets: [jet] }, opts.leadIn_s != null ? { leadIn_s: opts.leadIn_s } : {});
+      const pb = buildStrikePlayback({ name: a.id, jets: [jet] }, {
+        ...(opts.leadIn_s != null ? { leadIn_s: opts.leadIn_s } : {}),
+        ...(opts.smooth_s != null ? { smooth_s: opts.smooth_s } : {}),
+      });
       if (pb.jets.length !== 1) throw new Error(`B3 fixture: ${profileId} not flown: ${pb.skipped[0]?.reason}`);
       return pb;
     };
@@ -9145,6 +9150,426 @@ void (async () => {
     if (l4None !== undefined) l4Bad.push('a launch with no plan open');
     ok('playback B3 [L4]: the list\'s Play hands over the saved plan without its threats, the strike or attack and the weapons; Apply only for a strike and into the plan; the row\'s attack to watch; the theater notes; nothing with no plan open',
        l4Bad.length === 0, l4Bad.join('; ') || 'plan as saved, 0 of 1 threats; strike: Apply to the plan, row: none, watching b3-2; notes 1; no plan: no launch');
+
+    // ─── The jets' roll and load factor (attitude.ts) ─────────────────────────
+    // The roll is the lift vector's, from the displayed track's 3D acceleration, built once per jet into
+    // a table over jet time. The eight jets: the lone pop-up, the 30° dive, the level JDAM, the loft, and
+    // the four-ship's four. Anchors are read from each track (pop-up AP 81.0, POP 84.3, PDP 99.6, APEX
+    // 103.8, TRK 107.7, REL 112.7 s after the IP; dive AP 86.4, ROLL 106.8, REL 116.0, ROLLOUT 125.4;
+    // level AP 11.6, RUN 103.1, REL 128.5; loft POP 78.4, REL 84.0). Each check carries its mutation
+    // proof (2026-11-15): one temporary edit, geo-check run, the FAIL line copied (shortened with …),
+    // the edit restored.
+    try {
+      type AtJet = { name: string; pb: StrikePlayback; timing: ReturnType<typeof retime>; k: number };
+      const atJets: AtJet[] = [
+        { name: 'pop-up', pb: popPb, timing: popTiming, k: 0 },
+        { name: '30° dive', pb: divePb, timing: retime(divePb), k: 0 },
+        { name: 'level JDAM', pb: levelPb, timing: retime(levelPb), k: 0 },
+        { name: 'loft', pb: loftPb, timing: retime(loftPb), k: 0 },
+        ...[0, 1, 2, 3].map((k) => ({ name: `four-ship #${k + 1}`, pb: s4Pb, timing: s4Timing, k })),
+      ];
+      const [atPop, atDive, atLevel, atLoft] = atJets;
+      const atState = newJetState();
+      const atTrack = (c: AtJet) => c.pb.jets[c.k];
+      /** The display pose at jet time tau, through sampleJet as the scene asks for it. */
+      const atPose = (c: AtJet, tau: number) => sampleJet(c.pb, c.timing, c.k, tau + c.timing.jets[c.k].shift_s, 'display', atState);
+      const atRoll = (c: AtJet, tau: number) => atPose(c, tau).bank_deg;
+      const atAnchor = (c: AtJet, kind: 'AP' | 'ROLL' | 'RUN' | 'POP' | 'PDP' | 'APEX' | 'TRK' | 'REL' | 'ROLLOUT') => {
+        const a = atTrack(c).anchors[kind];
+        if (!a) throw new Error(`attitude fixture: ${c.name} has no ${kind}`);
+        return a;
+      };
+      /** The largest |roll| over [from, to] every 0.05 s, with where it is and its sign. */
+      const atPeak = (c: AtJet, from: number, to: number, roll = (tau: number) => atRoll(c, tau)) => {
+        let best = { abs: -1, roll: 0, tau: from };
+        for (let i = 0; ; i++) {
+          const tau = from + i * 0.05;
+          if (tau > to + 1e-9) break;
+          const v = roll(tau);
+          if (Math.abs(v) > best.abs) best = { abs: Math.abs(v), roll: v, tau };
+        }
+        return best;
+      };
+      const wrapDeg = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
+      const AT_G = 9.80665;
+
+      // [AT1] The pose stream is the same as before the roll moved out of the display: for each of the
+      // eight jets, a SHA-256 over every display pose from the start of its lead-in to its hide time every
+      // 0.5 s (every field but the roll and the load) and every bomb sample from 1 s before the release
+      // to 1 s after the impact every 0.25 s, each number rounded to 1e-6, matches the digest recorded
+      // on the tree before the change (the first 16 hex digits and the sample count).
+      // Mutation proof: display.ts displayAt, the release blend's `disp.ve = (d00 * H0[0] + d01 * H1[0]) / W + d10 * D0[0] + d11 * D1[0]`
+      // → `… + d11 * D1[0] * 1.001` (0.25 m/s at the end of the 4 s after each release), seen red 2026-11-15 (and only this check):
+      //   FAIL playback B3 [AT1]: …  pop-up: 5977437040d0af8b (665 samples) (want 1dcfe28000398844 (665 samples)); 30° dive: bc362144c1363f35 (693 samples) (want 42fa10d3e3347f7b (693 samples)); …
+      const r6 = (x: number) => Math.round(x * 1e6);
+      const poseDigest = (pb: StrikePlayback, k: number): string => {
+        const timing = retime(pb);
+        const h = createHash('sha256');
+        const js = newJetState(), bs = newBombState();
+        const tj = timing.jets[k];
+        const from = tj.shift_s - pb.jets[k].display.leadIn.capTau_s, to = tj.hide_s;
+        let n = 0;
+        const put = (...v: (number | string | boolean)[]) => { h.update(v.map((x) => (typeof x === 'number' ? String(r6(x)) : String(x))).join(',') + ';'); n++; };
+        for (let t = from; t <= to + 1e-9; t += 0.5) {
+          sampleJet(pb, timing, k, t, 'display', js);
+          put(js.visible, js.phase, js.lat, js.lon, js.e_m, js.n_m, js.up_m, js.agl_ft, js.msl_ft, js.tas_kt, js.gs_kt, js.heading_deg, js.pitch_deg, js.ve_mps, js.vn_mps, js.vu_mps, js.slot_m, js.released);
+        }
+        for (let t = tj.release_s - 1; t <= tj.impact_s + 1; t += 0.25) {
+          sampleBomb(pb, timing, k, t, 'display', bs);
+          put(bs.visible, bs.stage, bs.lat, bs.lon, bs.e_m, bs.n_m, bs.up_m, bs.ve_mps, bs.vn_mps, bs.vu_mps);
+        }
+        return `${h.digest('hex').slice(0, 16)} (${n} samples)`;
+      };
+      const at1Want = ['1dcfe28000398844 (665 samples)', '42fa10d3e3347f7b (693 samples)', 'b67a43dd0cc94f08 (911 samples)', '41f466bbb7f67d86 (707 samples)',
+        '1dcfe28000398844 (665 samples)', 'e336e8d61e719720 (665 samples)', '00b3a44bcda361e8 (558 samples)', '41f466bbb7f67d86 (707 samples)'];
+      const at1Got = atJets.map((c) => poseDigest(c.pb, c.k));
+      const at1Bad = atJets.map((c, i) => (at1Got[i] === at1Want[i] ? '' : `${c.name}: ${at1Got[i]} (want ${at1Want[i]})`)).filter(Boolean);
+      ok('playback B3 [AT1]: every display pose but its roll, and every bomb sample, is what it was before the roll came from the lift (eight jets, digests to 1e-6)',
+         at1Bad.length === 0, at1Bad.join('; ') || atJets.map((c, i) => `${c.name} ${at1Got[i]}`).join('; '));
+
+      // [AT2] Straight flight is wings level: on the eight jets, at every 0.05 s from 30 s before the IP
+      // to the hide time where the display is the plan or the lead-in at every 0.25 s within ±1.5 s, the
+      // roll is within 0.5°; the level JDAM's whole offset leg (20-95 s) too; and the pop-up's straight
+      // pull-up, POP + 0.3 … POP + 1.7 s, is wings level as well (a straight pull is not a turn).
+      // Mutation proof: attitude.ts liftWith `au + G_MPS2` → `au - G_MPS2` (gravity's sign), seen red 2026-11-15:
+      //   FAIL playback B3 [AT2]: …  pop-up: 180.054° at 129.75 s over 2683 straight nodes — … level leg 180.03…
+      // (and AT3, AT4, AT8, AT9, AT12, AT13)
+      const at2Straight = (tr: JetTrack, tau: number) => {
+        for (let j = -6; j <= 6; j++) {
+          displayAt(tr, tau + j * 0.25);
+          if (disp.kind !== 'plan' && disp.kind !== 'leadIn') return false;
+        }
+        return true;
+      };
+      const at2Parts: string[] = [];
+      let at2Bad = '';
+      for (const c of atJets) {
+        const tr = atTrack(c);
+        let worst = 0, worstTau = 0, nodes = 0;
+        for (let i = 0; ; i++) {
+          const tau = -30 + i * 0.05;
+          if (tau > tr.hideTau_s) break;
+          if (!at2Straight(tr, tau)) continue;
+          nodes++;
+          const v = Math.abs(atRoll(c, tau));
+          if (v > worst) { worst = v; worstTau = tau; }
+        }
+        at2Parts.push(`${c.name} ${worst.toFixed(3)}° (${nodes} nodes)`);
+        if (!(worst <= 0.5) || nodes < 200) at2Bad ||= `${c.name}: ${worst.toFixed(3)}° at ${worstTau.toFixed(2)} s over ${nodes} straight nodes`;
+      }
+      const at2Leg = atPeak(atLevel, 20, 95);
+      const at2Pop = atAnchor(atPop, 'POP').tau_s;
+      const at2Pull = atPeak(atPop, at2Pop + 0.3, at2Pop + 1.7);
+      if (!(at2Leg.abs <= 0.5)) at2Bad ||= `level offset leg ${at2Leg.abs.toFixed(3)}° at ${at2Leg.tau.toFixed(2)} s`;
+      if (!(at2Pull.abs <= 0.5)) at2Bad ||= `pop-up pull-up ${at2Pull.abs.toFixed(3)}° at ${at2Pull.tau.toFixed(2)} s`;
+      ok('playback B3 [AT2]: straight flight is wings level (within 0.5°) on all eight jets, the level JDAM\'s offset leg and the pop-up\'s straight pull-up included',
+         at2Bad === '', `${at2Bad ? at2Bad + ' — ' : ''}${at2Parts.join('; ')}; level leg ${at2Leg.abs.toFixed(3)}°; pull-up ${at2Pull.abs.toFixed(3)}°`);
+
+      // [AT3] A level turn's roll is atan(ground speed × turn rate / g): on the plateau of three check
+      // turns, AP − 1.4 … AP + 0.6 s every 0.1 s (level JDAM, pop-up, 30° dive), the drawn roll against
+      // that from the displayed heading's change over ±0.25 s, within 0.5°.
+      // Mutation proof: attitude.ts liftWith `Math.atan2(lat, up)` → `Math.atan2(0.8 * lat, up)`, seen red 2026-11-15:
+      //   FAIL playback B3 [AT3]: …  level JDAM AP 11.6: roll 67.5°, worst 4.243° at 12.2 s; pop-up AP 81.0: roll 65.6°, worst 4.499° at 81.6 s; …
+      // (and AT13, its 10 g case)
+      const at3Turns = [atLevel, atPop, atDive].map((c) => {
+        const ap = atAnchor(c, 'AP').tau_s;
+        let worst = 0, worstTau = ap, loadWorst = 0;
+        for (let i = 0; i <= 20; i++) {
+          const tau = ap - 1.4 + i * 0.1;
+          const h1 = atPose(c, tau + 0.25).heading_deg, h0 = atPose(c, tau - 0.25).heading_deg;
+          const w = (wrapDeg(h1 - h0) / 0.5) * (Math.PI / 180);
+          const p = atPose(c, tau);
+          const vw = (Math.hypot(p.ve_mps, p.vn_mps) * w) / AT_G;
+          const want = Math.atan(vw) * (180 / Math.PI);
+          const d = Math.abs(p.bank_deg - want);
+          if (d > worst) { worst = d; worstTau = tau; }
+          loadWorst = Math.max(loadWorst, Math.abs(p.load_g - Math.sqrt(1 + vw * vw)));
+        }
+        return { name: c.name, ap, worst, worstTau, loadWorst, mid: atRoll(c, ap - 0.4) };
+      });
+      const at3Bad = at3Turns.filter((t) => !(t.worst <= 0.5));
+      ok('playback B3 [AT3]: through a check turn the roll is a level turn\'s, atan(ground speed × turn rate / g), within 0.5° (level JDAM, pop-up, 30° dive)',
+         at3Bad.length === 0, at3Turns.map((t) => `${t.name} AP ${t.ap.toFixed(1)}: roll ${t.mid.toFixed(1)}°, worst ${t.worst.toFixed(3)}° at ${t.worstTau.toFixed(1)} s`).join('; '));
+
+      // [AT4] Over the top and into a pull-down the roll passes 90°: the pop-up, APEX ± 3 s, reaches
+      // 130° or more, on the side its pull-down turns to; the 30° dive's roll-in, ROLL … ROLL + 4 s, 100°;
+      // the loft, 100° at REL + 0.5 s and 140° within REL … REL + 1.5 s (its wingover escape); and the
+      // level JDAM's turn-in, RUN − 0.5 … RUN + 4 s, stays under 90° (a level turn stays level-turn shaped).
+      // Mutation proof: attitude.ts ATTITUDE `PITCH_MAX_DEG: 80` → `PITCH_MAX_DEG: 10` (every pitched node
+      // has no usable direction), seen red 2026-11-15:
+      //   FAIL playback B3 [AT4]: …  pop-up -150.8° at 103.83 s (pull-down turns -53.7°); dive 0.0°; loft 104.0° at +0.5 s, peak 127.1°; level turn-in -81.8°
+      // (and AT12, by its arm without the hold: 0.0°). A second proof, `VERTICAL_WEIGHT: 1` → `VERTICAL_WEIGHT: 0`
+      // (the old horizontal-only physics):
+      //   FAIL playback B3 [AT4]: …  pop-up -77.5° at 102.18 s (pull-down turns -53.7°); dive -79.4°; loft 78.8° at +0.5 s, peak 81.7°; …
+      // (and AT2, pull-up 0.856°; AT9, the pushover 11.45° from +1.8 s; AT12, 75.6° without the hold)
+      const at4Apex = atAnchor(atPop, 'APEX').tau_s;
+      const at4PopPeak = atPeak(atPop, at4Apex - 3, at4Apex + 3);
+      const at4Pop = atTrack(atPop);
+      const at4Turn = wrapDeg(at4Pop.samples.heading_deg[atAnchor(atPop, 'TRK').index] - at4Pop.samples.heading_deg[atAnchor(atPop, 'PDP').index]);
+      const at4Roll = atAnchor(atDive, 'ROLL').tau_s;
+      const at4DivePeak = atPeak(atDive, at4Roll, at4Roll + 4);
+      const at4Rel = atAnchor(atLoft, 'REL').tau_s;
+      const at4LoftHalf = Math.abs(atRoll(atLoft, at4Rel + 0.5));
+      const at4LoftPeak = atPeak(atLoft, at4Rel, at4Rel + 1.5);
+      const at4Run = atAnchor(atLevel, 'RUN').tau_s;
+      const at4LevelPeak = atPeak(atLevel, at4Run - 0.5, at4Run + 4);
+      ok('playback B3 [AT4]: over the top the roll passes 90° on the side of the turn (pop-up ≥ 130°, dive roll-in ≥ 100°, loft escape ≥ 100° at +0.5 s and ≥ 140°); the level turn-in stays under 90°',
+         at4PopPeak.abs >= 130 && Math.sign(at4PopPeak.roll) === Math.sign(at4Turn) && at4Turn !== 0 && at4DivePeak.abs >= 100 && at4LoftHalf >= 100 && at4LoftPeak.abs >= 140 && at4LevelPeak.abs < 90,
+         `pop-up ${at4PopPeak.roll.toFixed(1)}° at ${at4PopPeak.tau.toFixed(2)} s (pull-down turns ${at4Turn.toFixed(1)}°); dive ${at4DivePeak.roll.toFixed(1)}°; ` +
+         `loft ${at4LoftHalf.toFixed(1)}° at +0.5 s, peak ${at4LoftPeak.roll.toFixed(1)}°; level turn-in ${at4LevelPeak.roll.toFixed(1)}°`);
+
+      // [AT5] The roll is continuous and never faster than 240°/s: on the eight jets, IP to 5 s past the
+      // egress end, every 0.05 s and again every 0.0173 s, |roll(τ + d) − roll(τ)| ≤ 240·d + 1e-9 (the
+      // table is float64, so the bound holds to the last bit). And the filter alone: on a step 0 → 160 and
+      // on pulses of +70 and −70 of one width no slope passes the bound, and a left and a right roll come
+      // out as mirror images (1e-12).
+      // Mutation proofs (each seen red 2026-11-15): attitude.ts ATTITUDE `ROLL_RATE_DPS: 240` → `ROLL_RATE_DPS: 1e6`:
+      //   FAIL playback B3 [AT5]: …  pop-up: 12.5659° in 0.05 s at 78.550 s (bound 12.00) — largest 0.05 s step: pop-up 13.57°, 30° dive 30.22°, level JDAM 30.51°, loft 98.12°, …
+      // (and AT10, its step bound on the tables: "pop-up: a 12.32° step at node 1731");
+      // coneMean `out[a + i] = 0.5 * (up[i] + lo[i])` → `out[a + i] = up[i]` (not sign-symmetric):
+      //   FAIL playback B3 [AT5]: …  left and right differ by 148.0000° — …; filter: slope over bound 0.0e+0, mirror 1.5e+2
+      const at5Parts: string[] = [];
+      let at5Bad = '';
+      for (const c of atJets) {
+        const tr = atTrack(c);
+        let reach = 0;
+        for (const d of [0.05, 0.0173]) {
+          let prev = atRoll(c, 0);
+          for (let i = 1; ; i++) {
+            const tau = i * d;
+            if (tau > tr.egressEndTau_s + 5) break;
+            const v = atRoll(c, tau);
+            const step = Math.abs(v - prev);
+            if (d === 0.05) reach = Math.max(reach, step);
+            if (!(step <= 240 * d + 1e-9)) at5Bad ||= `${c.name}: ${step.toFixed(4)}° in ${d} s at ${tau.toFixed(3)} s (bound ${(240 * d).toFixed(2)})`;
+            prev = v;
+          }
+        }
+        at5Parts.push(`${c.name} ${reach.toFixed(2)}°`);
+      }
+      const at5Rc = 12;
+      const at5Cases = [
+        Float64Array.from({ length: 40 }, (_, i) => (i < 20 ? 0 : 160)),
+        Float64Array.from({ length: 40 }, (_, i) => (i >= 15 && i < 25 ? 70 : 0)),
+      ];
+      let at5Slope = 0, at5Mirror = 0;
+      for (const w of at5Cases) {
+        const o = new Float64Array(w.length), oNeg = new Float64Array(w.length);
+        coneMean(w, 0, w.length - 1, at5Rc, o);
+        coneMean(w.map((x) => -x), 0, w.length - 1, at5Rc, oNeg);
+        for (let i = 0; i < w.length; i++) {
+          if (i > 0) at5Slope = Math.max(at5Slope, Math.abs(o[i] - o[i - 1]) - at5Rc, Math.abs(oNeg[i] - oNeg[i - 1]) - at5Rc);
+          at5Mirror = Math.max(at5Mirror, Math.abs(oNeg[i] + o[i]));
+        }
+      }
+      if (!(at5Slope <= 1e-12)) at5Bad ||= `the filter's slope passes the bound by ${at5Slope.toFixed(4)}°`;
+      if (!(at5Mirror <= 1e-12)) at5Bad ||= `left and right differ by ${at5Mirror.toFixed(4)}°`;
+      ok('playback B3 [AT5]: the roll is continuous and never changes faster than 240°/s on all eight jets; the filter keeps the bound and treats left and right alike',
+         at5Bad === '', `${at5Bad ? at5Bad + ' — ' : ''}largest 0.05 s step: ${at5Parts.join(', ')}; filter: slope over bound ${at5Slope.toExponential(1)}, mirror ${at5Mirror.toExponential(1)}`);
+
+      // [AT6] The short way round: principal angles 170, 175, 179, −179, −175, −170 at a load of 2 g unwrap
+      // to 170 … 190 (no jump through 360°); a node with no direction (NaN) rolls the wings level and the
+      // count starts again from there.
+      // Mutation proof: attitude.ts wantedWith `u = u + wrap180(p - wrap180(u));` → `u = p;`, seen red 2026-11-15:
+      //   FAIL playback B3 [AT6]: …  170.0,175.0,179.0,-179.0,-175.0,-170.0; 170.0,0.0,-170.0
+      const at6Run = (p: number[], g: number) => {
+        const o = new Float64Array(p.length);
+        wantedRoll(Float64Array.from(p), new Float64Array(p.length).fill(g), o);
+        return [...o];
+      };
+      const at6A = at6Run([170, 175, 179, -179, -175, -170], 2), at6B = at6Run([170, NaN, -170], 2);
+      const at6Close = (got: number[], want: number[]) => got.length === want.length && got.every((v, i) => Math.abs(v - want[i]) <= 1e-9);
+      ok('playback B3 [AT6]: the roll unwraps the short way round (170 … −170 reads 170 … 190), and a node with no direction rolls wings level',
+         at6Close(at6A, [170, 175, 179, 181, 185, 190]) && at6Close(at6B, [170, 0, -170]), `${at6A.map((v) => v.toFixed(1)).join(',')}; ${at6B.map((v) => v.toFixed(1)).join(',')}`);
+
+      // [AT7] Pure and timing-free: 30 jet times on each of the eight jets, asked in order, in reverse,
+      // shuffled, with other jets and times asked between, and again after a second build of the same
+      // input, give the same roll and load (===); each jet re-timed by +37.3 s gives the same roll at the
+      // same jet time (1e-9).
+      // Mutation proof: attitude.ts rollAt returning `last = last * 0.01 + v * 0.99` with a module-level `let last = 0`, seen red 2026-11-15:
+      //   FAIL playback B3 [AT7]: …  pop-up: reverse order differs
+      // (and AT11, and the older scene check P11, whose bank comparison reads the roll twice)
+      const at7Rebuilt: StrikePlayback[] = [
+        buildStrikePlayback(harnessLaunch().input),
+        lone(b3m, 'f16c.dive.ccip30', 'mk82'),
+        lone(b3m, 'f16c.level.ccrp.jdam', 'gbu31'),
+        lone(b3m, 'f16c.loft.std', 'mk82'),
+      ];
+      const at7S4 = buildStrikePlayback(playbackInputFromMission(strike4, { strikeId: 'b3' }, refWeapons as never)!);
+      const at7Again = (c: AtJet, i: number): AtJet => ({ ...c, pb: i < 4 ? at7Rebuilt[i] : at7S4, timing: retime(i < 4 ? at7Rebuilt[i] : at7S4) });
+      const at7Taus = (c: AtJet) => {
+        const tr = atTrack(c);
+        return Array.from({ length: 30 }, (_, i) => -10 + ((tr.hideTau_s + 10) * (i + 0.5)) / 30);
+      };
+      const at7Read = (c: AtJet, order: number[], taus: number[], between: boolean) => {
+        const out = new Array<string>(taus.length);
+        for (const i of order) {
+          if (between) atPose(atJets[(i * 5 + 3) % 8], (i * 13.7) % 120);
+          const p = atPose(c, taus[i]);
+          out[i] = `${p.bank_deg}|${p.load_g}`;
+        }
+        return out.join(';');
+      };
+      let at7Bad = '';
+      let at7Retime = 0;
+      atJets.forEach((c, ci) => {
+        const taus = at7Taus(c);
+        const idx = taus.map((_, i) => i);
+        const ref = at7Read(c, idx, taus, false);
+        const shuffled = idx.map((i) => (i * 17 + 5) % 30);
+        if (at7Read(c, [...idx].reverse(), taus, false) !== ref) at7Bad ||= `${c.name}: reverse order differs`;
+        if (at7Read(c, shuffled, taus, true) !== ref) at7Bad ||= `${c.name}: shuffled with others between differs`;
+        if (at7Read(at7Again(c, ci), idx, taus, false) !== ref) at7Bad ||= `${c.name}: a second build differs`;
+        const id = c.pb.jets[c.k].id;
+        const late: AtJet = { ...c, timing: retime(c.pb, { ...c.timing.delays_s, [id]: c.timing.delays_s[id] + 37.3 }) };
+        for (const tau of taus) at7Retime = Math.max(at7Retime, Math.abs(atRoll(late, tau) - atRoll(c, tau)));
+      });
+      if (!(at7Retime <= 1e-9)) at7Bad ||= `re-timed by 37.3 s the roll moves ${at7Retime.toExponential(2)}°`;
+      ok('playback B3 [AT7]: the roll and load are pure: any order, other jets between, a second build, and a re-time give the same numbers at the same jet time',
+         at7Bad === '', at7Bad || `8 jets × 30 times, 4 orders; re-timed +37.3 s: ${at7Retime.toExponential(1)}°`);
+
+      // [AT8] The release is a gate: on the eight jets the roll at the release is within 0.05° and within
+      // 0.1° over the 3 s before it (a residue of the display's corners); the table's release node is at the
+      // release (1e-9); and after it the jet rolls away at the bound: the pop-up is past 12° at REL + 0.5 s.
+      // Mutation proof: attitude.ts buildAttitude `wantA[iR] = wantA[iR - 1];` deleted, seen red 2026-11-15:
+      //   FAIL playback B3 [AT8]: …  pop-up: 14.368° at the release — at the release / 3 s before: … level JDAM 30.484°/30.484°, loft 86.756°/86.756°, …
+      let at8Bad = '';
+      const at8Parts: string[] = [];
+      for (const c of atJets) {
+        const tr = atTrack(c);
+        const a = tr.attitude;
+        const atRel = Math.abs(atRoll(c, tr.releaseTau_s));
+        const before = atPeak(c, tr.releaseTau_s - 3, tr.releaseTau_s);
+        const nodeAt = a.tau0_s + a.releaseIndex * a.step_s;
+        at8Parts.push(`${c.name} ${atRel.toFixed(3)}°/${before.abs.toFixed(3)}°`);
+        if (!(atRel <= 0.05)) at8Bad ||= `${c.name}: ${atRel.toFixed(3)}° at the release`;
+        if (!(before.abs <= 0.1)) at8Bad ||= `${c.name}: ${before.abs.toFixed(3)}° at ${before.tau.toFixed(2)} s before the release`;
+        if (!(Math.abs(nodeAt - tr.releaseTau_s) <= 1e-9)) at8Bad ||= `${c.name}: release node at ${nodeAt} (release ${tr.releaseTau_s})`;
+      }
+      const at8After = Math.abs(atRoll(atPop, atTrack(atPop).releaseTau_s + 0.5));
+      if (!(at8After >= 12)) at8Bad ||= `pop-up ${at8After.toFixed(1)}° at REL + 0.5 s (want ≥ 12)`;
+      ok('playback B3 [AT8]: every jet is wings level at its release and the 3 s before it, the table has a node on the release, and the roll starts after it',
+         at8Bad === '', `${at8Bad ? at8Bad + ' — ' : ''}at the release / 3 s before: ${at8Parts.join(', ')}; pop-up REL + 0.5 s ${at8After.toFixed(1)}°`);
+
+      // [AT9] Tiny loads roll wings level: the fade weight is 0 at 0.1 and 0.35 g, 0.5 at 0.6 g, 1 at 0.85
+      // and 3 g, and never falls over 0 … 2 g; at 0.2 g the wanted roll is 0 whatever the angle; the 30°
+      // dive's 0.3-0.5 g pushover at the end of its egress arc stays within 40° over ROLLOUT + 1.2 … + 2.2 s
+      // and within 1° from ROLLOUT + 1.8 s (its raw lift roll is 104-137° there); and 8 s past the egress
+      // end every jet is level (under 0.001°).
+      // Mutation proof: attitude.ts ATTITUDE `LOAD_FLOOR_G: 0.35` → `LOAD_FLOOR_G: 0`, seen red 2026-11-15:
+      //   FAIL playback B3 [AT9]: …  weights 0.038/0.369/0.791/1.000/1.000, monotone true; at 0.2 g 4.20…,16.80…,26.60…,12.60…; dive pushover 78.0° at 126.63 s, from +1.8 s 32.24°; …
+      const at9W = [0.1, 0.35, 0.6, 0.85, 3].map((g) => rollWeight(g));
+      let at9Mono = true;
+      for (let g = 0.01; g <= 2; g += 0.01) if (rollWeight(g) < rollWeight(g - 0.01)) at9Mono = false;
+      const at9Low = at6Run([30, 120, -170, 90], 0.2);
+      const at9Out = atAnchor(atDive, 'ROLLOUT').tau_s;
+      const at9Push = atPeak(atDive, at9Out + 1.2, at9Out + 2.2);
+      const at9Late = atPeak(atDive, at9Out + 1.8, at9Out + 2.2);
+      const at9End = atJets.map((c) => Math.abs(atRoll(c, atTrack(c).egressEndTau_s + 8)));
+      const at9WOk = at9W[0] === 0 && at9W[1] === 0 && Math.abs(at9W[2] - 0.5) <= 1e-9 && at9W[3] === 1 && at9W[4] === 1;
+      ok('playback B3 [AT9]: below 0.35 g the jet rolls wings level and the roll fades in to 0.85 g; the dive\'s pushover stays under 40° and levels by ROLLOUT + 1.8 s; every jet is level 8 s past its egress',
+         at9WOk && at9Mono && at9Low.every((v) => v === 0) && at9Push.abs <= 40 && at9Late.abs <= 1 && at9End.every((v) => v < 1e-3),
+         `weights ${at9W.map((v) => v.toFixed(3)).join('/')}, monotone ${at9Mono}; at 0.2 g ${at9Low.join(',')}; dive pushover ${at9Push.abs.toFixed(1)}° at ${at9Push.tau.toFixed(2)} s, ` +
+         `from +1.8 s ${at9Late.abs.toFixed(2)}°; 8 s past the egress, worst ${Math.max(...at9End).toExponential(1)}°`);
+
+      // [AT10] The load factor: 1.00 ± 0.01 g along the level JDAM's offset leg (20-95 s); √(1 + (vω/g)²)
+      // within 0.05 through the three check turns; never NaN or below 0 anywhere in the eight jets' tables,
+      // nor in the same eight rebuilt with no corner rounding (smooth_s 0: every corner a velocity step,
+      // 43-67 g for a moment), whose rolls still keep the 240°/s bound.
+      // Mutation proof: attitude.ts liftWith `au + G_MPS2` → `au` (no gravity), seen red 2026-11-15:
+      //   FAIL playback B3 [AT10]: …  level offset leg load off by 0.9995 g — offset leg ±0.9995 g; check turns ±0.2305 g; …
+      // (and AT3, the roll 90.0°; AT4; AT9; AT12; AT13)
+      let at10Leg = 0;
+      for (let tau = 20; tau <= 95; tau += 0.05) at10Leg = Math.max(at10Leg, Math.abs(atPose(atLevel, tau).load_g - 1));
+      const at10Turn = Math.max(...at3Turns.map((t) => t.loadWorst));
+      const at10Sharp: StrikePlayback[] = [
+        buildStrikePlayback(harnessLaunch().input, { smooth_s: 0 }),
+        lone(b3m, 'f16c.dive.ccip30', 'mk82', { smooth_s: 0 }),
+        lone(b3m, 'f16c.level.ccrp.jdam', 'gbu31', { smooth_s: 0 }),
+        lone(b3m, 'f16c.loft.std', 'mk82', { smooth_s: 0 }),
+      ];
+      const at10S4 = buildStrikePlayback(playbackInputFromMission(strike4, { strikeId: 'b3' }, refWeapons as never)!, { smooth_s: 0 });
+      const at10Tables = [...atJets.map((c) => ({ name: c.name, a: atTrack(c).attitude })),
+        ...atJets.map((c, i) => ({ name: `${c.name}, sharp`, a: (i < 4 ? at10Sharp[i] : at10S4).jets[c.k].attitude }))];
+      let at10Bad = '';
+      let at10Peak = 0;
+      for (const { name, a } of at10Tables) {
+        for (let i = 0; i < a.n; i++) {
+          const g = a.load_g[i], v = a.roll_deg[i];
+          if (!Number.isFinite(g) || g < 0 || !Number.isFinite(v)) { at10Bad ||= `${name}: node ${i} roll ${v}, load ${g}`; break; }
+          if (name.endsWith('sharp')) at10Peak = Math.max(at10Peak, g);
+          if (i > 0 && !(Math.abs(v - a.roll_deg[i - 1]) <= 12 + 1e-9)) { at10Bad ||= `${name}: a ${Math.abs(v - a.roll_deg[i - 1]).toFixed(2)}° step at node ${i}`; break; }
+        }
+      }
+      if (!(at10Leg <= 0.01)) at10Bad ||= `level offset leg load off by ${at10Leg.toFixed(4)} g`;
+      if (!(at10Turn <= 0.05)) at10Bad ||= `check turns' load off √(1 + (vω/g)²) by ${at10Turn.toFixed(4)} g`;
+      ok('playback B3 [AT10]: the load is 1 g on a straight leg and a level turn\'s √(1 + (vω/g)²) in a check turn; never NaN or negative, even with no corner rounding',
+         at10Bad === '', `${at10Bad ? at10Bad + ' — ' : ''}offset leg ±${at10Leg.toFixed(4)} g; check turns ±${at10Turn.toFixed(4)} g; ${at10Tables.length} tables; sharp corners peak ${at10Peak.toFixed(1)} g`);
+
+      // [AT11] The scene's source passes the roll and the load through untouched: the four-ship's jetAt at
+      // six times per jet gives the very bank_deg and load_g sampleJet's display pose has (===).
+      // Mutation proof: source.ts jetAt `out.load_g = js.load_g;` → `out.load_g = 1;`, seen red 2026-11-15:
+      //   FAIL playback B3 [AT11]: …  #1 at -89.6: 0.0441…/1 (want 0.0441…/1.0000003…); #1 at -37.8: -0.2763…/1 (want -0.2763…/3.1630…); …
+      const at11Pose = newSceneJetPose(), at11State = newJetState();
+      const at11Bad: string[] = [];
+      for (let k = 0; k < 4; k++) {
+        const t0 = s4Src.visibleFromOf(k), t1 = s4Src.hideOf(k);
+        for (let i = 0; i < 6; i++) {
+          const t = t0 + ((t1 - t0) * (i + 0.5)) / 6;
+          s4Src.jetAt(k, t, at11Pose);
+          sampleJet(s4Pb, s4Timing, k, t, 'display', at11State);
+          if (at11Pose.bank_deg !== at11State.bank_deg || at11Pose.load_g !== at11State.load_g) at11Bad.push(`#${k + 1} at ${t.toFixed(1)}: ${at11Pose.bank_deg}/${at11Pose.load_g} (want ${at11State.bank_deg}/${at11State.load_g})`);
+        }
+      }
+      ok('playback B3 [AT11]: the scene source hands the jet\'s roll and load factor to the scene exactly as the library gives them',
+         at11Bad.length === 0, at11Bad.slice(0, 3).join('; ') || '4 jets × 6 times, both fields identical');
+
+      // [AT12] The release does not swing the roll: with the release blend's overshoot held (the default),
+      // over REL + 1.5 … + 5.0 s the roll stays within 90° on the pop-up, the 30° dive and the four-ship's
+      // first three, and within 80° on the level JDAM; the same table built without the hold reaches 120°
+      // or more on the pop-up, so the check shows the swing exists and that the hold removes it.
+      // Mutation proof: attitude.ts ATTITUDE `CLIP_RELEASE_OVERSHOOT: true` → `CLIP_RELEASE_OVERSHOOT: false`, seen red 2026-11-15:
+      //   FAIL playback B3 [AT12]: …  pop-up 150.0°, 30° dive 144.5°, four-ship #1 150.0°, four-ship #2 150.0°, four-ship #3 150.0°, level JDAM 88.7°; …
+      const at12Rows = [atPop, atDive, atJets[4], atJets[5], atJets[6], atLevel].map((c) => {
+        const rel = atTrack(c).releaseTau_s;
+        return { name: c.name, cap: c === atLevel ? 80 : 90, peak: atPeak(c, rel + 1.5, rel + 5.0) };
+      });
+      const at12Pure = buildAttitude(atTrack(atPop), { CLIP_RELEASE_OVERSHOOT: false });
+      const at12PopRel = atTrack(atPop).releaseTau_s;
+      const at12PurePeak = atPeak(atPop, at12PopRel + 1.5, at12PopRel + 5.0, (tau) => rollAt(at12Pure, tau));
+      ok('playback B3 [AT12]: after the release the roll does not swing past 90° (80° on the level run); without the hold on the blend\'s overshoot the pop-up\'s swings to 120° or more',
+         at12Rows.every((r) => r.peak.abs <= r.cap) && at12PurePeak.abs >= 120,
+         `${at12Rows.map((r) => `${r.name} ${r.peak.abs.toFixed(1)}°`).join(', ')}; without the hold the pop-up ${at12PurePeak.abs.toFixed(1)}° at REL + ${(at12PurePeak.tau - at12PopRel).toFixed(2)} s`);
+
+      // [AT13] The degenerate nodes, straight on liftOf: no velocity, roll NaN and load exactly 1; 10 m/s
+      // with a 36 m/s² pull, roll NaN and load exactly 1 (the speed test comes first); straight up, roll
+      // NaN and a finite load; level and unaccelerated, roll 0 and load 1; 200 m/s north pulling 10 g east,
+      // roll atan2(10, 1) and load hypot(10, 1) (1e-9).
+      // Mutation proof: attitude.ts liftWith the speed test `if (!(sp >= cfg.SPEED_FLOOR_MPS)) { … return; }` deleted, seen red 2026-11-15:
+      //   FAIL playback B3 [AT13]: …  10 m/s: 74.76196552022756/3.8047446916882897
+      const at13 = (v: [number, number, number], a: [number, number, number]) => {
+        const o = { roll_deg: 0, load_g: 0 };
+        liftOf(v[0], v[1], v[2], a[0], a[1], a[2], o);
+        return o;
+      };
+      const at13Still = at13([0, 0, 0], [0, 0, 0]);
+      const at13Slow = at13([0, 10, 0], [36, 0, 0]);
+      const at13Up = at13([0, 0, 200], [0, 0, 0]);
+      const at13Level = at13([0, 200, 0], [0, 0, 0]);
+      const at13Ae = 98.0665;
+      const at13Pull = at13([0, 200, 0], [at13Ae, 0, 0]);
+      const at13Bad: string[] = [];
+      if (!Number.isNaN(at13Still.roll_deg) || at13Still.load_g !== 1) at13Bad.push(`no velocity: ${at13Still.roll_deg}/${at13Still.load_g}`);
+      if (!Number.isNaN(at13Slow.roll_deg) || at13Slow.load_g !== 1) at13Bad.push(`10 m/s: ${at13Slow.roll_deg}/${at13Slow.load_g}`);
+      if (!Number.isNaN(at13Up.roll_deg) || !Number.isFinite(at13Up.load_g)) at13Bad.push(`straight up: ${at13Up.roll_deg}/${at13Up.load_g}`);
+      if (!(Math.abs(at13Level.roll_deg) <= 1e-9 && Math.abs(at13Level.load_g - 1) <= 1e-9)) at13Bad.push(`level: ${at13Level.roll_deg}/${at13Level.load_g}`);
+      const at13WantRoll = Math.atan2(at13Ae / AT_G, 1) * (180 / Math.PI), at13WantLoad = Math.hypot(at13Ae / AT_G, 1);
+      if (!(Math.abs(at13Pull.roll_deg - at13WantRoll) <= 1e-9 && Math.abs(at13Pull.load_g - at13WantLoad) <= 1e-9)) at13Bad.push(`10 g east: ${at13Pull.roll_deg}/${at13Pull.load_g} (want ${at13WantRoll}/${at13WantLoad})`);
+      ok('playback B3 [AT13]: a node with no usable velocity has no roll and a load of 1; straight up has no roll; level flight is 0° at 1 g; a 10 g level pull rolls to atan2(10, 1)',
+         at13Bad.length === 0, at13Bad.join('; ') || `10 g east: ${at13Pull.roll_deg.toFixed(2)}° at ${at13Pull.load_g.toFixed(2)} g`);
+    } catch (e) {
+      ok('playback B3 (attitude): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }

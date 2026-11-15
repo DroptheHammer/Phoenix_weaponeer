@@ -33,6 +33,9 @@
  * extension is straight). Everything here is precomputed at build or
  * allocation-free. Positions are local metres; the caller turns them into
  * lat/lon through the frame, so the two always agree.
+ *
+ * Only position and velocity live here. The jet's roll and load factor are
+ * worked out from this track's acceleration once per jet, in attitude.ts.
  */
 
 import { NM_TO_M } from './frame';
@@ -43,8 +46,6 @@ const DEG = 180 / Math.PI;
 /** A direction change above this, or a speed change above CORNER_SPEED (relative), is a corner. */
 const CORNER_DEG = 0.01;
 const CORNER_SPEED = 1e-4;
-const MAX_BANK_DEG = 80;
-const G_MPS2 = 9.80665;
 
 const wrap180 = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
 
@@ -151,8 +152,8 @@ function cornerWithin(c: Float64Array, a: number, b: number): boolean {
   return lo < c.length && c[lo] < b;
 }
 
-/** The smoothed state, valid after `smoothAt` returned true. Velocities per second; bank in degrees. */
-export const smooth = { e: 0, n: 0, up: 0, ve: 0, vn: 0, vu: 0, bank: 0, h: 0 };
+/** The smoothed state, valid after `smoothAt` returned true. Velocities per second. */
+export const smooth = { e: 0, n: 0, up: 0, ve: 0, vn: 0, vu: 0, h: 0 };
 const Pp = new Float64Array(NC), Pm = new Float64Array(NC), Ip = new Float64Array(NC), Im = new Float64Array(NC);
 const out = new Float64Array(NC), rate = new Float64Array(NC);
 
@@ -184,7 +185,6 @@ function kernelAt(track: JetTrack, tau: number, h: number, hp: number): boolean 
   if (!(h > 1e-6) || !cornerWithin(track.display.corners_tau, tau - h, tau + h)) return false;
   evalAt(track, tau + h);
   Pp.set(P); Ip.set(I);
-  const ve = V[0], vn = V[1];
   evalAt(track, tau - h);
   Pm.set(P); Im.set(I);
   for (let c = 0; c < NC; c++) {
@@ -195,17 +195,7 @@ function kernelAt(track: JetTrack, tau: number, h: number, hp: number): boolean 
   smooth.e = out[0]; smooth.n = out[1]; smooth.up = out[2];
   smooth.ve = rate[0]; smooth.vn = rate[1]; smooth.vu = rate[2];
   smooth.h = h;
-  // Bank, cheaply: the turn rate from the kernel's acceleration (V(τ + h) − V(τ − h)) / 2h.
-  smooth.bank = bankOf(smooth.ve, smooth.vn, (ve - V[0]) / (2 * h), (vn - V[1]) / (2 * h));
   return true;
-}
-
-/** atan(ground speed × turn rate / g) from a horizontal velocity and acceleration, clamped; right wing down positive. */
-function bankOf(ve: number, vn: number, ae: number, an: number): number {
-  const gs2 = ve * ve + vn * vn;
-  const turn = gs2 > 0 ? (vn * ae - ve * an) / gs2 : 0;
-  const bank = Math.atan((Math.sqrt(gs2) * turn) / G_MPS2) * DEG;
-  return Math.max(-MAX_BANK_DEG, Math.min(MAX_BANK_DEG, bank));
 }
 
 /**
@@ -246,7 +236,7 @@ const H0 = new Float64Array(NC), H1 = new Float64Array(NC), D0 = new Float64Arra
  * any window, 'smooth' inside a kernel window, 'release' in the Hermite after
  * the release.
  */
-export const disp = { kind: 'plan' as 'plan' | 'leadIn' | 'smooth' | 'release', e: 0, n: 0, up: 0, ve: 0, vn: 0, vu: 0, bank: 0 };
+export const disp = { kind: 'plan' as 'plan' | 'leadIn' | 'smooth' | 'release', e: 0, n: 0, up: 0, ve: 0, vn: 0, vu: 0 };
 export function displayAt(track: JetTrack, tau: number): void {
   const W = releaseBlend_s(track);
   const t0 = track.releaseTau_s;
@@ -268,30 +258,24 @@ export function displayAt(track: JetTrack, tau: number): void {
     const u = (tau - t0) / W, u2 = u * u, u3 = u2 * u;
     const h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u, h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
     const d00 = 6 * u2 - 6 * u, d10 = 3 * u2 - 4 * u + 1, d01 = -6 * u2 + 6 * u, d11 = 3 * u2 - 2 * u;
-    const a00 = 12 * u - 6, a10 = 6 * u - 4, a01 = -12 * u + 6, a11 = 6 * u - 2;
     disp.e = h00 * H0[0] + h10 * W * D0[0] + h01 * H1[0] + h11 * W * D1[0];
     disp.n = h00 * H0[1] + h10 * W * D0[1] + h01 * H1[1] + h11 * W * D1[1];
     disp.up = h00 * H0[2] + h10 * W * D0[2] + h01 * H1[2] + h11 * W * D1[2];
     disp.ve = (d00 * H0[0] + d01 * H1[0]) / W + d10 * D0[0] + d11 * D1[0];
     disp.vn = (d00 * H0[1] + d01 * H1[1]) / W + d10 * D0[1] + d11 * D1[1];
     disp.vu = (d00 * H0[2] + d01 * H1[2]) / W + d10 * D0[2] + d11 * D1[2];
-    const ae = (a00 * H0[0] + a01 * H1[0]) / (W * W) + (a10 * D0[0] + a11 * D1[0]) / W;
-    const an = (a00 * H0[1] + a01 * H1[1]) / (W * W) + (a10 * D0[1] + a11 * D1[1]) / W;
-    disp.bank = bankOf(disp.ve, disp.vn, ae, an);
     disp.kind = 'release';
     return;
   }
   if (smoothAt(track, tau)) {
     disp.e = smooth.e; disp.n = smooth.n; disp.up = smooth.up;
     disp.ve = smooth.ve; disp.vn = smooth.vn; disp.vu = smooth.vu;
-    disp.bank = smooth.bank;
     disp.kind = 'smooth';
     return;
   }
   evalAt(track, tau);
   disp.e = P[0]; disp.n = P[1]; disp.up = P[2];
   disp.ve = V[0]; disp.vn = V[1]; disp.vu = V[2];
-  disp.bank = 0;
   disp.kind = tau < 0 ? 'leadIn' : 'plan';
 }
 

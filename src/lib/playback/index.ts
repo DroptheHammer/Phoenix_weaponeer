@@ -16,7 +16,8 @@
  * input), chain / anchors / altitude / clock / resample (one jet's plan
  * layer), family (per-delivery speeds, stated times, falls), bomb, events,
  * frag (conflicts, slider danger zones, the cloud), jetTrack, strikePlayback,
- * timing (retime, Apply), display (rounded corners, the lead-in), formation
+ * timing (retime, Apply), display (rounded corners, the lead-in), attitude
+ * (each jet's roll and load factor, from the displayed track), formation
  * (display-only slots), sample (60 fps, sideCoords), threats (domes), bounds.
  *
  * Which layer for what: tests, the top-down and the side-on views use
@@ -35,6 +36,7 @@ export { retime, delaysToOffsets } from './timing';
 export { fragSpecOf, readoutJets, strikeJetsAt, dangerZones, inDangerZone, fragCloudAt, newFragCloudState } from './frag';
 export { strikeEvents } from './events';
 export { sampleJet, sampleBomb, newJetState, newBombState, sideCoords } from './sample';
+export { ATTITUDE, buildAttitude, rollAt, loadAt, liftOf, rollWeight, wantedRoll, coneMean, type AttitudeConfig, type LiftOut } from './attitude';
 export { formationLateral_m, pushWeight, directionWeight, slotSide, FORMATION_TOL_S, FORMATION_FADE_TO_S } from './formation';
 export { threatDomes, domeHeightAt_m, insideDome } from './threats';
 export { playbackBounds } from './bounds';

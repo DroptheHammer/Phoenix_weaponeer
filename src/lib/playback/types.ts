@@ -317,6 +317,22 @@ export interface DisplayTrack {
   };
 }
 
+/**
+ * A jet's roll and load factor over jet time (attitude.ts), built once per
+ * jet: node i is at tau0_s + i·step_s, and the release is node releaseIndex.
+ * Read it through rollAt and loadAt, which blend between nodes.
+ */
+export interface AttitudeTrack {
+  tau0_s: number;
+  step_s: number;
+  n: number;
+  releaseIndex: number;
+  /** Degrees, right wing down positive, continuous and not wrapped (float64: the rate bound holds to the last bit). */
+  roll_deg: Float64Array;
+  /** g. */
+  load_g: Float32Array;
+}
+
 /** How the time across one stretch between anchors was set. Stated times beat flown ones. */
 export type SpanRule = 'flown' | 'stated:trackingTime_s' | 'stated:pullUpTimer_s' | 'stated:pullPath';
 
@@ -369,6 +385,8 @@ export interface JetTrack {
   cardIpToImpact_s: number | undefined;
   /** The display layer's data: smoothing and the lead-in. */
   display: DisplayTrack;
+  /** The roll and load the displayed track needs, over jet time. */
+  attitude: AttitudeTrack;
   estimates: Estimate[];
   warnings: string[];
 }
@@ -482,10 +500,13 @@ export interface JetState {
   heading_deg: number;
   pitch_deg: number;
   /**
-   * Display only, an estimate for the camera: atan(ground speed × turn rate / g)
-   * from the displayed path, clamped to ±80°, right wing down positive. 0 on the plan layer.
+   * The roll of the jet about its velocity, right wing down positive, in
+   * degrees, continuous and not wrapped: what a pilot would hold to fly the
+   * displayed track (attitude.ts). 0 on the plan layer.
    */
   bank_deg: number;
+  /** The load factor the displayed track needs, g. 1 on the plan layer. */
+  load_g: number;
   /** Velocity in the local frame, for a chase camera's look-ahead (the display's excludes the slot's own drift). */
   ve_mps: number;
   vn_mps: number;
