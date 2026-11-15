@@ -126,7 +126,7 @@ import {
   firstActionTau, markerMoments, labelMoments, playRange, homeBox, openingMode, initShow, showReducer, isThreatOn,
   FIRST_ACTION_FALLBACK_S, RUN_LEAD_S, HOME_AFTER_S, type ShowState,
 } from '../src/lib/playbackScene';
-import { ANCHOR_VERTICES, PATH_STEP_S, LINE_CASING } from '../src/lib/playbackScene';
+import { ANCHOR_VERTICES, PATH_STEP_S, DRAG_PATH_STEP_S, LINE_CASING, newSceneFragPose } from '../src/lib/playbackScene';
 import { groupTargets, targetTag, targetPost, letterInk, TARGET_STAND_PX, TARGET_GROUP_M, DISC_EDGE } from '../src/lib/playbackScene';
 import {
   calloutAlpha, calloutTargets, CalloutPlacer, CalloutFader, CALLOUT_BEFORE_WALL_S, CALLOUT_AFTER_WALL_S, CALLOUT_FADE_WALL_S, CALLOUT_MAX_PER_JET,
@@ -7504,23 +7504,39 @@ void (async () => {
 
     // [FB17] The path's buffer size does not depend on the delays (the path is only the IP-to-leg
     // stretch), and every planned path fits it, at plan, with #2 300 s early or late, and with #2 ten
-    // hours late. Four-ship.
-    // Mutation proof: source.ts pathCapacity without `+ ANCHOR_VERTICES`, seen red 2026-11-14:
+    // hours late. Four-ship. The same at the coarse step a drag samples with: the buffers are made
+    // once, for the fine step, and must neither change size nor overflow while a time is dragged; and
+    // the coarse path really is coarser (otherwise the drag step would cost what the fine one does).
+    // Mutation proofs: source.ts pathCapacity without `+ ANCHOR_VERTICES`, seen red 2026-11-14:
     //   FAIL playback B3 [FB17]: … #1 at #2 plan s: 535 vertices for room 530
+    // the same mutation with the drag step in, seen red again 2026-11-15:
+    //   FAIL playback B3 [FB17]: … #1 at #2 plan s step 0.25: 535 vertices for room 530
+    // source.ts pathCapacity sized by the source's own step (`/ step` for `/ PATH_STEP_S`), seen red 2026-11-15:
+    //   FAIL playback B3 [FB17]: … #1 at #2 plan s step 1: room 146 vs 541 at plan
+    // source.ts sampling at the fine step whatever it is asked (`const step = PATH_STEP_S`), seen red 2026-11-15:
+    //   FAIL playback B3 [FB17]: … #1 at #2 plan s step 1: 535 vertices, no coarser than the 535 at the fine step
     const fb17Plan = Array.from({ length: s4Src.jetCount }, (_, k) => s4Src.pathCapacity(k));
-    let fb17Bad = '', fb17Slack = Infinity;
+    let fb17Bad = '', fb17Slack = Infinity, fb17Coarse = Infinity;
     for (const d of [undefined, 300, -300, 36_000]) {
       const t = d === undefined ? s4Timing : retime(s4Pb, { [s4Pb.jets[1].id]: d });
-      const sd = sceneSourceFrom(s4Pb, t);
-      for (let k = 0; k < sd.jetCount; k++) {
-        const cap = sd.pathCapacity(k), n = sd.plannedPath(k).length / 3;
-        fb17Slack = Math.min(fb17Slack, cap - n);
-        if (cap !== fb17Plan[k]) fb17Bad ||= `#${k + 1} at #2 ${d} s: room ${cap} vs ${fb17Plan[k]} at plan`;
-        if (n > cap) fb17Bad ||= `#${k + 1} at #2 ${d ?? 'plan'} s: ${n} vertices for room ${cap}`;
+      const fine = sceneSourceFrom(s4Pb, t), coarse = sceneSourceFrom(s4Pb, t, DRAG_PATH_STEP_S);
+      for (const [step, sd] of [[PATH_STEP_S, fine], [DRAG_PATH_STEP_S, coarse]] as const) {
+        for (let k = 0; k < sd.jetCount; k++) {
+          const cap = sd.pathCapacity(k), n = sd.plannedPath(k).length / 3;
+          fb17Slack = Math.min(fb17Slack, cap - n);
+          if (cap !== fb17Plan[k]) fb17Bad ||= `#${k + 1} at #2 ${d ?? 'plan'} s step ${step}: room ${cap} vs ${fb17Plan[k]} at plan`;
+          if (n > cap) fb17Bad ||= `#${k + 1} at #2 ${d ?? 'plan'} s step ${step}: ${n} vertices for room ${cap}`;
+          if (step === DRAG_PATH_STEP_S) {
+            const nFine = fine.plannedPath(k).length / 3;
+            fb17Coarse = Math.min(fb17Coarse, nFine / n);
+            if (n * 2 > nFine) fb17Bad ||= `#${k + 1} at #2 ${d ?? 'plan'} s step ${step}: ${n} vertices, no coarser than the ${nFine} at the fine step`;
+          }
+        }
       }
     }
-    ok('playback B3 [FB17]: the planned path\'s buffer is the same size at plan, ±300 s and 36,000 s, and every path fits it',
-       fb17Bad === '' && ANCHOR_VERTICES === 11, fb17Bad || `rooms ${fb17Plan.join('/')}; least spare room ${fb17Slack}`);
+    ok('playback B3 [FB17]: the planned path\'s buffer is the same size at plan, ±300 s and 36,000 s, and every path fits it, at the fine step and at the coarser one a drag samples with',
+       fb17Bad === '' && ANCHOR_VERTICES === 11 && DRAG_PATH_STEP_S === 1 && PATH_STEP_S === 0.25,
+       fb17Bad || `rooms ${fb17Plan.join('/')}; least spare room ${fb17Slack}; the drag step's paths at least ${fb17Coarse.toFixed(2)}× fewer vertices`);
 
     // [FB8] (lines) Every planner colour a path or trail can take, and the bomb line, stands 3:1 off
     // the casing it sits on (the window's background), to normal eyes and to protans and deutans.
@@ -8197,6 +8213,71 @@ void (async () => {
     ok('playback B3 [LB3b]: a jet\'s label takes the spot that leaves a target\'s disc and tag uncovered: up-left when the box is up-right, down-right when it lies over both upper spots, the least covering one when every spot touches a box',
        lb3bIs(lb3bNone, 214, 104) && lb3bIs(lb3bRight, 86, 104) && lb3bIs(lb3bUpper, 214, 164) && lb3bIs(lb3bAll, 86, 164),
        `no box (${lb3bNone.join(', ')}); box up-right (${lb3bRight.join(', ')}) (want 86, 104); box over both upper spots (${lb3bUpper.join(', ')}) (want 214, 164); every spot touched (${lb3bAll.join(', ')}) (want 86, 164)`);
+
+    // ── Every jet's frag cloud and the clock's re-base (source.ts: fragAt; playClock.ts: shiftRange).
+
+    // [S4] Each jet's frag cloud reaches the scene in metres, three.js axes: shown exactly when the
+    // library's cloud is, at seven moments per jet (just before impact, at impact, before and after
+    // the last fragment lands, while it fades, just before and at the window's close); the radius is
+    // the library's in feet × 0.3048; the centre is the impact point lowered by the centre's fall; the
+    // top is the impact point plus the library's top (not centre + radius, which sinks below the
+    // ground late on). The four-ship, every jet.
+    // Mutation proofs: source.ts fragAt `out.radius_m = fs.sphereRadius_ft * FT_TO_M` → `fs.sphereRadius_ft`, seen red 2026-11-15:
+    //   FAIL playback B3 [S4]: … #1 at impact +27.30 s: radius_m 11995.606, want 3656.261
+    // `out.topY = fs.up_m + fs.top_ft * FT_TO_M` → `out.y + out.radius_m`, seen red 2026-11-15:
+    //   FAIL playback B3 [S4]: … #1 at impact +27.32 s: topY -1.340, want 0.000
+    // `out.visible = fs.visible` → `out.visible = fs.age_s >= 0`, seen red 2026-11-15:
+    //   FAIL playback B3 [S4]: … #1 at impact +30.00 s: shown true, the library's cloud false
+    const s4Frag = newSceneFragPose();
+    let s4Bad = '', s4Seen = 0, s4Shown = 0, s4Late = 0;
+    for (let k = 0; k < s4Src.jetCount; k++) {
+      const fr = s4Pb.jets[k].frag;
+      if (!fr) { s4Bad ||= `#${k + 1}: no frag data on the fixture's Mk-82`; continue; }
+      const tot = s4Timing.jets[k].tot_s;
+      for (const age of [-0.01, 0, fr.raw_s - 0.01, fr.raw_s + 0.01, (fr.raw_s + fr.clear_s) / 2, fr.clear_s - 0.01, fr.clear_s]) {
+        const lib = fragCloudAt(s4Pb, s4Timing, k, tot + age);
+        const got = s4Src.fragAt(k, tot + age, s4Frag);
+        s4Seen++;
+        const at = `#${k + 1} at impact ${age >= 0 ? '+' : ''}${age.toFixed(2)} s`;
+        if (got !== s4Frag) s4Bad ||= `${at}: not written into the object passed in`;
+        if (got.visible !== lib.visible) { s4Bad ||= `${at}: shown ${got.visible}, the library's cloud ${lib.visible}`; continue; }
+        if (!lib.visible) continue;
+        s4Shown++;
+        const up = lib.up_m;
+        const want = { x: lib.e_m, y: up - lib.centreDrop_ft * 0.3048, z: -lib.n_m, radius_m: lib.sphereRadius_ft * 0.3048, topY: up + lib.top_ft * 0.3048, opacity: lib.opacity };
+        for (const [key, v] of Object.entries(want)) {
+          const g = got[key as keyof typeof want];
+          if (Math.abs(g - v) > 1e-9) s4Bad ||= `${at}: ${key} ${g.toFixed(3)}, want ${v.toFixed(3)}`;
+        }
+        if (got.y + got.radius_m < got.topY - 1e-9) s4Late++;
+      }
+    }
+    ok('playback B3 [S4]: each jet\'s frag cloud is shown exactly when the library\'s is, its radius the library\'s feet in metres, its centre the impact point less the centre\'s fall, its top the impact point plus the library\'s top',
+       s4Bad === '' && s4Seen === 28 && s4Shown >= 16,
+       s4Bad || `${s4Seen} moments over four jets, ${s4Shown} with the cloud shown; ${s4Late} where centre + radius would sit below the top`);
+
+    // [P1] A re-base after Apply moves the clock's range first, then steps the playhead back by the
+    // shift inside the NEW range, in one change: t 110 in [0, 120], shiftRange(20, 140, −20) → 130
+    // (stepping first would clamp to the old end, 120). A step that leaves the new range is clamped to
+    // it; a shift that is not a number moves the range only.
+    // Mutation proofs: playClock.ts shiftRange stepping t before the range is set (the clamp to the old
+    // range first, then the new range set and t clamped again), seen red 2026-11-15:
+    //   FAIL playback B3 [P1]: … t 120 in 20…140, 1 change(s), UI sees 120; shift 100 → 20; shift NaN → 110
+    // the not-a-number guard dropped (`this.t - shift_s`), seen red 2026-11-15:
+    //   FAIL playback B3 [P1]: … t 130 in 20…140, 1 change(s), UI sees 130; shift 100 → 20; shift NaN → NaN
+    // shiftRange written as `this.setRange(start, end); this.seek(this.t − shift)` (right time, two changes), seen red 2026-11-15:
+    //   FAIL playback B3 [P1]: … t 130 in 20…140, 2 change(s), UI sees 130; shift 100 → 20; shift NaN → 110
+    const p1 = new PlayClock(0, 120, 110);
+    const p1v = p1.version;
+    p1.shiftRange(20, 140, -20);
+    const p1s = p1.snapshot(), p1Changes = p1.version - p1v;
+    const p1Clamp = new PlayClock(0, 120, 110);
+    p1Clamp.shiftRange(20, 140, 100);
+    const p1Nan = new PlayClock(0, 120, 110);
+    p1Nan.shiftRange(20, 140, NaN);
+    ok('playback B3 [P1]: shiftRange moves the range first, then steps t back by the shift inside the new range, in one change (t 110 in 0…120, shift −20 into 20…140 → 130); clamped to the new range; a non-number shift moves the range only',
+       p1s.t === 130 && p1s.start === 20 && p1s.end === 140 && p1Changes === 1 && p1.getSnapshot().t === 130 && p1Clamp.time === 20 && p1Nan.time === 110,
+       `t ${p1s.t} in ${p1s.start}…${p1s.end}, ${p1Changes} change(s), UI sees ${p1.getSnapshot().t}; shift 100 → ${p1Clamp.time}; shift NaN → ${p1Nan.time}`);
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }

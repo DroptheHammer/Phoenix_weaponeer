@@ -128,6 +128,19 @@ export class PlayClock {
     this.changed();
   }
 
+  /**
+   * A re-base after Apply: every strike time moves by −shift_s, so the playhead must stay on the same
+   * moment of the strike. The range moves first, then t steps back by shift_s, clamped to the NEW
+   * range: stepping first would clamp t into the old range and lose the moment. One change for the UI.
+   * A shift that is not a number moves the range only.
+   */
+  shiftRange(start: number, end: number, shift_s: number): void {
+    this.start = start;
+    this.end = Math.max(end, start);
+    this.t = clamp(this.t - (Number.isFinite(shift_s) ? shift_s : 0), this.start, this.end);
+    this.changed();
+  }
+
   /** A fresh snapshot object (the UI should use getSnapshot, which is stable between emits). */
   snapshot(): ClockSnapshot {
     return { t: this.t, playing: this.playing, speed: this.speed, start: this.start, end: this.end, version: this.version };

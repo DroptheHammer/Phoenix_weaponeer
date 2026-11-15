@@ -1,13 +1,13 @@
 /**
  * The one file that knows the playback library's sampling names
- * (src/lib/playback: sampleJet, sampleBomb, retime, playbackBounds). The
- * scene draws through this adapter only, so a rename there is fixed here
- * once. Pure: no three.js, no DOM.
+ * (src/lib/playback: sampleJet, sampleBomb, fragCloudAt, retime,
+ * playbackBounds). The scene draws through this adapter only, so a rename
+ * there is fixed here once. Pure: no three.js, no DOM.
  *
  * What it hands the scene:
- * - every frame: a jet's or a bomb's pose at strike time t, already in
- *   three.js axes (x = east, y = up, z = −north), written into an object
- *   the caller keeps, so nothing is allocated at 60 fps;
+ * - every frame: a jet's or a bomb's pose, or a frag cloud, at strike time t,
+ *   already in three.js axes (x = east, y = up, z = −north) and metres,
+ *   written into an object the caller keeps, so nothing is allocated at 60 fps;
  * - once per open: each jet's planned path as a flat Float32Array of xyz
  *   with the planner's phase of each stretch (for the colour code), its
  *   bomb's whole fall, the sizes their buffers need at any delay,
@@ -30,7 +30,7 @@
  */
 
 import {
-  PHASES, newBombState, newJetState, playbackBounds, sampleBomb, sampleJet, toLocal, upOf,
+  FT_TO_M, PHASES, fragCloudAt, newBombState, newFragCloudState, newJetState, playbackBounds, sampleBomb, sampleJet, toLocal, upOf,
   type LocalFrame, type PlaybackBounds, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
 } from '../playback';
 import { firstActionTau, labelMoments, markerMoments, type ActionKind } from './actionPoints';
@@ -112,6 +112,29 @@ export interface SceneBombPose {
   vz: number;
 }
 
+/**
+ * A jet's frag cloud as the scene draws it, three.js axes, metres: the sphere the fragments lie on at
+ * that moment, from its bombs' impact until the readout's frag window closes. ESTIMATED, as the
+ * library's model is.
+ */
+export interface SceneFragPose {
+  /** From impact until the frag window closes; never without frag data. */
+  visible: boolean;
+  /** The sphere's centre: the impact point, lowered by how far the centre has fallen. */
+  x: number;
+  y: number;
+  z: number;
+  radius_m: number;
+  /**
+   * Height of the cloud's top: the impact point plus the library's top. Not y + radius_m: late in
+   * the cloud's life the sphere's centre has fallen below the ground and its top with it, and a tag
+   * hung there would sink into the terrain.
+   */
+  topY: number;
+  /** 1 until the last fragment lands, then down to 0 when the window closes. */
+  opacity: number;
+}
+
 export interface ScenePoint {
   readonly x: number;
   readonly y: number;
@@ -172,6 +195,8 @@ export interface SceneSource {
   jetAt(jet: number, t_s: number, out: SceneJetPose): SceneJetPose;
   /** Jet k's bomb at strike time t, written into `out` (returned). Allocates nothing. */
   bombAt(jet: number, t_s: number, out: SceneBombPose): SceneBombPose;
+  /** Jet k's frag cloud at strike time t, written into `out` (returned). Allocates nothing. */
+  fragAt(jet: number, t_s: number, out: SceneFragPose): SceneFragPose;
   /** Strike time jet k's bombs land: its TOT. */
   impactOf(jet: number): number;
   /** Strike time of jet k's first action after the IP (firstActionTau in actionPoints.ts). */
@@ -192,8 +217,18 @@ export function newSceneBombPose(): SceneBombPose {
   return { visible: false, stage: 'carried', x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 }
 
+export function newSceneFragPose(): SceneFragPose {
+  return { visible: false, x: 0, y: 0, z: 0, radius_m: 0, topY: 0, opacity: 0 };
+}
+
 /** The planned path's sampling step, s of strike time. Fine enough that the drawn line hugs the rounded corners the arrow flies. */
 export const PATH_STEP_S = 0.25;
+/**
+ * The planned path's sampling step while a time over target is being dragged: four times coarser, so
+ * every jet's path can be rebuilt on each move of the pointer. The fine step comes back on release.
+ * The buffers are sized for the fine step, so the coarse path always fits them.
+ */
+export const DRAG_PATH_STEP_S = 1;
 /** The most anchors a track can have (one per AnchorKind): each adds a vertex to the planned path. */
 export const ANCHOR_VERTICES = 11;
 /** A sampled path time this close to an anchor's is left out: the anchor's own vertex stands there. */
@@ -207,6 +242,7 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
   // One scratch state per source: every call overwrites it, so nothing is allocated per frame.
   const js = newJetState();
   const bs = newBombState();
+  const fs = newFragCloudState();
   const { t0_s, t1_s } = timing.window;
 
   const jetAt = (jet: number, t_s: number, out: SceneJetPose): SceneJetPose => {
@@ -238,6 +274,19 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     out.vx = bs.ve_mps;
     out.vy = bs.vu_mps;
     out.vz = -bs.vn_mps;
+    return out;
+  };
+
+  // The library gives the cloud in feet above the impact point; the scene works in metres.
+  const fragAt = (jet: number, t_s: number, out: SceneFragPose): SceneFragPose => {
+    fragCloudAt(pb, timing, jet, t_s, fs);
+    out.visible = fs.visible;
+    out.x = fs.e_m;
+    out.y = fs.up_m - fs.centreDrop_ft * FT_TO_M;
+    out.z = -fs.n_m;
+    out.radius_m = fs.sphereRadius_ft * FT_TO_M;
+    out.topY = fs.up_m + fs.top_ft * FT_TO_M;
+    out.opacity = fs.opacity;
     return out;
   };
 
@@ -352,6 +401,7 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     targetWords: (jet) => targetWords[jet],
     jetAt,
     bombAt,
+    fragAt,
     impactOf: (jet) => timing.jets[jet].impact_s,
     firstActionOf: (jet) => firstAction_s[jet],
     visibleFromOf: (jet) => visibleFrom_s[jet],
