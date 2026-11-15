@@ -223,9 +223,10 @@ not here — this section is a snapshot for resuming work, not a journal.
 
 **Last session:** 2026-11-14/15 UTC (Fable 5.2 directing on the main Mac,
 with Opus and Sonnet agents). **0.4.0 "Polish and Playback" is under way.
-The playback is built through stage 11 (a strike in the editor now flies
-every jet) and waits for the user's look; the build carries on behind
-it.** Nothing of 0.4.0 is on `main`
+The playback is built through stage 13 (a strike in the editor flies every
+jet, and a jet's time over target can be dragged while it plays) and waits
+for the user's look; the build carries on behind it.** Nothing of 0.4.0 is
+on `main`
 except documents. The brief, the user's decisions and
 each gate's outcome are in `docs/V040_PLAN.md`.
 
@@ -238,8 +239,8 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   geo-check 901/0, tsc, build with the bundle check, the web check, core 154,
   desktop 34 + 2 ignored. Headless checks: `scripts/playback-shots.cjs`.
 - `v040-playback-full`, cut from `v040-playback`: **the full playback, being
-  built stage by stage** (21 stages, 0 to 20). **Stages 0 to 11 are built,
-  reviewed and pushed, tip `06088e6`.** What the playback does now:
+  built stage by stage** (21 stages, 0 to 20). **Stages 0 to 13 are built,
+  reviewed and pushed, tip `3da9085`.** What the playback does now:
   opens following the jet 10 s before the first action; Orbit, Top-down,
   Chase, From target and Home view; speeds 1× to 16×; the planner's colours
   on the 3D path, the trail and the bomb's fall; a lane under the time bar
@@ -252,13 +253,21 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   strike** at the times the sliders hold: the jet being edited wears the
   planner's colours and the cameras follow it; the others fly thinner, in
   their seat colours, with small discs. A jet that is not ready keeps its
-  seat and is not flown. Gates at the tip:
-  geo-check 948/0, tsc, build with the bundle check, the web check, 75
+  seat and is not flown. **Every jet has its own lane under the time bar,
+  and the button beside a lane picks the jet to watch** (colours, Chase and
+  From target follow it). **A jet's time over target is moved on its lane**
+  (drag the diamond, the arrow keys, or type the seconds; seat #1 is held
+  still): the frag and cone warnings under the lanes, amber stripes on the
+  time bar and on each lane, and the 3D all follow as it moves, and Reset
+  puts the times back. Nothing is written to the plan yet: Apply is the
+  next stage. Gates at the tip:
+  geo-check 966/0, tsc, build with the bundle check, the web check, 87
   screenshot checks at two window sizes, core 154, desktop 34 + 2 ignored.
-  Start-up JS is 713 bytes over the 0.3.4 baseline (the build warns past
-  1,024 and fails past 1,536). The main Mac's checkout
-  is on this branch. **Stages 12 and 13 (a lane per jet with a jet to
-  watch, dragging a time over target) were building when these notes were
+  Start-up JS is 909 bytes over the 0.3.4 baseline (the build warns past
+  1,024 and fails past 1,536; the director has accepted growth up to the
+  fail line for the Apply and attack-list wiring). The main Mac's checkout
+  is on this branch. **Stages 14 and 15 (Apply from the editor, then Play
+  and Apply from the attack list) were building when these notes were
   written**; a stage is
   one commit, and anything not pushed is not reviewed yet.
 - `v040-landing-data`, one commit `3127c41` on an older `main`: the front
@@ -297,18 +306,20 @@ on the main Mac (`Other Items/`):
    built stage settled; it overrides the rest). Each stage is built by one
    agent, reviewed by a second that makes every new check fail once, then
    read by the director, who fixes the review's notes, runs every gate and
-   the Rust tests, and pushes. **Next: stages 12 and 13, then 14 to 20**
-   (a lane per jet and a jet to watch, dragging a time over target, Apply,
-   the attack list, notes, the side view, threats by system, the frag
-   cloud, the final proof). The user looks after stages 8, 11, 13, 15, 17,
-   18b and 19.
+   the Rust tests, and pushes. **Next: stages 14 and 15, then 16 to 20**
+   (Apply, the attack list, notes, the side view, threats by system, the
+   frag cloud, the final proof). The user looks after stages 8, 11, 13, 15,
+   17, 18b and 19.
 2. **The user's looks use a frozen copy of the app**, not the project
    folder, because the folder is mid-build between stages: after a
    look-point is pushed, `npm run tauri build -- --bundles app`, then copy
    the `.app` into `Other Items/v040-builds/` under a plain name. **"Playback
-   look 1.app" there is stage 8** (`409a787`, one jet) **and "Playback look
-   2.app" is stage 11** (`06088e6`, the whole strike). He has not said
-   anything about either yet; look 2 holds everything look 1 does.
+   look 1.app" there is stage 8** (`409a787`, one jet), **"Playback look
+   2.app" is stage 11** (`06088e6`, the whole strike) **and "Playback look
+   3.app" is stage 13** (`3da9085`, lanes, a jet to watch, times that can
+   be moved). Each holds everything the one before does. Of look 2 he has
+   said only that "it seems to work so far"; the questions below are still
+   open.
 3. **Second-round mockup of the EFB draft**, desktop and iPhone, is finished
    and was shown to him as private pages (the links are in the memory
    system, never in the repo). Sources: `Other Items/v040-mockups/efb2.html`
@@ -331,7 +342,7 @@ on the main Mac (`Other Items/`):
   answers, the new overview screen says nothing about hidden threats, the
   existing lines stay, and the playback builds its count line behind one
   constant so either answer is a one-line change.
-- **His look at the playback** ("Playback look 2.app"). Things to ask
+- **His look at the playback** ("Playback look 3.app"). Things to ask
   him there: whether "first action" means the first planner marker after
   the IP (the reading the build uses) or the IP itself; the dark casing
   under the coloured path; how the dashed route reads far from the camera
@@ -340,7 +351,11 @@ on the main Mac (`Other Items/`):
   the 3D crossing, filled); three sets of words at most at once; and, with
   a strike, whether the other jets read clearly enough in their seat
   colours (thin, no outline, small discs) and whether seat #4's amber is
-  too close to the climb's yellow.
+  too close to the climb's yellow; and, with the times now movable,
+  whether the amber stripes on each lane (the times that would put that
+  jet inside another's frag) help or clutter, and whether dragging a time
+  feels right (the time bar holds its scale while the diamond is held and
+  re-fits when it is let go).
 - His verdict on the second-round mockup, and what else he wants from the
   other drafts.
 - The icon and splash images (prompts in `docs/V040_PLAN.md`, Track D; picks
