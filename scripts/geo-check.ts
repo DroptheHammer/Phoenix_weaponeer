@@ -4394,6 +4394,74 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
      offsetsOf(partial) === `${m1.id}@0,${m2.id}@30,${m3.id}@50`, offsetsOf(partial));
 }
 
+// ─── What a change to the dive must not move: a census of the whole profile library ──────────
+// The card pins above hold a dozen cards' pixels. These two digests hold every library profile
+// × every weapon class it can carry × two IP distances (15.3 and 8 nm out on 068°) × both flanks,
+// auto-built the way the app builds them on the real profile files and the real reference.json
+// rows. Per build they hash the whole picture the map and the card draw, the side view (a 4,000 ft
+// target) and, from the card, the attack section's parameter rows and the egress section. Two
+// groups, so a failure says which delivery moved: a gun or rocket pass on a dive profile (52
+// builds), and every level, pop-up and loft attack (152). The bomb dives are the third group and
+// are not hashed: they are the ones the dive's geometry is allowed to change. Classes with no row
+// in WEAPON_OF (guided bombs, missiles) are not built. Every number is rounded to six decimals
+// before hashing, so a heading that is worked out two ways and agrees to 1e-13° does not trip it;
+// the printed card is what is held.
+// The two literals were taken on the tree as it stood before any change to the dive's geometry.
+// They move only when a profile, a weapon class or an aircraft is added to the library, in a
+// commit of its own that says so, never in one that touches the dive.
+// Mutation proofs (2026-11-15, each applied alone, run, restored):
+// - attackPicture.ts divePicture `? 'Fire by'` → `? 'Fire at'` (only a fired pass says it: the fired digest moves, the other does not):
+//     FAIL census [BL4]: every gun and rocket pass on a dive profile (52 builds) is drawn and printed exactly as it was: …  52 builds, acbfaab7fa7b4fa6
+//     (and `strafe: the picture says "Fire by", …`; [BL5] stays green)
+// - popupPlanning.ts `const G_FT_S2 = 32.2;` → `const G_FT_S2 = 32.174;` (the tempting unification of the two gravity constants: the other digest moves, the fired one does not):
+//     FAIL census [BL5]: every level, pop-up and loft attack (152 builds) is drawn and printed exactly as it was: …  152 builds, bdfd01a554bc9311
+//     (and `BEM: turn radius`, `describeRunIn (pop-up)`, the pop-up and side-view card pins in four themes, two `fall sibling` checks and `playback B3 [AT1]`; [BL4] stays green)
+{
+  const censusLib = (file: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${file}.json`, 'utf8')) as { id: string; geometry: string; weaponClasses: string[] }[];
+  const CENSUS_AIRCRAFT = ['a10c', 'a4ec', 'av8b', 'f14', 'f15e', 'f16c', 'f18c', 'f1', 'f4e', 'f5e'];
+  const WEAPON_OF: Record<string, string> = { bomb_ld: 'mk82', bomb_hd: 'mk82air', rocket: 'hydra70', gun: 'gau8', cluster: 'cbu87' };
+  const WANT_FIRED = '5bc737c01b51522a';
+  const WANT_REST = '64cd14129cf8002f';
+  // The key names of what is hashed (pic, sv, card, params, egress) are part of the hash.
+  const hashOf = (x: unknown) =>
+    createHash('sha256').update(JSON.stringify(x, (_k, v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 1e6) / 1e6 : v))).digest('hex').slice(0, 16);
+  const rows: { key: string; fired: boolean; digest: string }[] = [];
+  for (const ac of CENSUS_AIRCRAFT) {
+    for (const p of censusLib(ac)) {
+      for (const cls of p.weaponClasses) {
+        const weaponId = WEAPON_OF[cls];
+        if (!weaponId) continue;
+        const fired = cls === 'gun' || cls === 'rocket';
+        // A dive profile's bomb classes are the change itself; its gun and rocket passes are held.
+        if (p.geometry === 'dive' && !fired) continue;
+        for (const ipNm of [15.3, 8]) {
+          for (const side of ['left', 'right']) {
+            const m = {
+              id: 'census', name: 'census', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '', strikes: [], threats: [], attacks: [],
+              waypoints: [{ ...wpIp, coordinates: calculateDestination(tgt, 68, ipNm) }, wpTgt],
+              flightMembers: [{ id: 'p1', callsign: 'Viper 1-1', aircraftId: ac, position: 1, loadout: [] }],
+            };
+            const built = autoBuildAttack({ mission: m, targetWaypointId: wpTgt.id, attackerId: 'p1', weapons: refWeapons, profiles: censusLib(ac), threatSystems: [], overrides: { weaponId, profileId: p.id, angleOffSide: side } } as never).attack;
+            if (!built) continue;
+            const attack = { ...built, id: 'a' };
+            const picture = buildAttackPicture(attack, attackIpAnchor(m.waypoints as never, attack), wpTgt as never);
+            const sideView = buildSideProfile(attack, 4000);
+            const card = buildKneeboardCard({ ...m, attacks: [attack] } as never, 'a', refWeapons as never, new Map(), []);
+            rows.push({ key: `${p.id}|${weaponId}|${ipNm}|${side}`, fired, digest: hashOf({ pic: picture, sv: sideView, card: card && { params: card.attackSection.parameters, egress: card.egressSection } }) });
+          }
+        }
+      }
+    }
+  }
+  const group = (fired: boolean) => rows.filter((row) => row.fired === fired);
+  const firedDigest = hashOf(group(true).map((row) => row.key + row.digest));
+  const restDigest = hashOf(group(false).map((row) => row.key + row.digest));
+  ok('census [BL4]: every gun and rocket pass on a dive profile (52 builds) is drawn and printed exactly as it was: picture, side view, card numbers',
+     group(true).length === 52 && firedDigest === WANT_FIRED, `${group(true).length} builds, ${firedDigest}`);
+  ok('census [BL5]: every level, pop-up and loft attack (152 builds) is drawn and printed exactly as it was: picture, side view, card numbers',
+     group(false).length === 152 && restDigest === WANT_REST, `${group(false).length} builds, ${restDigest}`);
+}
+
 // ─── 0.4.0 playback: the plan layer agrees with the planner ──────────────────
 // src/lib/playback turns a planned strike into time-stamped jet and bomb tracks for the 3D
 // playback (0.4.0 Track B1). Every check here runs on the PLAN layer, the one on the card's lines;
