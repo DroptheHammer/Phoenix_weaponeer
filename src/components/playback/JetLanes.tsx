@@ -112,7 +112,7 @@ function SeatButton({ info, watched, onWatch }: { info: LaneInfo; watched: boole
       aria-pressed={watched}
       aria-label={`Watch ${who}`}
       // The side view is not built yet, so the title does not say it follows the watch.
-      title={flown ?`Watch ${info.label}: Chase, From target and the planner's colours follow it` : 'Not flown in 3D'}
+      title={flown ? `Watch ${info.label}: Chase, From target and the planner's colours follow it` : 'Not flown in 3D'}
       onClick={() => onWatch(info.seat)}
       onMouseDown={keepFocus}
       className={`${LANE_LABEL} ${!flown ? SEAT_SKIPPED : watched ? SEAT_ON : SEAT_OFF}`}
@@ -131,9 +131,14 @@ const timeText = (t_s: number) => String(Math.round(t_s * 1000) / 1000);
  * The box a time over target is typed in (seconds after T, negatives too). While it has the focus it keeps
  * its own text, because "-" on the way to "-15" is not a time yet; each text that is a number is a new time
  * at once, and when it loses the focus it shows the session's time again. Enter lets go of it.
+ *
+ * The typed text stands only while the session's time is the one it was typed at. A time changed from
+ * elsewhere while the box still has the focus (Reset, pressed with the mouse, leaves the focus where it
+ * was) shows in the box at once, not the text left behind.
  */
 function TimeBox({ info, onDelay }: { info: LaneInfo; onDelay(id: string, value_s: number): void }) {
-  const [text, setText] = useState<string | undefined>(undefined);
+  const [typed, setTyped] = useState<{ text: string; at_s: number } | undefined>(undefined);
+  const text = typed !== undefined && typed.at_s === info.tot_s ? typed.text : undefined;
   return (
     <>
       <input
@@ -143,11 +148,12 @@ function TimeBox({ info, onDelay }: { info: LaneInfo; onDelay(id: string, value_
         aria-label={boxLabel(info.label)}
         value={text ?? timeText(info.tot_s)}
         onChange={(e) => {
-          setText(e.currentTarget.value);
           const v = e.currentTarget.valueAsNumber;
+          // A number is the session's time from the next render on; anything else leaves the time as it is.
+          setTyped({ text: e.currentTarget.value, at_s: Number.isFinite(v) ? v : info.tot_s });
           if (Number.isFinite(v)) onDelay(info.id, v);
         }}
-        onBlur={() => setText(undefined)}
+        onBlur={() => setTyped(undefined)}
         onKeyDown={(e) => {
           if (e.key !== 'Enter') return;
           e.preventDefault();

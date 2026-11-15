@@ -1818,7 +1818,9 @@ async function checkDelaysKept(page, tag) {
 /**
  * Check 17 (the handle and the box): the keyboard stays with playback. On the four-ship: #2's handle focused,
  * Space plays and pauses (a handle is not a control that wants Space); → adds a second to #2's time (10 → 11),
- * Shift+← takes five off (6), Page Up adds five (11), ↓ a second off (10), and Home and End do nothing; then
+ * Shift+← takes five off (6), Page Up adds five (11), ↓ a second off (10), and Home and End do nothing; with
+ * 25 typed into #2's box and Reset then pressed with the mouse (which leaves the focus in the box), the box
+ * reads the 10 Reset put back, not the 25 left behind; then
  * with #2's box clicked into, Escape leaves the box and not playback (playback still open, the box not
  * focused, the editor's Escape untouched) and Space then plays and pauses; typing 25 in the box and pressing
  * Enter lets go of it (focus on playback, time 25) and Space plays and pauses again; and one more Escape
@@ -1834,6 +1836,12 @@ async function checkDelaysKept(page, tag) {
  * - PlaybackOverlay.tsx, the key's skip list taking a slider too (`[role="slider"]` added to it): Space on the handle
  *   does nothing:
  *   STEP FAIL 17 … (1400x900-strike4) — handle focused true, Space played and paused false; times after → …: 11, 6, 11, 10, 10, 10 (want 11, 6, 11, 10, 10, 10); …
+ * (Those three lines were recorded before the Reset clause was added to the message; the edits they name are
+ * to code that clause does not touch.)
+ * - JetLanes.tsx, the box showing its typed text whatever the session's time (`typed.at_s === info.tot_s`
+ *   dropped from TimeBox's `text`): after Reset the box still reads what was typed:
+ *   STEP FAIL 17 … (1400x900-strike4) — …; 25 typed (time 25) then Reset by mouse: time 10, box 25 (want 10), box still focused true; box focused true; Escape → playback still open true, …
+ * (green: "time 10, box 10 (want 10), box still focused true".)
  */
 async function checkDiamondKeys(page, tag) {
   const esc = async () => (await pbEval(page, () => __pb.counters)).editorEscapes;
@@ -1856,8 +1864,18 @@ async function checkDiamondKeys(page, tag) {
     times.push(await totOf(page, 2));
   }
   const keysOk = times.join() === '11,6,11,10,10,10';
+  // Reset pressed with the mouse while a time is being typed: the focus stays in the box, and the box must show the time Reset put back.
   await boxOf(page, 2).click();
-  const inBox = await page.evaluate(() => document.activeElement && document.activeElement.type === 'number');
+  await boxOf(page, 2).fill('25');
+  const typedTot = await totOf(page, 2);
+  await page.locator('[role="dialog"] [data-reset]').click();
+  const afterReset = {
+    box: await boxOf(page, 2).inputValue(), tot: await totOf(page, 2),
+    focused: await page.evaluate(() => !!document.activeElement && document.activeElement.type === 'number'),
+  };
+  const resetOk = typedTot === 25 && afterReset.tot === 10 && afterReset.box === '10' && afterReset.focused;
+  await boxOf(page, 2).click();
+  const inBox =await page.evaluate(() => document.activeElement && document.activeElement.type === 'number');
   await page.keyboard.press('Escape');
   const stillOpen = (await page.$('[role="dialog"]')) !== null;
   const boxFocused = await page.evaluate(() => !!document.activeElement && document.activeElement.type === 'number');
@@ -1881,8 +1899,9 @@ async function checkDiamondKeys(page, tag) {
   await page.waitForSelector('[role="dialog"]');
   await waitReady(page);
   step(`17 the handle and the box keep the keyboard: Space from the handle, its keys, Escape and Enter leave the box, then Escape closes playback, never the editor (${tag})`,
-    onHandle && spaceOnHandle && keysOk && inBox && stillOpen && !boxFocused && e1 === e0 && spaceAfterEsc && afterEnter.focus === 'dialog' && afterEnter.tot === 25 && spaceAfterEnter && closed && e2 === e0,
-    `handle focused ${onHandle}, Space played and paused ${spaceOnHandle}; times after → Shift+← PgUp ↓ Home End: ${times.join(', ')} (want 11, 6, 11, 10, 10, 10); box focused ${inBox}; Escape → playback still open ${stillOpen}, box still focused ${boxFocused}, editor Escapes ${e0} → ${e1}, Space ${spaceAfterEsc}; typed 25 and Enter → focus on ${afterEnter.focus}, time ${afterEnter.tot}, Space ${spaceAfterEnter}; Escape → closed ${closed}, editor Escapes → ${e2}`);
+    onHandle && spaceOnHandle && keysOk && resetOk && inBox && stillOpen && !boxFocused && e1 === e0 && spaceAfterEsc && afterEnter.focus === 'dialog' && afterEnter.tot === 25 && spaceAfterEnter && closed && e2 === e0,
+    `handle focused ${onHandle}, Space played and paused ${spaceOnHandle}; times after → Shift+← PgUp ↓ Home End: ${times.join(', ')} (want 11, 6, 11, 10, 10, 10); ` +
+      `25 typed (time ${typedTot}) then Reset by mouse: time ${afterReset.tot}, box ${afterReset.box} (want 10), box still focused ${afterReset.focused}; box focused ${inBox}; Escape → playback still open ${stillOpen}, box still focused ${boxFocused}, editor Escapes ${e0} → ${e1}, Space ${spaceAfterEsc}; typed 25 and Enter → focus on ${afterEnter.focus}, time ${afterEnter.tot}, Space ${spaceAfterEnter}; Escape → closed ${closed}, editor Escapes → ${e2}`);
 }
 
 /**
