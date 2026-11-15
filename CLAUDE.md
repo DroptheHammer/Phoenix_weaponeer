@@ -247,8 +247,8 @@ each gate's outcome are in `docs/V040_PLAN.md`.
 - `v040-playback-full`, cut from `v040-playback`: **the full playback, being
   built stage by stage** (stages 0 to 20, plus the stages added from the
   user's look, below). **Stages 0 to 15 and the first four stages from his
-  look (ATT-a, ATT-b, S10a, S10t) are built, reviewed and pushed, tip
-  `6f89063`.**
+  looks (ATT-a, ATT-b, S10a, S10t, S10b, LN-k) are built, reviewed and
+  pushed, tip `af6d81a`.**
   What the playback does now:
   opens following the jet 10 s before the first action; Orbit, Top-down,
   Chase, From target and Home view; speeds 1× to 16×; the planner's colours
@@ -287,11 +287,14 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   outline and has a ring round it** that pulses at the release (Show ›
   Impact turns the ring off); **a solid line follows each bomb down from
   the release and stays after it lands**, with the planner's dashed fall
-  line still ahead of it. Gates at the tip: geo-check 997/0, tsc, build
-  with the bundle check, the web check, 110 screenshot checks (the
-  reviewer's full run on the stage's commit, and the director's run of the
-  one check changed after it); the Rust side is untouched since stage 15
-  (core 154, desktop 34 + 2 ignored there).
+  line still ahead of it; **a flash where each bomb lands, at its time
+  over target, lasting as long to the eye at 16× as at 1×**; **a lane
+  shows its amber stripes only while that jet's time is being set, and
+  the warning under the lanes starts with a striped key**. Gates at the
+  tip: geo-check 1002/0, tsc, build with the bundle check, the web check,
+  126 screenshot checks (the reviewer's full run on the tip's commit); the
+  Rust side is untouched since stage 15 (core 154, desktop 34 + 2 ignored
+  there).
   **The screenshot run takes 12 to 25 minutes** (the 3D is drawn in
   software): run it alone, in the background, with a long limit. It used
   to die on a busy Mac when a click or a screenshot passed the browser
@@ -300,9 +303,9 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   0.3.4 baseline; the build fails past 3,072, a ceiling a fix round raised
   from 1,536 for the attack list's Play buttons and the director accepted
   (commit `7400208`). No stage may raise it again without stopping to ask.
-  The main Mac's checkout is on this branch. **The impact flash (S10b)
-  and then the lanes' stripes (LN-k), both below, were building when these
-  notes were written**; a stage is
+  The main Mac's checkout is on this branch. **The ballistic dive (BAL-0,
+  BAL-a, BAL-b) and then the bomb camera (S10d), all below, were building
+  when these notes were written**; a stage is
   one commit, and anything not pushed is not reviewed yet.
 - `v040-landing-data`, one commit `3127c41` on an older `main`: the front
   page's data layer (`src/lib/landing/`, 143 checks). Nothing in the app
@@ -448,31 +451,57 @@ on the main Mac (`Other Items/`):
      lanes' stripes show only while that jet's time is being set, with a
      striped key by the footer's warning; its whole spec is ruling 9.15.13
      of `BUILD_SPEC_S9.md`; one commit, so it can be backed out if he says
-     to keep the stripes or drop them). **BAL-a and BAL-b** (the dive's
-     aim-off in the planner, then the dive's bomb on its true arc in the
-     playback): their paper, `BUILD_SPEC_S11_BALLISTIC.md`, **was being
-     written and reviewed when these notes were written** and is not ruled
-     on yet. It is to give the exact before and after of a real dive card,
-     and what ignoring drag costs. **BAL-a changes dive cards: it needs his
-     yes, or at least no objection, before it is built, and his look
-     before anything merges.**
+     to keep the stripes or drop them; **built**). **The ballistic dive**:
+     its paper, `BUILD_SPEC_S11_BALLISTIC.md`, is written, reviewed and
+     ruled on (**its section 11.8 is the director's rulings**). **The user
+     said yes to it** after being shown what changes: for the F-16C 30°
+     dive (8,000 / 4,500 ft, 450 kt) the release marker moves from 1.28 to
+     0.94 nm, the roll-in from 2.3 to 1.9 nm, the roll-in turn from 42° to
+     53°, the attack heading from 271 to 281, the egress heading from 001
+     to 011, and a dashed aim line runs 0.34 nm past the target; the
+     strike's push moves about 4 s; the A-10's 30° dive turns in 72°
+     instead of 50°; **the A-10C, AV-8B and A-4E 45° dives get a 10° check
+     turn instead of 20°, and old saves of those lose their offset leg on
+     the map until re-opened and saved**; every old saved dive redraws.
+     Level, pop-up, loft, gun and rocket cards do not change, and a check
+     taken before the change holds that. Stages: **BAL-0** (that check,
+     no behaviour change), **BAL-a** (the change, in the planner, the
+     card and the playback), **BAL-b** (a four-dive fixture for the
+     harness and two checks of the look). In the 3D the arc is plain in
+     Chase and small in the default Home view (the whole fall is 30 to
+     44 px long there). **Still to settle with him, one at a time, each
+     shown, not described:** whether the dive card's table gains a row
+     with the aim-off distance (asked, re-explained with the card's rows;
+     not built until he says); then what old saved 45° dives of those
+     three aircraft should do. **A real dive card before and after goes in
+     front of him before anything merges.**
    - **The frag stages, from his decision above.** Two more papers in the
-     same folder, **both being written when these notes were written and
-     neither ruled on**: `BUILD_SPEC_S12_FRAG.md` (the test by distance at
+     same folder: `BUILD_SPEC_S12_FRAG.md`, **written, reviewed and
+     revised but not yet ruled on by the director** (it was begun before
+     he decided: it still has a 2 s allowance after the burst and the old
+     rows' radii, which his decision and the research replace), and
+     `DCS_BLAST_DATA.md`, **finished**. What they found: over 150 measured
+     strikes the old time rule warns in 110 and a distance test at the
+     burst in none (in his four-ship dive at 5 s the nearest jet is 7,344
+     ft from the lead's burst); **DCS's published weapon files hold no
+     blast radius for any bomb, only an explosive mass**, and the one
+     measured test in public (a helicopter, by eye) gives about 250 ft for
+     the Mk-82 and Mk-83 and about 360 ft for the Mk-84; the research
+     paper writes up a test he can fly himself. **Asked of him, not yet
+     answered: fly that test or not; which numbers until then; whether
+     weapons that share a warhead share a radius.** The frag paper covers
+     the test by distance at
      the burst in the planner and the playback, stages FRG-a onward, and
      **S10c and stage 19 rewritten: a ring at the tested radius at the
-     burst, no cloud that lasts 35 s**) and `DCS_BLAST_DATA.md` (web
-     research, every figure checked against its source: what DCS's
-     published weapon files hold for each bomb, how the game turns a
-     warhead into damage by distance, measured tests, and a test the user
-     can fly himself if no radius can be sourced). The owner's decision is
+     burst, no cloud that lasts 35 s**. The owner's decision is
      ruling 9.15.14 of `BUILD_SPEC_S9.md`; where the frag paper still asks
      what he has already answered, that ruling is the answer. **S10c and
      19 are not to be built as the impact paper has them.**
-   - **The order from here:** S10b, LN-k, then BAL-a and BAL-b once the
-     paper is ruled on and he has not objected, then S10d, then the frag
+   - **The order from here:** BAL-0, BAL-a, BAL-b, S10d (one run, in
+     hand), then the frag
      stages (FRG, S10c and 19 as rewritten) once their paper is ruled on
-     and the radii are sourced, then 16, 17, 18a, 18b, 20. **Look 4 is
+     and the radii are settled, then 16, 17, 18a, 18b, 20 (these four do
+     not wait for the frag stages). **Look 4 is
      out** (Apply, the roll, the bomb and its trace); **he looks again
      once the flash, the bomb camera and the frag test are in** ("look
      5"), then after 17 and 18b as before. A dive card before and after
@@ -517,15 +546,18 @@ on the main Mac (`Other Items/`):
    EFB-only and will need redoing).
 
 **Waiting on the user:**
-- **The dive card's change** (the roll-in point moves when the dive gains
-  an aim-off): his yes or no, with the before and after numbers from the
-  ballistic paper put to him first.
+- **Ask him one thing at a time and show the thing itself** (the card's
+  row as it would print, the map before and after), in plain words: he
+  could not follow two of three questions sent together.
+- **A row with the aim-off distance on the dive card's table**: yes or no
+  (asked, with the rows shown). Then **old saved 45° dives** of the
+  A-10C, AV-8B and A-4E.
+- **The blast radii:** fly the test in DCS or not; which numbers until
+  then; whether weapons sharing a warhead share a radius.
 - **Whether the roll reads** at the arrow's size in look 4, or the arrow
   should be bigger.
 - **Whether the old 30/35 s frag rule stays** as an off-by-default switch
   or goes.
-- **The blast radii**, once the research is back: each value with its
-  source for his approval, or the test he flies in DCS to measure them.
 - **Hidden threats.** He said "the hidden threats we dont tell to users
   unless they went into settings and allow it", but the planner today shows
   a "Probable Threats — location unknown" count by system
