@@ -315,8 +315,8 @@ async function checkArrowRoll(page, tag) {
 
 /**
  * Check 61: the roll is visible in pixels. Top-down, the 2D overlay hidden (the discs and plates lie over
- * the arrow; try/finally, as checks 2, 5b and 23), count the SOLID underside pixels within 12 px of the
- * arrow: a pixel counts when it and its eight neighbours all pass `undersideLike`, the colour seat #1's
+ * the arrow; try/finally, as checks 2, 5b and 23), count the SOLID underside pixels in the square 12 px
+ * each way round the arrow: a pixel counts when it and its eight neighbours all pass `undersideLike`, the colour seat #1's
  * underside is drawn in (shade 0.40 of #22d3ee, (19, 140, 158); the top, the fin, the planner's line
  * colours, the drape and the background all fail it). The solid-block rule keeps the anti-aliased edge of
  * the lit top over the dark casing, a blend that can pass the colour test alone, out of the count: an
