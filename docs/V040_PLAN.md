@@ -71,8 +71,22 @@ after 0.3.4 was published; every decision in the table below is theirs.
   - **Threats must fit any mission:** 10-15 systems and 100-500 units are
     common, so a row per threat will never fit.
   - **Hidden threats:** "we dont tell to users unless they went into
-    settings and allow it". The planner today shows a count of them; whether
-    that count goes is an open question to him.
+    settings and allow it". Decided 2026-11-16: the count the planner showed
+    goes too; with nothing revealed in Settings the app says nothing about
+    them, on any screen.
+- **2026-11-16: his verdict on the second-round mockup. The look is agreed,
+  with two changes; the redesign can be specified and built.**
+  - **Planner screen:** "the legend on the planner is kind out near the
+    middle and taking real-estate. other than that i'm ok with the design
+    there for now." So the Legend is closed by default: one small button at
+    the map's bottom-left corner, opening as a compact panel anchored there.
+  - **Flight overview:** "near threats have a waypoint and it shows the
+    threats actually near that waypoint or covering that waypoint. have the
+    map zoom to that area to show the threats. Rest is OK for now. we can
+    always re-design later." So the near-threats block is about one waypoint
+    (the flight's target by default), lists the threats near it or covering
+    it, and the overview's map is framed on that area.
+  - **Phone:** "for phone, all good".
 
 ### A2. Design foundation
 - Tokens: move colours, spacing, radii and type into CSS variables and the

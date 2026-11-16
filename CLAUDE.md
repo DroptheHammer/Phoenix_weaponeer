@@ -246,10 +246,10 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   desktop 34 + 2 ignored. Headless checks: `scripts/playback-shots.cjs`.
 - `v040-playback-full`, cut from `v040-playback`: **the full playback, being
   built stage by stage** (stages 0 to 20, plus the stages added from the
-  user's look, below). **Stages 0 to 15 and fourteen stages from his looks
-  (ATT-a, ATT-b, S10a, S10t, S10b, LN-k, BAL-0, BAL-a, BAL-b, S10d, LBL,
-  FRG-0, FRG-a, FRG-b) are built, reviewed and pushed, tip `c1ee4e3`**
-  (2026-11-16 01:50 UTC).
+  user's look, below). **Stages 0 to 15, stage 19 and eighteen stages from
+  his looks (ATT-a, ATT-b, S10a, S10t, S10b, LN-k, BAL-0, BAL-a, BAL-b,
+  S10d, LBL, FRG-0, FRG-a, FRG-b, FRG-0b, FRG-c, S10c, S10e) are built,
+  reviewed and pushed, tip `0b30d05`** (2026-11-16 06:00 UTC).
   What the playback does now:
   opens following the jet 10 s before the first action; Orbit, Top-down,
   Chase, From target and Home view; speeds 1× to 16×; the planner's colours
@@ -300,37 +300,50 @@ each gate's outcome are in `docs/V040_PLAN.md`.
   dev harness has a four-dive strike (`?fixture=dive4`). **On the
   kneeboard card a label box now sits at the nearest clear spot beside
   its marker, and the "→ STPT" edge note keeps off the north arrow.**
-  **The frag warning by blast distance is built but not switched on**: the
-  weapon table can carry a sourced blast radius, the playback library can
-  tell whether a jet is inside a bomb's radius when it goes off, and the
-  footer, time bar and lanes follow a strike set to it (the app's default
-  is still the old spacing rule until stage FRG-c). Gates at the
-  tip: geo-check 1056/0, tsc, build with the bundle check, the web check,
-  143 screenshot step lines (the reviewer's full run on FRG-b's commit),
-  core 157 and desktop 34 + 2 ignored Rust tests (run at FRG-0).
+  **The frag warning now works by blast distance, and is switched on**:
+  eight weapon rows carry a sourced blast radius (below), the strike
+  editor and the playback warn only when a jet is inside a bomb's radius
+  at the moment it goes off, every number is marked "(est.)", and the old
+  30/35 s spacing rule is a "Warn by" choice on each strike, off unless
+  picked (the phone shows a note and cannot switch). **A ring is drawn
+  where each bomb lands at that bomb's blast radius**, with "blast radius
+  250 ft (est.)" beside it; **an amber chip over the picture names a jet
+  caught inside a blast**, at any speed; **the planner's words and the
+  jets' labels keep off the bomb Chase is following and off the view's
+  own buttons.** Gates at the
+  tip: geo-check 1069/0, tsc, build with the bundle check, the web check,
+  169 screenshot step passes (the reviewer's full run on S10e's commit),
+  core 158 and desktop 34 + 2 ignored Rust tests (run at FRG-c).
   **The screenshot run takes 12 to 25 minutes** (the 3D is drawn in
   software): run it alone, in the background, with a long limit. It used
   to die on a busy Mac when a click or a screenshot passed the browser
   driver's 30 s; each page now allows 120 s (`e90a8af`), and the full run
-  passed on a loaded machine. Start-up JS is 3,985 bytes over the
-  0.3.4 baseline (633,914); the build fails past 5,120 (635,049). The
+  passed on a loaded machine. Start-up JS is 4,703 bytes over the
+  0.3.4 baseline (634,632); the build fails past 5,120 (635,049). The
   ceiling was raised three times, each time in a commit of its own: for
   the attack list's Play buttons (`7400208`), for the dive's aim-off
   (`f3d1595`) and for the card's label placement (`c1ee4e3`); the last
   two are planner code. No builder may raise it: a stage that would
   pass it stops and reports.
-  The main Mac's checkout is on this branch. **A build run was in hand
-  when these notes were written (2026-11-16 02:00 UTC): FRG-0b (the
-  approved blast radii enter the weapon table), then FRG-c (the strike
-  editor's switch and the change of the default), both
-  below**; a stage is
+  The main Mac's checkout is on this branch. **A build run of six stages
+  was in hand when these notes were written (2026-11-16 06:05 UTC):
+  MRG-HT, MRG-LBL2, S10u (three finished side branches brought in, next
+  bullet), then REV-a, REV-b, REV-c (the fixes from a review of the whole
+  branch, below). Their spec is section 14.8 of
+  `BUILD_SPEC_S14_REVIEW.md` in the working folder**; a stage is
   one commit, and anything not pushed is not reviewed yet.
-- `v040-bombline-draft`, one commit `b866845` on top of `3acd431` of the
-  playback branch, pushed (on the main Mac it is a second working copy at
-  `.claude/worktrees/bombline`): **a draft the user asked for, waiting
-  for his yes** (below). The bomb's
-  dashed fall line is removed from the 3D, so the bomb's only line is the
-  solid trace behind it.
+- **Three side branches, each finished, independently reviewed and
+  pushed, waiting to be brought onto the playback branch by that run**
+  (on the main Mac each is a second working copy under
+  `.claude/worktrees/`; remove the copies and the branches once their
+  content is on the playback branch):
+  - `v040-hidden-threats` (`a5fea3c`): with nothing revealed in Settings
+    the app says nothing about threats the mission author hid (below).
+  - `v040-card-labels-2` (`7f60b8a`): the card's IP box points at its
+    moved edge note; the side view's labels sit nearest their markers.
+  - `v040-bombline-dashes` (`7b3bf38`): the bomb's line, as the user
+    settled it over four looks (below). `v040-bombline-draft` and
+    `v040-bombline-thin` are earlier looks of it, to delete.
 - `v040-landing-data`, one commit `3127c41` on an older `main`: the front
   page's data layer (`src/lib/landing/`, 143 checks). Nothing in the app
   uses it yet. Both branches append to the end of `scripts/geo-check.ts`, so
@@ -545,10 +558,21 @@ on the main Mac (`Other Items/`):
      paper's suggested order: first stop printing the fixed number once
      the attack is customized and give a box for the pilot's own figure;
      then a real lookup for the F-5E Mk-82; flagged estimates elsewhere.
-     **No design paper is commissioned yet:** his answer on the
-     squadron's own tables decides the main data source. Both this and
-     the old-saves repair are open items in `ROADMAP.md` on the playback
-     branch (`de735d7`).
+     **He answered (2026-11-16): the squadron has no tables of its own;
+     use public sources.** Three papers now exist in the working folder,
+     and **the director has not ruled on the design yet (its section
+     13.8)**: `BUILD_SPEC_S13_SIGHT_MILS.md` (the design, reviewed and
+     revised: the figure is the planner's own bomb range corrected by the
+     manual's table, worked out when shown and never stored; the pilot
+     can type his own; nine stages; eleven questions for the user, one at
+     a time); a working paper of readings that stays out of the repository; `DCS_BOMB_BALLISTICS.md` (what the
+     game's own files say about each bomb's drag: the rule is not public;
+     a reading of it fits recorded drops; slick bombs are within about 4%
+     of our vacuum range, **retarded bombs are 32 to 46% shorter than our
+     vacuum range**, which also affects today's laydown and low-angle
+     high-drag attacks). **Before any number from the F-5E manual is
+     committed, ask him:** its title page carries a distribution statement and an export-control warning; the repo is public, so it is his decision. Both this and the old-saves repair are open items in
+     `ROADMAP.md` on the playback branch.
    - **The frag stages, from his decision above.** Two more papers in the
      same folder: `BUILD_SPEC_S12_FRAG.md`, **written, reviewed, revised
      to his decision and ruled on by the director (its section 12.8)**,
@@ -597,21 +621,47 @@ on the main Mac (`Other Items/`):
      falls. But shouldn't appear before the bomb is dropped." The
      director's reading: the bomb's line is only the solid trace behind
      it from the release; the planned fall is no longer drawn as a dashed
-     line before the release or ahead of the bomb. **Built as a draft on
-     `v040-bombline-draft` (`b866845`), independently checked, and a 53 s
-     video of the release and fall was sent to him; he has not answered
-     yet.** On his yes: take that commit into `v040-playback-full` when
-     no build run is using the tree (expect small conflicts in
-     `scripts/geo-check.ts` and `scripts/playback-shots.cjs`), run the
-     full screenshot run and a review, push, then remove the second
-     working copy and the draft branch. The full screenshot run and the
-     stage review are still owed on it.
-   - **Two faults the recording showed, which the director told him he
-     would fix:** in Chase the white "Attack hdg" box slides over the
-     followed bomb for the last 2 to 3 s before it lands, and after the
-     camera turns to the bomb the watched jet's label ends up under the
-     camera buttons. Not specified or built yet: a small stage on the 2D
-     overlay's label placer.
+     line before the release or ahead of the bomb. **He then settled its
+     look in the real app, over three more rounds of app copies (he came
+     home; no more recordings unless he asks):** "rather than a really
+     thick solid line I think some sort of a lighter or dashed line might
+     be better"; then "the dashed line but i want the dashes spread out
+     more and dimmer. grey dashes maybe or black dashes"; then, of the
+     grey copy, "I like the grey lines best but it's still drawing the
+     line in front of the bomb.. remember the line follows the bomb but
+     doesnt come ahead. check every attack type for this". What he saw
+     there was an earlier jet's finished line left on the ground along
+     the same attack path. **So the rule is: a bomb's only line is grey
+     dashes (4 px on, 12 off, thin, no dark edge) from the release point
+     to the bomb while it is in the air; nothing before the release,
+     ahead of the bomb or after it lands, in every attack type.** Built
+     and proven on `v040-bombline-dashes`: a check over every profile and
+     weapon class (638 builds), and an independent hunt through 132
+     pictures that found no counter-example. **One call of the
+     director's to tell him at the next look (his to veto): only the jet
+     being watched draws its bomb's line** (all jets with Show › Attack
+     colours › All jets), because a lead's still-falling bomb drew
+     dashes from beside the wingman's release point before the wingman
+     had dropped. The app copies he compared are "Playback look 5A" to
+     "5F" in `Other Items/v040-builds/`; 5F is the last.
+   - **Two faults the recording showed are fixed (stage S10e):** words
+     and labels now keep off the bomb Chase is following and off the
+     view's own buttons.
+   - **A review of the whole branch (2026-11-16), which he agreed to:**
+     five reviewers, each finding then attacked by a second agent; twelve
+     findings stand, none a crash or a loss of data. The director's
+     rulings and the spec of the fixes are in `BUILD_SPEC_S14_REVIEW.md`.
+     The ones that matter: an old saved 45° dive of the A-10C, AV-8B or
+     A-4E printed an action point on its card that its picture no longer
+     draws (the card will leave it out and say to open and save the
+     attack; repairing the save itself is still the item he deferred); a
+     flipped or re-anchored gun or rocket dive stored a heading about 17°
+     off what the map draws; ground below sea level was drawn flat; From
+     target could spin when a jet flew over its target. **On the
+     roadmap, not built:** tidying the map-tile cache on disk; the card's
+     push time, which counts the bomb's fall as a ground distance (about
+     1.6 s early on the F-16 30° dive; with the loft's push time he
+     parked).
    - **Recording a look for his phone.** The scripts are in the session's
      scratch folder (they do not survive a reboot; the method does): make
      a clean copy of the commit, serve the dev harness with Vite on its
@@ -626,12 +676,24 @@ on the main Mac (`Other Items/`):
      Tell him it is the test page: flat test ground, two developer
      notices, and a Play button that reads "Play". The videos are in
      `Other Items/v040-builds/recordings/`.
-   - **The order from here:** FRG-0b and FRG-c (one run, in hand), then
-     the bomb-line draft if he says yes, then S10c and 19 as rewritten,
-     then 16, 17, 18a, 18b, 20 (these do not wait for the frag stages and
-     may run between). **Look 5 is built** (the flash, the dive's arc,
-     Chase watching the bomb land). He looks again after the frag test
-     is in, then after 17 and 18b as before.
+   - **The order from here:** the run in hand (MRG-HT, MRG-LBL2, S10u,
+     REV-a, REV-b, REV-c), then **build "Playback look 6.app" and tell
+     him what is in it** (the frag warning by blast radius, the blast
+     ring, the chip, the grey bomb line, the label fixes, hidden threats
+     silent, the card labels, the review fixes) **and the three calls he
+     can veto** (only the watched jet draws a bomb line; the blast ring
+     is drawn through hills and over arrows; the old spacing rule kept as
+     a choice), then 16, 17, 18a, 18b, 20. He looks again after 17 and
+     18b as before.
+   - **Working copies and agents: two lessons of this session.** (1) A
+     command given as `npm --prefix <copy> exec -c '…'` runs in the
+     shell's folder, not in the copy: give absolute paths (`vite build
+     <copy> --config <copy>/vite.config.web.ts`); `npm --prefix <copy>
+     run <script>` is fine; a second working copy has no
+     `src/generated/` (git-ignored): copy it across for a web build. (2)
+     An agent run launched while a message the user sent mid-turn was
+     still unanswered took that message for its task: open each brief by
+     saying whose task it is.
    - **Picking up a paper that was cut short:** a design or research run
      writes its file as it goes. If a paper in that folder has no "Review
      record" section at its end (the research paper: no section 7), it was
@@ -659,49 +721,75 @@ on the main Mac (`Other Items/`):
    `de735d7`: the flash where each bomb lands, the lane stripes that show
    only while a time is set, the dive bomb's arc and the new dive
    geometry, and Chase watching the bomb land.** He saw it as a
-   recording, not in the app. A build must not run while a stage is
-   being built: both write `dist/`. The older questions below are still
-   open.
-3. **Second-round mockup of the EFB draft**, desktop and iPhone, is finished
-   and was shown to him as private pages (the links are in the memory
-   system, never in the repo). Sources: `Other Items/v040-mockups/efb2.html`
-   and `efb2-phone.html`, brief `BRIEF-V2.md`, facts `v2-facts.md`, checker
-   `check-efb2.cjs`. It shows a slim full-width header, the screen renamed
-   "Flight overview", per-jet loadout cards, no waypoint tables, a
-   fixed-size threat block, and a flight chooser for missions with many
-   flights. **His verdict is still to come.**
-4. **The EFB design-foundation spec is on hold** until he agrees a mockup
-   (`Other Items/v040-work/a2/`: two finished maps of the app's styles and
-   the EFB draft's system are still good; the `BUILD_SPEC.md` draft there is
-   EFB-only and will need redoing).
+   recording, then compared copies 5A to 5F for the bomb's line. A build
+   of the main copy must not run while a stage is being built there: both
+   write `dist/`; a side copy can be built at any time with
+   `CARGO_TARGET_DIR` pointed at the main copy's `src-tauri/target`. The
+   older questions below are still open. **To show him a page, name the
+   local file and its folder: he cannot open claude.ai artifact links
+   from Claude Code.**
+3. **THE REDESIGN IS UNBLOCKED: his verdict on the second-round mockup
+   (2026-11-16).** The mockups are `efb2.html` (desktop) and
+   `efb2-phone.html` (iPhone) in `Other Items/v040-mockups/` (brief
+   `BRIEF-V2.md`, facts `v2-facts.md`). His words. Of the planner screen,
+   with a picture of the Legend panel floating beside the rail: "the
+   legend on the planner is kind out near the middle and taking
+   real-estate. other than that i'm ok with the design there for now."
+   Of the Flight overview: "near threats have a waypoint and it shows the
+   threats actually near that waypoint or covering that waypoint. have
+   the map zoom to that area to show the threats. Rest is OK for now. we
+   can always re-design later." Of the phone: "for phone, all good". The
+   director's reading, told to him: **(1) the Legend is closed by default,
+   one small button at the map's bottom-left corner, opening as a compact
+   panel anchored there; (2) the overview's near-threats block is about
+   one waypoint (the target by default) and the overview's map is framed
+   on that waypoint and those threats.**
+4. **The redesign's build specs were being written when these notes were
+   written** (three writers, each reviewed and revised): the design
+   foundation brought up to round 2 and the newer code
+   (`Other Items/v040-work/a2/BUILD_SPEC_R2.md`, a delta on the existing
+   prototyped `a2/BUILD_SPEC.md`), the front page with the import flow
+   and the Flight overview (`a3/BUILD_SPEC_UI.md`, on the data layer
+   already built as `v040-landing-data`), and the app shell with the
+   legend (`a4/BUILD_SPEC.md`). A spec with no review record (its section
+   x.7) was cut short. **The director rules on each (section x.8), then
+   builds on a new branch `v040-shell` cut from the playback branch's
+   tip, in a working copy of its own**; the first stages change nothing
+   he sees; a copy goes in front of him in the real app before anything
+   merges; the start-up size ceiling is the director's to raise, stage by
+   stage.
 
 **Waiting on the user:**
 - **Ask him one thing at a time and show the thing itself** (the card's
   row as it would print, the map before and after), in plain words: he
   could not follow two of three questions sent together.
-- **Whether the bomb-line draft is what he meant** (asked 2026-11-16
-  with the 53 s video): the next thing he owes an answer on.
-- **Then, one at a time, the sight (mils) questions:** whether his
-  squadron has its own tables for the manual jets, to use before the
-  public manuals (asked once, not answered); whether he can drop a few
-  F-5E bombs at cells of the real table to see if the module follows it;
-  whether he can pull the F-4E bombing calculator's readings, the A-4E-C
-  kneeboard pages and the current Mirage F1 manual from his DCS install.
-- **To tell him, not ask:** the old 30/35 s frag rule stays as an
-  off-by-default choice on the strike (his to veto).
+- **Nothing blocks the builds.** In the order to raise them:
+- **Look 6**, when it is built, with the three calls he can veto (above).
+- **Whether numbers from the real F-5E manual may go into the public
+  app**, given its distribution statement and export-control warning
+  (above). Then, one at a time, the sight (mils) questions of the design
+  paper's section 13.5: a short test in the DCS F-5E to learn how the module's bombs fall; whether the profiles' 450 kt is true or
+  indicated; what the Mirage F1 manual in his install prints; readings
+  off the F-4E's bombing calculator; what the A-4E-C and F-4E should
+  show.
+- **Whether to make retarded bombs fall by the game-data reading** (as an
+  estimate), since today's vacuum range is 32 to 46% long for a Snakeye:
+  told to him as a finding; he has not said when.
+- **Told to him, his to veto:** the old 30/35 s frag rule stays as an
+  off-by-default choice on the strike.
 - **His view of the F-16C 30° dive card**: before, after and with the
   labels fixed, all on his phone; no comment yet.
-- **Whether the roll reads** at the arrow's size in look 4, or the arrow
-  should be bigger. **Look 5 is waiting for him on the main Mac** if he
-  wants it in the real app.
-- **Hidden threats.** He said "the hidden threats we dont tell to users
-  unless they went into settings and allow it", but the planner today shows
-  a "Probable Threats — location unknown" count by system
-  (`ThreatList.tsx`) and the import preview lists them by type
-  (`FragOrdersPreview.tsx`). Asked: remove both, or leave them? Until he
-  answers, the new overview screen says nothing about hidden threats, the
-  existing lines stay, and the playback builds its count line behind one
-  constant so either answer is a one-line change.
+- **Whether the roll reads** at the arrow's size, or the arrow should be
+  bigger.
+- **Hidden threats: DECIDED (2026-11-16, "Yes approved").** With nothing
+  revealed in Settings › Admin the app says nothing about threats the
+  mission author hid: the "Probable Threats — location unknown" block,
+  the import preview's lines, the counts beside the Admin switches and
+  the hidden count in an import's saved note are all gone, and a mission
+  with everything hidden reads like one with none. Built on
+  `v040-hidden-threats`; **the "Known Issues" paragraph above still
+  describes the old count until that branch's edit of it reaches
+  `main`.**
 - **Questions still open from his looks at the playback.** Things to ask
   him: whether "first action" means the first planner marker after
   the IP (the reading the build uses) or the IP itself; the dark casing
@@ -716,8 +804,6 @@ on the main Mac (`Other Items/`):
   jet inside another's frag) help or clutter, and whether dragging a time
   feels right (the time bar holds its scale while the diamond is held and
   re-fits when it is let go).
-- His verdict on the second-round mockup, and what else he wants from the
-  other drafts.
 - The icon and splash images (prompts in `docs/V040_PLAN.md`, Track D; picks
   go in `Other Items/Artwork/v040/`).
 
