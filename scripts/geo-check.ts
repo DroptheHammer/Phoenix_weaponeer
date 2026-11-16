@@ -15606,3 +15606,4 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
     ok('offset leg and gun pass ring: the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }
+import './landing-check';
