@@ -402,8 +402,8 @@ cards still carry the "no data on file" caution.
   warhead tables with the same explosive mass as the Mk-82, Mk-83 and Mk-84.
   The test named only the three bare bombs, so each of those five rows says so
   in its `notes`. Every row is `community_measurement`, and its `notes` carry the
-  article, what it saw and the caveats above. GBU-12, GBU-10 and GBU-16 were not
-  offered (the game's files hold two warhead tables for each, and they
+  article, what it saw and the caveats above. GBU-12, GBU-10, GBU-16 and GBU-24
+  were not offered (the game's files hold two warhead tables for each, and they
   disagree), and no cluster, missile, rocket or gun row has a radius. The same
   article's other test, a column of Gazelle helicopters over a Mk-84 that read
   "damaged" up to 800 ft, is not used: its author doubts it. The Rust and

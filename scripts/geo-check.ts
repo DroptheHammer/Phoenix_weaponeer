@@ -11729,7 +11729,7 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
     // and the Snakeye's three blast fields taken out:
     //   FAIL playback B3 [BX3]: burstSpecOf gives no radius without a known meaning and source, … real rows with one: gbu31, gbu38, mk82, mk82air, mk83, mk83air, mk84; not at the approved figure: mk82se; echoes true
     {
-      const R ={ blast_radius_ft: 360, blast_radius_meaning: 'destroyed' as const };
+      const R = { blast_radius_ft: 360, blast_radius_meaning: 'destroyed' as const };
       const none: [string, object][] = [
         ['no source', { ...R }], ['a null source', { ...R, blast_radius_source: null }], ['an unknown source', { ...R, blast_radius_source: 'hunch' }],
         ['no meaning', { blast_radius_ft: 360, blast_radius_source: 'community_measurement' }],

@@ -91,8 +91,8 @@ export interface DbWeapon {
   frag_min_safe_alt_ft?: number | null;
   /**
    * The distance from a burst within which DCS damages an aircraft, in feet.
-   * Empty on every row until a source is cited, and only meaningful with the
-   * two fields below: a radius with no known meaning or source is no radius.
+   * Null unless a source is cited, and only meaningful with the two fields
+   * below: a radius with no known meaning or source is no radius.
    * The `frag_*_radius_ft` numbers above cite no source and are not a stand-in.
    */
   blast_radius_ft?: number | null;
