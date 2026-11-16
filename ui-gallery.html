@@ -1,0 +1,21 @@
+<!doctype html>
+<!--
+  DEV ONLY: every shared building block of the app on one page, for looking at them and
+  for measuring them (their heights, widths and states). Served by the dev server
+  at /ui-gallery.html; production builds use index.html only, so this page and its
+  script never ship. Open it at 1400 px wide and again at 390 px: the phone's touch
+  sizes show on their own, with no switch.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- No icon request: a 404 would show as a console error in the checks. -->
+    <link rel="icon" href="data:," />
+    <title>Component gallery</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/components/ui/dev/gallery.tsx"></script>
+  </body>
+</html>

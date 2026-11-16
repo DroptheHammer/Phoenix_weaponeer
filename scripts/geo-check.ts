@@ -1,4 +1,5 @@
 import './design-check';
+import './ui-check';
 import {
   applyAngleOff,
   angleOffOf,

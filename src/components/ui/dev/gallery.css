@@ -1,0 +1,97 @@
+/*
+ * Layout for the component gallery (gallery.tsx) and nothing else: grids, gaps, padding and the two
+ * surfaces the primitives are shown on. Every colour, gap and type size comes from a token in
+ * src/styles/tokens.css and no colour is written here (ui-check's no-raw-colour check scans this
+ * folder). A few measures are plain numbers (a column width, a line length, letter spacing, font
+ * weight) because the page is the only place that needs them. Tailwind does not read this folder, so
+ * the app's own stylesheet carries nothing for it: this file is where the page lays itself out.
+ */
+
+.gallery-surface {
+  padding: var(--sp-6) var(--sp-4);
+}
+.gallery-surface-window {
+  background: var(--c-window);
+}
+.gallery-surface-navy {
+  background: var(--c-navy);
+}
+
+.gallery-title {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-headline);
+  line-height: var(--lh-tight);
+  font-weight: 700;
+}
+.gallery-note {
+  margin: 0 0 var(--sp-5);
+  max-width: 64ch;
+  color: var(--c-text-2);
+  font-size: var(--fs-small);
+  line-height: var(--lh-body);
+}
+
+.gallery-section {
+  margin-top: var(--sp-8);
+}
+.gallery-heading {
+  margin: 0 0 var(--sp-3);
+  color: var(--c-text-3);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* One row per variant and size: its name, then the same button in each state. */
+.gallery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+.gallery-row-name {
+  flex: 0 0 9rem;
+  color: var(--c-text-2);
+  font-size: var(--fs-caption);
+}
+.gallery-cells {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* The icon table: each icon over its name. */
+.gallery-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: var(--sp-3);
+}
+.gallery-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-2);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  font-size: var(--fs-caption);
+  color: var(--c-text-2);
+}
+.gallery-icon-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-5);
+}
+.gallery-icon-size {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-caption);
+  color: var(--c-text-2);
+}
