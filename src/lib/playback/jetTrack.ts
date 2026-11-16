@@ -16,6 +16,7 @@ import { buildAltitude, type AltitudeModel } from './altitude';
 import { anchorMarkers } from './anchors';
 import { buildAttitude } from './attitude';
 import { buildBomb } from './bomb';
+import { burstSpecOf } from './burst';
 import { type Chain, buildChain, pointAt, REVERSAL_DEG } from './chain';
 import { integrateTau, spanTimings, type StatedSpan } from './clock';
 import { buildDisplay } from './display';
@@ -135,6 +136,7 @@ export function buildJetTrack(input: PlaybackJetInput, frame: LocalFrame, option
   if (input.attack.estimated) codes.unshift('profileNotFlown');
   if (cardSpeed_kt) codes.push('cardPushIsEstimate');
   if (frag) codes.push('fragEnvelope');
+  if (burstSpecOf(input.weapon)) codes.push('blastRadius');
 
   const built: Omit<JetTrack, 'attitude'> = {
     id: input.id, label: input.label, callsign: input.callsign, family,

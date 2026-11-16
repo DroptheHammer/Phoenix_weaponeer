@@ -12,7 +12,9 @@
  */
 
 import type { Attack, AttackProfile, DbWeapon, IpAnchorFields, Mission, Strike } from '../types';
-import type { AttackPicture, LineStyleKey } from '../types/attackPicture.types';import { moveIp, applyFlank } from './attackFlank';
+import type { AttackPicture, LineStyleKey } from '../types/attackPicture.types';
+import type { FragRule } from '../types/strike.types';
+import { moveIp, applyFlank } from './attackFlank';
 import { applyPopupPlan } from './popupPlanning';
 import { applyLoftPlan } from './loftPlanning';
 import { calculateDistance } from './coordinates';
@@ -348,7 +350,22 @@ export function fragConflicts(jets: StrikeJet[]): FragConflict[] {
   return conflicts;
 }
 
-export function strikeReadout(jets: StrikeJet[]): StrikeReadout {
+/**
+ * A strike's frag rule. Only a strike that says 'burst' is checked by blast
+ * distance; anything else, a strike saved before the choice existed included,
+ * keeps the spacing rule. Never rendered, so an odd value needs no checking.
+ */
+export function strikeFragRule(strike: { fragRule?: string } | undefined): FragRule {
+  return strike?.fragRule === 'burst' ? 'burst' : 'time';
+}
+
+/**
+ * The strike strip's splits, pushes and warnings. Under 'time' the frag
+ * warnings are the spacing rule's, as they always were; under 'burst' they are
+ * left out, because the blast distance needs the jets' flight paths and comes
+ * from the playback library, which adds its own lines.
+ */
+export function strikeReadout(jets: StrikeJet[], rule: FragRule = 'time'): StrikeReadout {
   const splits: StrikeReadout['splits'] = [];
   const warnings: string[] = [];
   for (let i = 1; i < jets.length; i++) {
@@ -357,7 +374,7 @@ export function strikeReadout(jets: StrikeJet[]): StrikeReadout {
     const deg = Math.abs(signedHeadingDelta(a.picture.attackHeading, b.picture.attackHeading));
     splits.push({ a: a.label, b: b.label, deg, grade: coneGrade(deg) });
   }
-  for (const c of fragConflicts(jets)) {
+  if (rule === 'time') for (const c of fragConflicts(jets)) {
     warnings.push(
       `${c.second} is over the target ${Math.round(c.gap_s)} s after ${c.first}, inside ${c.first}'s ~${c.frag_s} s of frag (est.)` +
         (c.sameAxis ? ' — and on the same axis' : ''),

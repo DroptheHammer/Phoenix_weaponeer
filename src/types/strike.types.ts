@@ -1,6 +1,14 @@
 import type { IpAnchorFields } from './attack.types';
 
 /**
+ * Which test warns that a jet is exposed to another jet's bomb. 'burst': the
+ * jet is inside the bomb's blast radius at the moment it goes off (distance
+ * only, as DCS's blast works). 'time': the real-world spacing habit, a jet
+ * over the target within the earlier jet's frag clear time.
+ */
+export type FragRule = 'burst' | 'time';
+
+/**
  * Two to four jets of the flight on one coordinated attack.
  *
  * The members are the attacks carrying this `strikeId`, ordered by time over
@@ -19,4 +27,10 @@ export interface Strike {
   ip: IpAnchorFields;
   /** Default seconds between consecutive jets over the target. */
   spacing_s: number;
+  /**
+   * How this strike's frag warning is worked out. It travels with the mission
+   * so the whole squadron sees the same warnings. Left out, or a value this
+   * build does not know, reads as `strikeFragRule`'s default.
+   */
+  fragRule?: FragRule;
 }

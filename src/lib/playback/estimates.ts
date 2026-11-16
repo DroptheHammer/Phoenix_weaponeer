@@ -15,7 +15,8 @@ const NOTES: Record<EstimateCode, string> = {
   pullDownShape: 'The altitude through the pull-down is a smooth curve through the planner\'s three points.',
   egressAltitudeSchematic: 'The climb or descent after release is the side view\'s sketch.',
   egressExtension: 'Past the drawn 1 nm egress leg the jet flies on along it.',
-  fragEnvelope: 'The frag clear time is a planning envelope, not a DCS fragment model.',
+  fragEnvelope: 'Jets stay in the picture for the weapon\'s frag clear time after the bomb lands (est.): a planning envelope, not a DCS fragment model.',
+  blastRadius: 'The blast radius is the weapon table\'s figure, with its source on file; the check counts distance only, not terrain.',
 };
 
 export function estimatesOf(codes: EstimateCode[]): Estimate[] {

@@ -18,7 +18,8 @@
  */
 
 import {
-  PHASES, PHASE_STYLE, type DangerZone, type PhaseStyle, type PlaybackPhase, type StrikePlayback, type StrikeTiming, type TimedConflict,
+  BAND_MIN_PX, PHASES, PHASE_STYLE, burstBandTitle, burstZoneTitle, isBurstRow,
+  type ConflictRow, type DangerZone, type PhaseStyle, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
 } from '../playback';
 import type { ActionKind, MarkerMoment } from './actionPoints';
 import { CHIP_GAP_PX, chipWidth } from './laneStyle';
@@ -186,26 +187,32 @@ export function laneBands(pb: StrikePlayback, timing: StrikeTiming, axis: Axis):
 
 /** A stretch of the strike clock to hatch on the time bar. */
 export interface Band {
-  /** `${first member id}-${second member id}`: a pair of members is one conflict at most. */
+  /** `${first member id}-${second member id}`: a pair of members is one conflict at most (an ordered pair, under the blast rule). */
   key: string;
   t0_s: number;
   t1_s: number;
   /** What the stretch means, in words (the bar's stripes take no pointer, so nothing shows it as a tooltip). */
   title: string;
+  /** The narrowest it may be drawn, px. Set on the blast rule's bands, which mark an instant; the spacing rule's have none and are drawn at their own width. */
+  minPx?: number;
 }
 
 /**
- * One band per frag conflict the readout warns of: from the moment the second
- * jet's bombs land to the moment the first jet's frag has cleared, exactly the
- * library's own t0 and t1. A jet that is skipped still has its band, as it
- * still has its warning.
+ * One band per frag conflict the readout warns of, exactly the library's own
+ * t0 and t1. Under the spacing rule: from the moment the second jet's bombs
+ * land to the moment the first jet's frag has cleared; a jet that is skipped
+ * still has its band, as it still has its warning. Under the blast rule: the
+ * moment the bomb went off with a jet inside its radius, given a short width
+ * on the clock and a narrowest width on screen so it can be seen.
  */
-export function conflictBands(conflicts: readonly TimedConflict[]): Band[] {
+export function conflictBands(conflicts: readonly ConflictRow[]): Band[] {
   return conflicts.map((c) => ({
     key: `${c.firstId}-${c.secondId}`,
     t0_s: c.t0_s,
     t1_s: c.t1_s,
-    title: `⚠ ${c.second} over the target inside ${c.first}'s frag (est.)`,
+    ...(isBurstRow(c)
+      ? { title: burstBandTitle(c), minPx: BAND_MIN_PX }
+      : { title: `⚠ ${c.second} over the target inside ${c.first}'s frag (est.)` }),
   }));
 }
 
@@ -213,15 +220,20 @@ export function conflictBands(conflicts: readonly TimedConflict[]): Band[] {
  * One stripe on a jet's own lane for each other member it would be in a frag conflict with: the times over
  * target (strike time) at which it would warn against that member, from the library's own danger zone.
  * `meLabel` is this jet's seat label, `seatLabels` every member's, by seat. The lane's stripes take no
- * pointer, so the words are for a screen reader and for a seat's warning mark.
+ * pointer, so the words are for a screen reader and for a seat's warning mark. A blast zone (one with a
+ * role) may be one of several against the same member, so its key names the role and its place.
  */
 export function zoneBands(zones: readonly DangerZone[], meLabel: string, seatLabels: readonly string[]): Band[] {
-  return zones.map((z) => ({
-    key: z.againstId,
-    t0_s: z.from_s,
-    t1_s: z.to_s,
-    title: `Frag conflict with ${seatLabels[z.againstMember]} if ${meLabel} is over the target here (est.)`,
-  }));
+  const seen = new Map<string, number>();
+  return zones.map((z) => {
+    if (!z.role) {
+      return { key: z.againstId, t0_s: z.from_s, t1_s: z.to_s, title: `Frag conflict with ${seatLabels[z.againstMember]} if ${meLabel} is over the target here (est.)` };
+    }
+    const base = `${z.againstId}:${z.role}`;
+    const k = seen.get(base) ?? 0;
+    seen.set(base, k + 1);
+    return { key: `${base}:${k}`, t0_s: z.from_s, t1_s: z.to_s, title: burstZoneTitle(z.role, seatLabels[z.againstMember], meLabel), minPx: BAND_MIN_PX };
+  });
 }
 
 /** The three ways a jet's time over target is being set on its lane. */
@@ -244,12 +256,12 @@ export function laneZonesShown(s: LaneTimeSetting): boolean {
 }
 
 /** Is this seat (a member's place, as the readout counts them) the first or the second of any frag conflict? Flown or not. */
-export function seatInConflict(conflicts: readonly TimedConflict[], seat: number): boolean {
+export function seatInConflict(conflicts: readonly ConflictRow[], seat: number): boolean {
   return conflicts.some((c) => c.firstIndex === seat || c.secondIndex === seat);
 }
 
 /** The time bar's own sentence for each conflict the seat is in, joined, for the warning mark beside its time; undefined when it is in none. */
-export function seatConflictTitle(conflicts: readonly TimedConflict[], seat: number): string | undefined {
+export function seatConflictTitle(conflicts: readonly ConflictRow[], seat: number): string | undefined {
   const mine = conflicts.filter((c) => c.firstIndex === seat || c.secondIndex === seat);
   return mine.length ? conflictBands(mine).map((b) => b.title).join(' · ') : undefined;
 }

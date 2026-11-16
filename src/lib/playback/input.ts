@@ -6,7 +6,7 @@
 
 import type { Attack, DbWeapon, Mission } from '../../types';
 import { attackIpAnchor } from '../ipAnchor';
-import { attackSpeedOf, strikeMembers, strikeOf } from '../strike';
+import { attackSpeedOf, strikeFragRule, strikeMembers, strikeOf } from '../strike';
 import type { PlaybackInput, PlaybackJetInput, SkippedJet } from './types';
 
 export type PlaybackSubject = { strikeId: string } | { attackId: string };
@@ -59,5 +59,6 @@ export function playbackInputFromMission(mission: Mission, subject: PlaybackSubj
     strikeId: asStrike ? strike!.id : undefined,
     jets,
     skipped,
+    fragRule: strikeFragRule(strike),
   };
 }

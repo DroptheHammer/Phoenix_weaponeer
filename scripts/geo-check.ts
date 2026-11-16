@@ -47,6 +47,17 @@ import {
   fragSpecOf, buildAttitude, rollAt, liftOf, rollWeight, wantedRoll, coneMean,
   type PlaybackJetInput, type StrikePlayback, type JetState, type JetTrack,
 } from '../src/lib/playback';
+import {
+  burstSpecOf, spansInside, insideAt, distanceAt, burstConflicts, burstZones, burstReadout, BURST_MARK_S, BAND_MIN_PX, strikeJetsAt, FT_TO_M,
+  burstSentence, burstSourceTitle, burstBandTitle, burstZoneTitle, burstChipText, noRadiusNote, notFlownNote, footerOkBurst, FOOTER_OK_BURST_TITLE,
+  BURST_HATCH_KEY_TITLE, BURST_STRIPES_HANDLE_WORDS, BURST_HATCH_NOTE, burstSkipNote, FRAG_RULE_LABEL, FRAG_RULE_OPTIONS, FRAG_RULE_TITLES, isBurstRow,
+  type TimedBurst, type DangerZone,
+} from '../src/lib/playback';
+import { timedConflicts } from '../src/lib/playback/frag';
+import { estimatesOf } from '../src/lib/playback/estimates';
+import { strikeFragRule, DEFAULT_SPACING_S } from '../src/lib/strike';
+import { newStrike } from '../src/lib/strikeDraft';
+import { chooseIngress } from '../src/lib/attackDraft';
 // Internals, for checks that only the model functions can answer (the apex slope, the pull table, where
 // the display is exactly the plan).
 import { buildAltitude, pullTable } from '../src/lib/playback/altitude';
@@ -4225,8 +4236,11 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   const jet = (label: string, picture: unknown, speed_ktas: number | undefined, totOffset_s: number, weapon: unknown) =>
     ({ label, picture, speed_ktas, totOffset_s, weapon }) as never;
   type Want = { splits: [string, string, number, string][]; pushes: [string, number, number | undefined][]; warnings: string[] };
+  /** Every jet list pinned in this block, for the check at its end that the spacing rule asked for by name is the same function. */
+  const readoutFixtures: never[][] = [];
   /** Compares strikeReadout's output with literals: text exactly, numbers to 1e-6 (s or degrees). */
   const readoutIs = (name: string, jets: never[], want: Want) => {
+    readoutFixtures.push(jets);
     const got = strikeReadout(jets);
     const close = (x: number | undefined, y: number | undefined) => (x === undefined || y === undefined ? x === y : Math.abs(x - y) < 1e-6);
     const splitsOk = got.splits.length === want.splits.length &&
@@ -4400,6 +4414,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   //   and "no weapons: none" stays GREEN under it (its jets are exactly 30 s apart): the tied case below was added for it.
   type Row = [string, string, number, number, number, number, boolean];
   const conflictsAre = (name: string, jets: never[], want: Row[]) => {
+    readoutFixtures.push(jets);
     const got = fragConflicts(jets);
     const rowsOk = got.length === want.length && got.every((c, k) =>
       c.first === want[k][0] && c.second === want[k][1] && c.firstIndex === want[k][2] && c.secondIndex === want[k][3] &&
@@ -4457,6 +4472,28 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   conflictsAre('no weapons, tied and 5 s apart: none (no frag data means no frag)', [
     jet('#1', undefined, 520, 0, undefined), jet('#2', trioPics[1], 420, 0, undefined), jet('#3', trioPics[2], 420, 5, undefined),
   ], []);
+
+  // [BX7a] The spacing rule asked for by name is the very readout pinned above, and the blast rule's readout is the same
+  // with the spacing rule's frag lines left out (its own lines come from the playback library, which needs the flight paths).
+  // Mutation proofs (each seen red 2026-11-16): strike.ts strikeReadout's default `rule: FragRule = 'time'` → `rule?: FragRule`
+  // with `if (rule === 'time')` → `if (rule === undefined)` (asked by name, the spacing rule drops its own lines):
+  //   FAIL playback B3 [BX7]: strikeReadout(jets, 'time') is strikeReadout(jets) …  29 fixtures, 20 with a frag line; 'time' differs on 20 of 29; 'burst' keeps a frag line or moves a split or push on 0 of 29
+  //   (with playback [7], [15], B3 [L3] and the BX7 below red beside it: the playback asks for its rule by name)
+  // and `if (rule === 'time')` → `if (rule)` (the blast rule keeps the spacing rule's lines):
+  //   FAIL playback B3 [BX7]: strikeReadout(jets, 'time') is strikeReadout(jets) …  29 fixtures, 20 with a frag line; 'time' differs on 0 of 29; 'burst' keeps a frag line or moves a split or push on 20 of 29
+  {
+    let timeDiffers = 0, burstWrong = 0;
+    for (const jets of readoutFixtures) {
+      const plain = strikeReadout(jets), byName = strikeReadout(jets, 'time'), blast = strikeReadout(jets, 'burst');
+      if (JSON.stringify(byName) !== JSON.stringify(plain)) timeDiffers++;
+      const coneOnly = plain.warnings.filter((w) => !w.includes('s of frag (est.)'));
+      if (JSON.stringify(blast) !== JSON.stringify({ ...plain, warnings: coneOnly })) burstWrong++;
+    }
+    const withFrag = readoutFixtures.filter((j) => strikeReadout(j).warnings.some((w) => w.includes('s of frag (est.)'))).length;
+    ok('playback B3 [BX7]: strikeReadout(jets, \'time\') is strikeReadout(jets) on every jet list pinned above, and under \'burst\' only the spacing rule\'s frag lines go',
+       readoutFixtures.length >= 20 && withFrag >= 10 && timeDiffers === 0 && burstWrong === 0,
+       `${readoutFixtures.length} fixtures, ${withFrag} with a frag line; 'time' differs on ${timeDiffers} of ${readoutFixtures.length}; 'burst' keeps a frag line or moves a split or push on ${burstWrong} of ${readoutFixtures.length}`);
+  }
 }
 
 // ─── 0.4.0 playback prerequisites in the shipped modules ──────────────────────
@@ -4800,7 +4837,8 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
       const ctx = { mission: m0, weapons: refWeapons, profiles: pbLib('f16c').filter((p) => p.id === 'f16c.popup.std'), threatSystems: [] } as never;
       const jets = assignFlanks(respace(ids.map((id) => newJet(m0, id, wpTgt.id, {})), spacing), ctx);
       let seq = 0;
-      return saveStrikeTo(m0, { id: strikeId, name: `${ids.length}-ship`, ip: {}, spacing_s: spacing },
+      // These strikes pin the spacing rule's warnings, so they say so rather than lean on the default.
+      return saveStrikeTo(m0, { id: strikeId, name: `${ids.length}-ship`, ip: {}, spacing_s: spacing, fragRule: 'time' },
         jets.map((j) => ({ data: draftAttackData(j.draft, resolveDraft(j.draft, ctx), undefined, 1)!, totOffset_s: j.totOffset_s })),
         () => `${strikeId}-${++seq}`).mission;
     };
@@ -4843,7 +4881,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     const mixPop = autoBuilt(mixM, 'p2', 'f16c', 'f16c.popup.std', 'mk82', 'mx-pop', { ipWaypointId: PB_IP }, pbTgt2.id);
     let mixSeq = 0;
     const mixed = mixLevel && mixPop
-      ? saveStrikeTo(mixM, { id: 'mx', name: 'Mixed', ip: {}, spacing_s: 40 }, [{ data: mixLevel as never, totOffset_s: 0 }, { data: mixPop as never, totOffset_s: 40 }], () => `mx-${++mixSeq}`).mission
+      ? saveStrikeTo(mixM, { id: 'mx', name: 'Mixed', ip: {}, spacing_s: 40, fragRule: 'time' }, [{ data: mixLevel as never, totOffset_s: 0 }, { data: mixPop as never, totOffset_s: 40 }], () => `mx-${++mixSeq}`).mission
       : undefined;
     const strikeCases = [
       { name: 'pop-up 2-ship', m: pop2, id: 'pop2', weapons: refRows, n: 2 },
@@ -6215,7 +6253,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
         { ...plainDive, id: 'gone-1', strikeId: 'gone', totOffset_s: 0, sequenceNumber: 4 },
         { ...plainDive, id: 'gone-2', strikeId: 'gone', targetWaypointId: 'no-such-waypoint', totOffset_s: 30, sequenceNumber: 5 },
       ],
-      strikes: [{ id: 'solo', name: 'Solo', ip: {}, spacing_s: 30 }, { id: 'gone', name: 'Lost target', ip: {}, spacing_s: 30 }],
+      strikes: [{ id: 'solo', name: 'Solo', ip: {}, spacing_s: 30, fragRule: 'time' }, { id: 'gone', name: 'Lost target', ip: {}, spacing_s: 30, fragRule: 'time' }],
     } as Mission;
     const strikeOfOne = (input: ReturnType<typeof playbackInputFromMission>, id: string) => {
       if (!input || input.jets.length !== 1 || input.jets[0].id !== id || input.jets[0].totOffset_s !== 0 || input.strikeId !== undefined || input.jets[0].label !== '#1') return false;
@@ -8096,7 +8134,8 @@ void (async () => {
         return { ...j, draft: { ...j.draft, weaponId: 'mk82', profileId: s.profile }, totOffset_s: s.tot };
       }), ctx);
       let seq = 0;
-      return saveStrikeTo(m, { id: strikeId, name: `${seats.length}-ship`, ip: {}, spacing_s: 10 },
+      // The spacing rule's warnings are pinned on these strikes, so they name it rather than lean on the default.
+      return saveStrikeTo(m, { id: strikeId, name: `${seats.length}-ship`, ip: {}, spacing_s: 10, fragRule: 'time' },
         jets.map((j, i) => ({ data: draftAttackData(j.draft, resolveDraft(j.draft, ctx), undefined, 1 + i)!, totOffset_s: j.totOffset_s })),
         () => `${strikeId}-${++seq}`);
     };
@@ -11482,5 +11521,529 @@ void (async () => {
        `${blastRows.length} rows; ${blastBroken.map((x) => `${x.id}: ${x.why}`).join('; ')}${blastBroken.length ? '; ' : ''}rows with a radius: ${blastWith.join(', ') || 'none'} (approved: ${BLAST_APPROVED.join(', ') || 'none'})`);
   } catch (e) {
     ok('playback B3 (blast radius fields): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
+
+// ─── The blast rule: who is inside a bomb's blast radius when it goes off ─────
+// src/lib/playback/burst.ts and fragWords.ts. When a bomb goes off, any other flown jet inside that weapon's sourced
+// blast radius, in 3D, at that instant, is warned; distance only, nothing after the instant, no credit for terrain.
+// It runs on the plan layer (the card's lines). Every strike here is drafted and saved the editor's way (newJet,
+// assignFlanks, saveStrikeTo) off a 15.3 nm IP on 068°, with F-16C profiles; no weapon row carries a radius yet, so
+// each fixture gives its weapon one as an override (the community figures: Mk-82 250 ft, Mk-84 360 ft).
+// The ridge fixture is where the rule can fire at all: a second target placed under jet #2's own plan track 12 s
+// before its impact, 150 ft below it, attacked by #1 at T+0 while #2 dives on the flat target at T+x. Its numbers are
+// worked out from #2's own track, so they follow the planner's geometry; measured 2026-11-16 on the ballistic dive:
+// the ridge 1.30 nm from TGT1 at 9,616 ft (5,616 ft higher), #2's zone (11.4593, 12.3429) s, #2's path 130.4 ft from
+// #1's burst at its nearest.
+// Each check carries its mutation proof: one temporary edit to the real module, geo-check run, the FAIL line copied
+// (shortened with …), the edit restored.
+{
+  try {
+    const fxProfiles = JSON.parse(readFileSync('src-tauri/resources/profiles/f16c.json', 'utf8')) as { id: string }[];
+    const fxRows = refWeapons as never as DbWeapon[];
+    const withBlast = (base: DbWeapon[], blast: Record<string, [number, BlastMeaning]>, source: BlastSource = 'community_measurement'): DbWeapon[] =>
+      base.map((w) => (blast[w.id] ? { ...w, blast_radius_ft: blast[w.id][0], blast_radius_meaning: blast[w.id][1], blast_radius_source: source } : w));
+    const fxCrew = (id: string, position: number) => ({ id, callsign: `Viper 1-${position}`, aircraftId: 'f16c', position, loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 6 }] });
+    const fxMission = (tgt2: { lat: number; lon: number }, elev2: number) => ({
+      id: 'fxm', name: 'Blast test', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '',
+      waypoints: [
+        { id: 'fx-ip', steerpoint: 7, name: 'STPT 7', type: 'turnpoint', coordinates: calculateDestination(tgt, 68, 15.3), elevation_ft: 5000 },
+        wpTgt,
+        { id: 'fx-tgt2', steerpoint: 9, name: 'TGT2', type: 'target', coordinates: tgt2, elevation_ft: elev2 },
+      ],
+      threats: [], attacks: [], strikes: [], flightMembers: [fxCrew('p1', 1), fxCrew('p2', 2), fxCrew('p3', 3), fxCrew('p4', 4)],
+    }) as never as Mission;
+    type FxSeat = { target: string; weapon: string; profile: string };
+    type FxOpts = { sharedIp?: boolean; trail?: boolean; weapons?: DbWeapon[]; fragRule?: 'burst' | 'time'; strikeId?: string; profiles?: string[] };
+    /** A strike drafted the editor's way, saved, and handed to the playback through the attack list's door. */
+    const fxStrike = (m: Mission, seats: FxSeat[], tots: number[], o: FxOpts = {}) => {
+      const ctx = { mission: m, weapons: refWeapons, profiles: o.profiles ? fxProfiles.filter((p) => o.profiles!.includes(p.id)) : fxProfiles, threatSystems: [] } as never;
+      const ip = o.sharedIp ? { ipWaypointId: 'fx-ip' } : {};
+      let jets = assignFlanks(seats.map((s, i) => {
+        const j = newJet(m, `p${i + 1}`, s.target, ip);
+        return { ...j, draft: { ...j.draft, weaponId: s.weapon, profileId: s.profile }, totOffset_s: tots[i] };
+      }), ctx);
+      if (o.trail) {
+        const side = resolveDraft(jets[0].draft, ctx).runIn?.offsetTurn.direction ?? 'right';
+        jets = jets.map((j) => ({ ...j, draft: chooseIngress(j.draft, side, resolveDraft(j.draft, ctx)) }));
+      }
+      const data = jets.map((j, i) => draftAttackData(j.draft, resolveDraft(j.draft, ctx), undefined, 1 + i));
+      if (data.some((d) => !d)) throw new Error(`blast fixture: a seat did not build (${seats.map((s) => s.profile).join(', ')})`);
+      const sid = o.strikeId ?? 'fx';
+      let seq = 0;
+      const saved = saveStrikeTo(m, { id: sid, name: 'fx', ip, spacing_s: 5, fragRule: o.fragRule ?? 'burst' },
+        jets.map((j, i) => ({ data: data[i]!, totOffset_s: j.totOffset_s })), () => `${sid}-${++seq}`);
+      return { mission: saved.mission, attackIds: saved.attackIds, pb: buildStrikePlayback(playbackInputFromMission(saved.mission, { strikeId: sid }, o.weapons ?? fxRows)!) };
+    };
+    const flatM = fxMission(calculateDestination(tgt, 160, 2), 4000);
+    /** The ridge fixture for one weapon and radius: TGT2 under #2's own plan track 12 s before its impact, 150 ft below it. */
+    const ridgeOf = (weapon: string, radius_ft: number, meaning: BlastMeaning) => {
+      const weapons = withBlast(fxRows, { [weapon]: [radius_ft, meaning] });
+      const seat = (target: string): FxSeat => ({ target, weapon, profile: 'f16c.dive.ccip30' });
+      const base = fxStrike(flatM, [seat(wpTgt.id), seat(wpTgt.id)], [0, 30], { sharedIp: true, weapons }).pb.jets[1];
+      const S = base.samples, tauP = base.impactTau_s - 12;
+      let k = 0;
+      while (k + 1 < S.n && S.tau_s[k + 1] < tauP) k++;
+      const f = (tauP - S.tau_s[k]) / (S.tau_s[k + 1] - S.tau_s[k]);
+      const lerp = (a: Float64Array) => a[k] + (a[k + 1] - a[k]) * f;
+      const where = { lat: lerp(S.lat), lon: lerp(S.lon) }, elev = Math.round(lerp(S.msl_ft) - 150);
+      const m = fxMission(where, elev);
+      const built = fxStrike(m, [seat('fx-tgt2'), seat(wpTgt.id)], [0, 12], { sharedIp: true, weapons });
+      const pb = built.pb;
+      const d = (x: number, first = 0) => ({ [pb.jets[0].id]: first, [pb.jets[1].id]: x });
+      return { m, weapons, pb, d, where, elev, seat };
+    };
+    const ridge = ridgeOf('mk84', 360, 'destroyed');
+    const ridge82 = ridgeOf('mk82', 250, 'any_damage');
+    const near = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol;
+    const words = (pb: StrikePlayback, d: Record<string, number>) => retime(pb, d).readout.warnings;
+    // The fixture itself, so a change to the drafting cannot leave the checks below running on something else.
+    ok('playback B3 blast fixture: the ridge target sits under #2\'s pass, 1.30 nm from TGT1 and 5,616 ft higher; #1 dives on it, #2 on TGT1, both flown on the blast rule',
+       ridge.pb.jets.length === 2 && ridge.pb.fragRule === 'burst' && ridge.pb.jets[0].target.id === 'fx-tgt2' && ridge.pb.jets[1].target.id === wpTgt.id &&
+       near(calculateDistance(tgt, ridge.where), 1.30, 0.02) && near(ridge.elev - 4000, 5616, 30),
+       `${ridge.pb.jets.map((j) => `${j.label} ${j.family} ${j.target.name}`).join(', ')}; ridge ${calculateDistance(tgt, ridge.where).toFixed(2)} nm, ${ridge.elev} ft; rule ${ridge.pb.fragRule}`);
+
+    // [BX1] The stretches inside a radius, exact on a straight track: 100 m/s along +east, tau 0 to 10 s, samples at −500, 0 and
+    // 500 m; a point at (0, d, h); radius 100 m. Exactly on the radius is clear; height counts; a stretch across a sample is one.
+    // Mutation proof (seen red 2026-11-16): burst.ts spansInside `az = S.up_m[i] - up` → `az = 0` (height ignored):
+    //   FAIL playback B3 [BX1]: spansInside on a straight track: …  80 out and 70 up: 106.3 m in 3D: [{"from_s":4.4,"to_s":5.6}]; 60 out and 70 up, across the sample at 5 s: [{"from_s":4.2,"to_s":5.8}]; a descent through the point, 300 m to −100 m over 4 s: [{"from_s":0,"to_s":1}]
+    //   (and BX5's 1,200 ft arm, BX6 and BX8: the ridge's zone and words move)
+    {
+      const line = (pts: [number, number, number, number][]) => ({
+        n: pts.length, tau_s: Float64Array.from(pts.map((p) => p[0])), e_m: Float64Array.from(pts.map((p) => p[1])),
+        n_m: Float64Array.from(pts.map((p) => p[2])), up_m: Float64Array.from(pts.map((p) => p[3])),
+      });
+      const run = line([[0, -500, 0, 0], [5, 0, 0, 0], [10, 500, 0, 0]]);
+      const sp = (S: ReturnType<typeof line>, n: number, up: number, e = 0) => spansInside(S, e, n, up, 100);
+      const is = (got: { from_s: number; to_s: number }[], want: [number, number][], tol: number) =>
+        got.length === want.length && got.every((s, i) => near(s.from_s, want[i][0], tol) && near(s.to_s, want[i][1], tol));
+      const cases: [string, { from_s: number; to_s: number }[], [number, number][], number][] = [
+        ['exactly on the radius (100, 0)', sp(run, 100, 0), [], 0],
+        ['just inside (99.99, 0)', sp(run, 99.99, 0), [[4.985858, 5.014142]], 1e-6],
+        ['just outside (100.01, 0)', sp(run, 100.01, 0), [], 0],
+        ['80 out and 70 up: 106.3 m in 3D', sp(run, 80, 70), [], 0],
+        ['60 out and 70 up, across the sample at 5 s', sp(run, 60, 70), [[4.612702, 5.387298]], 1e-6],
+        ['a descent through the point, 300 m to −100 m over 4 s', spansInside(line([[0, 0, 0, 300], [4, 0, 0, -100]]), 0, 0, 0, 100), [[2, 4]], 1e-9],
+        ['a jet standing still inside', spansInside(line([[0, 10, 0, 0], [4, 10, 0, 0]]), 0, 0, 0, 100), [[0, 4]], 1e-12],
+      ];
+      const bad = cases.filter(([, got, want, tol]) => !is(got, want, tol));
+      ok('playback B3 [BX1]: spansInside on a straight track: none exactly on the radius or at 106 m in 3D, one stretch just inside (4.985858 to 5.014142 s) and at 60 out 70 up (4.612702 to 5.387298 s), a descent (2, 4), a jet standing still the whole track',
+         bad.length === 0, bad.map(([name, got]) => `${name}: ${JSON.stringify(got)}`).join('; ') || `${cases.length} cases`);
+    }
+
+    // [BX2] The instant: a jet entering or leaving the radius at that very moment is clear; the distance on the same track.
+    // Mutation proof (seen red 2026-11-16): burst.ts insideAt `s.from_s < tau_s` → `s.from_s <= tau_s`:
+    //   FAIL playback B3 [BX2]: insideAt is open at both ends …  wrong at [{"from_s":10,"to_s":12}] at 10; distances 99.9900, 100.0000, 250.0000, Infinity, Infinity
+    {
+      const span = [{ from_s: 10, to_s: 12 }], two = [{ from_s: 1, to_s: 2 }, { from_s: 4, to_s: 5 }];
+      const want: [readonly { from_s: number; to_s: number }[], number, boolean][] = [
+        [span, 9, false], [span, 10, false], [span, 10.0005, true], [span, 11, true], [span, 11.9995, true], [span, 12, false], [span, 13, false],
+        [two, 3, false], [two, 4.5, true], [[], 4.5, false],
+      ];
+      const badIn = want.filter(([s, t, w]) => insideAt(s, t) !== w).map(([s, t]) => `${JSON.stringify(s)} at ${t}`);
+      const run = { n: 3, tau_s: Float64Array.of(0, 5, 10), e_m: Float64Array.of(-500, 0, 500), n_m: Float64Array.of(0, 0, 0), up_m: Float64Array.of(0, 0, 0) };
+      const dists = [distanceAt(run, 5, 0, 99.99, 0), distanceAt(run, 5, 0, 100, 0), distanceAt(run, 2.5, 0, 0, 0), distanceAt(run, -0.001, 0, 0, 0), distanceAt(run, 10.001, 0, 0, 0)];
+      const distOk = near(dists[0], 99.99, 1e-9) && near(dists[1], 100, 1e-9) && near(dists[2], 250, 1e-9) && dists[3] === Infinity && dists[4] === Infinity;
+      ok('playback B3 [BX2]: insideAt is open at both ends (10 and 12 clear on a span 10 to 12, 10.0005 and 11.9995 inside), several spans and none; distanceAt 99.99, 100 and 250 m on the track and Infinity off it',
+         badIn.length === 0 && distOk, `${badIn.length ? `wrong at ${badIn.join(', ')}; ` : ''}distances ${dists.map((x) => (Number.isFinite(x) ? x.toFixed(4) : String(x))).join(', ')}`);
+    }
+
+    // [BX3, the rule's half] burstSpecOf reads a radius only with a known meaning and a known source, never the old seed radii,
+    // and gives back exactly the row's own fields; no real row has one yet.
+    // Mutation proof (seen red 2026-11-16): burst.ts burstSpecOf `return meaning && source ? …` → `return meaning ? …` (the source not tested):
+    //   FAIL playback B3 [BX3]: burstSpecOf gives no radius without a known meaning and source, …  read a radius for: no source, a null source, an unknown source; …
+    //   (and BX11: "no source: 45 warnings over 0 to 40 s")
+    {
+      const R = { blast_radius_ft: 360, blast_radius_meaning: 'destroyed' as const };
+      const none: [string, object][] = [
+        ['no source', { ...R }], ['a null source', { ...R, blast_radius_source: null }], ['an unknown source', { ...R, blast_radius_source: 'hunch' }],
+        ['no meaning', { blast_radius_ft: 360, blast_radius_source: 'community_measurement' }],
+        ['only the old seed radii', { frag_effective_radius_ft: 400, frag_lethal_radius_ft: 150 }],
+        ...([0, -5, Number.NaN, null, '360'] as unknown[]).map((r): [string, object] => [`a radius of ${String(r)}`, { ...R, blast_radius_ft: r, blast_radius_source: 'community_measurement' }]),
+        ['no row', undefined as never],
+      ];
+      const wrong = none.filter(([, w]) => burstSpecOf(w as DbWeapon) !== undefined).map(([n]) => n);
+      const fine = burstSpecOf({ ...R, blast_radius_source: 'owner_test' } as DbWeapon);
+      const realWith = fxRows.filter((w) => burstSpecOf(w)).map((w) => w.id);
+      const echoes = fxRows.concat(withBlast(fxRows, { mk82: [250, 'any_damage'], mk84: [360, 'destroyed'] })).every((w) => {
+        const s = burstSpecOf(w);
+        return !s || (s.radius_ft === w.blast_radius_ft && s.meaning === w.blast_radius_meaning && s.source === w.blast_radius_source);
+      });
+      ok('playback B3 [BX3]: burstSpecOf gives no radius without a known meaning and source, for the old seed radii or for a radius that is not a number above zero; a whole row gives its own fields back; no real row has one yet',
+         wrong.length === 0 && fine?.radius_ft === 360 && fine.meaning === 'destroyed' && fine.source === 'owner_test' && realWith.length === 0 && echoes,
+         `${wrong.length ? `read a radius for: ${wrong.join(', ')}; ` : ''}whole row ${JSON.stringify(fine)}; real rows with one: ${realWith.join(', ') || 'none'}; echoes ${echoes}`);
+    }
+
+    // [BX5] The census: 150 strikes as the planner builds them (15 profile-and-weapon cases, four jets, the default mirrored split
+    // and a trail on one axis, 0, 5, 10, 15 and 30 s apart), with the Mk-82 at 250 ft and the Mk-84 at 360 ft. The 60 strikes
+    // those two weapons fly are tested and none warns, on the plan layer or (sampled at each burst) the display layer; the other 90
+    // say which weapon was not checked. The spacing rule warns on 110 of them (540 pairs). Even a 1,200 ft radius on every weapon
+    // warns nowhere: the nearest any path comes to a burst point (measured 2026-11-16, on the ballistic dive) is 5,956 ft for the
+    // 30° dive (7,049 before the dive aimed off), 7,586 for the 45° dive, 5,426 for the pop-up (6,933 with a
+    // Mk-84), 23,210 for the 15k laser level, 29,053 for the 20k JDAM level, 1,695 for the 500 ft laydown, 1,214 for the 10° LALD
+    // (1,543 before; 14 ft above the 1,200 ft radius), 14,734 for the loft. This is the canary for any change to the planner's paths.
+    // Mutation proof (seen red 2026-11-16): burst.ts bombOf `spec.radius_ft * FT_TO_M` → `spec.radius_ft * 30 * FT_TO_M`:
+    //   FAIL playback B3 [BX5]: the census of 150 strikes: …  built 150, tested 60, warned 146 (display 0), noted 90 (0 wrong), spacing rule 110 strikes / 540 pairs, 1,200 ft 1378; …
+    //   (and BX6, BX8: the ridge's zone and words move)
+    {
+      const CASES: [string, string, string, number][] = [
+        ['30° dive, Mk-82', 'f16c.dive.ccip30', 'mk82', 5956.0], ['45° dive, Mk-82', 'f16c.dive.ccip45', 'mk82', 7585.8], ['30° dive, Mk-84', 'f16c.dive.ccip30', 'mk84', 5956.0],
+        ['pop-up, Mk-82', 'f16c.popup.std', 'mk82', 5426.0], ['pop-up, Mk-84', 'f16c.popup.std', 'mk84', 6932.6], ['15k laser level, GBU-12', 'f16c.level.ccrp.lgb', 'gbu12', 23210.4],
+        ['20k JDAM level, GBU-38', 'f16c.level.ccrp.jdam', 'gbu38', 29053.0], ['500 ft laydown, Snakeye', 'f16c.level.laydown', 'mk82se', 1695.2], ['10° LALD, Snakeye', 'f16c.dive.lald10', 'mk82se', 1214.4],
+        ['loft, Mk-82', 'f16c.loft.std', 'mk82', 14734.4], ['pop-up, CBU-87', 'f16c.popup.std', 'cbu87', 5426.0], ['pop-up, CBU-97', 'f16c.popup.std', 'cbu97', 5426.0],
+        ['500 ft laydown, CBU-87', 'f16c.level.laydown', 'cbu87', 1695.2], ['500 ft laydown, CBU-97', 'f16c.level.laydown', 'cbu97', 1695.2], ['10° LALD, CBU-97', 'f16c.dive.lald10', 'cbu97', 1214.4],
+      ];
+      const sourced = withBlast(fxRows, { mk82: [250, 'any_damage'], mk84: [360, 'destroyed'] });
+      const everyRow = fxRows.map((w) => ({ ...w, blast_radius_ft: 1200, blast_radius_meaning: 'destroyed' as const, blast_radius_source: 'estimate' as const }));
+      /** The nearest the plan path of any jet comes to any burst point, ft (exact on its straight pieces). */
+      const pathMin = (pb: StrikePlayback) => {
+        let best = Infinity;
+        for (const bj of pb.jets) {
+          const B = bj.bomb, l = B.n - 1;
+          for (const j of pb.jets) {
+            const S = j.samples;
+            for (let i = 0; i + 1 < S.n; i++) {
+              const ax = S.e_m[i] - B.e_m[l], ay = S.n_m[i] - B.n_m[l], az = S.up_m[i] - B.up_m[l];
+              const dx = S.e_m[i + 1] - S.e_m[i], dy = S.n_m[i + 1] - S.n_m[i], dz = S.up_m[i + 1] - S.up_m[i];
+              const A = dx * dx + dy * dy + dz * dz, u = A > 0 ? Math.min(1, Math.max(0, -(ax * dx + ay * dy + az * dz) / A)) : 0;
+              best = Math.min(best, Math.hypot(ax + u * dx, ay + u * dy, az + u * dz));
+            }
+          }
+        }
+        return best / FT_TO_M;
+      };
+      let built = 0, tested = 0, planHits = 0, displayHits = 0, timeStrikes = 0, timePairs = 0, wideHits = 0, noted = 0, notedWrong = 0;
+      const paths: string[] = [], why: string[] = [];
+      const js = newJetState();
+      for (const [name, profile, weapon, wantPath] of CASES) {
+        let nearest = Infinity;
+        for (const trail of [false, true]) {
+          for (const spacing of [0, 5, 10, 15, 30]) {
+            const { pb } = fxStrike(flatM, [0, 1, 2, 3].map(() => ({ target: wpTgt.id, weapon, profile })), [0, 1, 2, 3].map((k) => k * spacing), { trail, weapons: sourced });
+            if (pb.jets.length !== 4) { why.push(`${name}: ${pb.jets.length} jets flown`); continue; }
+            built++;
+            const timing = retime(pb), d = timing.delays_s;
+            const r = burstReadout(pb, d);
+            const isTested = pb.jets.some((j) => burstSpecOf(j.weapon));
+            if (isTested) tested++;
+            planHits += r.conflicts.length;
+            const hasNote = r.notes.some((n) => n.startsWith('No blast radius on file for '));
+            if (hasNote) noted++;
+            if (hasNote === isTested) notedWrong++;
+            pb.jets.forEach((bj, i) => {
+              const spec = burstSpecOf(bj.weapon);
+              if (!spec) return;
+              const B = bj.bomb, l = B.n - 1;
+              pb.jets.forEach((_, j) => {
+                if (j === i) return;
+                sampleJet(pb, timing, j, d[bj.id], 'display', js);
+                if (js.visible && Math.hypot(js.e_m - B.e_m[l], js.n_m - B.n_m[l], js.up_m - B.up_m[l]) < spec.radius_ft * FT_TO_M) displayHits++;
+              });
+            });
+            const tc = fragConflicts(strikeJetsAt(pb, d));
+            if (tc.length) timeStrikes++;
+            timePairs += tc.length;
+            wideHits += burstConflicts({ ...pb, jets: pb.jets.map((j) => ({ ...j, weapon: everyRow.find((w) => w.id === j.weapon?.id) })) }, d).length;
+            nearest = Math.min(nearest, pathMin(pb));
+          }
+        }
+        paths.push(`${name} ${nearest.toFixed(1)}`);
+        if (!near(nearest, wantPath, 5)) why.push(`${name}: the nearest path comes ${nearest.toFixed(1)} ft from a burst (recorded ${wantPath})`);
+      }
+      ok('playback B3 [BX5]: the census of 150 strikes: the 60 with a sourced radius never warn on either layer, the other 90 say what was not checked, the spacing rule warns on 110 (540 pairs), a 1,200 ft radius on every weapon still never warns, and each profile\'s nearest path to a burst is as recorded',
+         built === 150 && tested === 60 && planHits === 0 && displayHits === 0 && noted === 90 && notedWrong === 0 && timeStrikes === 110 && timePairs === 540 && wideHits === 0 && why.length === 0,
+         `${why.length ? `${why.join('; ')}; ` : ''}built ${built}, tested ${tested}, warned ${planHits} (display ${displayHits}), noted ${noted} (${notedWrong} wrong), spacing rule ${timeStrikes} strikes / ${timePairs} pairs, 1,200 ft ${wideHits}; nearest: ${paths.join(', ')}`);
+    }
+
+    // [BX6] The danger zones against a brute-force scan. On the ridge fixture #2 (moving its time, #1 at 0) is inside #1's blast
+    // radius for x in (11.4593, 12.3429) s, only that, 0.8836 s wide; #1 (moving, #2 held at 12 s) puts #2 inside for x in
+    // (−0.3429, 0.5407) and has no zone of its own as the one inside; the Mk-82 variant (250 ft) is (11.6203, 12.1820). For x from
+    // −30 to 30 s by 0.01 s in both roles inDangerZone equals "burstConflicts has the pair" (12,000 cases less those within 2 ms of an
+    // end, 0 disagreements when measured), and both flip within 1e-6 s of every end. The bar's mark (BURST_MARK_S) is only t1 − t0,
+    // never the zone. Plus 40 delay sets on a four-ship of two ridge targets.
+    // Mutation proofs (seen red 2026-11-16): burst.ts burstZones victim role `T + mine.impactTau_s - s.to_s` → `T + mine.impactTau_s - s.from_s`
+    // (the interval turns empty):
+    //   FAIL playback B3 [BX6]: the danger zones are the warnings' own answer: …  #2's zones [["victim",12.3429,12.3429]] (want one, victim, 11.4593 to 12.3429, 0.8836 s wide); the Mk-82's zones [["victim",12.182,12.182]] …; brute force: 89 disagreements in 12001 cases; …; the four-ship: 24 of 480 zone answers differ from the conflicts; …
+    // and a window sneaking back into it, `T + mine.impactTau_s - s.from_s` → `T + mine.impactTau_s - s.from_s + BURST_MARK_S`:
+    //   FAIL playback B3 [BX6]: …  #2's zones [["victim",11.4593,13.3429]] (want one, victim, 11.4593 to 12.3429, 0.8836 s wide); the Mk-82's zones [["victim",11.6203,13.182]] …; brute force: 100 disagreements in 12000 cases; …
+    // BURST_MARK_S 1 → 5 left this check green (zones and conflicts are the same; only t1_s moves, which the check reads through the constant).
+    {
+      const why: string[] = [];
+      const zonesOf = (pb: StrikePlayback, d: Record<string, number>, jet: number) => dangerZones(pb, retime(pb, d), jet);
+      const z2 = zonesOf(ridge.pb, ridge.d(12), 1), z1 = zonesOf(ridge.pb, ridge.d(12), 0), z82 = zonesOf(ridge82.pb, ridge82.d(12), 1);
+      const zs = (z: DangerZone[]) => JSON.stringify(z.map((q) => [q.role, +q.from_s.toFixed(4), +q.to_s.toFixed(4)]));
+      if (!(z2.length === 1 && z2[0].role === 'victim' && near(z2[0].from_s, 11.4593, 0.002) && near(z2[0].to_s, 12.3429, 0.002) && near(z2[0].to_s - z2[0].from_s, 0.8836, 0.002)))
+        why.push(`#2's zones ${zs(z2)} (want one, victim, 11.4593 to 12.3429, 0.8836 s wide)`);
+      if (!(z1.length === 1 && z1[0].role === 'bomb' && near(z1[0].from_s, -0.3429, 0.002) && near(z1[0].to_s, 0.5407, 0.002))) why.push(`#1's zones ${zs(z1)} (want one, bomb, −0.3429 to 0.5407)`);
+      if (!(z82.length === 1 && near(z82[0].from_s, 11.6203, 0.002) && near(z82[0].to_s, 12.182, 0.002))) why.push(`the Mk-82's zones ${zs(z82)} (want 11.6203 to 12.1820)`);
+      // Brute force, both roles, and the flip at every end.
+      let cases = 0, disagree = 0;
+      const pairOf = (rows: TimedBurst[], a: number, b: number) => rows.some((c) => (c.firstJet === a && c.secondJet === b) || (c.firstJet === b && c.secondJet === a));
+      const agrees = (pb: StrikePlayback, mover: number, d: Record<string, number>, x: number, skipNearEnd: boolean) => {
+        const z = zonesOf(pb, d, mover).filter((q) => q.against === 1 - mover);
+        if (skipNearEnd && z.some((q) => Math.abs(x - q.from_s) < 2e-3 || Math.abs(x - q.to_s) < 2e-3)) return undefined;
+        return inDangerZone(z, x) === pairOf(burstConflicts(pb, d), 0, 1);
+      };
+      for (let i = -3000; i <= 3000; i++) {
+        const x = i / 100;
+        for (const [mover, d] of [[1, ridge.d(x)], [0, ridge.d(12, x)]] as [number, Record<string, number>][]) {
+          const a = agrees(ridge.pb, mover, d, x, true);
+          if (a === undefined) continue;
+          cases++;
+          if (!a) disagree++;
+        }
+      }
+      if (cases < 11990 || disagree) why.push(`brute force: ${disagree} disagreements in ${cases} cases`);
+      const flips: string[] = [];
+      for (const [mover, z, dAt] of [[1, z2[0], (x: number) => ridge.d(x)], [0, z1[0], (x: number) => ridge.d(12, x)]] as [number, DangerZone, (x: number) => Record<string, number>][]) {
+        if (!z) continue;
+        for (const [x, inside] of [[z.from_s - 1e-6, false], [z.from_s + 1e-6, true], [z.to_s - 1e-6, true], [z.to_s + 1e-6, false]] as [number, boolean][]) {
+          const zz = zonesOf(ridge.pb, dAt(x), mover).filter((q) => q.against === 1 - mover);
+          if (inDangerZone(zz, x) !== inside || pairOf(burstConflicts(ridge.pb, dAt(x)), 0, 1) !== inside) flips.push(`jet ${mover + 1} at ${x.toFixed(6)}`);
+        }
+      }
+      if (flips.length) why.push(`no flip within 1e-6 s at ${flips.join(', ')}`);
+      const c12 = burstConflicts(ridge.pb, ridge.d(11.9));
+      if (!(c12.length === 1 && c12[0].t1_s - c12[0].t0_s === BURST_MARK_S && c12[0].t0_s === 0)) why.push(`at 11.9 s: ${JSON.stringify(c12.map((c) => [c.first, c.second, c.t0_s, c.t1_s]))}`);
+      // A four-ship of two ridge targets: #1 and #3 on the ridge, #2 and #4 on TGT1, 40 delay sets (half of them aimed near the window).
+      const four = fxStrike(ridge.m, [ridge.seat('fx-tgt2'), ridge.seat(wpTgt.id), ridge.seat('fx-tgt2'), ridge.seat(wpTgt.id)], [0, 10, 20, 30], { sharedIp: true, weapons: ridge.weapons, strikeId: 'fx4' }).pb;
+      let seed = 12345;
+      const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+      let sets = 0, setsWithHit = 0, checks = 0, wrong = 0;
+      for (let s = 0; s < 40; s++) {
+        const dl = [0, rnd() * 25, rnd() * 25, rnd() * 25];
+        if (s % 2 === 0) dl[1 + (s % 4 === 0 ? 0 : 2)] = dl[s % 8 < 4 ? 0 : 2] + 11.5 + rnd() * 0.8;
+        const d = Object.fromEntries(four.jets.map((j, k) => [j.id, dl[k]]));
+        const rows = burstConflicts(four, d);
+        sets++;
+        if (rows.length) setsWithHit++;
+        for (let k = 0; k < 4; k++) {
+          const zk = zonesOf(four, d, k);
+          for (let i = 0; i < 4; i++) {
+            if (i === k) continue;
+            const z = zk.filter((q) => q.against === i);
+            if (z.some((q) => Math.abs(dl[k] - q.from_s) < 2e-3 || Math.abs(dl[k] - q.to_s) < 2e-3)) continue;
+            checks++;
+            if (inDangerZone(z, dl[k]) !== pairOf(rows, k, i)) wrong++;
+          }
+        }
+      }
+      if (wrong || setsWithHit < 5) why.push(`the four-ship: ${wrong} of ${checks} zone answers differ from the conflicts; ${setsWithHit} of ${sets} sets warn (want at least 5)`);
+      ok('playback B3 [BX6]: the danger zones are the warnings\' own answer: on the ridge #2\'s one zone is 11.4593 to 12.3429 s (0.8836 s, not widened), #1\'s is −0.3429 to 0.5407 as the bomb and none as the one inside, the Mk-82\'s 11.6203 to 12.1820; 12,000 brute-force cases agree, each end flips within 1e-6 s, and 40 four-ship delay sets agree',
+         why.length === 0, why.join('; ') || `${cases} brute-force cases, ${checks} four-ship answers in ${sets} sets (${setsWithHit} with a warning)`);
+    }
+
+    // [BX7] The spacing rule, chosen, is what it always was. (b) An input built by hand with no rule plays the spacing rule and
+    // has no blast key. (c) The four-ship (pop-up, pop-up, pop-up on TGT2, loft, Mk-82, 0/10/40/40) and the skip variant saved with
+    // fragRule 'time': the conflicts are the spacing rule's own (timedConflicts of strikeReadout's list), the readout is
+    // strikeReadout's, the zones are the old closed form, at the plan times and moved ones; saved 'burst', the same strikes have no
+    // spacing-rule line and say what they could not check.
+    // Mutation proofs (seen red 2026-11-16): strikePlayback.ts `fragRule: input.fragRule ?? 'time'` → `?? 'burst'` (every hand-built
+    // input plays the blast rule; the [7] checks and their kin go red with it):
+    //   FAIL playback B3 [BX7]: saved with the spacing rule, … saved 'burst' the same strikes drop its lines  a hand-built input with no rule: input time, plays burst, blast key true
+    //   (with seven of the existing checks red beside it: playback [7]'s ties, skips and both dangerZones checks, B3 [L3])
+    // and input.ts `fragRule: strikeFragRule(strike)` → `fragRule: 'burst'` (the strike's choice not read):
+    //   FAIL playback B3 [BX7]: … four-ship: plays 'burst'; four-ship: conflicts [] are not the spacing rule's; four-ship: readout []; …
+    //   (with playback [7], [15], B3 [T6], [T7], [T8] red beside it: the strikes that say 'time' are read through the rule)
+    {
+      const why: string[] = [];
+      const b3Seats = (who: string[], targets: string[], profiles: string[]) => who.map((_, i) => ({ target: targets[i], weapon: 'mk82', profile: profiles[i] }));
+      const b3M = fxMission(calculateDestination(tgt, 160, 2), 5200);
+      const pops = ['f16c.popup.std', 'f16c.loft.std'];
+      const fourSeats = b3Seats(['p1', 'p2', 'p3', 'p4'], [wpTgt.id, wpTgt.id, 'fx-tgt2', wpTgt.id], ['f16c.popup.std', 'f16c.popup.std', 'f16c.popup.std', 'f16c.loft.std']);
+      const fourOf = (fragRule: 'time' | 'burst') => fxStrike(b3M, fourSeats, [0, 10, 40, 40], { fragRule, profiles: pops, strikeId: `b3-${fragRule}` });
+      const skipOf = (fragRule: 'time' | 'burst') => {
+        const s = fxStrike(b3M, b3Seats(['p1', 'p2', 'p3'], [wpTgt.id, wpTgt.id, wpTgt.id], ['f16c.popup.std', 'f16c.popup.std', 'f16c.popup.std']), [0, 10, 40], { fragRule, profiles: pops, strikeId: `b3s-${fragRule}` });
+        const m = { ...s.mission, attacks: s.mission.attacks.map((a) => (a.id === s.attackIds[1] ? { ...a, targetWaypointId: 'fx-nowhere' } : a)) } as Mission;
+        return buildStrikePlayback(playbackInputFromMission(m, { strikeId: `b3s-${fragRule}` }, fxRows)!);
+      };
+      /** The spacing rule's zones as the readout's own arithmetic gives them, worked out here from the frag clear times. */
+      const oldZones = (pb: StrikePlayback, d: Record<string, number>, jet: number) => {
+        const mj = pb.members.findIndex((m) => m.jet === jet), Fj = fragClearTime_s(pb.jets[jet].weapon);
+        return pb.members.flatMap((o, i) => {
+          if (i === mj) return [];
+          const Fi = fragClearTime_s(o.weapon), Ti = d[o.id];
+          if (!(Fi > 0) && !(Fj > 0)) return [];
+          return [[o.id, Fj > 0 ? Ti - Fj : Ti, Fi > 0 ? Ti + Fi : Ti]];
+        });
+      };
+      for (const [name, pb] of [['four-ship', fourOf('time').pb], ['skip variant', skipOf('time')]] as [string, StrikePlayback][]) {
+        if (pb.fragRule !== 'time') why.push(`${name}: plays '${pb.fragRule}'`);
+        const moved = Object.fromEntries(pb.members.map((m, k) => [m.id, pb.planDelays_s[m.id] + (k === 1 ? 3 : 0)]));
+        for (const d of [pb.planDelays_s, moved]) {
+          const t = retime(pb, d), rj = strikeJetsAt(pb, t.delays_s);
+          if (JSON.stringify(t.conflicts) !== JSON.stringify(timedConflicts(pb, rj))) why.push(`${name}: conflicts ${JSON.stringify(t.conflicts.map((c) => [c.first, c.second]))} are not the spacing rule's`);
+          if (JSON.stringify(t.readout) !== JSON.stringify(strikeReadout(rj))) why.push(`${name}: readout ${JSON.stringify(t.readout.warnings)}`);
+          if ('blast' in t || t.conflicts.some(isBurstRow)) why.push(`${name}: a blast key or a blast row`);
+          pb.jets.forEach((_, k) => {
+            const z = dangerZones(pb, t, k);
+            if (JSON.stringify(z.map((q) => [q.againstId, q.from_s, q.to_s])) !== JSON.stringify(oldZones(pb, t.delays_s, k)) || z.some((q) => q.role)) why.push(`${name}: jet ${k + 1}'s zones`);
+          });
+        }
+      }
+      const fourTime = retime(fourOf('time').pb);
+      if (fourTime.conflicts.length !== 2) why.push(`the four-ship under 'time' has ${fourTime.conflicts.length} conflicts (want 2: the proof is not empty)`);
+      // (b) A hand-built input with no rule.
+      const fromList = playbackInputFromMission(fourOf('time').mission, { strikeId: 'b3-time' }, fxRows)!;
+      const { fragRule: given, ...bare } = fromList;
+      const bt = retime(buildStrikePlayback(bare)), tt = retime(buildStrikePlayback(fromList));
+      if (given !== 'time' || buildStrikePlayback(bare).fragRule !== 'time' || 'blast' in bt || JSON.stringify(bt) !== JSON.stringify(tt)) why.push(`a hand-built input with no rule: input ${given}, plays ${buildStrikePlayback(bare).fragRule}, blast key ${'blast' in bt}`);
+      // The same strikes saved 'burst': the spacing rule's lines are gone and the footer's names come through.
+      const fourBurst = retime(fourOf('burst').pb);
+      if (fourBurst.conflicts.length !== 0 || fourBurst.readout.warnings.some((w) => w.includes('s of frag (est.)')) || fourBurst.blast?.unchecked.join() !== 'Mk-82 LDGP')
+        why.push(`the four-ship saved 'burst': ${fourBurst.conflicts.length} conflicts, warnings ${JSON.stringify(fourBurst.readout.warnings)}, unchecked ${JSON.stringify(fourBurst.blast?.unchecked)}`);
+      ok('playback B3 [BX7]: saved with the spacing rule, the four-ship and the skip variant warn exactly as the spacing rule always did (conflicts, readout, zones, no blast key); a hand-built input with no rule is the spacing rule; saved \'burst\' the same strikes drop its lines',
+         why.length === 0, why.join('; ') || `four-ship ${fourTime.conflicts.length} spacing-rule conflicts; saved 'burst' ${fourBurst.conflicts.length}`);
+    }
+
+    // [BX8] The words, exactly. Distances floored to tens of feet (a jet inside a 360 ft radius never reads "360 ft").
+    // Mutation proofs (seen red 2026-11-16): fragWords.ts burstSentence without " (est.)":
+    //   FAIL playback B3 [BX8]: the blast rule's words, exactly: …  at 11.9: ["#2 is 130 ft from #1's bomb when it goes off, inside its 360 ft blast radius"]; at 12.3: […320 ft…]; at 11.46: […350 ft…]; the Mk-82 warning: …; a missile's warning: …
+    // and "blast radius (est.)" → "frag radius (est.)" in it:
+    //   FAIL playback B3 [BX8]: …  at 11.9: ["#2 is 130 ft from #1's bomb when it goes off, inside its 360 ft frag radius (est.)"]; …
+    {
+      const why: string[] = [];
+      const want = (x: number, ft: number) => `#2 is ${ft} ft from #1's bomb when it goes off, inside its 360 ft blast radius (est.)`;
+      for (const [x, ft] of [[11.9, 130], [12.3, 320], [11.46, 350]] as [number, number][]) {
+        const w = words(ridge.pb, ridge.d(x));
+        if (w[0] !== want(x, ft)) why.push(`at ${x}: ${JSON.stringify(w)}`);
+      }
+      for (const x of [11.0, 12.4]) {
+        const t = retime(ridge.pb, ridge.d(x));
+        if (t.conflicts.length || t.readout.warnings.some((w) => w.includes('blast')) || footerOkBurst(t.blast!.unchecked) !== '✓ No blast or cone warnings at these times.') why.push(`at ${x}: ${JSON.stringify(t.readout.warnings)}`);
+      }
+      const at82 = burstConflicts(ridge82.pb, ridge82.d(11.9))[0];
+      const c84 = burstConflicts(ridge.pb, ridge.d(11.9))[0];
+      const pins: [string, string, string][] = [
+        ['the Mk-82 warning', at82 ? burstSentence(at82) : 'none', '#2 is 130 ft from #1\'s bomb when it goes off, inside its 250 ft blast radius (est.)'],
+        ['the tooltip, destroyed', burstSourceTitle(c84), 'Blast radius 360 ft (past it, a bomb of this kind did not destroy the target; source: a community test, judged by eye). Distance only: hills in the way are not counted, so this can warn where DCS would not. It uses the planner\'s lines, not the smoothed 3D jets, so a jet can look a little outside when it is inside.'],
+        ['the tooltip, any damage', at82 ? burstSourceTitle(at82) : 'none', 'Blast radius 250 ft (past it, a bomb of this kind did no visible damage; source: a community test, judged by eye). Distance only: hills in the way are not counted, so this can warn where DCS would not. It uses the planner\'s lines, not the smoothed 3D jets, so a jet can look a little outside when it is inside.'],
+        ['a missile\'s warning', burstSentence({ ...c84, dist_ft: 1009 }, 'missile'), '#2 is 1,000 ft from #1\'s missile when it goes off, inside its 360 ft blast radius (est.)'],
+        ['the band title', burstBandTitle(c84), '⚠ #2 inside #1\'s blast radius when it goes off (est.)'],
+        ['the chip', burstChipText(c84), '⚠ #2 inside #1\'s blast radius (est.)'],
+        ['the lane, inside', burstZoneTitle('victim', '#1', '#2'), 'Inside #1\'s blast radius if #2 is over the target here (est.)'],
+        ['the lane, the bomb', burstZoneTitle('bomb', '#1', '#2'), 'Puts #1 inside #2\'s blast radius if #2 is over the target here (est.)'],
+        ['one seat', noRadiusNote('GBU-12', ['#1']), 'No blast radius on file for GBU-12 (#1): its bomb isn\'t checked against the other jets'],
+        ['two seats', noRadiusNote('GBU-12', ['#1', '#2']), 'No blast radius on file for GBU-12 (#1 and #2): their bombs aren\'t checked against the other jets'],
+        ['three seats', noRadiusNote('GBU-12', ['#1', '#2', '#3']), 'No blast radius on file for GBU-12 (#1, #2 and #3): their bombs aren\'t checked against the other jets'],
+        ['four seats', noRadiusNote('GBU-12', ['#1', '#2', '#3', '#4']), 'No blast radius on file for GBU-12 (#1, #2, #3 and #4): their bombs aren\'t checked against the other jets'],
+        ['one missile', noRadiusNote('AGM-65D Maverick', ['#2'], 'missile'), 'No blast radius on file for AGM-65D Maverick (#2): its missile isn\'t checked against the other jets'],
+        ['two missiles', noRadiusNote('AGM-65D Maverick', ['#2', '#4'], 'missile'), 'No blast radius on file for AGM-65D Maverick (#2 and #4): their missiles aren\'t checked against the other jets'],
+        ['not flown', notFlownNote('#3'), '#3 isn\'t flown in 3D, so neither its jet nor its bomb is checked for blast'],
+        ['the footer, all checked', footerOkBurst([]), '✓ No blast or cone warnings at these times.'],
+        ['the footer, one not', footerOkBurst(['GBU-12']), '✓ No cone warnings at these times. Not checked for blast: GBU-12 (no blast radius on file).'],
+        ['the footer, two not', footerOkBurst(['GBU-12', 'Mk-82 AIR']), '✓ No cone warnings at these times. Not checked for blast: GBU-12 and Mk-82 AIR (no blast radius on file).'],
+        ['the footer, three not', footerOkBurst(['GBU-12', 'Mk-82 AIR', 'CBU-87 CEM']), '✓ No cone warnings at these times. Not checked for blast: GBU-12, Mk-82 AIR and CBU-87 CEM (no blast radius on file).'],
+        ['the footer\'s title', FOOTER_OK_BURST_TITLE, 'Checked: every jet\'s distance from every other jet\'s bomb at the moment it goes off (est.). Distance only: hills in the way are not counted.'],
+        ['the swatch', BURST_HATCH_KEY_TITLE, 'Striped: a jet is inside another jet\'s blast radius when a bomb goes off (est.)'],
+        ['the diamond', BURST_STRIPES_HANDLE_WORDS, 'Stripes: times that would put it inside another jet\'s blast radius, or another jet inside its.'],
+        ['the hatch note', BURST_HATCH_NOTE, 'Hatched amber on the time bar and the lanes: times when a jet would be inside another jet\'s blast radius when a bomb goes off (est.).'],
+        ['the skip note', burstSkipNote('#2', 'Viper 1-2', 'Its target waypoint is missing.'), '#2 Viper 1-2 isn\'t flown in 3D. Its target waypoint is missing. Its time still counts, but its jet and its bomb aren\'t checked for blast.'],
+        ['the skip note, no callsign', burstSkipNote('#2', undefined, 'Its target waypoint is missing.'), '#2 isn\'t flown in 3D. Its target waypoint is missing. Its time still counts, but its jet and its bomb aren\'t checked for blast.'],
+        ['the estimate note', estimatesOf(['blastRadius'])[0].note, 'The blast radius is the weapon table\'s figure, with its source on file; the check counts distance only, not terrain.'],
+        ['the frag envelope note', estimatesOf(['fragEnvelope'])[0].note, 'Jets stay in the picture for the weapon\'s frag clear time after the bomb lands (est.): a planning envelope, not a DCS fragment model.'],
+        ['the switch', `${FRAG_RULE_LABEL} | ${FRAG_RULE_OPTIONS.burst} | ${FRAG_RULE_OPTIONS.time}`, 'Warn by | Blast radius when the bomb goes off (like DCS) | Spacing in time (real-world habit)'],
+        ['the switch\'s title, blast', FRAG_RULE_TITLES.burst, 'Warns when a jet is inside a bomb\'s blast radius at the moment it goes off (est.). Distance only: hills in the way are not counted, so it can warn where DCS would not. The radius is the weapon table\'s; its source is in the table.'],
+        ['the switch\'s title, spacing', FRAG_RULE_TITLES.time, 'Warns when a jet is over the target within the earlier jet\'s frag clear time (est.). The real-world spacing habit, not what DCS does.'],
+      ];
+      const sources: [BlastSource, string][] = [['community_measurement', 'a community test, judged by eye'], ['owner_test', 'the squadron\'s own test in DCS'], ['game_data', 'the game\'s own data'],
+        ['developer', 'a statement by the game\'s developer'], ['scripting_doc', 'the scripting documentation'], ['estimate', 'an estimate']];
+      for (const [src, w] of sources) pins.push([`the source ${src}`, burstSourceTitle({ ...c84, source: src }).split('source: ')[1].split(')')[0], w]);
+      for (const [name, got, w] of pins) if (got !== w) why.push(`${name}: ${JSON.stringify(got)}`);
+      ok('playback B3 [BX8]: the blast rule\'s words, exactly: on the ridge "#2 is 130 ft …" at 11.9 s, 320 ft at 12.3, 350 ft at 11.46 (never "360"), the all-clear outside the window; the tooltip, notes, footer, stripes, chip, swatch, diamond, notes, estimate and switch words',
+         why.length === 0, why.join('; ') || `${pins.length + 5} strings`);
+    }
+
+    // [BX10] A member the playback cannot fly is checked in neither direction and is named once; its time still counts. The skip
+    // variant (three pop-ups, #2's target missing) on the blast rule with a radius so large that every flown pair is inside.
+    // Mutation proof (seen red 2026-11-16): burst.ts burstConflicts loops `i < pb.jets.length` → `i < pb.members.length` (a member
+    // that is not flown taken for a jet):
+    //   FAIL playback B3 [BX10]: a member that is not flown is in no blast conflict, …  threw: Cannot read properties of undefined (reading 'weapon')
+    {
+      let detail = '';
+      let good = false;
+      try {
+        const huge = withBlast(fxRows, { mk82: [3e6, 'destroyed'] }, 'estimate');
+        const b3M = fxMission(calculateDestination(tgt, 160, 2), 5200);
+        // #3 at 30 s, so #1 is still on its track (it hides 40 s or more after its own impact) when #3's bomb goes off.
+        const s = fxStrike(b3M, [0, 1, 2].map(() => ({ target: wpTgt.id, weapon: 'mk82', profile: 'f16c.popup.std' })), [0, 10, 30], { strikeId: 'b3s-burst', weapons: huge });
+        const m = { ...s.mission, attacks: s.mission.attacks.map((a) => (a.id === s.attackIds[1] ? { ...a, targetWaypointId: 'fx-nowhere' } : a)) } as Mission;
+        const pb = buildStrikePlayback(playbackInputFromMission(m, { strikeId: 'b3s-burst' }, huge)!);
+        const gone = s.attackIds[1];
+        const t = retime(pb), r = burstReadout(pb, t.delays_s);
+        const named = r.conflicts.filter((c) => c.firstId === gone || c.secondId === gone);
+        const zoneAgainst = pb.jets.flatMap((_, k) => dangerZones(pb, t, k)).filter((z) => z.againstId === gone);
+        const offs = delaysToOffsets(pb, t.delays_s);
+        good = pb.fragRule === 'burst' && pb.jets.length === 2 && pb.members.length === 3 && named.length === 0 && zoneAgainst.length === 0 && r.conflicts.length === 2 &&
+          r.notes.filter((n) => n === notFlownNote('#2')).length === 1 && t.blast?.notes.includes(notFlownNote('#2')) === true && offs[gone] === 10;
+        detail = `${r.conflicts.length} conflicts (${named.length} naming #2), ${zoneAgainst.length} zones against #2, notes ${JSON.stringify(r.notes)}, #2's offset ${offs[gone]}`;
+      } catch (e) {
+        detail = `threw: ${(e as Error).message}`;
+      }
+      ok('playback B3 [BX10]: a member that is not flown is in no blast conflict, as bomb or as jet, and in no zone; one note names it; its time still counts when the times are applied',
+         good, detail);
+    }
+
+    // [BX11] No number, no test, and the user is told; a jet without a radius is still caught by another's burst; a gun gets no note.
+    // On the ridge: #1's Mk-84 without a radius, then with a radius but no source: no warning at any time of #2 from 0 to 40 s,
+    // one note, the footer names the weapon. Swapped (#1 has the radius, #2 not): #2 is still caught at 11.9 s.
+    // Mutation proof (seen red 2026-11-16): burst.ts burstConflicts `const b = bombOf(bomber); if (!b) continue;` → a bomb with no
+    // radius tested at 1e9 m (`const b = bombOf(bomber) ?? { e: 0, n: 0, up: 0, radius_m: 1e9, spec: … }`):
+    //   FAIL playback B3 [BX11]: a bomb with no radius, or a radius with no source, is never tested …  no radius: 2001 warnings over 0 to 40 s; no source: 2001 warnings over 0 to 40 s; swapped: [["#1","#2"],["#2","#1"]], …; a gun: notes [], 1 conflicts
+    //   (and BX5, BX7's saved-'burst' arm)
+    {
+      const why: string[] = [];
+      const mk84 = ridge.weapons.find((w) => w.id === 'mk84')!;
+      const noRadius = { ...mk84, blast_radius_ft: null }, noSource = { ...mk84, blast_radius_source: null };
+      const gun = fxRows.find((w) => w.id === 'm39')!;
+      const arm = (pb: StrikePlayback, weapons: (DbWeapon | undefined)[]): StrikePlayback => ({ ...pb, jets: pb.jets.map((j, k) => ({ ...j, weapon: weapons[k] ?? j.weapon })) });
+      for (const [name, w] of [['no radius', noRadius], ['no source', noSource]] as [string, DbWeapon][]) {
+        const pb = arm(ridge.pb, [w]);
+        let hits = 0;
+        for (let i = 0; i <= 2000; i++) hits += burstConflicts(pb, ridge.d(i * 0.02)).length;
+        const r = burstReadout(pb, ridge.d(11.9));
+        if (hits) why.push(`${name}: ${hits} warnings over 0 to 40 s`);
+        if (JSON.stringify(r.notes) !== JSON.stringify(['No blast radius on file for Mk-84 LDGP (#1): its bomb isn\'t checked against the other jets']) || JSON.stringify(r.unchecked) !== '["Mk-84 LDGP"]')
+          why.push(`${name}: notes ${JSON.stringify(r.notes)}, unchecked ${JSON.stringify(r.unchecked)}`);
+        if (footerOkBurst(r.unchecked) !== '✓ No cone warnings at these times. Not checked for blast: Mk-84 LDGP (no blast radius on file).') why.push(`${name}: footer ${footerOkBurst(r.unchecked)}`);
+      }
+      const swapped = burstReadout(arm(ridge.pb, [undefined, noRadius]), ridge.d(11.9));
+      if (!(swapped.conflicts.length === 1 && swapped.conflicts[0].second === '#2' && swapped.conflicts[0].first === '#1') || !swapped.notes[0]?.includes('(#2)'))
+        why.push(`swapped: ${JSON.stringify(swapped.conflicts.map((c) => [c.first, c.second]))}, notes ${JSON.stringify(swapped.notes)}`);
+      const gunned = burstReadout(arm(ridge.pb, [gun]), ridge.d(11.9));
+      if (gunned.notes.length || gunned.unchecked.length || gunned.conflicts.length) why.push(`a gun: notes ${JSON.stringify(gunned.notes)}, ${gunned.conflicts.length} conflicts`);
+      ok('playback B3 [BX11]: a bomb with no radius, or a radius with no source, is never tested (0 warnings over 2,001 times), is named once in a note and in the footer; a jet without a radius is still caught by another\'s burst; a gun gets no note',
+         why.length === 0, why.join('; ') || 'both cases clear and noted, the swapped jet caught, the gun silent');
+    }
+
+    // [BX12] A strike's rule: only a strike that says 'burst' is checked by distance; anything else keeps the spacing rule. The
+    // default spacing is untouched.
+    // Mutation proof (seen red 2026-11-16): strike.ts strikeFragRule flipped to blast by default (`strike?.fragRule === 'time' ? 'time' : 'burst'`):
+    //   FAIL playback B3 [BX12]: strikeFragRule reads time, time, burst, time, time …  burst,burst,burst,time,burst; DEFAULT_SPACING_S 30, newStrike 30
+    {
+      const got = [undefined, {}, { fragRule: 'burst' }, { fragRule: 'time' }, { fragRule: '<img src=x>' }].map((s) => strikeFragRule(s));
+      const spacing = newStrike(flatM, 'p1', 'x').spacing_s;
+      ok('playback B3 [BX12]: strikeFragRule reads time, time, burst, time, time for none, {}, burst, time and garbage; a new strike is still spaced 30 s',
+         got.join() === 'time,time,burst,time,time' && DEFAULT_SPACING_S === 30 && spacing === 30, `${got.join()}; DEFAULT_SPACING_S ${DEFAULT_SPACING_S}, newStrike ${spacing}`);
+    }
+
+    // The lanes' words and widths follow the row: a blast row's band and a blast zone's stripe carry the blast sentence and the
+    // narrowest width; the spacing rule's bands are exactly as they were (no minPx).
+    // Mutation proof (seen red 2026-11-16): lanes.ts conflictBands `minPx: BAND_MIN_PX` dropped from the blast branch:
+    //   FAIL playback B3 [BX8b]: the time bar's band and the lane's stripe of a blast row say so …  [{"key":"fx-1-fx-2","t0_s":0,"t1_s":1,"title":"⚠ #2 inside #1's blast radius when it goes off (est.)"}]; …
+    {
+      const t = retime(ridge.pb, ridge.d(11.9));
+      const bands = conflictBands(t.conflicts);
+      const zones = zoneBands(dangerZones(ridge.pb, t, 1), '#2', ['#1', '#2']);
+      const timeBands = conflictBands(retime(fxStrike(flatM, [0, 1].map(() => ({ target: wpTgt.id, weapon: 'mk82', profile: 'f16c.popup.std' })), [0, 10], { fragRule: 'time', strikeId: 'fxt' }).pb).conflicts);
+      const good = bands.length === 1 && bands[0].title === '⚠ #2 inside #1\'s blast radius when it goes off (est.)' && bands[0].minPx === BAND_MIN_PX && bands[0].t1_s - bands[0].t0_s === BURST_MARK_S &&
+        zones.length === 1 && zones[0].title === 'Inside #1\'s blast radius if #2 is over the target here (est.)' && zones[0].minPx === BAND_MIN_PX && zones[0].key.endsWith(':victim:0') &&
+        seatConflictTitle(t.conflicts, 1) === bands[0].title && seatInConflict(t.conflicts, 0) &&
+        timeBands.length === 1 && !('minPx' in timeBands[0]) && timeBands[0].title === '⚠ #2 over the target inside #1\'s frag (est.)';
+      ok('playback B3 [BX8b]: the time bar\'s band and the lane\'s stripe of a blast row say so and are never narrower than 6 px; the spacing rule\'s band is as it was',
+         good, `${JSON.stringify(bands)}; ${JSON.stringify(zones)}; spacing ${JSON.stringify(timeBands)}`);
+    }
+  } catch (e) {
+    ok('playback B3 (the blast rule): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }

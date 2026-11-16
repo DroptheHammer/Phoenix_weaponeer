@@ -9,6 +9,7 @@
  */
 
 import { strikeReadout } from '../strike';
+import { burstReadout } from './burst';
 import { memberTot as tot, strikeJetsAt, timedConflicts } from './frag';
 import type { JetTrack, StrikePlayback, StrikeTiming, StrikeWindow, TimingJet } from './types';
 
@@ -34,19 +35,27 @@ function windowOf(pb: StrikePlayback, jets: TimingJet[]): StrikeWindow {
  * a non-number, keeps its plan delay). Skipped members are held at theirs and
  * still count in the readout and the conflicts. Returns a new object; never
  * touches `pb`.
+ *
+ * The frag warning follows the playback's rule. Under 'time' it is the
+ * spacing rule exactly as the editor's strip prints it. Under 'burst' the
+ * blast lines come first, then the strip's cone warnings, and `blast` says
+ * what could not be checked; there is no `blast` key under 'time'.
  */
 export function retime(pb: StrikePlayback, delays_s?: Record<string, number>): StrikeTiming {
   const delays: Record<string, number> = Object.fromEntries(pb.members.map((m) => [m.id, tot(pb, delays_s, m.id)]));
   const jets = pb.jets.map((j) => timingJet(j, delays[j.id]));
   const planJets = pb.jets.map((j) => timingJet(j, pb.planDelays_s[j.id]));
   const rj = strikeJetsAt(pb, delays);
+  const burst = pb.fragRule === 'burst' ? burstReadout(pb, delays) : undefined;
+  const base = strikeReadout(rj, pb.fragRule);
   return {
     delays_s: delays,
     jets,
     window: windowOf(pb, jets),
     planWindow: windowOf(pb, planJets),
-    readout: strikeReadout(rj),
-    conflicts: timedConflicts(pb, rj),
+    readout: burst ? { ...base, warnings: [...burst.warnings, ...base.warnings] } : base,
+    conflicts: burst ? burst.conflicts : timedConflicts(pb, rj),
+    ...(burst ? { blast: { notes: burst.notes, unchecked: burst.unchecked } } : {}),
   };
 }
 

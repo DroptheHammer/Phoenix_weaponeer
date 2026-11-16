@@ -73,5 +73,5 @@ export function buildStrikePlayback(input: PlaybackInput, options: PlaybackOptio
   const warnings: string[] = [];
   if (!lead) warnings.push('Nothing to play: no jets.');
   else if (!jets.length) warnings.push('No jet in this strike can be played.');
-  return { name: input.name, strikeId: input.strikeId, frame, jets, members, planDelays_s, skipped, options: opts, warnings };
+  return { name: input.name, strikeId: input.strikeId, frame, jets, members, planDelays_s, skipped, options: opts, warnings, fragRule: input.fragRule ?? 'time' };
 }

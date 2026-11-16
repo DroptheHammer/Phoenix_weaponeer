@@ -1,15 +1,17 @@
 /**
  * Frag: the weapon's numbers, the readout's rule as conflicts on the strike
  * clock, the same rule as delay intervals for shading a slider, and the cloud
- * to draw. The playback's warning IS `strikeReadout`'s rule (`fragConflicts`,
- * the same code the editor strip runs): every pair, the earlier jet's weapon,
- * a strict `gap < frag`, ties to the jet listed first. There is deliberately
- * no 3D "flew through the cloud" test: it disagrees with the readout and
- * almost never fires.
+ * to draw. Under the spacing rule ('time') the playback's warning IS
+ * `strikeReadout`'s rule (`fragConflicts`, the same code the editor strip
+ * runs): every pair, the earlier jet's weapon, a strict `gap < frag`, ties to
+ * the jet listed first. Under the blast rule ('burst') the zones come from
+ * burst.ts instead. There is deliberately no 3D "flew through the cloud" test:
+ * it disagrees with the readout and almost never fires.
  */
 
 import type { DbWeapon } from '../../types';
 import { fragClearTime_s, fragConflicts, type StrikeJet } from '../strike';
+import { burstZones } from './burst';
 import type { DangerZone, FragCloudState, FragSpec, JetTrack, StrikePlayback, StrikeTiming, TimedConflict } from './types';
 
 /** strike.ts's gravity, the one fragClearTime_s is derived with (ft/s²). */
@@ -81,8 +83,12 @@ export function timedConflicts(pb: StrikePlayback, readout: StrikeJet[]): TimedC
  * Conflicts among the other members do not depend on this jet's delay, so
  * they are not zones. A skipped member gets no zones of its own (it has no
  * slider) but is held still in everyone else's, as the readout counts it.
+ *
+ * Under the blast rule the zones are `burstZones`' instead: plain open
+ * intervals, marked by their `role`.
  */
 export function dangerZones(pb: StrikePlayback, timing: StrikeTiming, jet: number): DangerZone[] {
+  if (pb.fragRule === 'burst') return burstZones(pb, timing.delays_s, jet);
   const me = pb.jets[jet];
   const mj = me ? pb.members.findIndex((m) => m.jet === jet) : -1;
   if (mj < 0) return [];
@@ -118,10 +124,12 @@ export function dangerZones(pb: StrikePlayback, timing: StrikeTiming, jet: numbe
  * True when delay `x` would warn against one of the zones' members: the
  * readout's own expressions (`gap = second − first`, `gap < frag`), not a
  * comparison with `from_s` / `to_s`, so a fractional TOT cannot split them by
- * an ulp at a frag-time end.
+ * an ulp at a frag-time end. A blast zone (one with a `role`) is its open
+ * interval.
  */
 export function inDangerZone(zones: DangerZone[], x: number): boolean {
-  return zones.some((z) => (x > z.T_s ? x - z.T_s < z.fragOther_s : x < z.T_s ? z.T_s - x < z.fragThis_s : z.tieWarns));
+  return zones.some((z) =>
+    z.role ? x > z.from_s && x < z.to_s : x > z.T_s ? x - z.T_s < z.fragOther_s : x < z.T_s ? z.T_s - x < z.fragThis_s : z.tieWarns);
 }
 
 export function newFragCloudState(): FragCloudState {

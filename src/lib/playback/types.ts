@@ -19,8 +19,12 @@
 
 import type { Attack, Coordinates, DbWeapon, ThreatInstance, Waypoint } from '../../types';
 import type { AttackPicture, LineStyleKey, SideProfile } from '../../types/attackPicture.types';
+import type { FragRule } from '../../types/strike.types';
+import type { BlastMeaning, BlastSource } from '../../types/weapon.types';
 import type { IpAnchor, IpAnchorSource } from '../ipAnchor';
 import type { FragConflict, StrikeReadout } from '../strike';
+
+export type { FragRule };
 
 // ─── Input ────────────────────────────────────────────────────────────────────
 
@@ -93,6 +97,8 @@ export interface PlaybackInput {
   jets: PlaybackJetInput[];
   /** Jets dropped before the build (a missing target waypoint), each with its `order` among all the members. */
   skipped?: SkippedJet[];
+  /** Which test the frag warning uses. Left out: 'time', so an input built by hand behaves as it always did; the two doors write it. */
+  fragRule?: FragRule;
 }
 
 export interface PlaybackOptions {
@@ -199,7 +205,8 @@ export type EstimateCode =
   | 'pullDownShape' // pop-up altitude PDP→APEX→TRK: a monotone cubic through the planner's points
   | 'egressAltitudeSchematic' // the side view's egress tip altitude, as a ramp
   | 'egressExtension' // flying on past the drawn 1 nm egress leg
-  | 'fragEnvelope'; // the frag clear time is a planning envelope, not a DCS fragment model
+  | 'fragEnvelope' // the frag clear time is a planning envelope, not a DCS fragment model
+  | 'blastRadius'; // the weapon table's blast radius, with its source; distance only, no terrain
 
 export interface Estimate {
   code: EstimateCode;
@@ -412,6 +419,8 @@ export interface StrikePlayback {
   skipped: SkippedJet[];
   options: Required<PlaybackOptions>;
   warnings: string[];
+  /** The input's frag rule, 'time' when it gave none. */
+  fragRule: FragRule;
 }
 
 export interface TimingJet {
@@ -449,6 +458,45 @@ export interface TimedConflict extends FragConflict {
   t1_s: number;
 }
 
+/**
+ * The blast rule's row: jet `second` is inside the blast radius of seat
+ * `first`'s bomb at the instant it goes off. The field names are
+ * `TimedConflict`'s where they mean the same, so the bands, marks and chip
+ * read both kinds. Both jets are flown: a jet the playback cannot fly has no
+ * path and no burst point.
+ */
+export interface TimedBurst {
+  rule: 'burst';
+  /** The bomb's seat label. */
+  first: string;
+  /** The seat label of the jet inside its radius. */
+  second: string;
+  /** Places in `StrikePlayback.members`. */
+  firstIndex: number;
+  secondIndex: number;
+  firstId: string;
+  secondId: string;
+  /** Indices into `StrikePlayback.jets`. */
+  firstJet: number;
+  secondJet: number;
+  /** The bomb's time over target, and that plus `BURST_MARK_S`: what the time bar and the chip mark. The rule itself is the instant t0_s. */
+  t0_s: number;
+  t1_s: number;
+  /** The jet's distance from the burst at that instant, 3D, ft (plan layer). */
+  dist_ft: number;
+  radius_ft: number;
+  meaning: BlastMeaning;
+  source: BlastSource;
+  /** The bomb's weapon name. */
+  weapon: string;
+}
+
+/** A frag warning's row under either rule. */
+export type ConflictRow = TimedConflict | TimedBurst;
+
+/** Is this row the blast rule's? */
+export const isBurstRow = (c: ConflictRow): c is TimedBurst => 'rule' in c;
+
 export interface StrikeWindow {
   t0_s: number;
   t1_s: number;
@@ -463,9 +511,16 @@ export interface StrikeTiming {
   window: StrikeWindow;
   /** The same at the plan delays: freeze the timeline axis on it while a slider is dragged. */
   planWindow: StrikeWindow;
-  /** strikeReadout of every member (`StrikePlayback.members`) at these delays. */
+  /**
+   * strikeReadout of every member (`StrikePlayback.members`) at these delays,
+   * under the playback's rule. Under 'burst' its warnings are the blast lines
+   * (one per conflict, in the same order) followed by the cone warnings.
+   */
   readout: StrikeReadout;
-  conflicts: TimedConflict[];
+  /** Under 'time' every row is a `TimedConflict`, under 'burst' a `TimedBurst`. */
+  conflicts: ConflictRow[];
+  /** Only under 'burst': the gray lines (weapons and jets not checked) and the names of the weapons not checked, for the footer. */
+  blast?: { notes: string[]; unchecked: string[] };
 }
 
 // ─── Sampling ─────────────────────────────────────────────────────────────────
@@ -573,6 +628,14 @@ export interface DangerZone {
   fragOther_s: number;
   /** Whether x = T_s itself warns (the member listed first has frag). */
   tieWarns: boolean;
+  /**
+   * Set by the blast rule only, whose zones are plain open intervals
+   * (`from_s`, `to_s`) and may be several per other jet: 'victim', this jet
+   * would be inside the other's blast radius; 'bomb', the other jet would be
+   * inside this one's. Its frag-time fields are 0 and `T_s` is the other
+   * jet's TOT.
+   */
+  role?: 'victim' | 'bomb';
 }
 
 /**
