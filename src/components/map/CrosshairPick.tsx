@@ -55,7 +55,7 @@ export function CrosshairPick({ map, prompt, confirmLabel = 'Set here', start, c
               <path d="M28 4v16M28 36v16M4 28h16M36 28h16" />
             </g>
           </g>
-          <circle cx="28" cy="28" r="2.5" fill="#e94560" stroke="#ffffff" strokeWidth="1" />
+          <circle cx="28" cy="28" r="2.5" className="fill-dcs-accent" stroke="#ffffff" strokeWidth="1" />
         </svg>
       </div>
 

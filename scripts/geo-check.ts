@@ -1,3 +1,4 @@
+import './design-check';
 import {
   applyAngleOff,
   angleOffOf,
@@ -211,6 +212,8 @@ import { cardTie } from '../src/components/playback/cardTie';
 import { groundNote, REAL_GROUND_NOTE } from '../src/components/playback/StatusNotes';
 import { draftIpAnchor } from '../src/lib/attackDraft';
 import { useTheaterStore, type TheaterInfo } from '../src/stores/theaterStore';
+// @ts-expect-error plain JS helper with a .d.mts beside it
+import { hexOf as tokenHex } from './tokens.mjs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -9473,7 +9476,12 @@ void (async () => {
     //   FAIL playback B3 [CT1]: … through their outlines  time box and Reset edge 2.09 (graphic, want 3)
     // domes.ts DOME_IDLE '#9CA3AF' → '#4B5563' (the grey ring on the picture's dark, 2026-11-18; [D7] and the map check go red with it):
     //   FAIL playback B3 [CT1]: … through their outlines  a threat ring that is not active, on the picture's dark 2.24 (graphic, want 3)
-    const tailwindNavy = /'dcs-navy':\s*'(#[0-9a-fA-F]{6})'/.exec(readFileSync('tailwind.config.js', 'utf8'))?.[1];
+    // Tailwind's dcs-navy reads the design token --rgb-navy (src/styles/tokens.css), so the token is read here, not the config.
+    // Seen red: --rgb-navy 22 33 62 → 22 33 63 (DS1 and DS9 go red with it):
+    //   FAIL playback B3 [CT1]: … tailwind navy #16213f = the panel
+    // and the old line that read the hex out of tailwind.config.js, which no longer holds one:
+    //   FAIL playback B3 [CT1]: … tailwind navy undefined = the panel
+    const tailwindNavy = tokenHex('--rgb-navy') as string;
     const colour = (css: string) => parseColour(css)!;
     type Ct1 = { id: string; kind: 'graphic' | 'text'; fg: string; bg: string };
     const ct1Pairs: Ct1[] = [

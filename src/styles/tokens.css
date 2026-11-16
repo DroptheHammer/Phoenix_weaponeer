@@ -1,0 +1,194 @@
+/*
+ * Design tokens: the one place a colour, size, radius, shadow or duration is
+ * written down. Tailwind's theme (tailwind.config.js), the primitives in
+ * src/components/ui/ and the rules in src/index.css read these variables and
+ * never repeat a value. The names are short and stable (--c-* colours, --d-*
+ * data colours, --fs-* type sizes, --sp-* spacing, --r-* radii, --e-* shadows,
+ * --t-* motion, --font-* families), so a rule written against them reads the
+ * same wherever it is used.
+ *
+ * A colour that Tailwind has to apply an opacity to (bg-surface-navy/80) is
+ * stored as three space-separated channels, --rgb-*, and --c-* is the
+ * ready-to-use colour built from them. Translucent tints are whole values.
+ * The hex beside each channel list is for people; scripts/design-check.tsx
+ * reads the channels and fails if they and the pins disagree.
+ *
+ * Dark only, on purpose: the app and the cards' own Night and NVG lighting are
+ * all dark.
+ */
+:root {
+  /* ---- Surfaces: the app's own family, unchanged ---- */
+  --rgb-window: 26 26 46;         /* #1a1a2e  window background (also index.html, tauri.conf.json, vite.config.web.ts) */
+  --rgb-deep: 16 16 31;           /* #10101f  wells, fields */
+  --rgb-navy: 22 33 62;           /* #16213e  panels, cards, dialogs, header */
+  --rgb-blue: 15 52 96;           /* #0f3460  number tiles */
+  --rgb-navy-raised: 28 41 73;    /* #1c2949  card hover */
+  --rgb-float: var(--rgb-navy);   /*          what floats over the map: one opaque material */
+  --c-window: rgb(var(--rgb-window));
+  --c-deep: rgb(var(--rgb-deep));
+  --c-navy: rgb(var(--rgb-navy));
+  --c-blue: rgb(var(--rgb-blue));
+  --c-navy-raised: rgb(var(--rgb-navy-raised));
+  --c-float: rgb(var(--rgb-float));
+
+  /* ---- Accent: the primary action, and "selected" ---- */
+  --rgb-accent: 233 69 96;        /* #e94560 */
+  --rgb-accent-hover: 240 99 123; /* #f0637b */
+  --rgb-accent-fg: 255 147 165;   /* #ff93a5  accent as small text on dark */
+  --rgb-on-accent: 16 16 31;      /* #10101f  ink on the accent fill (white on it is only 3.8:1) */
+  --c-accent: rgb(var(--rgb-accent));
+  --c-accent-hover: rgb(var(--rgb-accent-hover));
+  --c-accent-fg: rgb(var(--rgb-accent-fg));
+  --c-on-accent: rgb(var(--rgb-on-accent));
+  --c-accent-soft: rgb(var(--rgb-accent) / 0.18);
+  --c-accent-soft-hover: rgb(var(--rgb-accent) / 0.28);
+  --c-accent-line: rgb(var(--rgb-accent) / 0.6);
+
+  /* ---- Ink ---- */
+  --rgb-text: 243 245 249;        /* #f3f5f9  titles, values */
+  --rgb-text-2: 188 197 216;      /* #bcc5d8  second lines, quiet buttons, icons */
+  --rgb-text-3: 157 169 194;      /* #9da9c2  small uppercase labels, on base surfaces only */
+  --rgb-outline: 135 146 176;     /* #8792b0  control outlines (3:1 or better) */
+  --c-text: rgb(var(--rgb-text));
+  --c-text-2: rgb(var(--rgb-text-2));
+  --c-text-3: rgb(var(--rgb-text-3));
+  --c-outline: rgb(var(--rgb-outline));
+
+  /* ---- The one added accent (sky: links, keyboard focus, information) and the warning ---- */
+  --rgb-sky: 92 200 250;          /* #5cc8fa */
+  --rgb-warn: 234 179 8;          /* #eab308  the planner's own yellow: always with an icon and a word */
+  --c-sky: rgb(var(--rgb-sky));
+  --c-sky-soft: rgb(var(--rgb-sky) / 0.15);
+  --c-warn: rgb(var(--rgb-warn));
+
+  /* ---- The quantity colour: the numbers of a loadout list and NOTHING else, so a pilot
+          reads "how many" apart from "what". 11.3:1 on navy; design-check DS22 keeps it to its list. ---- */
+  --rgb-qty: 134 239 172;         /* #86efac */
+  --c-qty: rgb(var(--rgb-qty));
+
+  /* ---- Lines, fills, scrims ---- */
+  --c-line: rgb(255 255 255 / 0.1);
+  --c-line-strong: rgb(255 255 255 / 0.2);
+  --c-fill-1: rgb(255 255 255 / 0.06);
+  --c-fill-2: rgb(255 255 255 / 0.11);
+  --c-fill-3: rgb(255 255 255 / 0.18);
+  --c-shade: rgb(var(--rgb-deep) / 0.35);
+  --c-scrim: rgb(8 8 18 / 0.66);
+  --c-scrollbar: rgb(255 255 255 / 0.28);
+
+  /* ---- Kept as today: the phone slider's track (.range-lg in index.css). 2.1:1 on navy;
+          raising it would change how the forms look. ---- */
+  --rgb-track: 75 85 99;          /* #4b5563 */
+  --c-track: rgb(var(--rgb-track));
+
+  /* ---- The planner's data colours. PROTECTED: copies of what the map draws
+          (MapView.tsx: waypoint markers, threat icons, rings; Tailwind's red, yellow,
+          blue, orange and slate 500). design-check proves they still match.
+          Never change one here without changing the map. ---- */
+  --d-target: #ef4444;
+  --d-ip: #eab308;
+  --d-nav: #3b82f6;
+  --d-bullseye: #f97316;
+  --d-departure: #64748b;
+  --d-sam: #dc2626;
+  --d-aaa: #ea580c;
+  --d-manpads: #ca8a04;
+  --d-shorad: #d97706;
+  --d-ewr: #2563eb;
+  --d-ring: #ef4444;
+  --d-halo: rgb(255 255 255 / 0.92);
+
+  /* ---- Type. The family names are the font packages' own (fonts.css). ---- */
+  --font-sans: 'Figtree Variable', 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-map: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif; /* today's stack, kept for what sits on the map */
+  --font-legacy-mono: Consolas, Monaco, monospace; /* the monospace stack the app used before the bundled fonts, kept for the 3D playback */
+  --fs-caption: 12px;
+  --fs-small: 13px;
+  --fs-compact: 13px;             /* text on a compact or row button (15 on a phone, see the end of this file) */
+  --fs-body: 15px;
+  --fs-lead: 17px;
+  --fs-title: 20px;
+  --fs-headline: 26px;
+  --fs-display: 34px;
+  --lh-tight: 1.2;
+  --lh-body: 1.4;
+
+  /* ---- Spacing: a 4px rhythm with half steps. The same numbers as Tailwind's own scale
+          (p-0.5 ... p-10); design-check proves it, so utilities and variables agree. ---- */
+  --sp-05: 2px;
+  --sp-1: 4px;
+  --sp-15: 6px;
+  --sp-2: 8px;
+  --sp-25: 10px;
+  --sp-3: 12px;
+  --sp-35: 14px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* ---- Radii ---- */
+  --r-xs: 5px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* ---- Sizes ---- */
+  --tap: 44px;                    /* the standard control height */
+  --tap-sm: 32px;                 /* per-row text buttons, small icon buttons (44 on a phone, see the end of this file) */
+  --h-btn-sm: 36px;
+  --h-btn-lg: 52px;
+  --tag-h: 22px;                  /* a type tag or a status tag */
+  --h-chip: 28px;
+  --h-rail-btn: 58px;
+  --tab: 56px;                    /* a tab in the phone's bottom bar */
+  --bar: 48px;                    /* the app header (44 on a phone) */
+  --bar-btn: 36px;                /* a button or link in the header (44 does not fit a 48 px bar) */
+  --check: 18px;
+  --wp: 26px;
+  --badge: 28px;
+  --row: 56px;
+  --field: 64px;
+  --drop: 72px;
+  --rail-w: 82px;
+  --legend-w: 224px;
+  --menu-w: 312px;
+  --card-min: 400px;
+  --inset: 12px;
+
+  /* ---- Elevation ---- */
+  --e-1: 0 1px 2px rgb(0 0 0 / 0.24), 0 4px 14px rgb(0 0 0 / 0.22);
+  --e-2: 0 2px 6px rgb(0 0 0 / 0.28), 0 14px 40px rgb(0 0 0 / 0.42);
+  --e-up: 0 -8px 24px rgb(0 0 0 / 0.34); /* --e-2 thrown upward: a bottom bar or a bottom sheet */
+
+  /* ---- Motion ---- */
+  --t-fast: 120ms;
+  --t-panel: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* ---- The notch and the home bar (0 anywhere without them) ---- */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* A phone: every control is touch size and the text on a compact button is the body size, so
+   nothing is built twice. The query is useIsPhone's PHONE_QUERY (src/hooks/useIsPhone.ts) and
+   the phone rules in index.css; design-check keeps the three equal. The phone's values are
+   --check 22, --field 56, --menu-w 264, --legend-w 256 and --bar 44. */
+@media (max-width: 767px), (max-height: 500px) {
+  :root {
+    --tap-sm: 44px;
+    --fs-compact: 15px;
+    --bar: 44px;
+    --check: 22px;
+    --field: 56px;
+    --menu-w: 264px;
+    --legend-w: 256px;
+  }
+}

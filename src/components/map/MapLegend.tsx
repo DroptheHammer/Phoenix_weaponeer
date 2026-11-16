@@ -35,7 +35,7 @@ function TriCheckbox({
       type="checkbox"
       checked={checked}
       onChange={onChange}
-      className={`accent-[#e94560] ${roomy ? 'w-5 h-5' : ''}`}
+      className={`accent-dcs-accent ${roomy ? 'w-5 h-5' : ''}`}
     />
   );
 }

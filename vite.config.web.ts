@@ -3,13 +3,15 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { hexOf } from "./scripts/tokens.mjs";
 
 // The web build: the same app, with the Rust core as WebAssembly and the
 // browser for files. Run `npm run build:wasm` first. Output goes to
 // dist-web/, which GitHub Pages serves (see docs/MOBILE_WEB_PLAN.md).
 
-const THEME = "#16213e"; // dcs-navy, the header colour
-const BACKGROUND = "#1a1a2e"; // dcs-dark
+// Read from the design tokens (src/styles/tokens.css), the one place these colours are written.
+const THEME = hexOf("--rgb-navy"); // the header colour
+const BACKGROUND = hexOf("--rgb-window"); // the window colour
 
 /** The app icons, taken from the desktop app's set rather than copied into the repo. */
 const ICONS: [from: string, to: string][] = [

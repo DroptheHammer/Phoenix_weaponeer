@@ -1,3 +1,6 @@
+/* The design tokens first: @import must come before every other statement. */
+@import './styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -13,7 +16,7 @@
      outside that container, so it inherited near-black text on a navy panel and
      was effectively unreadable. */
   color: #f1f5f9; /* slate-100 */
-  background-color: #1a1a2e; /* dcs-dark */
+  background-color: var(--c-window);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -56,7 +59,7 @@ body {
 .range-lg::-webkit-slider-runnable-track {
   height: 6px;
   border-radius: 3px;
-  background: #4b5563; /* gray-600 */
+  background: var(--c-track);
 }
 .range-lg::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -64,19 +67,19 @@ body {
   height: 28px;
   margin-top: -11px; /* centre the knob on the 6px track */
   border-radius: 50%;
-  background: #e94560; /* dcs-accent */
+  background: var(--c-accent);
   border: 2px solid #f1f5f9;
 }
 .range-lg::-moz-range-track {
   height: 6px;
   border-radius: 3px;
-  background: #4b5563;
+  background: var(--c-track);
 }
 .range-lg::-moz-range-thumb {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #e94560;
+  background: var(--c-accent);
   border: 2px solid #f1f5f9;
 }
 
