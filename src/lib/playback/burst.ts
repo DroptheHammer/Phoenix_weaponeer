@@ -221,8 +221,12 @@ export interface BurstReadout {
   unchecked: string[];
 }
 
-/** The blast rule's whole answer at these delays (member id → TOT; left out: the plan delays). */
+/**
+ * The blast rule's whole answer at these delays (member id → TOT; left out: the plan delays). A lone jet has no
+ * other jet to be inside its blast, so it gets nothing, not even a note that its weapon has no radius.
+ */
 export function burstReadout(pb: StrikePlayback, delays_s: Record<string, number> = pb.planDelays_s): BurstReadout {
+  if (pb.members.length < 2) return { conflicts: [], warnings: [], notes: [], unchecked: [] };
   const conflicts = burstConflicts(pb, delays_s);
   const warnings = conflicts.map((c) => burstSentence(c, burstNoun(pb.jets[c.firstJet].weapon)));
   return { conflicts, warnings, ...burstNotes(pb) };

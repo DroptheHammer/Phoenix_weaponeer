@@ -88,7 +88,8 @@ export function isDirty(s: Session): boolean {
 export function sessionReducer(s: Session, a: SessionAction): Session {
   switch (a.type) {
     case 'delay':
-      // A skipped member's time is accepted: it still counts in the frag warnings.
+      // A skipped member's time is accepted: it still counts in the times, and in the spacing rule's frag warnings
+      // (the blast rule cannot check a jet that is not flown, and says so).
       if (a.id === s.locked || !s.memberIds.includes(a.id) || !Number.isFinite(a.value_s) || a.value_s === s.delays_s[a.id]) return s;
       return { ...s, delays_s: { ...s.delays_s, [a.id]: a.value_s }, status: undefined };
     case 'drag':

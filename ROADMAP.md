@@ -86,10 +86,11 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       lets auto-build plan lower releases). **The radii are in the audit too:**
       `frag_lethal_radius_ft` (15 rows) and `frag_effective_radius_ft` (18 rows)
       cite no source either, and the public manuals give heights, not a lateral
-      blast radius. The new blast test reads neither of them: it reads the
+      blast radius. The blast test reads neither of them: it reads the
       separate `blast_radius_ft` field, which has a meaning and a source kind
-      beside it and is empty on every row until a value has been shown with its
-      source and approved.
+      beside it. Eight rows carry one (approved 2026-11-16, from one community
+      test; see `docs/DELIVERY_PLANNING.md`); every other row stays empty until
+      a value has been shown with its source and approved.
 - [x] **Bombs the modules carry that still had no row** (2026-11-13,
       Session 1, released in v0.3.4). Thirteen name-only rows from the DCS
       pylon tables: Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500,
@@ -226,6 +227,21 @@ waypoint list on 2026-10-03).
 ## Shipped
 
 ### Unreleased (0.4.0 branch)
+- **The frag warning follows DCS** (2026-11-16, the user's decision of
+  2026-11-15). A strike is now warned when another jet is inside a bomb's
+  blast radius at the moment it goes off, in 3D, distance only, with a radius
+  per weapon from a cited source (eight bombs so far; a weapon with none is
+  named as not checked). The strike editor's strip and the 3D playback run the
+  same check on the same lines. The old 30 to 35 s spacing rule is still there
+  as "Warn by: Spacing in time (real-world habit)" on the strike strip, saved
+  with the strike; the phone reads the choice and says the blast check is made
+  in the desktop app. Release floors and the cards are unchanged. Details in
+  `docs/DELIVERY_PLANNING.md`, "Frag warning".
+  - **For the release notes:** "The strike editor's frag warning now follows
+    DCS: it checks each bomb's blast radius when it goes off, using a radius
+    per weapon (eight weapons have one so far, from a community test); the
+    old 30 to 35 second spacing rule is still there as a choice on the
+    strike."
 - **Ballistic dive (aim-off)** (2026-11-15, the user's call after seeing what
   would move on the F-16 30° dive card): a bomb released in a dive falls under
   the line of the dive, so a dive pointed straight at the target dropped short

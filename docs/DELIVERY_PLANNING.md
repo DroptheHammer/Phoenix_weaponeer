@@ -277,12 +277,41 @@ estimates.
 - **Timing.** Each jet has a time-over-target offset from the lead. The
   default is `(n − 1) × spacing`, with spacing starting at 30 s. There are no
   clock times, only offsets.
-- **Frag clear time (ESTIMATED).** This is how long a jet's bombs keep the air
-  over the target dangerous. The model is fragments thrown up to the weapon's
-  frag min-safe height and falling back, in vacuum: `2·√(2h/g)`, rounded up to
-  5 s. That gives 20 s at 1,500 ft, 30 s for a Mk-82 (3,000 ft) and 35 s for a
-  Mk-84 (4,500 ft). Spacing below it is warned, never blocked. The warning
-  says so when the two jets are also within 15° of the same axis.
+- **Frag warning (built 2026-11-16 for 0.4.0; the user's decision of
+  2026-11-15).** A strike is warned the way DCS's blast works: when a bomb goes
+  off, any other jet inside that weapon's blast radius, in 3D, at that instant,
+  is named ("#2 is 130 ft from #1's bomb when it goes off, inside its 360 ft
+  blast radius (est.)"). Nothing after the instant counts: no falling
+  fragments, no lingering cloud. Distance only: DCS's blast is blocked by
+  terrain, but the app has no DCS terrain, so a hill in the way earns no credit
+  and the check can warn where DCS would not, never the reverse. The radius is
+  the weapon row's sourced blast radius (see "Weapon numbers", the blast radius
+  item); a weapon with none is not checked, and the strike strip and the
+  playback's footer say which. The check runs on the planner's own lines, in
+  the same playback the 3D view flies, so the strike strip, the playback's
+  footer and its time bar say the same thing. It needs the playback, so the
+  phone's strike strip says the check is made in the desktop app. A strike of
+  one jet has nothing to check. Measured on the F-16C profiles, no jet's path
+  comes within about 1,200 ft of a burst on its own target at any spacing, so on
+  one target it never fires: it guards odd geometry, such as a second target
+  high on a ridge under another jet's run. It warns, never blocks, and moves
+  no release floor (those guard the dropper against its own bomb and are
+  unchanged). It says nothing about two jets passing close to each other: two
+  jets stacked on one axis at the same time are not flagged by it, where the
+  old rule flagged them by accident.
+  - *Spacing in time (the real-world habit, ESTIMATED), a choice on the
+    strike, off by default.* The strike strip's "Warn by" picks it, and the
+    choice is saved with the strike, so the squadron sees the same warnings. It
+    is how long a jet's bombs keep the air over the target dangerous, modelled
+    as fragments thrown up to the weapon's frag min-safe height and falling
+    back, in vacuum: `2·√(2h/g)`, rounded up to 5 s. That gives 20 s at 1,500
+    ft, 30 s for a Mk-82 (3,000 ft) and 35 s for a Mk-84 (4,500 ft). Spacing
+    below it is warned, never blocked; the warning says so when the two jets
+    are also within 15° of the same axis. Only under this rule does the Group
+    tab's spacing slider say "Frag clears in ~N s (est.)". It is not what DCS
+    does.
+  - The default 30 s spacing comes from neither rule: it is the planning
+    default, and still spaces the jets for the defender.
 - **IP push time (ESTIMATED).** This is when a jet leaves the IP, relative to
   the lead's TOT. It is the drawn path length from the IP to the bomb's impact
   divided by the attack speed. It has no allowance for turns or acceleration.
@@ -347,15 +376,16 @@ cards still carry the "no data on file" caution.
 - **What changes in the planner.** The Mk-83's floor is read as its floor
   everywhere the seed rows' are: auto-build raises a lower release to it, the
   attack checks error on a release under it, the pop-up form shows "Weapon
-  floor", the card prints "MIN SAFE 1,300 ft AGL", and a strike's frag clear
-  time for it is 20 s (it was 0). Every Mk-83 profile already released above
+  floor", the card prints "MIN SAFE 1,300 ft AGL", and, on a strike warned by
+  spacing in time, its frag clear time is 20 s (it was 0). Every Mk-83 profile already released above
   1,300 ft, so no auto-built release moves. None of the envelope extras moves
   an auto-built release either: the lowest release of the Durandal and the
   CBU-105 is 500 ft AGL, above their 250 and 200 ft minimums.
 - **Blast radius, eight rows (approved 2026-11-16; separate from the 26 above).**
   The distance from a burst within which DCS damages an aircraft: the three
   `blast_radius_*` fields on the weapon row (feet, what the figure means, where it
-  comes from), read by the playback's blast test and by nothing else. The old
+  comes from), read by the blast test (the strike strip and the 3D playback run
+  the same one, see "Frag warning") and by nothing else. The old
   `frag_*_radius_ft` seed numbers cite no source and are not read for it. The
   only public measurement is one community test, "Anatomy of explosions" on
   flyandwire.com (2026-07-11): a Ka-50 helicopter spawned over a burst, damage

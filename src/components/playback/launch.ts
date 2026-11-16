@@ -19,7 +19,8 @@ import type { Attack, DbWeapon, Mission } from '../../types';
 import type { IpAnchor } from '../../lib/ipAnchor';
 import type { ResolvedDraft } from '../../lib/attackDraft';
 import type { PlaybackInput, PlaybackJetInput, PlaybackSubject, SkippedJet } from '../../lib/playback';
-import { attackSpeedOf } from '../../lib/strike';
+import type { FragRule } from '../../types/strike.types';
+import { attackSpeedOf, strikeFragRule } from '../../lib/strike';
 import { getTheaterInfo } from '../../stores/theaterStore';
 import { useMissionStore } from '../../stores/missionStore';
 import { isRealWorld } from '../../lib/strikeNearMe';
@@ -46,7 +47,12 @@ export interface EditorLaunchArgs {
   selectedIndex: number;
   /** Puts each jet's time over target (the editor's order) back on its slider. Left out: playback offers no Apply. */
   applyOffsets?: (offsets: number[]) => void;
+  /** The strike's frag rule as the editor holds it (unsaved choice included). Left out: the app's default, as a saved strike reads it. */
+  fragRule?: FragRule;
 }
+
+/** The strike strip's line when the blast check could not be loaded or run. Here, not with the blast words, because the start-up code shows it. */
+export const BLAST_CHECK_FAILED = "Blast distances couldn't be checked.";
 
 /** Why a jet the editor cannot build yet still keeps its place in the strike. */
 const NOT_READY = 'Not ready in the editor yet.';
@@ -93,7 +99,8 @@ export function playbackLaunchFromEditor(a: EditorLaunchArgs): EditorLaunch | un
   if (!jets.length) return undefined;
 
   const title = strikeName ?? jets[0].callsign ?? 'Attack';
-  const input: PlaybackInput = { name: title, jets, skipped };
+  // The rule is read the way a saved strike's is, so the editor's strip, its playback and the attack list's playback agree.
+  const input: PlaybackInput = { name: title, jets, skipped, fragRule: strikeFragRule(a) };
   // Apply needs a strike to write into: two jets or more, and the editor's own way to set their sliders.
   const apply: PlaybackApply | undefined = strikeName !== undefined && applyOffsets && drafts.length >= 2 ? { to: 'editor', write: applyOffsets } : undefined;
   return { input, title, jetId: drafts[selectedIndex]?.attack?.id, notes: theaterNotes(mission), apply, tie };

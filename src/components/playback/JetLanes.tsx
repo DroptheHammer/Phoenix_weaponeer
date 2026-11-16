@@ -13,9 +13,10 @@
  * or focus it and use the arrow keys (a second a press, five with Shift); or
  * type the seconds into the box in the times cell, which a seat that is not
  * flown has too. Amber stripes behind the diamond mark the times that would put
- * the jet inside another's frag (or inside another jet's blast radius, or
- * another jet inside its own; a stripe for an instant is drawn at least a few
- * pixels wide), but only while that jet's time is being set
+ * the jet inside another jet's blast radius when a bomb goes off, or another
+ * jet inside its own (a stripe for an instant is drawn at least a few pixels
+ * wide; on a strike warned by spacing in time, the times inside another's
+ * frag), but only while that jet's time is being set
  * (its diamond held, or focused by the keyboard, or its box focused: at rest a
  * lane is clean, and the diamond's tooltip says what the stripes are), and a
  * warning mark beside its time says it is inside one now. While a handle is held
@@ -69,9 +70,9 @@ export interface LaneInfo {
   cardPush_s: number | undefined;
   /** Seat #1: held still, the others are timed against it. It has no handle and no box. */
   locked: boolean;
-  /** Where this jet's time over target would start a frag warning (inside another's frag or blast radius, or another jet inside its own): stripes behind its diamond (none for a locked or skipped seat). */
+  /** Where this jet's time over target would start a frag warning (inside another's blast radius, or another jet inside its own; under the spacing rule, inside another's frag): stripes behind its diamond (none for a locked or skipped seat). */
   zones: readonly Band[];
-  /** In words, the frag conflicts the seat is in at its time now; undefined when it is in none. */
+  /** In words, the frag warnings (blast or spacing) the seat is in at its time now; undefined when it is in none. */
   conflict: string | undefined;
   /** Why the jet is not flown, when it is not: the lane says so instead of drawing a band. */
   skipped?: string;
@@ -177,7 +178,7 @@ function TimeBox({ info, onDelay, onFocusChange }: { info: LaneInfo; onDelay(id:
   );
 }
 
-/** A lane's right cell: the time over target (typed in a box, or held), the card's push time, and a mark when the jet is inside another's frag. `title` explains the times (left off for a strike of one). */
+/** A lane's right cell: the time over target (typed in a box, or held), the card's push time, and a mark when the jet is in a frag warning (blast or spacing). `title` explains the times (left off for a strike of one). */
 function Readout({ info, title, strike, onDelay, onBoxFocus }: { info: LaneInfo; title?: string; strike: boolean; onDelay(id: string, value_s: number): void; onBoxFocus?(on: boolean): void }) {
   return (
     <div data-readout={info.seat} className={READOUT} title={title}>
@@ -370,7 +371,7 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike
           {/* The lane's picture, said in one sentence for a screen reader: an image of its own, with nothing inside it (what is inside an image is not offered as a control, and the handle must be). */}
           <span role="img" aria-label={laneSummary(info.label, info.callsign, marks)} className="pointer-events-none absolute inset-0" />
 
-          {/* Behind everything, while this jet's time is being set: the times at which its time over target would put it inside another's frag. Nothing here takes a press. */}
+          {/* Behind everything, while this jet's time is being set: the times at which its time over target would start a frag warning (blast or spacing). Nothing here takes a press. */}
           {zonesShown && info.zones.map((z) => {
             const f0 = axisFraction(axis, z.t0_s);
             const f1 = axisFraction(axis, z.t1_s);

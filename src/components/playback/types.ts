@@ -4,6 +4,8 @@
  */
 import type { PlaybackInput, PlaybackSubject } from '../../lib/playback';
 import type { DbWeapon, Mission } from '../../types';
+import type { FragRule } from '../../types/strike.types';
+import type { EditorLaunchArgs } from './launch';
 
 /**
  * Everything playback needs, taken from the planner at the moment the Play
@@ -63,6 +65,16 @@ export interface PlayStrikeButtonProps {
   build?: () => PlaybackLaunch | undefined;
   /** The attack list's way: the strike or attack of the saved plan to play, and the weapon table. */
   fromMission?: { subject: PlaybackSubject; weapons: DbWeapon[] };
+}
+
+/**
+ * The strike strip's frag part: the "Warn by" choice and, under the blast rule, its lines and notes. `args` are the
+ * editor's drafts and times as the Play button would hand them over, so the strip and the playback check the same jets.
+ */
+export interface FragPanelProps {
+  args: EditorLaunchArgs;
+  rule: FragRule;
+  onRule: (rule: FragRule) => void;
 }
 
 /** What the lazily loaded view is given. */

@@ -100,13 +100,13 @@ export const PIN_MARK = 'absolute left-0 top-0 text-[11px] leading-3';
 /** A lane's right cell: its time over target and the card's push time. Text: laneStyle's READOUT_TEXT. */
 export const READOUT = 'min-w-0 font-mono text-[11px] leading-tight text-gray-300';
 /**
- * The cell's first line: "TOT T+0:30", the box that time is typed in, and a mark when the jet is inside another's
- * frag. It is 16 px tall (the box's height) and the second line 13.75, so the cell stays inside the lane's 30.
+ * The cell's first line: "TOT T+0:30", the box that time is typed in, and a mark when the jet is in a frag warning
+ * (a blast radius, or the spacing rule's frag). It is 16 px tall (the box's height) and the second line 13.75, so the cell stays inside the lane's 30.
  */
 export const READOUT_LINE = 'flex h-4 items-center gap-1 whitespace-nowrap';
 /** The box a time over target is typed in: fill and edge are laneStyle's BOX_FILL and BOX_EDGE. */
 export const TIME_BOX = 'w-14 h-4 px-1 py-0 text-[11px] text-right tabular-nums bg-gray-700 border border-gray-500 rounded';
-/** The warning mark beside a time that puts the jet inside another's frag (amber, laneStyle's WARN_TEXT). */
+/** The warning mark beside a time that puts the jet in a frag warning, by blast radius or by spacing (amber, laneStyle's WARN_TEXT). */
 export const CONFLICT_MARK = 'text-amber-300';
 /**
  * The handle that moves a jet's time over target, drawn over its diamond: a square to take hold of, a
@@ -116,10 +116,10 @@ export const HANDLE = 'absolute z-[5] flex -translate-x-1/2 -translate-y-1/2 tou
 /** A chip on a lane: its width is set from its letters, its colours from the mark. */
 export const CHIP = 'absolute flex h-3 items-center justify-center overflow-hidden rounded-full -translate-x-1/2';
 export const CHIP_LETTERS = 'font-mono text-[10px] leading-3 font-bold';
-/** The amber stripes over the times a jet would be over the target inside another's frag. */
+/** The amber stripes over the times that would start a frag warning (a jet inside a blast radius, or the spacing rule's frag). */
 export { HATCH } from '../../lib/playbackScene';
 /**
- * The line of small print under the lanes: the first frag or cone warning in amber (WARN_TEXT), or an
+ * The line of small print under the lanes: the first blast (or spacing-rule frag) or cone warning in amber (WARN_TEXT), or an
  * all-clear in grey (QUIET_TEXT); the rest of the warnings fold under a text button that adds no height.
  */
 export const FOOTER = 'flex items-center gap-3 text-xs';

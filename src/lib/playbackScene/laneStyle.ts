@@ -57,7 +57,7 @@ export const CHIP_TEXT: Record<ActionKind, '#000000' | '#ffffff'> = {
   AP: '#000000', ROLL: '#000000', RUN: '#000000', POP: '#000000', PDP: '#000000', REL: '#000000', TRK: '#ffffff',
 };
 
-/** Where the time over target falls inside another jet's frag: amber stripes (0.35 read 2.5:1 on the panel). */
+/** Where a time over target puts a jet inside another's blast radius (or, under the spacing rule, its frag): amber stripes (0.35 read 2.5:1 on the panel). */
 export const HATCH_RGB = '252, 211, 77';
 export const HATCH_ALPHA = 0.5;
 export const HATCH = `repeating-linear-gradient(45deg, rgba(${HATCH_RGB}, ${HATCH_ALPHA}) 0 3px, transparent 3px 7px)`;

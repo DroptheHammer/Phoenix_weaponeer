@@ -28,7 +28,7 @@ export const DEFAULT_SPACING_S = 30;
 /** A fire-control radar's cone, roughly: two jets closer than this in azimuth are one target to it. */
 export const FIRE_CONTROL_CONE_DEG = 40;
 
-/** Two jets this close to the same attack axis fly through each other's frag unless spaced in time. */
+/** The spacing rule's "same axis": its frag warning says so when the two jets' attack axes are this close. */
 export const SAME_AXIS_DEG = 15;
 
 // ─── Membership ────────────────────────────────────────────────────────────────
@@ -351,12 +351,13 @@ export function fragConflicts(jets: StrikeJet[]): FragConflict[] {
 }
 
 /**
- * A strike's frag rule. Only a strike that says 'burst' is checked by blast
- * distance; anything else, a strike saved before the choice existed included,
- * keeps the spacing rule. Never rendered, so an odd value needs no checking.
+ * A strike's frag rule. Blast distance when a bomb goes off is how DCS works,
+ * so it is the default: only a strike that says 'time' keeps the real-world
+ * spacing rule, and a strike saved before the choice existed is checked by
+ * distance. Never rendered, so an odd value needs no checking.
  */
 export function strikeFragRule(strike: { fragRule?: string } | undefined): FragRule {
-  return strike?.fragRule === 'burst' ? 'burst' : 'time';
+  return strike?.fragRule === 'time' ? 'time' : 'burst';
 }
 
 /**

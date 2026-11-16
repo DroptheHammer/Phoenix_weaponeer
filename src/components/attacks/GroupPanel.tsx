@@ -4,7 +4,7 @@ import { ipFieldsFor, ipPointFromFields, seedCustomIp } from '../../lib/ipAnchor
 import { calculateDistance } from '../../lib/coordinates';
 import { formatCallsign } from '../../lib/callsign';
 import { targetCandidates, ipCandidates, waypointLabel } from '../../lib/waypointOptions';
-import { fragClearTime_s } from '../../lib/strike';
+import { fragClearTime_s, strikeFragRule } from '../../lib/strike';
 import {
   assignFlanks,
   chooseStrikeProfile,
@@ -52,7 +52,8 @@ export function GroupPanel({ strike, jets, resolved, ctx, aircraft, onStrike, on
   const leadTarget = leadResolved?.target;
   const strikeTargetId = lead?.draft.targetWaypointId ?? '';
   const leadSide = leadSideOf(jets, ctx);
-  const frag = Math.max(0, ...resolved.map((r) => fragClearTime_s(r.weapon)));
+  // The frag clear time is the spacing rule's number; a strike warned by blast distance has no time to give.
+  const frag = strikeFragRule(strike) === 'time' ? Math.max(0, ...resolved.map((r) => fragClearTime_s(r.weapon))) : 0;
   const leadIsLoft = leadResolved?.profile?.type === 'loft_ccrp';
   const leadIpDistance_nm = leadResolved?.build.ipAnchor && leadTarget ? calculateDistance(leadResolved.build.ipAnchor.point, leadTarget.coordinates) : undefined;
 

@@ -204,12 +204,14 @@ mod tests {
 
         let with_strike = old.replace(
             r#""attacks":[],"#,
-            r#""attacks":[],"strikes":[{"id":"s1","name":"Viper 1 strike","ip":{},"spacing_s":30}],"#,
+            r#""attacks":[],"strikes":[{"id":"s1","name":"Viper 1 strike","ip":{},"spacing_s":30,"fragRule":"time"}],"#,
         );
         let mission = parse_saved_mission(&with_strike).expect("save with a strike loads");
         assert_eq!(mission.strikes.len(), 1);
         let back = parse_saved_mission(&mission_to_json(&mission).unwrap()).expect("reload");
         assert_eq!(back.strikes[0]["name"], "Viper 1 strike");
+        // The strike's frag rule travels with the mission, so the squadron sees the warnings the planner chose.
+        assert_eq!(back.strikes[0]["fragRule"], "time");
     }
 
     /// A save from before card lighting existed has no `cardLighting` key and

@@ -40,11 +40,13 @@ const MARKERS = ['vec3 transformed = vec3( position );', 'THREE.WebGLRenderer'];
 // The playback library and scene (src/lib/playback, src/lib/playbackScene) hold
 // no three.js, so they could be pulled into start-up, or onto the phone, by one
 // eager import without the markers above noticing. Each string here is one that
-// only they carry: a warning the library words, and the elevation credit the
-// scene prints. (The map credit is no marker: the card's basemap prints it too.)
+// only they carry: a warning the library words, the elevation credit the
+// scene prints, and the blast warning's words (the strike editor shows them
+// too, through a panel that must load lazily). (The map credit is no marker:
+// the card's basemap prints it too.)
 // If a build reports one as "in no lazy chunk", the string was reworded, or the
 // library has gone from the build: look before editing this list.
-const LIBRARY_MARKERS = ['No jet in this strike can be played.', 'Mapzen (AWS Open Data)'];
+const LIBRARY_MARKERS = ['No jet in this strike can be played.', 'Mapzen (AWS Open Data)', 'when it goes off, inside its'];
 
 function* files(dir) {
   for (const name of readdirSync(dir)) {
@@ -144,6 +146,8 @@ if (none) {
     // Proven able to fail: with `import { ELEVATION_CREDIT } from "./lib/playbackScene"; console.log(ELEVATION_CREDIT);` in App.tsx,
     // "Bundle check FAILED for dist: the playback library loads at start-up, in index-<hash>.js (it carries "Mapzen (AWS Open Data)"). Only a lazy import() may reach it."
     // and with `import { buildStrikePlayback } from "./lib/playback"; console.log(buildStrikePlayback);` the same for "No jet in this strike can be played."
+    // and with src/lib/strike.ts importing burstSentence from ./playback/fragWords and keeping it on globalThis,
+    // "Bundle check FAILED for dist: the playback library loads at start-up, in index-<hash>.js (it carries "when it goes off, inside its"). ..."
     if (atStart.length) fail(`the playback library loads at start-up, in ${atStart.join(', ')} (it carries "${marker}"). Only a lazy import() may reach it.`);
     carriers[marker] = lazyScripts.filter((f) => text(join(assets, f)).includes(marker));
     // Proven able to fail: with the marker in LIBRARY_MARKERS changed to 'Mapzen (AWS Open Data) x',

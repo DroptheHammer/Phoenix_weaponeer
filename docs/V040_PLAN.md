@@ -33,7 +33,7 @@ after 0.3.4 was published; every decision in the table below is theirs.
 | Playback unit | **One strike (a flight) at a time.** A single attack that isn't in a strike plays as a strike of one. |
 | Timing | Playback has its own per-jet **delay sliders to try freely**. An **"Apply to plan"** button writes the spacing back to the strike's TOT offsets, and so to the cards. Nothing changes until it's pressed. |
 | Cameras | Free orbit around the target, plus **chase a jet**, **top-down**, **from the target**, **side-on** (matching the card's side profile). |
-| Extras | **Threat domes** (max range and altitude, jet highlights inside one), **frag cloud and frag-overlap warnings**, **labels on jets** (callsign, altitude, speed). No video recording in 0.4.0. |
+| Extras | **Threat domes** (max range and altitude, jet highlights inside one), **frag warnings** (since 2026-11-15, by the user's decision, DCS's blast: a jet inside a bomb's blast radius when it goes off; the old spacing rule stays as a choice on the strike; no lingering cloud), **labels on jets** (callsign, altitude, speed). No video recording in 0.4.0. |
 | Look | Generic arrow per jet, a small generic bomb. No aircraft models. |
 | Artwork (reopened by the user 2026-11-14) | A new **app icon** and a **loading splash**, in **squadron-patch / emblem style**. The **icon is a clean phoenix with no can** (it must read at small sizes). The **splash keeps the phoenix-and-White-Claw-can joke**. The splash shows **only while the app loads, then fades**: no fixed animation, no zoom. The user makes the images with their own generators (Qwen etc.) from the prompts below. The examples are the Sept 30 set in `Other Items/Artwork/`. |
 
@@ -125,7 +125,9 @@ profile to egress. Everything it needs exists:
     tolerance.
   - Release and impact positions match the 2D geometry.
   - Altitude at each side-profile point matches.
-  - A frag overlap shows up where `strikeReadout` already warns.
+  - A frag warning shows up where the strike editor's strip warns: the strip
+    and the playback run the same check (by default the blast radius at the
+    burst, `src/lib/playback/burst.ts`; under the spacing rule `strikeReadout`).
   - Each new test is proven able to fail.
 
 ### B2. 3D scene + terrain spike — USER GATE
@@ -170,8 +172,9 @@ profile to egress. Everything it needs exists:
   - A jet's arrow and label highlight while it is inside a dome.
   - **Author-hidden threats never appear** (`threatVisibility.ts`, same rules
     and Admin reveal as the map).
-- **Frag:** a brief cloud at impact sized from the existing frag data, and a
-  warning chip when a later jet passes through an earlier jet's frag.
+- **Frag:** a ring at impact at the weapon's sourced blast radius, and a
+  warning chip when another jet is inside a bomb's blast radius as it goes off
+  (the user's decision of 2026-11-15: DCS's blast is instant, so no cloud).
 - **Labels:** callsign, altitude (MSL/AGL as the planner shows it) and speed
   beside each arrow, with a toggle.
 
@@ -341,7 +344,9 @@ interior, clutter, extra text, misspelled text, watermark, low resolution.*
 - **Track B:**
   - Play a 2- and 4-ship pop-up strike and a loft, and check that the
     impact-time readout matches the strike readout.
-  - Change a delay and check the frag warning appears.
+  - Change a delay and check the frag warning appears (with "Warn by: Spacing
+    in time" on the strike; by blast radius it only fires where a jet passes
+    through another's burst, as on a target high on a ridge).
   - "Apply to plan" changes the cards' TOT. Reset restores it.
   - With network off, cached terrain works, and so does the flat fallback.
 - **Track D:**

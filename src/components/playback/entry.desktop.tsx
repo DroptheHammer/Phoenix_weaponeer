@@ -8,16 +8,34 @@
  * scripts/bundle-check.mjs fails the build if it ever reaches the main chunk.
  */
 import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
-import type { PlaybackLaunch, PlayStrikeButtonProps } from './types';
+import type { FragPanelProps, PlaybackLaunch, PlayStrikeButtonProps } from './types';
 import { PlaybackOverlay } from './PlaybackOverlay';
 import { PlaybackErrorBoundary, PlaybackUnavailable } from './PlaybackErrorBoundary';
 import { probeWebGL2 } from './webgl';
-import { playbackLaunchFromMission } from './launch';
+import { BLAST_CHECK_FAILED, playbackLaunchFromMission } from './launch';
 
 export const PLAYBACK_AVAILABLE = true;
 
 /** Builds what Play hands the playback from the attack editor's drafts (see launch.ts). */
 export { playbackLaunchFromEditor } from './launch';
+
+// The blast check builds the playback, so its panel loads the first time a strike is open, never at start-up.
+// A chunk that fails to load leaves one line in its place rather than an editor that cannot open.
+const LazyFragPanel = lazy(() =>
+  import('./FragPanel').catch(() => ({ default: () => <div className="text-xs text-amber-300">{BLAST_CHECK_FAILED}</div> })),
+);
+
+/**
+ * The strike strip's "Warn by" choice and blast lines. While its code loads the strip keeps a blank line of the same
+ * height: nothing false and no all-clear is ever shown in the meantime.
+ */
+export function FragPanel(props: FragPanelProps) {
+  return (
+    <Suspense fallback={<div className="h-5" />}>
+      <LazyFragPanel {...props} />
+    </Suspense>
+  );
+}
 
 /**
  * The Play button. The attack editor gives it `build` (its drafts as they stand); the attack list gives it

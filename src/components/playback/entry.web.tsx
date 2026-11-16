@@ -4,7 +4,7 @@
  * or the playback shell. scripts/bundle-check.mjs checks that on every web build.
  * Same exports as `entry.desktop.tsx`.
  */
-import type { PlayStrikeButtonProps } from './types';
+import type { FragPanelProps, PlayStrikeButtonProps } from './types';
 import type { playbackLaunchFromEditor as DesktopLaunch } from './launch';
 
 export const PLAYBACK_AVAILABLE = false;
@@ -18,4 +18,13 @@ export const playbackLaunchFromEditor: typeof DesktopLaunch = () => undefined;
 
 export function PlayStrikeButton(_props: PlayStrikeButtonProps): null {
   return null;
+}
+
+/**
+ * The blast check needs the playback library, which the phone does not get, so a strike warned by blast distance
+ * says where it is checked. The phone keeps the strike's choice as saved and cannot change it; under the spacing
+ * rule the strip's own warnings print as always.
+ */
+export function FragPanel({ rule }: FragPanelProps) {
+  return rule === 'burst' ? <div className="text-xs text-gray-400">Blast distances are checked in the desktop app.</div> : null;
 }

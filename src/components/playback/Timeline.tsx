@@ -10,10 +10,11 @@
  * Under the bar runs the watched jet's phase band in the planner's colours,
  * the same band its lane draws below, so the colour code reads on the bar
  * itself (it moves to another jet's when another is watched), and, along the
- * bottom of the same strip, amber stripes over the strike's frag warnings (a
- * jet over the target inside another's frag; or, when the strike is warned by
- * blast radius, the moment a bomb went off with a jet inside its radius, drawn
- * at least a few pixels wide so an instant is not lost on a long bar). The
+ * bottom of the same strip, amber stripes over the strike's frag warnings (the
+ * moment a bomb went off with another jet inside its blast radius, drawn at
+ * least a few pixels wide so an instant is not lost on a long bar; or, when the
+ * strike is warned by spacing in time, a jet over the target inside another's
+ * frag). The
  * three columns are the lanes' own (ROW_GRID): Play and the clock on the
  * left, the bar in the middle, the speeds on the right.
  */

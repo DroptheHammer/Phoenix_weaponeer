@@ -10,10 +10,10 @@ import { JetPanel, type AircraftLite } from './JetPanel';
 import { GroupPanel } from './GroupPanel';
 import { JetStrip, JET_COLORS } from './JetStrip';
 import { AttackPreviewMap, type PreviewAttack } from '../map/AttackPreviewMap';
-import { PlayStrikeButton, playbackLaunchFromEditor } from '@playback';
+import { FragPanel, PlayStrikeButton, playbackLaunchFromEditor } from '@playback';
 import { draftAttackData, draftFromAttack, draftIpAnchor, resolveDraft, setIp, type DraftContext, type ResolvedDraft } from '../../lib/attackDraft';
 import { newJet, newStrike, jetsOfStrike, respace, sortJets, setStrikeIp, strikeIpOf, syncJetIp, assignFlanks, leadSideOf, withTotOffsets, type Jet } from '../../lib/strikeDraft';
-import { attackSpeedOf, coneGrade, fmtStrikeTime, strikeFlank, strikeOf, strikeReadout, type StrikeJet } from '../../lib/strike';
+import { attackSpeedOf, coneGrade, fmtStrikeTime, strikeFlank, strikeFragRule, strikeOf, strikeReadout, type StrikeJet } from '../../lib/strike';
 import { buildAttackPicture } from '../../lib/attackPicture';
 import { resolveEgressHeading } from '../../lib/attackGeometry';
 import { loftPullUpTimer_s, resolveLoftEgressHeading } from '../../lib/loftPlanning';
@@ -21,6 +21,7 @@ import { calculateDistance } from '../../lib/coordinates';
 import { formatCallsign } from '../../lib/callsign';
 import type { RunInSummary } from '../../lib/runIn';
 import type { Attack, AttackProfile, Coordinates, DbWeapon, FuzeOption, IpAnchorFields, LoftCCRPProfile, Mission, Strike } from '../../types';
+import type { FragRule } from '../../types/strike.types';
 
 interface ThreatSystemLite {
   id: string;
@@ -237,6 +238,10 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
       )
     );
 
+  // The jets as Play hands them over, and as the strip's blast check builds them, so the two agree.
+  const launchArgs = { mission, drafts, resolved, offsets: jets.map((j) => j.totOffset_s), strikeName: strike?.name, selectedIndex, fragRule: strike?.fragRule };
+  const fragRule = strikeFragRule(strike);
+
   const canMakeStrike = !strike && mission.flightMembers.length > 1 && !!jets[0]?.draft.targetWaypointId;
   const saveLabel = strike ? 'Save strike' : `${attack ? 'Update' : 'Save'} attack`;
 
@@ -269,6 +274,8 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
           weapon: resolved[i].weapon,
         };
       })}
+      rule={fragRule}
+      frag={<FragPanel args={launchArgs} rule={fragRule} onRule={(r) => setStrike({ ...strike, fragRule: r })} />}
     />
   );
 
@@ -334,7 +341,7 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
             <PlayStrikeButton
               disabled={!allSavable}
               build={() => playbackLaunchFromEditor({
-                mission, drafts, resolved, offsets: jets.map((j) => j.totOffset_s), strikeName: strike?.name, selectedIndex,
+                ...launchArgs,
                 applyOffsets: strike ? (o) => setJets((js) => withTotOffsets(js, o)) : undefined,
               })}
             />
@@ -464,10 +471,12 @@ function PhoneEditorLayout({ map, readout, sideView, jetStrip, strikeReadout, co
  * The strike as the defender and the flight lead see it: how far apart the
  * jets arrive in azimuth (graded against a fire-control cone), when each is
  * over the target and when it leaves the IP, and anything that doesn't
- * deconflict.
+ * deconflict. Under the blast rule its frag lines come from `frag` (the
+ * playback library's check, loaded lazily), so the rule's choice and those
+ * lines sit between the times and the cone warnings.
  */
-function StrikeReadoutStrip({ jets }: { jets: StrikeJet[] }) {
-  const r = strikeReadout(jets);
+function StrikeReadoutStrip({ jets, rule, frag }: { jets: StrikeJet[]; rule: FragRule; frag: ReactNode }) {
+  const r = strikeReadout(jets, rule);
   const gradeColor = { good: 'text-green-400', marginal: 'text-amber-300', inside: 'text-red-400' } as const;
   return (
     <div className="shrink-0 rounded-lg px-3 py-2 bg-dcs-dark space-y-1">
@@ -493,6 +502,7 @@ function StrikeReadoutStrip({ jets }: { jets: StrikeJet[] }) {
         ))}
         <div className="text-gray-500">times est., relative to the lead's TOT</div>
       </div>
+      {frag}
       {r.warnings.map((w) => (
         <div key={w} className="text-xs text-amber-300">⚠ {w}</div>
       ))}
