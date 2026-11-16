@@ -116,6 +116,69 @@
   max-width: 100%;
 }
 
+/*
+ * A dialog covers the whole window (position: fixed). Inside this box it covers only the box, because
+ * a transform makes the box the one a fixed child is placed in, so a dialog can sit on the page
+ * among the other blocks. The box hides what overflows it: a desktop dialog is shown at its real
+ * size on a wide window and is cut at the box's edge on a narrow one.
+ */
+.gallery-dialog-box {
+  position: relative;
+  transform: translateZ(0);
+  overflow: hidden;
+  width: 100%;
+  max-width: 1100px;
+  height: 460px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+}
+/* The fixed-size dialog is 700 px tall, so its box is taller. */
+.gallery-dialog-box-tall {
+  height: 760px;
+}
+/* The editor's dialog is sized to the window (96% by 92%), so its box is the window's size. */
+.gallery-dialog-box-fill {
+  max-width: none;
+  height: 100vh;
+}
+/* The phone's dialog is a full-screen page: its box is a phone's width and a phone's height. */
+.gallery-dialog-box-phone {
+  width: 390px;
+  max-width: 100%;
+  height: 640px;
+}
+/*
+ * The sizes the dialogs below are given through their width and height props. Those props take a class
+ * name, and Tailwind builds no class from this folder (it would have to be written somewhere it does
+ * read), so a class such as h-[380px] would not exist here and the dialog would grow to fit its content.
+ * The names are defined here, where the page can see them.
+ */
+.gallery-dialog-height-scrolling {
+  height: 380px;
+}
+.gallery-dialog-width-columns {
+  width: min(980px, 96vw);
+}
+.gallery-dialog-height-columns {
+  height: min(700px, 90vh);
+}
+/* The body of a dialog that does not scroll: two columns that scroll apart. */
+.gallery-dialog-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--sp-6);
+  height: 100%;
+}
+.gallery-dialog-column {
+  min-height: 0;
+  overflow-y: auto;
+}
+.gallery-dialog-line {
+  padding: var(--sp-2) 0;
+  font-size: var(--fs-small);
+}
+
 /* The icon table: each icon over its name. */
 .gallery-icons {
   display: grid;

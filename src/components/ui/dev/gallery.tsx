@@ -19,16 +19,22 @@
  * block's own box. Open the page at 390 px wide and the phone's touch sizes show with no switch:
  * they are tokens that change under the phone's media query.
  *
+ * The dialogs come once, after the three surfaces, in a section of their own (`data-surface="dialogs"`):
+ * a dialog brings its own surface, so repeating it on each would show the same thing three times.
+ * Each sits in a box that carries its name (dialog-desktop, dialog-scrolling, dialog-columns,
+ * dialog-editor, dialog-phone); the dialog itself is the `[role="dialog"]` inside it.
+ *
  * The page lays itself out with gallery.css and uses no utility classes: Tailwind does not read
  * this folder, so none would exist.
  */
-import { StrictMode, useState } from 'react';
+import { StrictMode, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../index.css';
 import './gallery.css';
 import { Button, type ButtonSize, type ButtonVariant } from '../Button';
 import { Card } from '../Card';
 import { Chip, Dot, type ChipSize, type ChipTone, type DotKind } from '../Chip';
+import { DialogFrame } from '../DialogFrame';
 import { Icon, type IconName, type IconSize } from '../Icon';
 import { IconButton, type IconButtonSize } from '../IconButton';
 import { GroupLabel, Panel } from '../Panel';
@@ -277,6 +283,134 @@ function TabsSection() {
   );
 }
 
+const noop = () => {};
+
+/** Sample lines of text, so a dialog body has something to fill or to scroll. */
+function Lines({ count, word }: { count: number; word: string }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <div className="gallery-dialog-line" key={i}>
+          {word} {i + 1}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** A dialog's actions: Back on the left, the one main action on the right. */
+const DIALOG_ACTIONS = (
+  <>
+    <Button variant="quiet">Back</Button>
+    <Button variant="primary">Import</Button>
+  </>
+);
+
+type BoxSize = 'small' | 'tall' | 'fill' | 'phone';
+const BOX_CLASS: Record<BoxSize, string> = {
+  small: 'gallery-dialog-box',
+  tall: 'gallery-dialog-box gallery-dialog-box-tall',
+  fill: 'gallery-dialog-box gallery-dialog-box-fill',
+  phone: 'gallery-dialog-box gallery-dialog-box-phone',
+};
+
+/**
+ * One dialog inside a box on the page. A dialog covers the whole window, so the box (gallery.css) is
+ * what it covers here; something sits behind it so the dark backdrop shows. The box carries the name,
+ * because a dialog takes no attributes of its own.
+ */
+function DialogBox({ name, size = 'small', children }: { name: string; size?: BoxSize; children: ReactNode }) {
+  return (
+    <div className={BOX_CLASS[size]} data-gallery={name}>
+      <Panel>
+        <div className="gallery-pad">The page behind the dialog</div>
+        <div className="gallery-pad">Everything here is covered and dimmed</div>
+      </Panel>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The frame every dialog sits in: a small one, one with a fixed height whose body scrolls under a
+ * header that stays, one of a fixed size whose two columns scroll apart, the editor's nearly
+ * full-screen one (a smaller title), and the phone's full-screen page. It is not repeated on each
+ * surface: a dialog brings its own, so the page behind it is the only thing that could differ.
+ */
+function DialogsSection() {
+  return (
+    <section className="gallery-surface gallery-surface-window" data-surface="dialogs" aria-label="Dialogs">
+      <h1 className="gallery-title">Dialogs</h1>
+      <p className="gallery-note">
+        Each dialog is drawn inside a box so it does not cover this page. The desktop ones are shown at their real size on a wide window and are cut at the box's edge on a narrow one;
+        the phone's is a full-screen page, so its box is a phone's size. Scroll inside a dialog's body to see its header and footer stay.
+      </p>
+      <div className="gallery-section">
+        <h2 className="gallery-heading">A small dialog: a line above the title, a line under it, actions below</h2>
+        <DialogBox name="dialog-desktop">
+          <DialogFrame title="Preview Import" eyebrow="FragOrders" description="Check what was found before you import it." phone={false} onClose={noop} footer={DIALOG_ACTIONS}>
+            <Lines count={4} word="A line of the body" />
+          </DialogFrame>
+        </DialogBox>
+      </div>
+      <div className="gallery-section">
+        <h2 className="gallery-heading">A dialog with a height of its own: the body scrolls, the header and footer stay</h2>
+        <DialogBox name="dialog-scrolling">
+          <DialogFrame title="Settings" phone={false} onClose={noop} heightClass="gallery-dialog-height-scrolling" footer={DIALOG_ACTIONS}>
+            <Lines count={30} word="A line of the body" />
+          </DialogFrame>
+        </DialogBox>
+      </div>
+      <div className="gallery-section">
+        <h2 className="gallery-heading">A dialog of one fixed size, its body not scrolling: two columns scroll apart</h2>
+        <DialogBox name="dialog-columns" size="tall">
+          <DialogFrame
+            title="Choose your flight"
+            phone={false}
+            onClose={noop}
+            widthClass="gallery-dialog-width-columns"
+            heightClass="gallery-dialog-height-columns"
+            scrollBody={false}
+            footer={DIALOG_ACTIONS}
+          >
+            <div className="gallery-dialog-columns">
+              <div className="gallery-dialog-column">
+                <Lines count={40} word="A flight in the list" />
+              </div>
+              <div className="gallery-dialog-column">
+                <Lines count={40} word="A line of the chosen flight" />
+              </div>
+            </div>
+          </DialogFrame>
+        </DialogBox>
+      </div>
+      <div className="gallery-section">
+        <h2 className="gallery-heading">The editor's dialog: nearly full screen, a smaller title, the children fill the body</h2>
+        <DialogBox name="dialog-editor" size="fill">
+          <DialogFrame title="Attack editor" phone={false} onClose={noop} fill>
+            <div className="gallery-dialog-columns">
+              <div className="gallery-dialog-column">
+                <Lines count={40} word="A control" />
+              </div>
+              <div className="gallery-dialog-column">
+                <Lines count={40} word="The map would be here, line" />
+              </div>
+            </div>
+          </DialogFrame>
+        </DialogBox>
+      </div>
+      <div className="gallery-section">
+        <h2 className="gallery-heading">On a phone: a full-screen page with the safe-area margins</h2>
+        <DialogBox name="dialog-phone" size="phone">
+          <DialogFrame title="Preview Import" phone onClose={noop} footer={DIALOG_ACTIONS}>
+            <Lines count={30} word="A line of the body" />
+          </DialogFrame>
+        </DialogBox>
+      </div>
+    </section>
+  );
+}
+
 /** Every block in every variant, size and state: the same list goes on each surface. */
 function Blocks() {
   return (
@@ -389,5 +523,6 @@ createRoot(document.getElementById('root')!).render(
     <Surface tone="window" />
     <Surface tone="navy" />
     <Surface tone="float" />
+    <DialogsSection />
   </StrictMode>,
 );

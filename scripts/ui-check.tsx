@@ -15,6 +15,7 @@ import { GroupLabel, Panel, type PanelTone } from '../src/components/ui/Panel';
 import { Card } from '../src/components/ui/Card';
 import { Chip, type ChipTone, type ChipSize } from '../src/components/ui/Chip';
 import { Tabs, nextSelection, type TabsVariant } from '../src/components/ui/Tabs';
+import { DialogFrame } from '../src/components/ui/DialogFrame';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -171,17 +172,56 @@ const audit = (label: string, markup: string) => {
   for (const as of ['div', 'button', 'a'] as const) audit(`Card ${as}`, html(createElement(Card, { as, href: '#' }, 'x')));
 }
 
+// ─── The dialog frame ────────────────────────────────────────────────────────────
+{
+  const dlg = html(createElement(DialogFrame, { title: 'Preview Import', onClose: noop, phone: false }, 'body'));
+  const dlgPhone = html(createElement(DialogFrame, { title: 'Preview Import', onClose: noop, phone: true }, 'body'));
+  // Red when: DialogFrame drops aria-label from the role="dialog" element (App's Undo guard and the playback overlay look for it).
+  // Seen: FAIL DS18 DialogFrame: role="dialog" with aria-label=title and aria-modal, z 2000, a close button named "Close <title>" (phone: "Close")  <div class="fixed inset-0 z-[2000] … <div role="dialog" aria-modal="true" class="flex flex-col overflow-hidden …   (no aria-label)
+  ok('DS18 DialogFrame: role="dialog" with aria-label=title and aria-modal, z 2000, a close button named "Close <title>" (phone: "Close")',
+     /role="dialog"[^>]*aria-modal="true"[^>]*aria-label="Preview Import"/.test(dlg) && /aria-label="Close Preview Import"/.test(dlg) && /z-\[2000\]/.test(dlg)
+       && /role="dialog"[^>]*aria-label="Preview Import"/.test(dlgPhone) && /aria-label="Close"/.test(dlgPhone) && /z-\[2000\]/.test(dlgPhone), dlg.slice(0, 160));
+  // A dialog of one fixed size whose body does not scroll (its two columns do), and an ordinary dialog that still scrolls its body.
+  const cols = html(createElement(DialogFrame, { title: 'Choose your flight', onClose: noop, phone: false, widthClass: 'w-[min(980px,96vw)]', heightClass: 'h-[min(700px,90vh)]', scrollBody: false }, 'b'));
+  const plain = html(createElement(DialogFrame, { title: 'Settings', onClose: noop, phone: false }, 'b'));
+  // Red when: DialogFrame ignores scrollBody (the body's `scrollBody ? … : 'overflow-hidden px-6 pb-4 pt-1'` becomes `'overflow-y-auto px-6 pb-4 pt-1'`, so the body keeps scrolling);
+  // or heightClass is dropped from the panel (`${heightClass}` becomes `max-h-[90vh]`).
+  // Seen: FAIL DS18 DialogFrame: a fixed-height dialog with a body that does not scroll, for two columns that scroll apart; an ordinary dialog still scrolls its body  <div class="fixed inset-0 z-[2000] … aria-label="Choose your flight" class="flex flex-col overf…
+  //       (each of the two changes)
+  ok('DS18 DialogFrame: a fixed-height dialog with a body that does not scroll, for two columns that scroll apart; an ordinary dialog still scrolls its body',
+     /h-\[min\(700px,90vh\)\]/.test(cols) && !/max-h-\[90vh\]/.test(cols) && !/overflow-y-auto/.test(cols) && /overflow-hidden px-6/.test(cols) && /max-h-\[90vh\]/.test(plain) && /overflow-y-auto px-6/.test(plain), cols.slice(0, 240));
+  audit('DialogFrame', html(createElement(DialogFrame, { title: 't', onClose: noop, phone: false, eyebrow: 'e', description: 'd', footer: 'f' }, 'b')) + html(createElement(DialogFrame, { title: 't', onClose: noop, phone: true, footer: 'f' }, 'b')));
+  audit('DialogFrame columns', cols);
+  audit('DialogFrame fill', html(createElement(DialogFrame, { title: 't', onClose: noop, phone: false, fill: true }, 'b')) + html(createElement(DialogFrame, { title: 't', onClose: noop, phone: true, fill: true }, 'b')));
+}
+
+// ─── The gallery's dialogs get their sizes from classes the gallery defines ──────
+{
+  // The width and height props take a class name, and Tailwind builds nothing from the gallery's folder, so a utility class passed
+  // there (h-[380px]) is never made and the dialog quietly ends up the wrong size. The page has to name a class gallery.css defines.
+  const defined = new Set([...read('src/components/ui/dev/gallery.css').matchAll(/^\s*\.([\w-]+)/gm)].map((m) => m[1]));
+  const given = [...read('src/components/ui/dev/gallery.tsx').matchAll(/\b(?:width|height)Class="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/));
+  const missing = given.filter((c) => !defined.has(c));
+  // Red when: the scrolling dialog's heightClass="gallery-dialog-height-scrolling" in gallery.tsx becomes "h-[380px]" (a Tailwind class that is not built there);
+  // or the same for the columns dialog's widthClass (w-[min(980px,96vw)]) or heightClass; or a rule's name is changed in gallery.css so the page's class is no longer defined.
+  // Seen: FAIL DS18 gallery dialogs: every width and height class the gallery gives a dialog is defined in gallery.css  given: h-[380px], gallery-dialog-width-columns, gallery-dialog-height-columns; not defined: h-[380px]
+  ok('DS18 gallery dialogs: every width and height class the gallery gives a dialog is defined in gallery.css', given.length > 0 && missing.length === 0, `given: ${given.join(', ')}; not defined: ${missing.join(', ')}`);
+}
+
 // ─── One utility per property ────────────────────────────────────────────────────
 // Red when: `gap-2` goes back into Button's BASE (the text size's `gap-1` then meets it); or `font-bold` is added beside the tonal variant's `font-semibold`
 // (Tailwind emits bold FIRST, so semibold would win and the button would not look bold).
 // Seen: FAIL DS21 one utility per property: …  Button text/md: gap-2 and gap-1; Button text/lg: gap-2 and gap-1; Button text/compact: gap-2 and gap-1; …
 //       FAIL DS21 one utility per property: …  Button tonal/md: font-semibold and font-bold; Button tonal/lg: font-semibold and font-bold; …
 // Also red when, one change each: Chip's `estimated` tone gets `tracking-tag` beside `tracking-label`; `font-semibold` goes into Tabs' rail base (the lit state's `font-bold` meets it);
-// the Panel group tone gets `border-line-strong` beside `border-line`; the Card's shadow gets `shadow-ui-2` beside `shadow-ui-1`; GroupLabel's note span gets `gap-2` beside `gap-1.5`.
+// the Panel group tone gets `border-line-strong` beside `border-line`; the Card's shadow gets `shadow-ui-2` beside `shadow-ui-1`; GroupLabel's note span gets `gap-2` beside `gap-1.5`;
+// DialogFrame's desktop header gets `px-4` beside `px-6` (or the editor header `px-6` beside `px-4`).
 // Seen: FAIL DS21 one utility per property: …  Chip estimated/sm: tracking-label and tracking-tag; Chip estimated/lg: tracking-label and tracking-tag
 //       FAIL DS21 one utility per property: …  Tabs rail: font-semibold and font-bold
 //       FAIL DS21 one utility per property: …  Panel group: border-line and border-line-strong
 //       FAIL DS21 one utility per property: …  Card div: shadow-ui-1 and shadow-ui-2; Card button: shadow-ui-1 and shadow-ui-2; Card a: shadow-ui-1 and shadow-ui-2
 //       FAIL DS21 one utility per property: …  GroupLabel: gap-1.5 and gap-2
+//       FAIL DS21 one utility per property: …  DialogFrame: px-6 and px-4; DialogFrame columns: px-6 and px-4
+//       FAIL DS21 one utility per property: …  DialogFrame fill: px-4 and px-6
 ok('DS21 one utility per property: no primitive puts two classes of one family (padding, size, colour, weight, tracking, cursor ...) under the same variant',
    conflicts.length === 0, [...new Set(conflicts)].slice(0, 4).join('; '));
