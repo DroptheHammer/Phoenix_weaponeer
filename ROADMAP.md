@@ -83,7 +83,13 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       4,500. T.O. 1-1M-34 Fig 6-1 gives the maximum fragment altitude at sea
       level as 2,050 ft for the Mk-82 and 2,750 ft for the Mk-84. Nothing is
       changed yet: decide row by row whether to re-source them (a lower floor
-      lets auto-build plan lower releases).
+      lets auto-build plan lower releases). **The radii are in the audit too:**
+      `frag_lethal_radius_ft` (15 rows) and `frag_effective_radius_ft` (18 rows)
+      cite no source either, and the public manuals give heights, not a lateral
+      blast radius. The new blast test reads neither of them: it reads the
+      separate `blast_radius_ft` field, which has a meaning and a source kind
+      beside it and is empty on every row until a value has been shown with its
+      source and approved.
 - [x] **Bombs the modules carry that still had no row** (2026-11-13,
       Session 1, released in v0.3.4). Thirteen name-only rows from the DCS
       pylon tables: Mk-81, Mk-81 Snakeye, Mk-83, Mk-83 AIR, BR-250, BR-500,

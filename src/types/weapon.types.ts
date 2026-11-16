@@ -53,6 +53,19 @@ export interface FragPattern {
 }
 
 /**
+ * What a blast radius is: past it a bomb of this kind did no visible damage
+ * (`any_damage`), or did not destroy the target (`destroyed`).
+ */
+export type BlastMeaning = 'any_damage' | 'destroyed';
+
+/**
+ * Where a blast radius comes from: the game's own data, a statement by its
+ * developer, its scripting documentation, a measurement someone in the
+ * community made, the squadron's own test, or a labelled estimate.
+ */
+export type BlastSource = 'game_data' | 'developer' | 'scripting_doc' | 'community_measurement' | 'owner_test' | 'estimate';
+
+/**
  * A weapon row exactly as `get_all_weapons` returns it — snake_case, straight
  * off the Rust `Weapon` struct in `crates/core/src/refdata.rs`, with no serde
  * rename. This is the shape that actually exists at runtime.
@@ -76,6 +89,17 @@ export interface DbWeapon {
   frag_lethal_radius_ft?: number | null;
   frag_effective_radius_ft?: number | null;
   frag_min_safe_alt_ft?: number | null;
+  /**
+   * The distance from a burst within which DCS damages an aircraft, in feet.
+   * Empty on every row until a source is cited, and only meaningful with the
+   * two fields below: a radius with no known meaning or source is no radius.
+   * The `frag_*_radius_ft` numbers above cite no source and are not a stand-in.
+   */
+  blast_radius_ft?: number | null;
+  /** What `blast_radius_ft` is. */
+  blast_radius_meaning?: BlastMeaning | null;
+  /** Where `blast_radius_ft` comes from; the row's `notes` says it in words. */
+  blast_radius_source?: BlastSource | null;
   dcs_weapon_name?: string | null;
   notes?: string | null;
   /** Aircraft ids that carry it (the database's aircraft_weapons). */

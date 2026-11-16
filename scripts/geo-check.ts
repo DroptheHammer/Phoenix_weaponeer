@@ -38,7 +38,7 @@ import { rowsFromLoadout, pickWeapon, loadoutFromRows, loadoutPickerWeapons } fr
 import { storesMappedFor, weaponClassOf, geometrySuitsWeapon } from '../src/lib/weaponClass';
 import { SUPPORTED_GEOMETRIES } from '../src/types/profile.types';
 import type { DiveCCIPProfile, LoftCCRPProfile } from '../src/types/attack.types';
-import type { DbWeapon } from '../src/types/weapon.types';
+import type { DbWeapon, BlastMeaning, BlastSource } from '../src/types/weapon.types';
 import type { Attack, Mission, ThreatInstance } from '../src/types';
 import {
   buildStrikePlayback, retime, sampleJet, sampleBomb, strikeEvents, delaysToOffsets, playbackInputFromMission,
@@ -11396,5 +11396,91 @@ void (async () => {
        fb14Bad.length ? fb14Bad.join('; ') : `${fb14Cases.length} cases, every field`);
   } catch (e) {
     ok('playback B3 (cameras): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
+
+// ─── The blast radius on a weapon row: no number without its source ──────────
+// A warning built on a bomb's blast radius is only worth as much as the number under it, so the three
+// fields (`blast_radius_ft`, `blast_radius_meaning`, `blast_radius_source`) are all or nothing: a
+// radius needs a known meaning, a known source kind and notes that say where it came from. Every row is
+// empty until a value has been shown with its source and approved, one row at a time; the approved
+// ids are listed here and in the Rust tests (`crates/core/src/refdata.rs`), so a number put into the
+// data file on its own turns both red. The old `frag_*_radius_ft` seed numbers cite no source and are
+// not blast radii: a row with only those has none.
+{
+  try {
+    type BlastRowLike = { id?: string; name?: string; notes?: string | null; blast_radius_ft?: unknown; blast_radius_meaning?: unknown; blast_radius_source?: unknown };
+    /** The rows that carry a blast radius on purpose. Changed in the same edit that approves a value. */
+    const BLAST_APPROVED: string[] = [];
+    // Typed as records over the unions so the compiler asks for a new kind here when one is added.
+    const BLAST_MEANING_KINDS: Record<BlastMeaning, true> = { any_damage: true, destroyed: true };
+    /** The words (lower case) each kind of source must leave in the row's notes; the Rust test holds the same table. */
+    const BLAST_SOURCE_WORDS: Record<BlastSource, string> = {
+      game_data: 'game data', developer: 'developer', scripting_doc: 'scripting', community_measurement: 'community', owner_test: 'own test', estimate: 'estimate',
+    };
+    /** Why a row's blast fields are wrong, or '' when they are fine. */
+    const blastProblem = (w: BlastRowLike): string => {
+      const radius = w.blast_radius_ft;
+      if (radius == null) return w.blast_radius_meaning == null && w.blast_radius_source == null ? '' : 'a meaning or a source with no radius';
+      if (typeof radius !== 'number' || !Number.isFinite(radius) || !(radius > 0)) return `the radius ${String(radius)} is not a number of feet above zero`;
+      if (w.blast_radius_meaning == null) return 'a radius with no meaning';
+      if (!Object.keys(BLAST_MEANING_KINDS).includes(String(w.blast_radius_meaning))) return `unknown meaning ${String(w.blast_radius_meaning)}`;
+      if (w.blast_radius_source == null) return 'a radius with no source';
+      const words = (BLAST_SOURCE_WORDS as Record<string, string | undefined>)[String(w.blast_radius_source)];
+      if (words === undefined) return `unknown source ${String(w.blast_radius_source)}`;
+      const notes = (w.notes ?? '').toLowerCase();
+      if (!notes.includes('blast radius') || !notes.includes(words)) return `the notes must say "blast radius" and name the source (${words})`;
+      return '';
+    };
+
+    // The rule is shown able to fail: each broken row below must be caught, and the fine ones must not be.
+    // Mutation proofs (each seen red 2026-11-15): blastProblem with a `return '';` put in after the meaning test (a radius is
+    // accepted once it has a meaning, whatever its source and notes):
+    //   FAIL playback B3 [BX3]: the rule that a blast radius has its source …  caught nothing for: no source, a null source, an unknown source, no notes, notes that do not name the source, notes that do not say what the number is
+    // and with `|| !(radius > 0)` taken out of the radius test:
+    //   FAIL playback B3 [BX3]: the rule that a blast radius has its source …  caught nothing for: a radius of zero, a negative radius
+    const NOTES = 'Blast radius 250 ft: a community test, judged by eye.';
+    const ALL = { blast_radius_ft: 250, blast_radius_meaning: 'any_damage', blast_radius_source: 'community_measurement' };
+    const fine: [string, BlastRowLike][] = [
+      ['radius, meaning, source and notes', { ...ALL, notes: NOTES }],
+      ['no radius at all', {}],
+      ['only the old seed radii', { frag_effective_radius_ft: 400, frag_lethal_radius_ft: 150 } as BlastRowLike],
+    ];
+    const broken: [string, BlastRowLike][] = [
+      ['no source', { ...ALL, blast_radius_source: undefined, notes: NOTES }],
+      ['a null source', { ...ALL, blast_radius_source: null, notes: NOTES }],
+      ['an unknown source', { ...ALL, blast_radius_source: 'hunch', notes: NOTES }],
+      ['no meaning', { ...ALL, blast_radius_meaning: null, notes: NOTES }],
+      ['an unknown meaning', { ...ALL, blast_radius_meaning: 'lethal', notes: NOTES }],
+      ['a radius of zero', { ...ALL, blast_radius_ft: 0, notes: NOTES }],
+      ['a negative radius', { ...ALL, blast_radius_ft: -5, notes: NOTES }],
+      ['a radius that is not a number', { ...ALL, blast_radius_ft: Number.NaN, notes: NOTES }],
+      ['a radius written as text', { ...ALL, blast_radius_ft: '250', notes: NOTES }],
+      ['no notes', { ...ALL }],
+      ['notes that do not name the source', { ...ALL, notes: 'Blast radius 250 ft.' }],
+      ['notes that do not say what the number is', { ...ALL, notes: 'A community test.' }],
+      ['a meaning with no radius', { blast_radius_meaning: 'any_damage' }],
+      ['a source with no radius', { blast_radius_source: 'community_measurement' }],
+    ];
+    const wronglyFlagged = fine.filter(([, w]) => blastProblem(w) !== '').map(([what]) => what);
+    const missed = broken.filter(([, w]) => blastProblem(w) === '').map(([what]) => what);
+    ok('playback B3 [BX3]: the rule that a blast radius has its source catches every way of breaking it (a missing or unknown source or meaning, a radius that is not above zero, notes that do not say where it came from) and lets the fine rows through',
+       wronglyFlagged.length === 0 && missed.length === 0,
+       missed.length ? `caught nothing for: ${missed.join(', ')}` : wronglyFlagged.length ? `wrongly flagged: ${wronglyFlagged.join(', ')}` : `${broken.length} broken rows caught, ${fine.length} fine rows passed`);
+
+    // The real table: every row follows the rule, and the rows that carry a radius are the approved ones.
+    // Mutation proofs (each seen red 2026-11-15, with the Rust tests red beside it): "blast_radius_ft": 250.0 put into the Mk-82 row
+    // of reference.json with nothing else:
+    //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; mk82: a radius with no meaning; rows with a radius: mk82 (approved: none)
+    // and the same row given a meaning, a source kind and a notes sentence naming it (well formed, never approved):
+    //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; rows with a radius: mk82 (approved: none)
+    const blastRows = (JSON.parse(readFileSync('crates/core/data/reference.json', 'utf8')) as { weapons: BlastRowLike[] }).weapons;
+    const blastBroken = blastRows.map((w) => ({ id: w.id, why: blastProblem(w) })).filter((x) => x.why !== '');
+    const blastWith = blastRows.filter((w) => w.blast_radius_ft != null).map((w) => String(w.id)).sort();
+    ok('playback B3 [BX3]: the real weapon table has no blast radius without its source, and the rows that carry one are exactly the approved ones (none yet)',
+       blastRows.length >= 52 && blastBroken.length === 0 && blastWith.join() === [...BLAST_APPROVED].sort().join(),
+       `${blastRows.length} rows; ${blastBroken.map((x) => `${x.id}: ${x.why}`).join('; ')}${blastBroken.length ? '; ' : ''}rows with a radius: ${blastWith.join(', ') || 'none'} (approved: ${BLAST_APPROVED.join(', ') || 'none'})`);
+  } catch (e) {
+    ok('playback B3 (blast radius fields): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }

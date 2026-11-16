@@ -94,6 +94,15 @@
 //!   cluster with no frag floor, and a missile with no minimum release, still get
 //!   the "no data on file" caution; their `notes` say so in the same words.
 //!   The GBU-16 gets a weight only (borrowing the Mk-83's floor was declined).
+//! - **Blast radius** (the three `blast_radius_*` fields, added 2026-11-15): the
+//!   distance from a burst within which DCS damages an aircraft, what that
+//!   distance means (`any_damage` or `destroyed`), and where it comes from.
+//!   Every row is empty until a source is cited, and a radius never goes in
+//!   without its meaning, its source kind and a sentence in `notes` that names
+//!   the source (tests below). A key missing from the data file reads as `None`,
+//!   so a row only needs the keys once it has a value. The older
+//!   `frag_*_radius_ft` seed numbers cite no source and are not what a blast
+//!   test should read.
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -136,6 +145,17 @@ pub struct Weapon {
     pub frag_lethal_radius_ft: Option<f64>,
     pub frag_effective_radius_ft: Option<f64>,
     pub frag_min_safe_alt_ft: Option<f64>,
+    /// The distance from a burst within which DCS damages an aircraft, in feet.
+    /// Null on every row until a source is cited: the frag radii above cite none,
+    /// so they are not a stand-in for it.
+    pub blast_radius_ft: Option<f64>,
+    /// What that distance is: `any_damage` (past it a bomb of this kind did no
+    /// visible damage) or `destroyed` (past it, it did not destroy the target).
+    pub blast_radius_meaning: Option<String>,
+    /// Where it comes from: `game_data`, `developer`, `scripting_doc`,
+    /// `community_measurement`, `owner_test` or `estimate`. The row's `notes`
+    /// says the same in words, with the address and what was seen.
+    pub blast_radius_source: Option<String>,
     pub dcs_weapon_name: Option<String>,
     pub notes: Option<String>,
     /// Aircraft ids mapped to this weapon in `aircraft_weapons`. The picker
@@ -479,6 +499,141 @@ mod tests {
             let notes = reference().get_weapon_by_id(id).unwrap().notes.unwrap_or_default();
             assert!(notes.contains("1,380 ft") && notes.contains("not used as a floor"), "{id}: {notes:?}");
         }
+    }
+
+    /// What a blast radius may mean, and the words each source kind must leave in
+    /// a row's notes (compared in lower case). The notes carry the address and
+    /// what was seen; these words are only the proof that a source is named.
+    const BLAST_MEANINGS: [&str; 2] = ["any_damage", "destroyed"];
+    const BLAST_SOURCES: [(&str, &str); 6] = [
+        ("game_data", "game data"),
+        ("developer", "developer"),
+        ("scripting_doc", "scripting"),
+        ("community_measurement", "community"),
+        ("owner_test", "own test"),
+        ("estimate", "estimate"),
+    ];
+
+    /// The rows that carry a blast radius on purpose. A value goes into
+    /// `reference.json` only after it has been shown with its source and
+    /// approved, one row at a time, so this list changes in the same edit.
+    const APPROVED_BLAST_IDS: &[&str] = &[];
+
+    /// A weapon row built the way the data file writes it: `extra` is more JSON
+    /// keys. Anything left out reads as `None`, as it does for every real row.
+    fn weapon_from(extra: &str) -> Weapon {
+        let json = format!(r#"{{"id":"x","name":"X","category":"bomb_unguided","weight_lbs":500.0,"guidance":"none"{extra}}}"#);
+        serde_json::from_str(&json).unwrap_or_else(|e| panic!("{json}: {e}"))
+    }
+
+    /// Why a row's blast fields are wrong, or `None` when they are fine: all
+    /// three or none, a radius above zero, a known meaning and source kind, and
+    /// notes that say "blast radius" and name the source.
+    fn blast_problem(w: &Weapon) -> Option<String> {
+        let Some(radius) = w.blast_radius_ft else {
+            return match (&w.blast_radius_meaning, &w.blast_radius_source) {
+                (None, None) => None,
+                _ => Some("a meaning or a source with no radius".to_string()),
+            };
+        };
+        if !radius.is_finite() || radius <= 0.0 {
+            return Some(format!("the radius {radius} is not a number of feet above zero"));
+        }
+        let Some(meaning) = w.blast_radius_meaning.as_deref() else {
+            return Some("a radius with no meaning".to_string());
+        };
+        if !BLAST_MEANINGS.contains(&meaning) {
+            return Some(format!("unknown meaning {meaning:?}"));
+        }
+        let Some(source) = w.blast_radius_source.as_deref() else {
+            return Some("a radius with no source".to_string());
+        };
+        let Some((_, words)) = BLAST_SOURCES.iter().find(|(kind, _)| *kind == source) else {
+            return Some(format!("unknown source {source:?}"));
+        };
+        let notes = w.notes.as_deref().unwrap_or("").to_ascii_lowercase();
+        if !notes.contains("blast radius") || !notes.contains(*words) {
+            return Some(format!("the notes must say \"blast radius\" and name the source ({words:?}), not {notes:?}"));
+        }
+        None
+    }
+
+    /// The blast fields are read off the row under their own names, and a row
+    /// without the keys (every row in the data file today) is "no radius" and goes
+    /// out as null: the TypeScript row type reads these snake_case names as they
+    /// are.
+    #[test]
+    fn the_blast_fields_read_and_write_under_their_own_names() {
+        let w = weapon_from(r#","blast_radius_ft":250.0,"blast_radius_meaning":"any_damage","blast_radius_source":"community_measurement""#);
+        assert_eq!(w.blast_radius_ft, Some(250.0));
+        assert_eq!(w.blast_radius_meaning.as_deref(), Some("any_damage"));
+        assert_eq!(w.blast_radius_source.as_deref(), Some("community_measurement"));
+        let out = serde_json::to_value(&w).unwrap();
+        assert_eq!(out["blast_radius_ft"], 250.0);
+        assert_eq!(out["blast_radius_meaning"], "any_damage");
+        assert_eq!(out["blast_radius_source"], "community_measurement");
+
+        let bare = weapon_from("");
+        assert_eq!((bare.blast_radius_ft, bare.blast_radius_meaning.as_deref(), bare.blast_radius_source.as_deref()), (None, None, None));
+        let out = serde_json::to_value(&bare).unwrap();
+        for key in ["blast_radius_ft", "blast_radius_meaning", "blast_radius_source"] {
+            assert_eq!(out.get(key), Some(&serde_json::Value::Null), "{key} must go out as null, not be left out");
+        }
+    }
+
+    /// The rule that "a radius has its source", shown to be able to fail: each
+    /// hand-built row below breaks it one way and must be caught, and the two
+    /// that are fine must not be.
+    #[test]
+    fn a_blast_radius_without_its_source_is_caught() {
+        const NOTES: &str = r#","notes":"Blast radius 250 ft: a community test, judged by eye.""#;
+        const ALL: &str = r#","blast_radius_ft":250.0,"blast_radius_meaning":"any_damage","blast_radius_source":"community_measurement""#;
+        let fine = [
+            ("radius, meaning, source and notes", format!("{ALL}{NOTES}")),
+            ("no radius at all", String::new()),
+            // The old seed numbers are a different thing: a row with only those has no blast radius.
+            ("only the old seed radii", r#","frag_effective_radius_ft":400.0,"frag_lethal_radius_ft":150.0"#.to_string()),
+        ];
+        for (what, extra) in &fine {
+            assert_eq!(blast_problem(&weapon_from(extra)), None, "{what}");
+        }
+        let broken = [
+            ("no source", format!(r#","blast_radius_ft":250.0,"blast_radius_meaning":"any_damage"{NOTES}"#)),
+            ("a null source", format!(r#","blast_radius_ft":250.0,"blast_radius_meaning":"any_damage","blast_radius_source":null{NOTES}"#)),
+            ("an unknown source", format!(r#","blast_radius_ft":250.0,"blast_radius_meaning":"any_damage","blast_radius_source":"hunch"{NOTES}"#)),
+            ("no meaning", format!(r#","blast_radius_ft":250.0,"blast_radius_source":"community_measurement"{NOTES}"#)),
+            ("an unknown meaning", format!(r#","blast_radius_ft":250.0,"blast_radius_meaning":"lethal","blast_radius_source":"community_measurement"{NOTES}"#)),
+            ("a radius of zero", format!(r#","blast_radius_ft":0.0,"blast_radius_meaning":"any_damage","blast_radius_source":"community_measurement"{NOTES}"#)),
+            ("a negative radius", format!(r#","blast_radius_ft":-5.0,"blast_radius_meaning":"any_damage","blast_radius_source":"community_measurement"{NOTES}"#)),
+            ("no notes", ALL.to_string()),
+            ("notes that do not name the source", format!(r#"{ALL},"notes":"Blast radius 250 ft.""#)),
+            ("notes that do not say what the number is", format!(r#"{ALL},"notes":"A community test.""#)),
+            ("a meaning with no radius", r#","blast_radius_meaning":"any_damage""#.to_string()),
+            ("a source with no radius", r#","blast_radius_source":"community_measurement""#.to_string()),
+        ];
+        for (what, extra) in &broken {
+            assert!(blast_problem(&weapon_from(extra)).is_some(), "{what} was not caught");
+        }
+    }
+
+    /// Every real row's blast fields follow that rule, and the rows that carry a
+    /// radius are exactly the approved ones: none yet, so none may appear until
+    /// someone has approved the value with its source and says so here.
+    #[test]
+    fn every_blast_radius_in_the_table_has_its_source_and_is_approved() {
+        let mut with_radius: Vec<String> = Vec::new();
+        for w in reference().get_all_weapons() {
+            if let Some(problem) = blast_problem(&w) {
+                panic!("{} ({}): {problem}", w.id, w.name);
+            }
+            if w.blast_radius_ft.is_some() {
+                with_radius.push(w.id);
+            }
+        }
+        with_radius.sort();
+        let mut approved: Vec<String> = APPROVED_BLAST_IDS.iter().map(|id| id.to_string()).collect();
+        approved.sort();
+        assert_eq!(with_radius, approved, "a blast radius was added or removed: change the approved list on purpose, after the value was approved");
     }
 
     /// Saved missions and the planner's loadout match a weapon on its name, so a
