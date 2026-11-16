@@ -1,13 +1,14 @@
 /**
  * What the 3D view draws about a falling bomb and where it lands (the ring round it, its pulse at the
- * release, the flash at the impact), as plain numbers: no three.js, no DOM.
+ * release, the flash at the impact, the ring at the weapon's blast radius and the words beside it), as plain
+ * numbers: no three.js, no DOM.
  *
  * Like the callouts, what shows is a pure function of the clock's time and its speed setting (playing or
  * paused alike), never of what was drawn on the frame before: a seek away and back, a re-timed strike and
  * a rebuilt scene all give the same picture.
  */
 
-import { BOMB_RING_OTHER_R_PX, BOMB_RING_R_PX, OTHER_MARKER_ALPHA } from './sceneStyle';
+import { BOMB_RING_OTHER_R_PX, BOMB_RING_R_PX, IMPACT_RING_FADE_FROM_PX, IMPACT_RING_MIN_R_PX, OTHER_MARKER_ALPHA } from './sceneStyle';
 
 /** The ring round a bomb starts this many times too wide at the release and settles over this long, real seconds. */
 export const RELEASE_PULSE_WALL_S = 0.5;
@@ -46,8 +47,8 @@ export function releasePulse(age_s: number, speed: number): number {
 }
 
 /**
- * Where a bomb lands, at its time over target: a flash, then (where the planner has a frag radius for the
- * weapon) a ring on the ground. Every figure is a display time in real seconds, none is a weapon number.
+ * Where a bomb lands, at its time over target: a flash, then (where the weapon table has a blast radius)
+ * a ring on the ground. Every figure is a display time in real seconds, none is a weapon number.
  * Each step of it lasts at least 0.2 real seconds and a frame moves the clock by at most 0.1 real seconds
  * (MAX_FRAME_DT_S), so the flash is seen growing over at least two frames and the ring holds for many, at
  * every speed and on the slowest machine.
@@ -106,4 +107,34 @@ export function impactPhase(age_s: number, speed: number, out: ImpactPhase): Imp
   out.ring = easeOut(clamp01(u / IMPACT_RING_GROW_WALL_S));
   out.ringAlpha = fadeOut(u, IMPACT_RING_HOLD_WALL_S, IMPACT_RING_END_WALL_S);
   return out;
+}
+
+/**
+ * The ring's radius on screen, CSS pixels: its true radius `ring_m` over the metres a pixel covers where it lies
+ * (`wpp`). Nothing is added: the ring is never drawn bigger than the weapon's radius.
+ */
+export function ringPixels(ring_m: number, wpp: number): number {
+  return ring_m / wpp;
+}
+
+/**
+ * How strongly a ring of `r_px` on screen is drawn: 0 up to IMPACT_RING_FADE_FROM_PX (too small to read as a ring),
+ * 1 from IMPACT_RING_MIN_R_PX, in a straight line between, so orbiting or zooming across it fades the ring in and out
+ * and never pops it. Not a number, or below 0: 0.
+ */
+export function ringFade(r_px: number): number {
+  const f = (r_px - IMPACT_RING_FADE_FROM_PX) / (IMPACT_RING_MIN_R_PX - IMPACT_RING_FADE_FROM_PX);
+  return f > 0 ? (f < 1 ? f : 1) : 0;
+}
+
+/**
+ * The words beside a burst: "#1 impact", and while its ring is drawn large enough to read (`withRadius`) and the
+ * weapon has a blast radius, that radius in whole feet marked as an estimate (the figure is a community test's, not
+ * the game's). A new array each call: worked out once per source, never per frame.
+ */
+export function impactTagLines(seatLabel: string, ring_ft: number | null, withRadius: boolean): string[] {
+  const first = `${seatLabel} impact`;
+  return withRadius && ring_ft !== null && ring_ft > 0
+    ? [first, `blast radius ${Math.round(ring_ft).toLocaleString('en-US')} ft (est.)`]
+    : [first];
 }

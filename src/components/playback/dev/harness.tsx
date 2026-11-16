@@ -138,13 +138,18 @@ interface PbHandle {
   /**
    * The effect at each flown jet's impact as the layers drew it on the last frame, at the clock's time now: the clock's `t` and
    * `speed`, and per flown jet in jet order its playback index, seat and `impact` (`age_s` since the impact, the phase drawn
-   * with: `flash`, `flashAlpha`, `ring`, `ringAlpha`; whether the flash's and the ring's meshes were drawn; the burst's
-   * centre, three.js axes). Null before the scene exists.
+   * with: `flash`, `flashAlpha`, `ring`, `ringAlpha`; whether the flash's and the ring's meshes were drawn; the weapon's
+   * blast radius `ringRadius_m` (0 for none), that radius on screen `ringPx` and how strongly the ring is drawn for it,
+   * `ringFade`; the burst's centre, three.js axes). Null before the scene exists.
    */
   effects(): ReturnType<PlaybackScene['debugEffects']>;
   /** The graphics card's counts for the last frame drawn (draw calls, triangles) and the geometries and textures it holds. Null before the scene exists. */
   renderInfo(): ReturnType<PlaybackScene['renderInfo']>;
-  /** What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the callouts, the jets' labels, the bombs' rings. */
+  /**
+   * What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the
+   * callouts, the jets' labels, the bombs' rings, and the words beside each burst (`tags`: their lines, strength, plate and
+   * whether a spot was found for them).
+   */
   debugLabels(): ReturnType<PlaybackScene['debugLabels']> | null;
   /**
    * Jet `jet`'s arrow (default the lead) at the clock's time now, read off its mesh: `visible` (it is drawn), `bank_deg`

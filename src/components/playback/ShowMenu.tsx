@@ -173,7 +173,7 @@ export function ShowMenu({ show, dispatch }: ShowMenuProps) {
             />
             <span>
               <span className={`block ${MENU_HEAD}`}>Impact</span>
-              <span className={`block ${MENU_HINT}`}>A ring round each falling bomb, then a flash where it lands. Not a simulation of the weapon. Off: the bomb alone.</span>
+              <span className={`block ${MENU_HINT}`}>A ring round each falling bomb, then a flash and, where the weapon table has a blast radius, a ring where it lands at that radius (est.). Not a simulation of the weapon. Off: the bomb alone.</span>
             </span>
           </label>
           <label className="flex items-start gap-2 cursor-pointer" onMouseDown={keepFocus}>

@@ -131,7 +131,7 @@ POST_KINDS.forEach((k, i) => {
 });
 
 /** An opaque wide line of a set width in CSS pixels, tested against the ground's depth but never writing its own. */
-function wideLine(color: Color, px: number, more: { vertexColors?: boolean; dash?: number[] } = {}): LineMaterial {
+export function wideLine(color: Color, px: number, more: { vertexColors?: boolean; dash?: number[] } = {}): LineMaterial {
   const m = new LineMaterial({ color, linewidth: px, worldUnits: false, depthWrite: false, fog: false, toneMapped: false, vertexColors: !!more.vertexColors });
   if (more.dash) {
     m.dashed = true;
@@ -146,7 +146,7 @@ function wideLine(color: Color, px: number, more: { vertexColors?: boolean; dash
  * re-made, so the graphics card's buffers are never reallocated): positions, and when asked a colour
  * per segment end and a distance along the line per segment end (for dashes).
  */
-interface Capacity {
+export interface Capacity {
   geom: LineSegmentsGeometry;
   segs: number;
   pos: Float32Array;
@@ -156,7 +156,7 @@ interface Capacity {
   /** Segments written so far in this refill. */
   n: number;
 }
-function capacityGeometry(bag: DisposeBag, segs: number, colours: boolean, distances: boolean): Capacity {
+export function capacityGeometry(bag: DisposeBag, segs: number, colours: boolean, distances: boolean): Capacity {
   const geom = bag.add(new LineSegmentsGeometry());
   const room = Math.max(1, segs);
   const pos = new Float32Array(room * 6);
@@ -180,7 +180,7 @@ function capacityGeometry(bag: DisposeBag, segs: number, colours: boolean, dista
   return { geom, segs: room, pos, col, dist, buffers, n: 0 };
 }
 /** Write one segment (start xyz, end xyz) with its colour and its two distances, if there is room. */
-function putSegment(c: Capacity, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, rgb: Float32Array, ri: number, d0: number, d1: number) {
+export function putSegment(c: Capacity, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, rgb: Float32Array, ri: number, d0: number, d1: number) {
   if (c.n >= c.segs) return;
   const i = c.n++, p = i * 6;
   c.pos[p] = x0; c.pos[p + 1] = y0; c.pos[p + 2] = z0;
@@ -196,7 +196,7 @@ function putSegment(c: Capacity, x0: number, y0: number, z0: number, x1: number,
   }
 }
 /** End a refill: draw what was written, and send it to the graphics card. */
-function finish(c: Capacity) {
+export function finish(c: Capacity) {
   c.geom.instanceCount = c.n;
   for (const b of c.buffers) b.needsUpdate = true;
 }

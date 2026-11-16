@@ -14,7 +14,8 @@
  *   each jet's target point and seat, the distinct targets (one mark per
  *   target, however many jets share it), each jet's action points and its IP
  *   and egress labels with the planner's words (on the drawn line), its
- *   callsign and altitude reference, the strike window, the box the terrain is
+ *   callsign and altitude reference, its weapon's blast radius (the ring where
+ *   its bomb lands), the strike window, the box the terrain is
  *   built from, the lead's attack axis (for the home camera), the frame
  *   (what Home frames is homeBox in homeView.ts, from the poses);
  * - each jet's moments on the strike clock: in the picture from, first
@@ -30,8 +31,8 @@
  */
 
 import {
-  FT_TO_M, PHASES, fragCloudAt, newBombState, newFragCloudState, newJetState, playbackBounds, sampleBomb, sampleJet, toLocal, upOf,
-  type LocalFrame, type PlaybackBounds, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
+  FT_TO_M, PHASES, burstSpecOf, fragCloudAt, newBombState, newFragCloudState, newJetState, playbackBounds, sampleBomb, sampleJet, toLocal, upOf,
+  type JetTrack, type LocalFrame, type PlaybackBounds, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
 } from '../playback';
 import { firstActionTau, labelMoments, markerMoments, type ActionKind } from './actionPoints';
 import { groupTargets, type SceneTarget } from './targets';
@@ -143,6 +144,25 @@ export interface ScenePoint {
   readonly z: number;
 }
 
+/**
+ * What the picture needs to know about a jet's weapon where its bomb lands: the radius of the ring drawn there, the
+ * weapon's blast radius from the weapon table (null when the row has none: no ring, and the words name the impact only).
+ */
+export interface SceneImpactInfo {
+  ringRadius_ft: number | null;
+  ringRadius_m: number | null;
+}
+
+/**
+ * The ring for a weapon row: its sourced blast radius (burstSpecOf, the very reader the blast warning uses), never the
+ * old seed frag radii. It takes no warning rule: the ring is a fact about the weapon, so the picture does not change
+ * when the strike's rule is switched.
+ */
+export function impactInfoOf(weapon: JetTrack['weapon']): SceneImpactInfo {
+  const spec = burstSpecOf(weapon);
+  return spec ? { ringRadius_ft: spec.radius_ft, ringRadius_m: spec.radius_ft * FT_TO_M } : { ringRadius_ft: null, ringRadius_m: null };
+}
+
 export interface SceneSource {
   readonly jetCount: number;
   /** The strike window on the strike clock, s: the clock's range. */
@@ -206,6 +226,8 @@ export interface SceneSource {
   bombAt(jet: number, t_s: number, out: SceneBombPose): SceneBombPose;
   /** Jet k's frag cloud at strike time t, written into `out` (returned). Allocates nothing. */
   fragAt(jet: number, t_s: number, out: SceneFragPose): SceneFragPose;
+  /** Jet k's weapon as the picture of its burst needs it (impactInfoOf; worked out once per source). */
+  impactInfo(jet: number): SceneImpactInfo;
   /** Strike time jet k's bombs land: its TOT. */
   impactOf(jet: number): number;
   /** Strike time of jet k's first action after the IP (firstActionTau in actionPoints.ts). */
@@ -393,6 +415,8 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     return m && m.lines.length ? { key: `${j.id}:TGT`, lines: m.lines, t_s: timing.jets[k].impact_s } : undefined;
   });
 
+  const impactInfo = pb.jets.map((j) => impactInfoOf(j.weapon));
+
   const lead = pb.jets[0];
   const h = ((lead?.attackHeading_deg ?? 0) * Math.PI) / 180;
 
@@ -422,6 +446,7 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     jetAt,
     bombAt,
     fragAt,
+    impactInfo: (jet) => impactInfo[jet],
     impactOf: (jet) => timing.jets[jet].impact_s,
     firstActionOf: (jet) => firstAction_s[jet],
     visibleFromOf: (jet) => visibleFrom_s[jet],

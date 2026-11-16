@@ -866,24 +866,37 @@ async function checkFlash(page, tag) {
  * Proven red 2026-11-15 by one temporary edit to scene/impactLayer.ts, `group.visible = ctx.impact && flash.visible` →
  * `group.visible = flash.visible` (53 and 53b go red with it: their pictures with Impact off are taken through the switch):
  *   STEP FAIL 56 Show › Impact turns the flash off and on again (1400x900) — on: size 1.00, strength 1.00, shown true; off: size 1.00, strength 1.00, shown true, burst point 945,347; on again: size 1.00, strength 1.00, shown true
+ *
+ * With the ring and the words beside the burst (2026-11-16): off, no ring is drawn and the overlay has no words; on, and on
+ * again, jet 0's words are there. The edit above, now `group.visible = ctx.impact && (flash.visible || ringOn)` →
+ * `group.visible = (flash.visible || ringOn)`, turns the ring's part red with the flash's:
+ *   STEP FAIL 56 Show › Impact turns the flash, the ring and the words beside the burst off and on again (1400x900) — on: …, ring shown true, words ["#1 impact"]; off: size 1.00, strength 1.00, shown true, ring shown true, burst point 945,347, 0 words; on again: …
+ * and the words' part by its own edit, `tag.shown = ctx.impact && phase.ringAlpha > 0` → `tag.shown = phase.ringAlpha > 0`:
+ *   STEP FAIL 56 … (1400x900) — on: size 1.00, strength 1.00, shown true, ring shown true, words ["#1 impact"]; off: size 1.00, strength 1.00, shown false, ring shown false, burst point none, 1 words; on again: …
  */
 async function checkFlashSwitch(page, tag) {
   const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
   await pbEval(page, (t) => { __pb.pause(); __pb.setSpeed(1); __pb.seek(t); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); }, imp + 0.3);
   await settle(page, 300);
   const on0 = await impactFx(page, 0);
+  const tag0 = await tagOf(page, 0);
   await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'impact', on: false } }));
   await page.waitForFunction(() => __pb.show() && __pb.show().impact === false, null, { timeout: 15000, polling: 100 });
   await settle(page, 500);
   const off = await impactFx(page, 0);
   const offPoint = await pbEval(page, () => __pb.project(0, 'impact'));
+  const offTags = await pbEval(page, () => __pb.debugLabels().tags.length);
   await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'impact', on: true } }));
   await page.waitForFunction(() => __pb.show() && __pb.show().impact === true, null, { timeout: 15000, polling: 100 });
   await settle(page, 500);
   const on1 = await impactFx(page, 0);
-  step(`56 Show › Impact turns the flash off and on again (${tag})`,
-    !!on0 && on0.flashShown && !!off && !off.flashShown && offPoint === null && !!on1 && on1.flashShown,
-    `on: ${fmtFx(on0)}; off: ${fmtFx(off)}, burst point ${fmtPt(offPoint)}; on again: ${fmtFx(on1)}`);
+  const tag1 = await tagOf(page, 0);
+  // The ring and the words beside the burst go with the switch too (whether the ring is drawn at Home depends on the
+  // window's size: it is about 4 px there, at the edge of what is drawn).
+  step(`56 Show › Impact turns the flash, the ring and the words beside the burst off and on again (${tag})`,
+    !!on0 && on0.flashShown && !!tag0 && !!off && !off.flashShown && !off.ringShown && offPoint === null && offTags === 0 && !!on1 && on1.flashShown && !!tag1,
+    `on: ${fmtFx(on0)}, ring shown ${on0 ? on0.ringShown : '?'}, words ${fmtTag(tag0)}; off: ${fmtFx(off)}, ring shown ${off ? off.ringShown : '?'}, burst point ${fmtPt(offPoint)}, ${offTags} words; ` +
+      `on again: ${fmtFx(on1)}, words ${fmtTag(tag1)}`);
 }
 
 /**
@@ -894,6 +907,12 @@ async function checkFlashSwitch(page, tag) {
  * Proven red 2026-11-15 by one temporary edit to scene/impactLayer.ts, `impactPhase(ctx.t - impactT, ctx.speed, phase)` →
  * `impactPhase(ctx.t - impactT, 1, phase)` (geo-check stays green; 54 and 59, which also run at 16×, go red with it):
  *   STEP FAIL 53b the flash at 16×: shown 0.3 real s after the impact, gone 1.5 real s after (1400x900) — 4.8 s after: size 1.00, strength 0.00, shown false, -1 px differ within 30 px of none (need 1300); 24 s after: size 1.00, strength 0.00, shown false
+ *
+ * With the ring where the bomb lands (2026-11-16): at 24 s after (1.5 real s, the ring holds to 2.5) the wheel zooms in on
+ * the target until the ring is at least 12 px; it is drawn, and at least 18 of 24 points of its ground circle have a cream
+ * pixel within 2 px, against fewer than 6 with Impact off (as 53c). Measured: 14 and 18 notches, 24 of 24 and 0, at both
+ * sizes. The same edit as above turns the ring's part red too:
+ *   STEP FAIL 53b the flash at 16×: …, the ring still drawn then (1400x900) — 4.8 s after: size 1.00, strength 0.00, shown false, -1 px differ within 30 px of none (need 1300); 24 s after: size 1.00, strength 0.00, shown false; after 20 notches: ring 76.2 m, 0.00 px, fade 0.000, shown false, 0 of 24 ring points cream (want ≥ 18), 0 with Impact off (want under 6)
  */
 async function checkFlashFast(page, tag) {
   const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
@@ -903,20 +922,35 @@ async function checkFlashFast(page, tag) {
     await pbEval(page, (tt) => __pb.seek(tt), t);
     await settle(page, 300);
   };
-  let early, late;
+  let early, late, zoom, ring, cream = -1, creamOff = -1;
   await overlay(page, false);
   try {
     await at(imp + 4.8);
     early = await flashPicture(page, 0, `${tag}-53b-flash-16x`);
     await at(imp + 24);
     late = await impactFx(page, 0);
+    // The ring at 16×, 1.5 real s after the impact (it holds to 2.5): zoomed in until it is at least 12 px, it is drawn.
+    await overlay(page, true);
+    zoom = await zoomOnRing(page, 0, 12, 20);
+    ring = await ringOnPage(page, 0);
+    await overlay(page, false);
+    const img = await shot(page, `${tag}-53b-ring-16x`);
+    const switched = await impactTo(page, false) && !(await impactFx(page, 0)).ringShown;
+    const off = await shot(page, `${tag}-53b-ring-16x-off`);
+    await impactTo(page, true);
+    if (ring && switched) {
+      cream = creamOnRing(img, ring.pts);
+      creamOff = creamOnRing(off, ring.pts);
+    }
   } finally {
     await overlay(page, true);
     await pbEval(page, (w) => { __pb.setSpeed(1); __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
   }
-  step(`53b the flash at 16×: shown 0.3 real s after the impact, gone 1.5 real s after (${tag})`,
-    !!early.e && early.e.flashShown && early.n >= FLASH_MIN && !!late && !late.flashShown,
-    `4.8 s after: ${fmtFx(early.e)}, ${early.n} px differ within 30 px of ${fmtPt(early.p)} (need ${FLASH_MIN}); 24 s after: ${fmtFx(late)}`);
+  const r = ring && ring.fx;
+  step(`53b the flash at 16×: shown 0.3 real s after the impact, gone 1.5 real s after, the ring still drawn then (${tag})`,
+    !!early.e && early.e.flashShown && early.n >= FLASH_MIN && !!late && !late.flashShown && !!r && r.ringPx >= 12 && r.ringShown && cream >= 18 && creamOff >= 0 && creamOff < 6,
+    `4.8 s after: ${fmtFx(early.e)}, ${early.n} px differ within 30 px of ${fmtPt(early.p)} (need ${FLASH_MIN}); 24 s after: ${fmtFx(late)}; ` +
+      `after ${zoom ? zoom.notches : '?'} notches: ${fmtRing(r)}, ${cream} of 24 ring points cream (want ≥ 18), ${creamOff} with Impact off (want under 6)`);
 }
 
 /**
@@ -1062,6 +1096,14 @@ async function checkFlashSkipped(page, tag) {
  * Proven red 2026-11-15 by one temporary edit to scene/impactLayer.ts, the core's geometry made again in afterCamera each
  * frame (`core.geometry = flashGeometry(…)`) instead of once:
  *   STEP FAIL 59 four flashes cost two draw calls and 48 triangles each, and nothing is made frame by frame at 16× (1400x900-strike4) — played -69.9 to 46.0 s twice (the end 46.0): geometries 100 → 148, textures 1 → 1 over the second pass; at 6.3 s 4 flashes drawn: calls 42 → 50 (+8, want 8), triangles 537554 → 537746 (+192, want 192)
+ *
+ * With the ring where each bomb lands (2026-11-16): the view is first zoomed in on #1's target with the wheel (flat ground,
+ * Home, 6.3 s) until #1's ring is at least 12 px, so every ring is drawn through both passes and at 6.3 s, and each ring
+ * drawn adds two calls and 768 triangles (its casing and its line, each 64 wide-line pieces of 6 triangles). Measured on the
+ * first green run: 24 notches, all four rings drawn (RINGS_59), +16 calls and +3,264 triangles exactly, 56 geometries before
+ * and after the second pass. Proven red the same day by one temporary edit to scene/impactLayer.ts, the ring's geometry made
+ * again on every lay (`ringFill.geometry = ringCasing.geometry = capacityGeometry(…).geom` at the top of layRing):
+ *   STEP FAIL 59 four flashes and their rings cost two draw calls each (48 and 768 triangles), … (1400x900-strike4) — zoomed 24 notches (#1's ring 12.6 px); played -69.9 to 46.0 s twice (the end 46.0): geometries 86 → 114, textures 1 → 1 over the second pass; at 6.3 s 4 flashes and 4 rings drawn (want 4 and 4): calls 42 → 50 (+8, want 16), triangles 537554 → 537746 (+192, want 3264)
  */
 async function checkFlashCost(page, tag) {
   const ids = await pbEval(page, () => __pb.session().memberIds);
@@ -1069,6 +1111,11 @@ async function checkFlashCost(page, tag) {
   for (let i = 0; i < ids.length; i++) await pbEval(page, (a) => __pb.act({ type: 'delay', id: a.id, value_s: a.v }), { id: ids[i], v: delays[i] });
   await page.waitForFunction((d) => { const s = __pb.source(); return !!s && d.every((v, k) => s.impactOf(k) === v); }, delays, { timeout: 30000, polling: 200 });
   await pbEval(page, () => { __pb.pause(); __pb.setSpeed(16); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  // Zoomed in on #1's target first, so the rings are big enough to be drawn through both passes and at 6.3 s.
+  const wasGround = await pbEval(page, () => __pb.terrain().ground);
+  await pbEval(page, () => { __pb.setGround('flat'); __pb.goHome(); __pb.seek(6.3); });
+  await settle(page, 300);
+  const zoom = await zoomOnRing(page, 0, 12, 40);
   const span = await pbEval(page, () => { const s = __pb.snapshot(); return { start: s.start, end: s.end }; });
   // The graphics card counts a geometry the first time it is drawn (a bomb at its release, a flash at its impact), so the
   // first pass draws everything once and the second is the one compared.
@@ -1088,21 +1135,271 @@ async function checkFlashCost(page, tag) {
   await settle(page, 300);
   const fx = await pbEval(page, () => __pb.effects());
   const shown = fx ? fx.jets.filter((j) => j.impact.flashShown).length : 0;
+  const rings = fx ? fx.jets.filter((j) => j.impact.ringShown).length : 0;
   const on = await pbEval(page, () => __pb.renderInfo());
   await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'impact', on: false } }));
-  const switched = await page.waitForFunction(() => __pb.effects().jets.every((j) => !j.impact.flashShown), null, { timeout: 15000, polling: 100 })
+  const switched = await page.waitForFunction(() => __pb.effects().jets.every((j) => !j.impact.flashShown && !j.impact.ringShown), null, { timeout: 15000, polling: 100 })
     .then(() => true, () => false);
   await settle(page, 300);
   const off = await pbEval(page, () => __pb.renderInfo());
-  await pbEval(page, () => { __pb.act({ type: 'show', a: { type: 'impact', on: true } }); __pb.setSpeed(1); });
+  await pbEval(page, (g) => { __pb.act({ type: 'show', a: { type: 'impact', on: true } }); __pb.setSpeed(1); __pb.setGround(g); __pb.goHome(); }, wasGround);
   const dCalls = on.calls - off.calls, dTris = on.triangles - off.triangles;
-  const wantCalls = 2 * shown, wantTris = 48 * shown;
+  // A flash is two fans of 24 triangles; a ring is its casing and its line, each 64 wide-line pieces of 6 triangles.
+  const wantCalls = 2 * shown + 2 * rings, wantTris = 48 * shown + 768 * rings;
   const within = (d, want) => d >= 0.8 * want && d <= 1.1 * want;
-  step(`59 four flashes cost two draw calls and 48 triangles each, and nothing is made frame by frame at 16× (${tag})`,
-    shown === 4 && fx.jets.length === 4 && switched && within(dCalls, wantCalls) && within(dTris, wantTris) && Math.abs(ran - span.end) < 1e-6 && Math.abs(first.t - span.end) < 1e-6 &&
+  step(`59 four flashes and their rings cost two draw calls each (48 and 768 triangles), and nothing is made frame by frame at 16× (${tag})`,
+    shown === 4 && rings === RINGS_59 && fx.jets.length === 4 && switched && within(dCalls, wantCalls) && within(dTris, wantTris) && Math.abs(ran - span.end) < 1e-6 && Math.abs(first.t - span.end) < 1e-6 &&
       after.geometries === before.geometries && after.textures === before.textures,
-    `played ${span.start.toFixed(1)} to ${ran.toFixed(1)} s twice (the end ${span.end.toFixed(1)}): geometries ${before.geometries} → ${after.geometries}, textures ${before.textures} → ${after.textures} over the second pass; ` +
-      `at 6.3 s ${shown} flashes drawn${switched ? '' : ' (Impact off did not take them away)'}: calls ${off.calls} → ${on.calls} (+${dCalls}, want ${wantCalls}), triangles ${off.triangles} → ${on.triangles} (+${dTris}, want ${wantTris})`);
+    `zoomed ${zoom.notches} notches (#1's ring ${zoom.fx ? zoom.fx.ringPx.toFixed(1) : '?'} px); played ${span.start.toFixed(1)} to ${ran.toFixed(1)} s twice (the end ${span.end.toFixed(1)}): geometries ${before.geometries} → ${after.geometries}, textures ${before.textures} → ${after.textures} over the second pass; ` +
+      `at 6.3 s ${shown} flashes and ${rings} rings drawn (want 4 and ${RINGS_59})${switched ? '' : ' (Impact off did not take them away)'}: calls ${off.calls} → ${on.calls} (+${dCalls}, want ${wantCalls}), triangles ${off.triangles} → ${on.triangles} (+${dTris}, want ${wantTris})`);
+}
+/** How many of the four-ship's rings check 59 sees drawn once zoomed in on #1's: set from the first green run. */
+const RINGS_59 = 4;
+
+// ── The ring where a bomb lands at the weapon's blast radius, and the words beside the burst (checks 53c, 53d and 73; 53b,
+// 56 and 59 read it too). The ring is laid on the ground, so on screen it is an ellipse: its points are found by projecting
+// the ground circle through the scene's own camera (`projectPoint`), never drawn as a screen circle. Its size on screen is
+// read the same way: half the distance between the two points one radius either side of the centre, across the view
+// (along the camera's level right-hand direction, where the ellipse is widest).
+/** The ring's cream (IMPACT_RING #fff1b8, its blue below the white test's 200), or white. */
+const creamLike = (p) => p[0] > 200 && p[1] > 200 && p[2] > 150;
+/** impactFx.ringFade, written again here (the script cannot import the TypeScript): nothing up to 4 px, full from 6 px. */
+const ringFadeOf = (px) => { const f = (px - 4) / (6 - 4); return f > 0 ? (f < 1 ? f : 1) : 0; };
+/**
+ * Jet `k`'s ring as the page has it now: the impact effect, the drawn ring's points on the ground (`n` of them, page px, the
+ * radius the layer drew with: the full radius times the share grown), and the full radius's half-width on screen (`half`, px).
+ */
+const ringOnPage = (page, k, n = 24) => pbEval(page, ([j, m]) => {
+  const e = __pb.effects();
+  if (!e || !e.jets[j]) return null;
+  const fx = e.jets[j].impact, t = __pb.source().targetOf(j), c = __pb.camera(), R = fx.ringRadius_m, y = fx.centre.y;
+  const pts = [];
+  for (let i = 0; i < m; i++) {
+    const a = (2 * Math.PI * i) / m, x = t.x + R * fx.ring * Math.cos(a), z = t.z + R * fx.ring * Math.sin(a);
+    pts.push(__pb.projectPoint(x, -z, y)); // three.js axes to east, north, up
+  }
+  const fX = c.target.x - c.x, fZ = c.target.z - c.z, L = Math.hypot(fX, fZ) || 1, rx = -fZ / L, rz = fX / L;
+  const a = __pb.projectPoint(t.x - R * rx, -(t.z - R * rz), y), b = __pb.projectPoint(t.x + R * rx, -(t.z + R * rz), y);
+  return { fx, pts, half: a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) / 2 : null };
+}, [k, n]);
+/** How many of the ring's points have a cream pixel within 2 px in `img`. */
+const creamOnRing = (img, pts) => pts.filter((q) => q && patch(img, [Math.round(q[0]), Math.round(q[1])], 2).some(creamLike)).length;
+/**
+ * The mouse wheel (as check 27: toward the cursor, held on jet `k`'s target) until its ring is at least `minPx` on screen,
+ * at most `notches` notches. Gives the effect afterwards and how many notches it took.
+ */
+async function zoomOnRing(page, k, minPx = 12, notches = 40) {
+  const at = await pbEval(page, (j) => __pb.project(j, 'target'), k);
+  let fx = await impactFx(page, k), n = 0;
+  if (!at) return { fx, notches: n };
+  await page.mouse.move(at[0], at[1]);
+  for (; n < notches && !(fx && fx.ringPx >= minPx); n++) {
+    await page.mouse.wheel(0, -100);
+    await page.waitForTimeout(80);
+    await settle(page, 150);
+    fx = await impactFx(page, k);
+  }
+  await settle(page, 400);
+  return { fx: await impactFx(page, k), notches: n };
+}
+/** Show › Impact through the session, as the menu sets it; true once the view holds the choice. */
+async function impactTo(page, on) {
+  await pbEval(page, (o) => __pb.act({ type: 'show', a: { type: 'impact', on: o } }), on);
+  const reached = await page.waitForFunction((o) => !!__pb.show() && __pb.show().impact === o, on, { timeout: 15000, polling: 100 }).then(() => true, () => false);
+  await settle(page, 300);
+  return reached;
+}
+/** Jet `k`'s words beside its burst on the last frame (`__pb.debugLabels().tags`), or null. */
+const tagOf = (page, k) => pbEval(page, (j) => (__pb.debugLabels().tags || []).find((t) => t.key === `impact-${j}`) || null, k);
+const fmtRing = (e) => (e ? `ring ${e.ringRadius_m.toFixed(1)} m, ${e.ringPx.toFixed(2)} px, fade ${e.ringFade.toFixed(3)}, shown ${e.ringShown}` : 'no effect');
+const fmtTag = (t) => (t ? `${JSON.stringify(t.lines)}${t.placed ? '' : ' (not placed)'}` : 'no words');
+/** Two boxes overlap (left, top, width, height each; touching edges do not). */
+const boxesOverlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+/**
+ * Check 53c: the ring is true size and never larger. Flat ground, Orbit at Home, 1×, paused, 1.0 s after the impact (the
+ * ring grown to its radius, at full strength). The lone pop-up's Mk-82 (250 ft, 76.2 m):
+ * - not zoomed: the size the layer drew it for (`ringPx`) is the radius's half-width on screen read through the camera
+ *   (within 0.5 px), and how strongly it is drawn is ringFade of that size (1e-6);
+ * - after the wheel, until the ring is at least 12 px: drawn, at full strength, and at 1.5 s after the impact (the flash
+ *   gone, so its cream core cannot stand in for the ring) at least 18 of 24 points of the ground circle have a cream pixel
+ *   within 2 px, against fewer than 6 at the same points with Show › Impact off. The overlay is hidden for the pictures.
+ * The four-ship's #1 (checkRingFour, below): not zoomed its ring is too small to read (about 2 px), not drawn, and its words
+ * are the one line "#1 impact"; after the wheel it is drawn and the words name the radius.
+ *
+ * Measured on the first green run (2026-11-16): at Home the ring is 4.51 px (half-width through the camera 4.71) at 1400×900
+ * and 3.49 px (3.63) at 1024×768; 14 and 18 notches bring it to 12 px; 24 of 24 points cream, 0 with Impact off, at both.
+ * (The ring is drawn without a depth test: depth-tested, the target's red ring, laid on the same ground a little in front
+ * of it and about the same size at 12 px, hid all but 4 to 9 of the 24 points.)
+ *
+ * Proven red (2026-11-16) by one temporary edit to scene/impactLayer.ts, a floor under the ring's radius
+ * (`const radius_m = info.ringRadius_m` → `… === null ? null : Math.max(info.ringRadius_m, 6 * wpp)`, a ring never under
+ * IMPACT_RING_MIN_R_PX; the four-ship's part goes red with it, and its 73 line):
+ *   STEP FAIL 53c the ring is the weapon's radius on screen, never larger: … (1400x900) — Home 1.0 s after: ring 76.2 m, 6.00 px, fade 1.000, shown true, half-width through the camera 4.71 px (want within 0.5), fade for that size 1.000; after 14 notches: …
+ *   STEP FAIL 53c the four-ship's ring is too small to draw at Home and is drawn when zoomed in (1400x900-strike4) — Home 1.0 s after #1's impact: ring 76.2 m, 6.00 px, fade 1.000, shown true, words ["#1 impact","blast radius 250 ft (est.)"]; …
+ */
+async function checkRingTrueSize(page, tag) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+  };
+  let home, zoom, zoomed, img, off, cream = -1, creamOff = -1;
+  try {
+    await at(imp + 1.0);
+    home = await ringOnPage(page, 0);
+    zoom = await zoomOnRing(page, 0, 12, 20);
+    zoomed = await ringOnPage(page, 0);
+    await at(imp + 1.5);
+    const late = await ringOnPage(page, 0);
+    await overlay(page, false);
+    img = await shot(page, `${tag}-53c-ring`);
+    const switched = await impactTo(page, false) && !(await impactFx(page, 0)).ringShown;
+    off = await shot(page, `${tag}-53c-ring-off`);
+    await impactTo(page, true);
+    if (late && late.fx.ringShown && switched) {
+      cream = creamOnRing(img, late.pts);
+      creamOff = creamOnRing(off, late.pts);
+    }
+  } finally {
+    await overlay(page, true);
+    await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  const h = home && home.fx;
+  const okHome = !!h && h.ringRadius_m > 0 && home.half !== null && Math.abs(h.ringPx - home.half) <= 0.5 && Math.abs(h.ringFade - ringFadeOf(h.ringPx)) <= 1e-6;
+  const z = zoomed && zoomed.fx;
+  const okZoom = !!z && z.ringPx >= 12 && z.ringShown && z.ringFade === 1 && cream >= 18 && creamOff >= 0 && creamOff < 6;
+  step(`53c the ring is the weapon's radius on screen, never larger: its size read through the camera, faded by it, drawn when zoomed in (${tag})`, okHome && okZoom,
+    `Home 1.0 s after: ${fmtRing(h)}, half-width through the camera ${home && home.half !== null ? home.half.toFixed(2) : 'none'} px (want within 0.5), fade for that size ${h ? ringFadeOf(h.ringPx).toFixed(3) : '?'}; ` +
+      `after ${zoom ? zoom.notches : '?'} notches: ${fmtRing(z)} (want ≥ 12 px, fade 1, shown); 1.5 s after: ${cream} of 24 ring points cream (want ≥ 18), ${creamOff} with Impact off (want under 6)`);
+}
+
+/**
+ * Checks 53c and 73, the four-ship's part: #1's Mk-82 (250 ft) at Home, 1.0 s after its impact, flat ground, 1×, paused: its
+ * ring is too small on screen to read, so it is not drawn (fade 0) and the words beside the burst are the one line
+ * "#1 impact"; after the wheel, until the ring is at least 12 px, it is drawn and the words are both lines.
+ *
+ * Measured on the first green run (2026-11-16): at Home 1.91 px at 1400×900 and 1.46 px at 1024×768 (at 1024×768 the one-line
+ * words found no free spot there and were left out, which the check allows); 25 and 30 notches bring it to 12 px.
+ *
+ * Proven red by the edit named at 53c (the ring's floor: drawn at Home, both lines; both steps red) and, for the 73 line, by
+ * the edit named at 73 (the old seed radius: the 53c line stays green, the ring still too small at Home):
+ *   STEP FAIL 73 the four-ship's words beside #1's burst: … (1400x900-strike4) — Home 1.0 s after #1's impact: ring 121.9 m, 3.05 px, fade 0.000, shown false, words ["#1 impact"]; after 17 notches: ring 121.9 m, 12.09 px, fade 1.000, shown true, words ["#1 impact","blast radius 400 ft (est.)"]
+ */
+async function checkRingFour(page, tag) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  let home, homeTag, zoom, zoomTag;
+  try {
+    await pbEval(page, (t) => __pb.seek(t), imp + 1.0);
+    await settle(page, 300);
+    home = await impactFx(page, 0);
+    homeTag = await tagOf(page, 0);
+    zoom = await zoomOnRing(page, 0, 12, 40);
+    zoomTag = await tagOf(page, 0);
+  } finally {
+    await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  const one = JSON.stringify(['#1 impact']), both = JSON.stringify(['#1 impact', 'blast radius 250 ft (est.)']);
+  const okHome = !!home && home.ringRadius_m > 0 && !home.ringShown && home.ringFade === 0 && !!homeTag && JSON.stringify(homeTag.lines) === one;
+  const z = zoom && zoom.fx;
+  const okZoom = !!z && z.ringPx >= 12 && z.ringShown && !!zoomTag && JSON.stringify(zoomTag.lines) === both;
+  const detail = `Home 1.0 s after #1's impact: ${fmtRing(home)}, words ${fmtTag(homeTag)}; after ${zoom ? zoom.notches : '?'} notches: ${fmtRing(z)}, words ${fmtTag(zoomTag)}`;
+  step(`53c the four-ship's ring is too small to draw at Home and is drawn when zoomed in (${tag})`, okHome && !!z && z.ringPx >= 12 && z.ringShown, detail);
+  step(`73 the four-ship's words beside #1's burst: "#1 impact" alone at Home, the Mk-82's blast radius once its ring is drawn (${tag})`, okHome && okZoom, detail);
+}
+
+/**
+ * Check 53d: the words beside the burst and the placer. The lone pop-up, flat ground, Home, 1×, paused, 1.0 s after the
+ * impact, after the wheel until the ring is at least 12 px (so its radius is named): the words are
+ * ["#1 impact", "blast radius 250 ft (est.)"], placed, and overlap no placed callout, no jet's label and no target's box.
+ * With Show › Action points Off, over twenty frames drawn (seeks a ten-thousandth of a second apart), they are still placed
+ * and overlap no jet's label and no target's box. Action points back on: still placed, overlapping nothing.
+ *
+ * Proven red (2026-11-16) by one temporary edit to scene/labelLayer.ts, the placer started and the jets' labels and targets
+ * blocked only with the action points on (`placer.begin(w, h)` and its two block loops moved back inside the `else` of
+ * `if (!showPoints)`: with the action points off the boxes of earlier frames pile up and the words find no room):
+ *   STEP FAIL 53d the words beside the burst name the blast radius, … (1400x900) — ring 12.3 px after 14 notches; on: ["#1 impact","blast radius 250 ft (est.)"], 1 callouts placed, overlaps none; Action points Off, 20 frames on: ["#1 impact","blast radius 250 ft (est.)"] (not placed), 0 callouts, overlaps not placed; back on: …, overlaps none
+ */
+async function checkRingTag(page, tag) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground, points: __pb.show().actionPoints }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  const clear = (t, d, withCallouts) => {
+    if (!t || !t.placed) return ['not placed'];
+    const hits = [];
+    if (withCallouts) for (const c of d.callouts) if (c.placed && boxesOverlap(t, c)) hits.push(`callout ${c.key}`);
+    for (const j of d.jets) if (boxesOverlap(t, j)) hits.push(`label ${j.key}`);
+    for (const g of d.targets) if (boxesOverlap(t, { x: g.box[0], y: g.box[1], w: g.box[2], h: g.box[3] })) hits.push(`target ${g.key}`);
+    return hits;
+  };
+  let zoom, on, onD, offTag, offD, back, backD;
+  try {
+    await pbEval(page, (t) => __pb.seek(t), imp + 1.0);
+    await settle(page, 300);
+    zoom = await zoomOnRing(page, 0, 12, 20);
+    await settleIdle(page, 300);
+    on = await tagOf(page, 0);
+    onD = await pbEval(page, () => __pb.debugLabels());
+    await pbEval(page, () => __pb.setActionPoints('off'));
+    await page.waitForFunction(() => __pb.show() && __pb.show().actionPoints === 'off', null, { timeout: 15000, polling: 100 });
+    for (let i = 0; i < 20; i++) {
+      await pbEval(page, (t) => __pb.seek(t), imp + 1.0 + (i % 2) * 1e-4);
+      await settle(page, 60);
+    }
+    offTag = await tagOf(page, 0);
+    offD = await pbEval(page, () => __pb.debugLabels());
+    await pbEval(page, (m) => __pb.setActionPoints(m), was.points);
+    await settleIdle(page, 600);
+    back = await tagOf(page, 0);
+    backD = await pbEval(page, () => __pb.debugLabels());
+  } finally {
+    await pbEval(page, (w) => { __pb.setActionPoints(w.points); __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  const both = JSON.stringify(['#1 impact', 'blast radius 250 ft (est.)']);
+  const hitsOn = clear(on, onD, true), hitsOff = clear(offTag, offD, false), hitsBack = clear(back, backD, true);
+  const ok = !!zoom.fx && zoom.fx.ringPx >= 12 && !!on && JSON.stringify(on.lines) === both && hitsOn.length === 0 &&
+    !!offTag && JSON.stringify(offTag.lines) === both && hitsOff.length === 0 && offD.callouts.length === 0 && !!back && hitsBack.length === 0;
+  step(`53d the words beside the burst name the blast radius, placed clear of every plate, label and target, with Action points on and Off (${tag})`, ok,
+    `ring ${zoom.fx ? zoom.fx.ringPx.toFixed(1) : '?'} px after ${zoom.notches} notches; on: ${fmtTag(on)}, ${onD.callouts.filter((c) => c.placed).length} callouts placed, overlaps ${hitsOn.join(', ') || 'none'}; ` +
+      `Action points Off, 20 frames on: ${fmtTag(offTag)}, ${offD.callouts.length} callouts, overlaps ${hitsOff.join(', ') || 'none'}; back on: ${fmtTag(back)}, overlaps ${hitsBack.join(', ') || 'none'}`);
+}
+
+/**
+ * Check 73: the ring and its words on the ridge pair (two Mk-84 dive bombers, #1 on a ridge target, 360 ft), whichever rule
+ * the strike warns by: flat ground, Home, 1×, paused, 1.0 s after #1's impact, after the wheel until #1's ring is at least
+ * 12 px: the ring is drawn and the words are ["#1 impact", "blast radius 360 ft (est.)"]. Run on the page saved with the
+ * blast rule and on the page saved with the spacing rule: the ring is a fact about the weapon, not about the warning.
+ *
+ * Proven red (2026-11-16) by one temporary edit to src/lib/playbackScene/source.ts, impactInfoOf reading the old seed radius
+ * (`const spec = burstSpecOf(weapon)` → a spec from `weapon?.frag_effective_radius_ft`: the Mk-84's 800 ft):
+ *   STEP FAIL 73 the ridge pair's ring and words: … warning by blast radius (1400x900-ridge-burst) — the strike's rule burst (want burst); after 1 notches: ring 243.8 m, 13.01 px, fade 1.000, shown true; words ["#1 impact","blast radius 800 ft (est.)"]
+ *   STEP FAIL 73 the ridge pair's ring and words: … warning by spacing in time (1400x900-ridge-time) — the strike's rule time (want time); after 1 notches: …; words ["#1 impact","blast radius 800 ft (est.)"]
+ * Measured green the same day: 10 notches at 1400×900 and 13 at 1024×768 to 12 px, both rules alike.
+ */
+async function checkRingRidge(page, tag, rule) {
+  const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
+  const pageRule = await pbEval(page, () => __pb.moments.rule);
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.act({ type: 'show', a: { type: 'impact', on: true } }); });
+  let zoom, words;
+  try {
+    await pbEval(page, (t) => __pb.seek(t), imp + 1.0);
+    await settle(page, 300);
+    zoom = await zoomOnRing(page, 0, 12, 40);
+    words = await tagOf(page, 0);
+    await shot(page, `${tag}-73-ring-${rule}`);
+  } finally {
+    await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  const z = zoom && zoom.fx;
+  const ok = pageRule === rule && !!z && z.ringPx >= 12 && z.ringShown && Math.abs(z.ringRadius_m - 109.728) < 1e-6 && !!words && words.placed &&
+    JSON.stringify(words.lines) === JSON.stringify(['#1 impact', 'blast radius 360 ft (est.)']);
+  step(`73 the ridge pair's ring and words: "blast radius 360 ft (est.)" for #1's Mk-84, warning by ${rule === 'burst' ? 'blast radius' : 'spacing in time'} (${tag})`, ok,
+    `the strike's rule ${pageRule} (want ${rule}); after ${zoom ? zoom.notches : '?'} notches: ${fmtRing(z)}; words ${fmtTag(words)}`);
 }
 
 // ── Chase watching the bomb land (checks 57 and 5d). Positions are read through the scene's own camera (`project`,
@@ -4091,14 +4388,21 @@ async function runFragChecks(browser, base) {
     const tag = `${w}x${h}`;
     const q = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&rule=burst`, w, h);
     await checkFragBurstFour(q.page, `${tag}-strike4`);
+    await checkRingFour(q.page, `${tag}-strike4`);
     step(`8 no page errors, four-ship by blast radius (${tag})`, q.problems.length === 0, q.problems.length ? q.problems.slice(0, 8).join(' | ') : 'none');
     await q.context.close();
     const r = await openPage(browser, `${base}?tiles=synthetic&fixture=ridge&rule=burst`, w, h);
     step(`ready, ridge pair (${tag})`, true, JSON.stringify(await pbEval(r.page, () => __pb.terrain())));
     await checkFragRidge(r.page, `${tag}-ridge`);
     await checkFragRidgeLane(r.page, `${tag}-ridge`);
+    await checkRingRidge(r.page, `${tag}-ridge`, 'burst');
     step(`8 no page errors, ridge pair (${tag})`, r.problems.length === 0, r.problems.length ? r.problems.slice(0, 8).join(' | ') : 'none');
     await r.context.close();
+    // 73 again on the same pair saved with the spacing rule: the ring does not follow the warning's rule.
+    const rt = await openPage(browser, `${base}?tiles=synthetic&fixture=ridge&rule=time`, w, h);
+    await checkRingRidge(rt.page, `${tag}-ridge-time`, 'time');
+    step(`8 no page errors, ridge pair by spacing in time (${tag})`, rt.problems.length === 0, rt.problems.length ? rt.problems.slice(0, 8).join(' | ') : 'none');
+    await rt.context.close();
   }
 }
 
@@ -4225,6 +4529,8 @@ async function runChecks(browser, base) {
     await checkFlashSwitch(page, tag);
     await checkFlashFast(page, tag);
     await checkFlashPure(page, tag);
+    await checkRingTrueSize(page, tag);
+    await checkRingTag(page, tag);
     await checkBombCam(page, tag);
     await checkReal(page, tag);
     await checkFit(page, tag, w, h);

@@ -33,6 +33,13 @@
  *   seconds whatever the speed, three of one jet's at most, fading in and
  *   out; Always, all of them. A plate that finds no free spot round its disc
  *   is left out that frame (its disc stays): it never covers another label.
+ * - The words beside each burst (Show › Impact), for as long as the ring
+ *   there lasts: "#1 impact" on a dark plate, and, while the ring is drawn
+ *   large enough to read, the weapon's blast radius ("blast radius 250 ft
+ *   (est.)"); a weapon with no radius has the first line only. They are placed
+ *   like the callouts, after them, round the flash, and whatever Show › Action
+ *   points says: they never cover a callout, a jet's label or a target's disc
+ *   and tag, and with no free spot they are left out that frame.
  * - Each jet's label beside its arrow: "#1 Viper 1-1" in the jet's colour,
  *   and, with Show › Labels on, its altitude and speed as the planner prints
  *   them. It takes the side of the arrow that leaves a target's disc and tag
@@ -48,11 +55,12 @@ import { Vector3, type PerspectiveCamera } from 'three';
 import { LABEL_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import {
   BOMB_RING_EDGE_PX, BOMB_RING_LINE_PX, CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CalloutFader, CalloutPlacer,
-  DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, EGRESS_DOT_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
-  LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, bombRingLook, calloutTargets, letterInk, placeLabels, releasePulse,
-  targetTag, type AttackColours, type BombRingLook, type SceneSource,
+  DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, EGRESS_DOT_PX, FLASH_R_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
+  LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, bombRingLook, calloutTargets, impactTagLines, letterInk, placeLabels,
+  releasePulse, targetTag, type AttackColours, type BombRingLook, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
+import type { ImpactLayer } from './impactLayer';
 import type { JetLayer } from './jetLayer';
 import type { FrameCtx, Layer } from './layer';
 import type { TargetLayer } from './targetLayer';
@@ -69,6 +77,8 @@ export interface LabelDebug {
   jets: { key: string; lines: string[]; x: number; y: number; w: number; h: number }[];
   /** The ring round each falling bomb as drawn (a playback jet index, its centre, its radius with the release pulse in it, its alpha). */
   bombs: { jet: number; x: number; y: number; r: number; alpha: number }[];
+  /** The words beside each burst showing at all (`impact-<playback jet index>`), placed or dropped for want of room; the plate's top left and size. */
+  tags: { key: string; kind: 'impact'; lines: readonly string[]; alpha: number; x: number; y: number; w: number; h: number; placed: boolean }[];
 }
 
 export interface LabelLayer extends Layer {
@@ -83,7 +93,9 @@ const AT_DISC = 0, AT_EGRESS = 1, AT_TARGET = 2;
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
-export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; targets: TargetLayer; jets: readonly JetLayer[]; bag: DisposeBag }): LabelLayer {
+export function createLabelLayer(o: {
+  host: HTMLElement; source: SceneSource; targets: TargetLayer; jets: readonly JetLayer[]; impacts: readonly ImpactLayer[]; bag: DisposeBag;
+}): LabelLayer {
   const canvas = document.createElement('canvas');
   canvas.setAttribute('aria-hidden', 'true');
   canvas.dataset.labels = '';
@@ -118,6 +130,13 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
   const jCoded = new Uint8Array(nJ);
   const bx = new Float32Array(nJ), by = new Float32Array(nJ), br = new Float32Array(nJ), ba = new Float32Array(nJ), bOn = new Uint8Array(nJ);
   const ringLook: BombRingLook = { r: 0, alpha: 0 };
+  // Per impact layer: the words beside its burst, both ways they can read (with the radius and without), and each
+  // plate's size, worked out once per source; each frame where the plate went and whether it was placed.
+  const nI = o.impacts.length;
+  let tagWith: string[][] = [], tagWithout: string[][] = [];
+  const tagWithW = new Float32Array(nI), tagWithH = new Float32Array(nI), tagWithoutW = new Float32Array(nI), tagWithoutH = new Float32Array(nI);
+  const iOn = new Uint8Array(nI), iRadius = new Uint8Array(nI), iPlaced = new Uint8Array(nI);
+  const iX = new Float32Array(nI), iY = new Float32Array(nI);
 
   // ── Per source, watched jet and Attack colours choice: every jet's discs, the coded jets' egress dots
   // and callouts. A coded jet is the watched one, or every jet with All jets (with one jet, that one).
@@ -151,6 +170,15 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     tbw = new Float32Array(tags.length);
     tbh = new Float32Array(tags.length);
     jetText = o.jets.map((jl) => new LabelText(s.labelOf(jl.jet), s.callsignOf(jl.jet)));
+    tagWith = o.impacts.map((il) => impactTagLines(s.labelOf(il.jet), s.impactInfo(il.jet).ringRadius_ft, true));
+    tagWithout = o.impacts.map((il) => impactTagLines(s.labelOf(il.jet), s.impactInfo(il.jet).ringRadius_ft, false));
+    const plateW = (lines: readonly string[]) => Math.max(0, ...lines.map((l) => (g ? g.measureText(l).width : 0))) + 2 * LABEL_PAD_PX;
+    for (let i = 0; i < nI; i++) {
+      tagWithW[i] = plateW(tagWith[i]);
+      tagWithH[i] = tagWith[i].length * LABEL_LINE_PX;
+      tagWithoutW[i] = plateW(tagWithout[i]);
+      tagWithoutH[i] = tagWithout[i].length * LABEL_LINE_PX;
+    }
     watched = -1; // the discs and callouts are made again for this source
   }
 
@@ -231,7 +259,8 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
     cX = new Float32Array(n);
     cY = new Float32Array(n);
     fader = new CalloutFader(n);
-    placer = new CalloutPlacer(n + nJ + tags.length);
+    // Room for every callout, a blocked box per jet label, two slots per jet beside its burst, and the targets' boxes.
+    placer = new CalloutPlacer(n + 3 * nJ + tags.length);
     nCandidates = 0;
   }
 
@@ -382,6 +411,12 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
         ba[k] = ringLook.alpha;
       }
 
+      // The plates' placer starts afresh each frame with the jets' labels and the targets blocked, whatever Show ›
+      // Action points says: the words beside a burst are placed through it with the action points off too.
+      placer.begin(w, h);
+      for (let n = 0; n < shownJets; n++) placer.block(jx[n], jy[n], jw[n], jh[n]);
+      for (let b = 0; b < shownTargets; b++) placer.block(tbx[b], tby[b], tbw[b], tbh[b]);
+
       // The callouts: which show and how much, then a spot for each, nearest the playhead first.
       nCandidates = 0;
       if (!showPoints) {
@@ -389,9 +424,6 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
       } else {
         nCandidates = calloutTargets(ctx.t, ctx.speed, ctx.actionPoints, cMark, cJet, nCallouts, fader.alpha, cTarget, cOrder);
         if (fader.step(ctx.dt, cTarget, nCallouts)) ctx.again = true;
-        placer.begin(w, h);
-        for (let n = 0; n < shownJets; n++) placer.block(jx[n], jy[n], jw[n], jh[n]);
-        for (let b = 0; b < shownTargets; b++) placer.block(tbx[b], tby[b], tbw[b], tbh[b]);
         cPlaced.fill(0);
         // Those meant to show first, then those fading out.
         for (let pass = 0; pass < 2; pass++) {
@@ -404,6 +436,21 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
             cY[i] = placer.y;
           }
         }
+      }
+
+      // The words beside each burst, after the callouts (so they never push one out), round the flash's core.
+      for (let i = 0; i < nI; i++) {
+        iOn[i] = 0;
+        iPlaced[i] = 0;
+        const t = o.impacts[i].tag;
+        if (!t.shown || !(t.alpha > 0) || !toScreen(v.copy(t.centre), ctx.camera, ctx)) continue;
+        iOn[i] = 1;
+        iRadius[i] = t.withRadius ? 1 : 0;
+        const tw = t.withRadius ? tagWithW[i] : tagWithoutW[i], th = t.withRadius ? tagWithH[i] : tagWithoutH[i];
+        if (placer.place(nCallouts + 2 * i, v.x, v.y, FLASH_R_PX, tw, th) < 0) continue;
+        iPlaced[i] = 1;
+        iX[i] = placer.x;
+        iY[i] = placer.y;
       }
 
       // ── Drawing, bottom to top.
@@ -491,6 +538,21 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
       }
       g.globalAlpha = 1;
 
+      // The words beside the bursts, on the jets' dark plate, fading with the ring; under the jets' labels.
+      for (let i = 0; i < nI; i++) {
+        if (!iPlaced[i]) continue;
+        const lines = iRadius[i] ? tagWith[i] : tagWithout[i];
+        g.globalAlpha = o.impacts[i].tag.alpha;
+        g.fillStyle = LABEL_PLATE;
+        g.fillRect(iX[i], iY[i], iRadius[i] ? tagWithW[i] : tagWithoutW[i], iRadius[i] ? tagWithH[i] : tagWithoutH[i]);
+        g.font = LABEL_FONT;
+        g.fillStyle = LABEL_TEXT;
+        g.textAlign = 'left';
+        g.textBaseline = 'middle';
+        for (let k = 0; k < lines.length; k++) g.fillText(lines[k], iX[i] + LABEL_PAD_PX, iY[i] + (k + 0.5) * LABEL_LINE_PX + 0.5);
+      }
+      g.globalAlpha = 1;
+
       for (let n = 0; n < shownJets; n++) {
         const k = jOf[n], l2 = jL2[n];
         g.fillStyle = LABEL_PLATE;
@@ -534,7 +596,16 @@ export function createLabelLayer(o: { host: HTMLElement; source: SceneSource; ta
       for (let k = 0; k < nJ; k++) {
         if (bOn[k]) bombs.push({ jet: o.jets[k].jet, x: bx[k], y: by[k], r: br[k], alpha: ba[k] });
       }
-      return { targets, markers, callouts, jets, bombs };
+      const tagList: LabelDebug['tags'] = [];
+      for (let i = 0; i < nI; i++) {
+        if (!iOn[i]) continue;
+        const r = iRadius[i] === 1;
+        tagList.push({
+          key: `impact-${o.impacts[i].jet}`, kind: 'impact', lines: r ? tagWith[i] : tagWithout[i], alpha: o.impacts[i].tag.alpha,
+          x: iX[i], y: iY[i], w: r ? tagWithW[i] : tagWithoutW[i], h: r ? tagWithH[i] : tagWithoutH[i], placed: !!iPlaced[i],
+        });
+      }
+      return { targets, markers, callouts, jets, bombs, tags: tagList };
     },
 
     dispose() {

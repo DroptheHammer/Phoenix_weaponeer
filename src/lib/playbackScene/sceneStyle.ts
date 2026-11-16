@@ -74,6 +74,19 @@ export const FLASH_SEGS = 24;
 export const FLASH_CORE = '#fff6d5';
 export const FLASH_RIM = '#ffb347';
 export const IMPACT_LIFT_M = 1;
+/**
+ * The ring where a bomb lands, at the weapon's blast radius (where the weapon table has one): a closed loop of
+ * IMPACT_RING_SEGS pieces laid on the drawn ground, cream on a casing of the window's dark (the casing carries it on
+ * pale land), true size, never larger. Its radius on screen decides whether it is drawn: nothing under
+ * IMPACT_RING_FADE_FROM_PX, full strength from IMPACT_RING_MIN_R_PX, thinning in between, so a ring too small to read
+ * as a ring is not drawn as a dot.
+ */
+export const IMPACT_RING = '#fff1b8';
+export const IMPACT_RING_PX = 3;
+export const IMPACT_RING_CASING_PX = 5.5;
+export const IMPACT_RING_MIN_R_PX = 6;
+export const IMPACT_RING_FADE_FROM_PX = 4;
+export const IMPACT_RING_SEGS = 64;
 
 /**
  * The lines are drawn a set width in CSS pixels (three's wide lines), not

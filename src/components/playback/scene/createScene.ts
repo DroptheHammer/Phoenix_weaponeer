@@ -160,7 +160,7 @@ export interface PlaybackScene {
   setActionPoints(mode: ActionPointsMode): void;
   /** The planner's colour code on the watched jet only, or on every jet (Show › Attack colours). */
   setAttackColours(mode: AttackColours): void;
-  /** The ring round each falling bomb and the flash where it lands (Show › Impact); off leaves the bomb alone. */
+  /** The ring round each falling bomb, the flash where it lands, the ring at the weapon's blast radius and the words beside it (Show › Impact); off leaves the bomb alone. */
   setImpact(on: boolean): void;
   /**
    * Chase looks at the watched jet's bomb from its release until it lands, holds on the burst, then turns back to the
@@ -191,7 +191,7 @@ export interface PlaybackScene {
   debugEffects(): EffectsDebug | null;
   /** The graphics card's counts for the last frame drawn (a pending change is drawn first). Null when the scene is gone. For the screenshot checks. */
   renderInfo(): RenderInfo | null;
-  /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels, the bombs' rings). For the screenshot checks. */
+  /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels, the bombs' rings, the words beside each burst). For the screenshot checks. */
   debugLabels(): LabelDebug;
   /**
    * Jet `jet`'s (a playback index, default 0) arrow as its mesh has it at the clock's current time (a pending
@@ -308,7 +308,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     const homeFor = (aspect: number) => homePose({ box: homeBoxNow(), axis: source.attackAxis, aspect });
     rig = new CameraRig(canvas, homeFor, homeBoxNow, viewW / viewH, terrain.halfDiag_m, (FOG_FAR_K + 1) * terrain.halfDiag_m);
     // The 2D overlay last: nothing after it can throw, so a failed open never leaves its canvas behind.
-    labels = createLabelLayer({ host, source, targets, jets, bag });
+    labels = createLabelLayer({ host, source, targets, jets, impacts, bag });
   } catch (err) {
     abort.abort();
     bag.disposeAll();

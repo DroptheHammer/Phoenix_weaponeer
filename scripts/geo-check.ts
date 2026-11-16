@@ -179,6 +179,7 @@ import {
 import {
   impactPhase, newImpactPhase, IMPACT_FLASH_GROW_WALL_S, IMPACT_FLASH_FULL_WALL_S, IMPACT_FLASH_END_WALL_S, IMPACT_RING_GROW_WALL_S,
   IMPACT_RING_HOLD_WALL_S, IMPACT_RING_END_WALL_S, FLASH_CORE, FLASH_RIM, type ImpactPhase,
+  impactInfoOf, ringPixels, ringFade, impactTagLines, IMPACT_RING, IMPACT_RING_PX, IMPACT_RING_CASING_PX, IMPACT_RING_MIN_R_PX, IMPACT_RING_FADE_FROM_PX, IMPACT_RING_SEGS,
 } from '../src/lib/playbackScene';
 import { aimWeight, lookDirection, AIM_IN_WALL_S, AIM_HOLD_WALL_S, AIM_OUT_WALL_S, type Look3 } from '../src/lib/playbackScene';
 import { harnessLaunch, harnessFixtureLaunch, harnessMoments } from '../src/components/playback/dev/fixture';
@@ -11050,6 +11051,137 @@ void (async () => {
          ix4.map((p) => `${p.id} ${p.c} on the dark ${p.bg.toFixed(2)}${p.bg >= 3 ? '' : ' (want 3)'}`).join('; ') + `; printed, not gated: on pale land ${ix4.map((p) => p.land.toFixed(2)).join(' / ')}`);
     } catch (e) {
       ok('playback B3 (the flash): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
+
+    // ─── The ring where a bomb lands, and its words (source.ts impactInfoOf, impactFx.ts, sceneStyle.ts) ──────────
+    // Where the weapon table has a blast radius for the weapon, a ring is drawn on the ground at that radius round the
+    // burst, true size, faded out when it is too small on screen to read, and named beside the burst with "(est.)".
+    // Each check carries its mutation proof (2026-11-16): one temporary edit, geo-check run, the FAIL line copied
+    // (shortened with …), the edit restored.
+    try {
+      // [IX5] The ring's radius is the weapon's sourced blast radius and nothing else: over every row of the weapon
+      // table, impactInfoOf gives the very radius burstSpecOf reads (the blast warning's own reader), in feet and in
+      // metres, and none where it reads none; the Mk-82 and Mk-83 rings are 250 ft (76.2 m) and the Mk-84's 360 ft
+      // (109.728 m), never the old seed radii (the Mk-82's 400 and 150 ft); every row with only seed radii, the CBU-87
+      // and the AGM-65D have no ring; a hand-built row with a radius and no source, or a row with only seed radii, has
+      // none. Each source answers per flown jet exactly what impactInfoOf answers for that jet's weapon (the skip
+      // variant: two jets for three seats).
+      // (Which rows carry a radius, and at what figure, is the weapon table's: the [BX3] checks hold that list.)
+      // Mutation proof (seen red 2026-11-16): source.ts impactInfoOf `const spec = burstSpecOf(weapon);` → a spec made from
+      // `weapon?.frag_effective_radius_ft` (the old seed radius read instead):
+      //   FAIL playback B3 [IX5]: … mk82: 400 ft / 121.92 m (want 250 ft); mk82air: 400 ft / 121.92 m (want 250 ft); …; mk84: 800 ft / 243.84 m (want 360 ft); gbu12: 400 ft / 121.92 m (want null ft); …; mk83: null ft / null m (want 250 ft, 76.2 m); …; cbu87: 1000 ft (want no ring); agm65d: 300 ft (want no ring); …
+      const ix5Bad: string[] = [];
+      const ix5Rows = refWeapons as never as DbWeapon[];
+      for (const w of ix5Rows) {
+        const got = impactInfoOf(w), spec = burstSpecOf(w);
+        const wantFt = spec ? spec.radius_ft : null;
+        if (got.ringRadius_ft !== wantFt || got.ringRadius_m !== (wantFt === null ? null : wantFt * FT_TO_M)) {
+          if (ix5Bad.length < 6) ix5Bad.push(`${w.id}: ${got.ringRadius_ft} ft / ${got.ringRadius_m} m (want ${wantFt} ft)`);
+        }
+      }
+      const ix5Ring = (id: string) => impactInfoOf(ix5Rows.find((w) => w.id === id));
+      for (const [id, ft] of [['mk82', 250], ['mk83', 250], ['mk84', 360]] as const) {
+        const r = ix5Ring(id);
+        if (r.ringRadius_ft !== ft || r.ringRadius_m === null || Math.abs(r.ringRadius_m - ft * 0.3048) > 1e-9) ix5Bad.push(`${id}: ${r.ringRadius_ft} ft / ${r.ringRadius_m} m (want ${ft} ft, ${ft * 0.3048} m)`);
+      }
+      const ix5SeedOnly = ix5Rows.filter((w) => (w.frag_effective_radius_ft ?? w.frag_lethal_radius_ft) != null && burstSpecOf(w) === undefined).map((w) => w.id);
+      for (const id of [...ix5SeedOnly, 'cbu87', 'agm65d']) {
+        const r = ix5Ring(id);
+        if (r.ringRadius_ft !== null || r.ringRadius_m !== null) ix5Bad.push(`${id}: ${r.ringRadius_ft} ft (want no ring)`);
+      }
+      if (ix5SeedOnly.length < 5 || !ix5Rows.some((w) => w.id === 'cbu87') || !ix5Rows.some((w) => w.id === 'agm65d')) ix5Bad.push(`the rows with seed radii only are ${ix5SeedOnly.join(', ')} (want at least 5, with cbu87 and agm65d in the table)`);
+      const ix5Hand: [string, Record<string, unknown> | undefined][] = [
+        ['a radius with no source', { blast_radius_ft: 360, blast_radius_meaning: 'destroyed', blast_radius_source: null }],
+        ['a radius with an unknown source', { blast_radius_ft: 360, blast_radius_meaning: 'destroyed', blast_radius_source: 'hunch' }],
+        ['only the old seed radii', { frag_effective_radius_ft: 400, frag_lethal_radius_ft: 150 }],
+        ['no row at all', undefined],
+      ];
+      for (const [name, w] of ix5Hand) {
+        const r = impactInfoOf(w as DbWeapon | undefined);
+        if (r.ringRadius_ft !== null || r.ringRadius_m !== null) ix5Bad.push(`${name}: ${r.ringRadius_ft} ft (want no ring)`);
+      }
+      const ix5WithRing = ix5Rows.filter((w) => impactInfoOf(w).ringRadius_ft !== null).map((w) => w.id).sort();
+      for (const [name, pb, src] of [['the skip variant', skipPb, sceneSourceFrom(skipPb, retime(skipPb))], ['the four-ship', s4Pb, s4Src]] as const) {
+        for (let k = 0; k < src.jetCount; k++) {
+          if (JSON.stringify(src.impactInfo(k)) !== JSON.stringify(impactInfoOf(pb.jets[k].weapon))) ix5Bad.push(`${name} jet ${k}: ${JSON.stringify(src.impactInfo(k))} (want ${JSON.stringify(impactInfoOf(pb.jets[k].weapon))})`);
+        }
+      }
+      const ix5SkipJets = sceneSourceFrom(skipPb, retime(skipPb)).jetCount;
+      if (ix5SkipJets !== 2) ix5Bad.push(`the skip variant's source has ${ix5SkipJets} jets (want 2: one per flown jet)`);
+      ok('playback B3 [IX5]: the ring where a bomb lands is the weapon\'s sourced blast radius (Mk-82 and Mk-83 250 ft, Mk-84 360 ft), never an old seed radius; no ring where the table has no sourced radius; each source answers per flown jet',
+         ix5Bad.length === 0, ix5Bad.join('; ') || `rings on ${ix5WithRing.join(', ')}; Mk-82 ${ix5Ring('mk82').ringRadius_m} m, Mk-84 ${ix5Ring('mk84').ringRadius_m} m; none on ${ix5SeedOnly.length} rows with seed radii only`);
+
+      // [IX6] The ring is never drawn bigger than true, and only when it is big enough to read: ringPixels is exactly the
+      // radius over the metres per pixel (76.2 m at 16.9 m a pixel, the lone jet's Home, is 4.51 px); ringFade is 0 at
+      // 4 px and below, 1 at 6 px and above, 0.5 at 5, never falling as the ring grows, and 0 for a size that is not a
+      // number or below 0. At the window's sizes the paper measured (16.9 and 13.9 m a pixel on the lone jet's Home and
+      // Top-down, 39.4 and 30.5 on the four-ship's): the lone Mk-82's ring is faint at Home (0.25) and stronger Top-down
+      // (0.74), a lone Mk-84's full in both, and no ring is drawn on the four-ship's Home or Top-down.
+      // Mutation proof (seen red 2026-11-16): sceneStyle.ts `IMPACT_RING_FADE_FROM_PX = 4` → `0` (the fade starting at 0 px):
+      //   FAIL playback B3 [IX6]: … ringFade(3.9) = 0.65 (want 0); ringFade(4) = 0.6666666666666666 (want 0); ringFade(5) = 0.8333333333333334 (want 0.5); the lone Mk-82, Home: 4.51 px, fade 0.751 (want 0.2544); …; the four-ship's Mk-82, Home: 1.93 px, fade 0.322 (want 0); …
+      const ix6Bad: string[] = [];
+      const ix6Px = ringPixels(76.2, 16.9);
+      if (Math.abs(ix6Px - 4.51) > 0.05) ix6Bad.push(`ringPixels(76.2, 16.9) = ${ix6Px.toFixed(3)} (want 4.51 ± 0.05)`);
+      for (const [r, wpp] of [[76.2, 16.9], [109.728, 13.9], [1, 3], [0.001, 7e-5], [12345, 0.37]]) {
+        if (ringPixels(r, wpp) !== r / wpp) ix6Bad.push(`ringPixels(${r}, ${wpp}) = ${ringPixels(r, wpp)} (want exactly ${r / wpp})`);
+      }
+      for (const [px, want] of [[-3, 0], [0, 0], [3.9, 0], [4, 0], [5, 0.5], [6, 1], [6.1, 1], [50, 1], [NaN, 0], [Infinity, 1], [-Infinity, 0]]) {
+        if (Math.abs(ringFade(px) - want) > 1e-12) ix6Bad.push(`ringFade(${px}) = ${ringFade(px)} (want ${want})`);
+      }
+      let ix6Last = -1;
+      for (let i = 0; i <= 1000; i++) {
+        const f = ringFade(i * 0.01);
+        if (!(f >= ix6Last) || f < 0 || f > 1) { ix6Bad.push(`ringFade falls or leaves 0…1 at ${(i * 0.01).toFixed(2)} px: ${f}`); break; }
+        ix6Last = f;
+      }
+      const ix6Views: [string, number, number, number][] = [
+        ['the lone Mk-82, Home', 76.2, 16.9, 0.2544], ['the lone Mk-82, Top-down', 76.2, 13.9, 0.7410], ['a lone Mk-84, Home', 109.728, 16.9, 1], ['a lone Mk-84, Top-down', 109.728, 13.9, 1],
+        ['the four-ship\'s Mk-82, Home', 76.2, 39.4, 0], ['the four-ship\'s Mk-82, Top-down', 76.2, 30.5, 0], ['a four-ship\'s Mk-84, Home', 109.728, 39.4, 0], ['a four-ship\'s Mk-84, Top-down', 109.728, 30.5, 0],
+      ];
+      const ix6Rows = ix6Views.map(([name, r, wpp, want]) => {
+        const px = ringPixels(r, wpp), f = ringFade(px);
+        if (Math.abs(f - want) > 0.002) ix6Bad.push(`${name}: ${px.toFixed(2)} px, fade ${f.toFixed(3)} (want ${want})`);
+        return `${name} ${px.toFixed(2)} px → ${f.toFixed(2)}`;
+      });
+      if (!(IMPACT_RING_MIN_R_PX > IMPACT_RING_FADE_FROM_PX)) ix6Bad.push(`full strength from ${IMPACT_RING_MIN_R_PX} px is not above the fade's start at ${IMPACT_RING_FADE_FROM_PX} px`);
+      ok('playback B3 [IX6]: the ring\'s size on screen is exactly its true radius over the metres per pixel, and it is drawn from 4 px (nothing) to 6 px (full), never falling as it grows; at the measured views the lone Mk-82 is faint at Home, the four-ship\'s rings are not drawn',
+         ix6Bad.length === 0, ix6Bad.join('; ') || ix6Rows.join('; '));
+
+      // [IX7] The words beside a burst, exactly: "#1 impact", and while the ring is drawn large enough to read and the
+      // weapon has a radius, "blast radius 360 ft (est.)" (whole feet, written the way the rest of the app writes numbers);
+      // with no radius, or the ring too small, the first line alone.
+      // Mutation proof (seen red 2026-11-16): impactFx.ts impactTagLines, ` ft (est.)` → ` ft` (the estimate mark dropped):
+      //   FAIL playback B3 [IX7]: … #1, 360 ft, ring drawn: ["#1 impact","blast radius 360 ft"] (want ["#1 impact","blast radius 360 ft (est.)"]); #3, 250 ft: ["#3 impact","blast radius 250 ft"] (want …); …
+      const ix7Cases: [string, string[], string[]][] = [
+        ['#1, 360 ft, ring drawn', impactTagLines('#1', 360, true), ['#1 impact', 'blast radius 360 ft (est.)']],
+        ['#1, 360 ft, ring too small', impactTagLines('#1', 360, false), ['#1 impact']],
+        ['#1, no radius, ring drawn', impactTagLines('#1', null, true), ['#1 impact']],
+        ['#3, 250 ft', impactTagLines('#3', 250, true), ['#3 impact', 'blast radius 250 ft (est.)']],
+        ['#2, 1000 ft', impactTagLines('#2', 1000, true), ['#2 impact', 'blast radius 1,000 ft (est.)']],
+        ['#1, 250.4 ft', impactTagLines('#1', 250.4, true), ['#1 impact', 'blast radius 250 ft (est.)']],
+      ];
+      const ix7Bad = ix7Cases.filter(([, got, want]) => JSON.stringify(got) !== JSON.stringify(want)).map(([name, got, want]) => `${name}: ${JSON.stringify(got)} (want ${JSON.stringify(want)})`);
+      ok('playback B3 [IX7]: the words beside a burst are "#1 impact" and, while its ring is drawn, "blast radius 360 ft (est.)"; the first line alone with no radius or too small a ring; 1,000 written with its comma',
+         ix7Bad.length === 0, ix7Bad.join('; ') || ix7Cases.map(([name, got]) => `${name}: ${JSON.stringify(got)}`).join('; '));
+
+      // [IX8] The ring stands off the window's dark, 3:1 for graphics, to normal eyes and to protans and deutans; it lies on
+      // a casing of the lines' own dark (LINE_CASING), wider than it, which is what carries it on pale land. Printed, not
+      // gated: the cream on pale land. The layer makes the two lines from these names.
+      // Mutation proof (seen red 2026-11-16): sceneStyle.ts `IMPACT_RING = '#fff1b8'` → `'#2a2a48'`:
+      //   FAIL playback B3 [IX8]: … the ring #2a2a48 on the dark 1.23 (want 3)
+      const ix8Bad: string[] = [];
+      const ix8Bg = Math.min(...VISIONS.map((v) => ratio(parseColour(IMPACT_RING)!, parseColour(BG)!, v)));
+      const ix8Land = Math.min(...VISIONS.map((v) => ratio(parseColour(IMPACT_RING)!, parseColour(LAND_REF)!, v)));
+      if (!(ix8Bg >= 3)) ix8Bad.push(`the ring ${IMPACT_RING} on the dark ${ix8Bg.toFixed(2)} (want 3)`);
+      if (!(IMPACT_RING_CASING_PX > IMPACT_RING_PX)) ix8Bad.push(`the casing (${IMPACT_RING_CASING_PX} px) is no wider than the ring (${IMPACT_RING_PX} px)`);
+      const ix8Layer = readFileSync('src/components/playback/scene/impactLayer.ts', 'utf8');
+      if (!/wideLine\(new Color\(IMPACT_RING\), IMPACT_RING_PX\)/.test(ix8Layer)) ix8Bad.push('scene/impactLayer.ts does not draw the ring IMPACT_RING_PX wide in IMPACT_RING');
+      if (!/wideLine\(new Color\(LINE_CASING\), IMPACT_RING_CASING_PX\)/.test(ix8Layer)) ix8Bad.push('scene/impactLayer.ts does not cast the ring IMPACT_RING_CASING_PX wide in LINE_CASING');
+      if (!/capacityGeometry\(bag, IMPACT_RING_SEGS,/.test(ix8Layer)) ix8Bad.push('scene/impactLayer.ts does not make the ring of IMPACT_RING_SEGS pieces');
+      ok('playback B3 [IX8]: the ring where a bomb lands stands 3:1 off the window\'s dark in all three visions, on a wider casing of the lines\' dark; the layer draws it from these names',
+         ix8Bad.length === 0, ix8Bad.join('; ') || `the ring ${IMPACT_RING} on the dark ${ix8Bg.toFixed(2)}, ${IMPACT_RING_PX} px on ${IMPACT_RING_CASING_PX} px of ${LINE_CASING}, ${IMPACT_RING_SEGS} pieces; printed, not gated: on pale land ${ix8Land.toFixed(2)}`);
+    } catch (e) {
+      ok('playback B3 (the ring where a bomb lands): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }
 
     // ─── Chase watches the bomb land (bombCam.ts aimWeight, lookDirection) ────────────────────────────────────────
