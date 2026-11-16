@@ -14,8 +14,10 @@
  *   the release it may turn its look to the jet's falling bomb and the burst
  *   where it lands, and back (the scene says how far, Follow.aimWeight); the
  *   eye still rides with the jet and the controls still turn round the jet.
- * - From target: over the watched jet's target, looking up at the jet; the
- *   mouse does nothing until another mode is picked.
+ * - From target: over the watched jet's target, looking up at the jet, never
+ *   more than 80° above the horizon (a jet passing over the target would
+ *   otherwise spin the picture); the mouse does nothing until another mode is
+ *   picked.
  * The motion eases out (damping) when let go. Changing mode is a cut, no
  * easing.
  *
@@ -30,7 +32,7 @@ import { MOUSE, PerspectiveCamera, TOUCH, Vector3 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   chasePose, controlsFor, enuToThree, lookDirection, maxOrbitFor, MAX_ORBIT_BOXES, MAX_POLAR_DEG, MIN_CAMERA_AGL_M, MIN_ORBIT_M, nearPlaneFor,
-  targetEye, topDownPose, yawDelta, type CameraMode, type EnuBox, type Look3, type Pose, type Vec3,
+  TARGET_MAX_UP_DEG, targetEye, targetLook, topDownPose, yawDelta, type CameraMode, type EnuBox, type Look3, type Pose, type Vec3,
 } from '../../../lib/playbackScene';
 
 // The orbit limits are pure (cameraMath.ts, where geo-check tests them); re-exported for readers of this file.
@@ -45,7 +47,7 @@ export interface Follow {
   /** The jet's position and velocity, m and m/s. */
   jet: Vector3;
   vel: Vector3;
-  /** Its heading, degrees: the chase camera's direction when the jet barely moves. */
+  /** Its heading, compass degrees: the chase camera's direction when the jet barely moves, and the track From target's look turns across over the target. */
   heading_deg: number;
   /** Its target's planned point, and the drawn ground's height under it, m. */
   target: Vector3;
@@ -77,7 +79,9 @@ export class CameraRig {
   // From target: the target and ground the eye was last worked out for.
   private readonly eyeTarget = new Vector3(NaN, NaN, NaN);
   private eyeGround = NaN;
-  // Chase watching the bomb: scratch for the look, made once so no frame allocates.
+  // From target: which side of the jet's track the look turns round while the jet is above its limit (0: not limited).
+  private targetSide = 0;
+  // Chase watching the bomb and From target's look: scratch, made once so no frame allocates.
   private readonly lookEye: Look3 = { x: 0, y: 0, z: 0 };
   private readonly lookJet: Look3 = { x: 0, y: 0, z: 0 };
   private readonly lookAim: Look3 = { x: 0, y: 0, z: 0 };
@@ -207,6 +211,7 @@ export class CameraRig {
         break;
       case 'target':
         this.eyeTarget.set(NaN, NaN, NaN); // worked out afresh on the next update, and now
+        this.targetSide = 0;
         this.placeTarget(follow);
         this.jetPrev.copy(follow.jet);
         break;
@@ -234,19 +239,27 @@ export class CameraRig {
       this.eyeGround = follow.targetGround;
       moved = true;
     }
-    this.camera.lookAt(follow.jet);
+    this.lookFromTarget(follow);
     return moved;
+  }
+
+  /**
+   * From target's look at the jet, held under TARGET_MAX_UP_DEG (targetLook.ts says why): a plain lookAt
+   * would spin the picture round when the jet passes over the target, as a level attack's egress does.
+   */
+  private lookFromTarget(follow: Follow): void {
+    const cam = this.camera, e = this.lookEye, j = this.lookJet, d = this.lookDir;
+    e.x = cam.position.x; e.y = cam.position.y; e.z = cam.position.z;
+    j.x = follow.jet.x; j.y = follow.jet.y; j.z = follow.jet.z;
+    this.targetSide = targetLook(e, j, follow.heading_deg, TARGET_MAX_UP_DEG, this.targetSide, d);
+    cam.lookAt(this.lookPoint.set(e.x + d.x, e.y + d.y, e.z + d.z));
   }
 
   /**
    * Chase's look: at the jet, turned toward the bomb (or the burst) by as much as the scene's weight says.
    * With a weight of 0 it is the plain look at the jet. Only the camera's direction changes; its position
    * and the controls' point (the jet) do not, so leaving Chase or dragging round the jet are as before.
-   *
-   * The camera's world matrix is brought up to date at once: lookAt turns the camera but leaves the matrix
-   * as it was (from the controls' own look at the jet a moment before), and the 2D overlay projects its
-   * rings and labels through that matrix before the frame is drawn. Left stale, the overlay would be laid
-   * out as if Chase were still looking at the jet.
+   * The camera's world matrix is brought up to date at the end of update, as in every mode.
    */
   private lookAtFollow(follow: Follow): void {
     const cam = this.camera;
@@ -260,7 +273,6 @@ export class CameraRig {
       lookDirection(e, j, a, follow.aimWeight, d);
       cam.lookAt(this.lookPoint.set(e.x + d.x, e.y + d.y, e.z + d.z));
     }
-    cam.updateMatrixWorld();
   }
 
   /** The canvas changed shape: the current mode's limits again (and in Top-down, the pose for the new shape). */
@@ -334,7 +346,7 @@ export class CameraRig {
     const floor = ground + MIN_CAMERA_AGL_M;
     if (cam.position.y < floor) {
       cam.position.y = floor;
-      if (this.modeNow === 'target') cam.lookAt(follow.jet);
+      if (this.modeNow === 'target') this.lookFromTarget(follow);
       else if (this.modeNow === 'chase') this.lookAtFollow(follow); // the controls' point is the jet itself
       else cam.lookAt(c.target);
       moved = true;
@@ -348,6 +360,12 @@ export class CameraRig {
       cam.updateProjectionMatrix();
       moved = true;
     }
+    // The 2D overlay projects its discs, rings and labels through the camera's world matrix before the
+    // renderer draws (which is what would refresh it). lookAt sets the camera's turn but leaves that matrix
+    // as it was, so without this the overlay would be laid out through last frame's camera wherever the
+    // look moved this frame (From target every frame, Chase, an orbit or a top-down view easing out, the
+    // ground clamp) and trail the 3D picture.
+    cam.updateMatrixWorld();
     return moved;
   }
 

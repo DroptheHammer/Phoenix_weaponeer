@@ -1181,6 +1181,14 @@ async function checkFlash(page, tag) {
  *   STEP FAIL 56 Show › Impact turns the flash, the ring and the words beside the burst off and on again (1400x900) — on: …, ring shown true, words ["#1 impact"]; off: size 1.00, strength 1.00, shown true, ring shown true, burst point 945,347, 0 words; on again: …
  * and the words' part by its own edit, `tag.shown = ctx.impact && phase.ringAlpha > 0` → `tag.shown = phase.ringAlpha > 0`:
  *   STEP FAIL 56 … (1400x900) — on: size 1.00, strength 1.00, shown true, ring shown true, words ["#1 impact"]; off: size 1.00, strength 1.00, shown false, ring shown false, burst point none, 1 words; on again: …
+ *
+ * The ring's part is read where the ring is drawn (2026-11-16): at Home it is about 4 px, at the edge of what is drawn, so
+ * "no ring with Impact off" said nothing there. 1.0 s after the impact, zoomed in as 53b and 53c do until it is at least
+ * 12 px: drawn with Impact on, not with it off, drawn again with it on. Measured: 14 and 18 notches, 12.28 and 12.22 px.
+ * Proven red 2026-11-16 by one temporary edit to scene/impactLayer.ts, `group.visible = ctx.impact && (flash.visible ||
+ * ringOn)` → `group.visible = (ctx.impact && flash.visible) || ringOn` (the ring alone escaping the switch; 53 and 53c go
+ * red with it):
+ *   STEP FAIL 56 … (1400x900) — on: …; off: size 1.00, strength 1.00, shown true, ring shown true, burst point 945,347, 0 words; on again: …; the ring 1.0 s after, zoomed 14 notches: on ring 76.2 m, 12.28 px, fade 1.000, shown true; off ring 76.2 m, 12.28 px, fade 1.000, shown true; on again ring 76.2 m, 12.28 px, fade 1.000, shown true
  */
 async function checkFlashSwitch(page, tag) {
   const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
@@ -1199,12 +1207,27 @@ async function checkFlashSwitch(page, tag) {
   await settle(page, 500);
   const on1 = await impactFx(page, 0);
   const tag1 = await tagOf(page, 0);
-  // The ring and the words beside the burst go with the switch too (whether the ring is drawn at Home depends on the
-  // window's size: it is about 4 px there, at the edge of what is drawn).
+  // The ring is read where it is drawn: at Home it is about 4 px, at the edge of what is drawn, so "no ring with Impact
+  // off" would mean nothing there. 1.0 s after the impact (grown, at full strength, the flash gone), zoomed in as 53b and
+  // 53c do until it is at least 12 px: drawn with Impact on, not with it off, drawn again with it on.
+  let ringZoom, ringOff = null, ringBack = null;
+  const was = await pbEval(page, () => ({ whole: __pb.show().wholeRunIn, ground: __pb.terrain().ground }));
+  try {
+    await pbEval(page, (t) => { __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); __pb.seek(t); }, imp + 1.0);
+    await settle(page, 300);
+    ringZoom = await zoomOnRing(page, 0, 12, 20);
+    if (await impactTo(page, false)) ringOff = await impactFx(page, 0);
+    if (await impactTo(page, true)) ringBack = await impactFx(page, 0);
+  } finally {
+    await impactTo(page, true);
+    await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
+  }
+  const ringOn = ringZoom && ringZoom.fx;
+  const okRing = !!ringOn && ringOn.ringPx >= 12 && ringOn.ringShown && !!ringOff && !ringOff.ringShown && !!ringBack && ringBack.ringShown;
   step(`56 Show › Impact turns the flash, the ring and the words beside the burst off and on again (${tag})`,
-    !!on0 && on0.flashShown && !!tag0 && !!off && !off.flashShown && !off.ringShown && offPoint === null && offTags === 0 && !!on1 && on1.flashShown && !!tag1,
-    `on: ${fmtFx(on0)}, ring shown ${on0 ? on0.ringShown : '?'}, words ${fmtTag(tag0)}; off: ${fmtFx(off)}, ring shown ${off ? off.ringShown : '?'}, burst point ${fmtPt(offPoint)}, ${offTags} words; ` +
-      `on again: ${fmtFx(on1)}, words ${fmtTag(tag1)}`);
+    !!on0 && on0.flashShown && !!tag0 && !!off && !off.flashShown && !off.ringShown && offPoint === null && offTags === 0 && !!on1 && on1.flashShown && !!tag1 && okRing,
+    `on: ${fmtFx(on0)}, words ${fmtTag(tag0)}; off: ${fmtFx(off)}, ring shown ${off ? off.ringShown : '?'}, burst point ${fmtPt(offPoint)}, ${offTags} words; ` +
+      `on again: ${fmtFx(on1)}, words ${fmtTag(tag1)}; the ring 1.0 s after, zoomed ${ringZoom ? ringZoom.notches : '?'} notches: on ${fmtRing(ringOn)}; off ${fmtRing(ringOff)}; on again ${fmtRing(ringBack)}`);
 }
 
 /**
@@ -1545,6 +1568,13 @@ const boxesOverlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y +
  * IMPACT_RING_MIN_R_PX; the four-ship's part goes red with it, and its 73 line):
  *   STEP FAIL 53c the ring is the weapon's radius on screen, never larger: … (1400x900) — Home 1.0 s after: ring 76.2 m, 6.00 px, fade 1.000, shown true, half-width through the camera 4.71 px (want within 0.5), fade for that size 1.000; after 14 notches: …
  *   STEP FAIL 53c the four-ship's ring is too small to draw at Home and is drawn when zoomed in (1400x900-strike4) — Home 1.0 s after #1's impact: ring 76.2 m, 6.00 px, fade 1.000, shown true, words ["#1 impact","blast radius 250 ft (est.)"]; …
+ *
+ * The size the layer reports is not the size it draws: since 2026-11-16 the layer also reports the radius the drawn ring's
+ * geometry was laid at (`laidRadius_m`), and wherever the ring is drawn it must be the weapon's radius times the share the
+ * ring has grown (1e-6 of the radius). Measured: 76.20 m at Home (1400×900) and zoomed in at both sizes. Proven red
+ * 2026-11-16 by one temporary edit to scene/impactLayer.ts, the laid radius floored at 6 px (`const r = phase.ring *
+ * radius_m` → `Math.max(phase.ring * radius_m, 6 * wpp)`), which leaves the reported size alone:
+ *   STEP FAIL 53c … (1400x900) — Home 1.0 s after: ring 76.2 m, 4.51 px, fade 0.253, shown true, laid at 101.47 m (want 76.20), half-width through the camera 4.71 px (want within 0.5), fade for that size 0.253; after 14 notches: …, laid at 76.20 m (want 76.20) …
  */
 async function checkRingTrueSize(page, tag) {
   const imp = await pbEval(page, () => __pb.moments.jets[0].impact);
@@ -1576,12 +1606,15 @@ async function checkRingTrueSize(page, tag) {
     await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
   }
   const h = home && home.fx;
-  const okHome = !!h && h.ringRadius_m > 0 && home.half !== null && Math.abs(h.ringPx - home.half) <= 0.5 && Math.abs(h.ringFade - ringFadeOf(h.ringPx)) <= 1e-6;
+  // The radius the drawn ring was laid at is the weapon's radius times the share it has grown, wherever it is drawn.
+  const laidTrue = (e) => !!e && Math.abs(e.laidRadius_m - e.ringRadius_m * e.ring) <= 1e-6 * e.ringRadius_m;
+  const okHome = !!h && h.ringRadius_m > 0 && home.half !== null && Math.abs(h.ringPx - home.half) <= 0.5 && Math.abs(h.ringFade - ringFadeOf(h.ringPx)) <= 1e-6 && (!h.ringShown || laidTrue(h));
   const z = zoomed && zoomed.fx;
-  const okZoom = !!z && z.ringPx >= 12 && z.ringShown && z.ringFade === 1 && cream >= 18 && creamOff >= 0 && creamOff < 6;
-  step(`53c the ring is the weapon's radius on screen, never larger: its size read through the camera, faded by it, drawn when zoomed in (${tag})`, okHome && okZoom,
-    `Home 1.0 s after: ${fmtRing(h)}, half-width through the camera ${home && home.half !== null ? home.half.toFixed(2) : 'none'} px (want within 0.5), fade for that size ${h ? ringFadeOf(h.ringPx).toFixed(3) : '?'}; ` +
-      `after ${zoom ? zoom.notches : '?'} notches: ${fmtRing(z)} (want ≥ 12 px, fade 1, shown); 1.5 s after: ${cream} of 24 ring points cream (want ≥ 18), ${creamOff} with Impact off (want under 6)`);
+  const okZoom = !!z && z.ringPx >= 12 && z.ringShown && z.ringFade === 1 && laidTrue(z) && cream >= 18 && creamOff >= 0 && creamOff < 6;
+  const fmtLaid = (e) => (e ? `laid at ${e.laidRadius_m.toFixed(2)} m (want ${(e.ringRadius_m * e.ring).toFixed(2)}${e.ringShown ? '' : ', not drawn'})` : '');
+  step(`53c the ring is the weapon's radius on screen, never larger: its size read through the camera, faded by it, laid at that radius, drawn when zoomed in (${tag})`, okHome && okZoom,
+    `Home 1.0 s after: ${fmtRing(h)}, ${fmtLaid(h)}, half-width through the camera ${home && home.half !== null ? home.half.toFixed(2) : 'none'} px (want within 0.5), fade for that size ${h ? ringFadeOf(h.ringPx).toFixed(3) : '?'}; ` +
+      `after ${zoom ? zoom.notches : '?'} notches: ${fmtRing(z)}, ${fmtLaid(z)} (want ≥ 12 px, fade 1, shown); 1.5 s after: ${cream} of 24 ring points cream (want ≥ 18), ${creamOff} with Impact off (want under 6)`);
 }
 
 /**
@@ -1753,7 +1786,8 @@ async function bombCamBox(page, on) {
  * … ? aimWeight(…) : 0` → `0` (geo-check stays green):
  *   STEP FAIL 57 Chase watches the bomb fall and land, … (1400x900) — Chase pressed true; 1 s before the release: weight 0; after the release: +1 s 664,503 in, +3 s 464,999 OUT, +5 s 184,1385 OUT, +7 s -267,1911 OUT; weight at +3 s 0.000 (want ≥ 0.95), the overlay's ring none px off the bomb (want ≤ 1); the landing: +1 s -3747,6897 OUT, +2 s none OUT; …
  * and by one temporary edit to scene/cameraRig.ts, lookAtFollow's `cam.updateMatrixWorld();` taken out (the overlay laid
- * out through the camera as the controls left it, looking at the jet):
+ * out through the camera as the controls left it, looking at the jet; that call is now the one at the end of
+ * CameraRig.update, which refreshes the matrix in every mode, and geo-check RV3 holds it):
  *   STEP FAIL 57 … (1400x900) — …; after the release: +1 s 700,386 in, +3 s 700,386 in, +5 s 700,386 in, +7 s 700,386 in; weight at +3 s 1.000 (want ≥ 0.95), the overlay's ring none px off the bomb (want ≤ 1); …
  * and by fillAim's `rig.mode === 'chase' &&` taken out (the weight filled in every camera):
  *   STEP FAIL 57 … (1400x900) — …; From target pressed true: weights through the fall 0 1 1 1 1 1 1 1 1 1
@@ -3109,7 +3143,8 @@ async function checkContextLoss(page, tag) {
 
 /**
  * Check 9: focus, Escape, Space, Tab and clicks stay inside playback. (9e's "Home view" is the
- * button in the toolbar over the picture, beside Show.)
+ * button in the toolbar over the picture, beside Show.) 9f: the "Elevation sources" fold is reached by
+ * Tab and opens on Space without starting the clock (it leaves the ground real).
  */
 async function checkOverlay(page) {
   const c = () => pbEval(page, () => ({ ...__pb.counters }));
@@ -3160,6 +3195,40 @@ async function checkOverlay(page) {
     seen.add(await pbEval(page, () => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim().slice(0, 12) || document.activeElement?.tagName));
   }
   step('9d Tab never leaves playback', stayed && seen.size > 3, `20 Tab + 10 Shift+Tab, all inside: ${stayed}; ${seen.size} different stops`);
+
+  // The small print's "Elevation sources" fold (shown on real ground) is a control like the others: Tab reaches it, and
+  // Space on it opens it (the fold's own Space) rather than starting the clock. Space again shuts it, as it was.
+  // Measured 2026-11-16: reached after 18 Tab. Proven red 2026-11-16 by two temporary edits to PlaybackOverlay.tsx, each alone:
+  // `summary` taken out of FOCUSABLE (the focus trap wraps past the fold, the last control):
+  //   STEP FAIL 9f … — fold shown true; reached after 60 Tab false; Space opened it false, clock playing null; Space again shut it false
+  // `summary` taken out of OWN_SPACE (Space on the fold plays):
+  //   STEP FAIL 9f … — fold shown true; reached after 18 Tab true; Space opened it false, clock playing true; Space again shut it true
+  await pbEval(page, () => { __pb.pause(); __pb.setGround('real'); });
+  const hasFold = await page.waitForFunction(() => [...document.querySelectorAll('[role="dialog"] summary')].some((s) => /Elevation sources/.test(s.textContent || '')), null, { timeout: 30000, polling: 200 }).then(() => true, () => false);
+  const onFold = () => pbEval(page, () => document.activeElement?.tagName === 'SUMMARY' && /Elevation sources/.test(document.activeElement.textContent || ''));
+  const foldOpen = () => pbEval(page, () => !!document.querySelector('[role="dialog"] details')?.open);
+  let tabs = 0, reached = false;
+  if (hasFold) {
+    await pbEval(page, () => document.querySelector('[role="dialog"]').focus());
+    for (; tabs < 60 && !reached; tabs++) {
+      await page.keyboard.press('Tab');
+      reached = await onFold();
+    }
+  }
+  let opened = false, playedOnFold = null, shut = false;
+  if (reached) {
+    await page.keyboard.press(' ');
+    await page.waitForTimeout(150);
+    opened = await foldOpen();
+    playedOnFold = (await pbEval(page, () => __pb.snapshot())).playing;
+    await page.keyboard.press(' ');
+    await page.waitForTimeout(150);
+    shut = !(await foldOpen());
+  }
+  await pbEval(page, () => __pb.pause());
+  step('9f Tab reaches the "Elevation sources" fold, and Space on it opens it without starting the clock',
+    hasFold && reached && opened && playedOnFold === false && shut,
+    `fold shown ${hasFold}; reached after ${tabs} Tab ${reached}; Space opened it ${opened}, clock playing ${playedOnFold}; Space again shut it ${shut}`);
 
   // Clicks inside playback never reach the ancestor's onClick.
   const a0 = (await c()).ancestorClicks;

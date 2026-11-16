@@ -16,7 +16,10 @@ export interface ShowState {
   readonly labels: boolean;
   readonly actionPoints: ActionPointsMode;
   readonly attackColours: AttackColours;
-  /** A ring round each falling bomb, then a flash where it lands. Off: the bomb alone. */
+  /**
+   * A ring round each falling bomb, then where it lands a flash and, for a weapon with a blast radius, a ring on the
+   * ground at that radius with its words. Off: the bomb alone.
+   */
   readonly impact: boolean;
   /** Chase looks at the watched jet's bomb from its release until it lands, holds on the burst, then turns back. Off: it stays on the jet. */
   readonly bombCam: boolean;

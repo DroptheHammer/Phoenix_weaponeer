@@ -150,12 +150,13 @@ export function rebaseTot(mission: Mission, strikeId: string): Mission {
  * lead becomes the lead. Pure: each written attack is a new object around the
  * same profile; members not listed, attacks outside the strike, and members
  * whose given offset is not a finite number are left as they are. An unknown
- * strike returns the mission unchanged (the same object). Never `respace`,
- * which would wipe each jet's own delay. For the playback's Apply; the store
- * wraps it in one undo step.
+ * strike, or offsets that each equal the one already there, return the
+ * mission unchanged (the same object), so the store records no Undo step and
+ * marks nothing unsaved. Never `respace`, which would wipe each jet's own
+ * delay. For the playback's Apply; the store wraps it in one undo step.
  */
 export function setStrikeOffsets(mission: Mission, strikeId: string, offsets: Record<string, number>): Mission {
-  if (!strikeOf(mission, strikeId)) return mission;
+  if (!strikeOf(mission, strikeId) || mission.attacks.every((a) => a.strikeId !== strikeId || !Number.isFinite(offsets[a.id]) || (a.totOffset_s ?? 0) === offsets[a.id])) return mission;
   const written: Mission = {
     ...mission,
     attacks: mission.attacks.map((a) =>

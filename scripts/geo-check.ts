@@ -171,7 +171,10 @@ import {
 } from '../src/lib/playbackScene';
 import { arrowFaces, ARROW_HALF_SPAN_M, ARROW_DIHEDRAL_DEG, ARROW_TOP_SHADE, ARROW_FIN_SHADE, ARROW_UNDER_SHADE } from '../src/lib/playbackScene';
 import { arrowGeometry, bombGeometry, bombHullGeometry } from '../src/components/playback/scene/jetGeometry';
-import { Group, PerspectiveCamera } from 'three';
+import { Group, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from 'three';
+import { CameraRig, type Follow } from '../src/components/playback/scene/cameraRig';
+import { createLabelLayer } from '../src/components/playback/scene/labelLayer';
+import { planWords } from '../src/components/playback/PlaybackErrorBoundary';
 import { createJetLayer } from '../src/components/playback/scene/jetLayer';
 import { DisposeBag } from '../src/components/playback/scene/disposeBag';
 import type { FrameCtx } from '../src/components/playback/scene/layer';
@@ -187,6 +190,7 @@ import {
   impactInfoOf, ringPixels, ringFade, impactTagLines, IMPACT_RING, IMPACT_RING_PX, IMPACT_RING_CASING_PX, IMPACT_RING_MIN_R_PX, IMPACT_RING_FADE_FROM_PX, IMPACT_RING_SEGS,
 } from '../src/lib/playbackScene';
 import { aimWeight, lookDirection, AIM_IN_WALL_S, AIM_HOLD_WALL_S, AIM_OUT_WALL_S, type Look3 } from '../src/lib/playbackScene';
+import { targetLook, TARGET_MAX_UP_DEG } from '../src/lib/playbackScene';
 import { harnessLaunch, harnessFixtureLaunch, harnessMoments, SOLO_FIXTURES, type SoloFixture } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
 import { editorBurstReadout } from '../src/components/playback/fragEditor';
@@ -11591,7 +11595,7 @@ void (async () => {
       // [IX6] The ring is never drawn bigger than true, and only when it is big enough to read: ringPixels is exactly the
       // radius over the metres per pixel (76.2 m at 16.9 m a pixel, the lone jet's Home, is 4.51 px); ringFade is 0 at
       // 4 px and below, 1 at 6 px and above, 0.5 at 5, never falling as the ring grows, and 0 for a size that is not a
-      // number or below 0. At the window's sizes the paper measured (16.9 and 13.9 m a pixel on the lone jet's Home and
+      // number or below 0. At the window sizes measured earlier on the harness (16.9 and 13.9 m a pixel on the lone jet's Home and
       // Top-down, 39.4 and 30.5 on the four-ship's): the lone Mk-82's ring is faint at Home (0.25) and stronger Top-down
       // (0.74), a lone Mk-84's full in both, and no ring is drawn on the four-ship's Home or Top-down.
       // Mutation proof (seen red 2026-11-16): sceneStyle.ts `IMPACT_RING_FADE_FROM_PX = 4` → `0` (the fade starting at 0 px):
@@ -11903,6 +11907,250 @@ void (async () => {
          ca3Bad.length === 0, ca3Bad.slice(0, 6).join('; ') || ca3Parts.join('; '));
     } catch (e) {
       ok('playback B3 (Chase watches the bomb land): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
+
+    // ─── The view after the review of the whole branch: the overlay's camera, the planner's words through a re-time,
+    // Apply only for a real change, the crash panel's words ───────────────────────────────────────────────────────
+    // Each check carries its mutation proof (2026-11-16): one temporary edit, geo-check run, the FAIL line copied
+    // (shortened with …), the edit restored.
+    try {
+      // [RV3] The 2D overlay projects through the camera's matrices before the renderer draws: after CameraRig.update
+      // they must already be the final camera's. The real rig (three's OrbitControls on a stand-in canvas), From target
+      // at 16× and 60 frames a second, the watched jet flying north at 250 m/s, 1,500 m up, passing 800 m east of its
+      // target: each frame the jet projected straight after update is within 1 px of the same point projected after an
+      // explicit refresh. Measured 2026-11-16: 0.00 px worst (29 px before the fix).
+      // Mutation proof (seen red 2026-11-16): scene/cameraRig.ts the `cam.updateMatrixWorld();` at the end of update taken out:
+      //   FAIL playback B3 [RV3]: … From target at 16×: worst 28.85 px off at frame 60 (want ≤ 1)
+      const rv3El = {
+        style: {}, addEventListener() {}, removeEventListener() {},
+        getRootNode() { return { addEventListener() {}, removeEventListener() {} }; },
+        ownerDocument: { addEventListener() {}, removeEventListener() {} },
+      } as never as HTMLCanvasElement;
+      const rv3Box = { min_e_m: -4000, max_e_m: 4000, min_n_m: -25000, max_n_m: 5000, min_up_m: 0, max_up_m: 3000 };
+      const rv3W = 1000, rv3H = 600;
+      const rv3Rig = new CameraRig(rv3El, (a) => homePose({ box: rv3Box, axis: [0, 1], aspect: a }), () => rv3Box, rv3W / rv3H, 40000, 88000);
+      const rv3Cam = rv3Rig.camera;
+      const rv3Follow: Follow = { jet: new Vector3(), vel: new Vector3(0, 0, -250), heading_deg: 0, target: new Vector3(0, 0, 0), targetGround: 0, aim: new Vector3(), aimWeight: 0 };
+      const rv3Px = (p: Vector3, out: [number, number]) => {
+        const q = p.clone().project(rv3Cam);
+        out[0] = (q.x * 0.5 + 0.5) * rv3W;
+        out[1] = (-q.y * 0.5 + 0.5) * rv3H;
+        return out;
+      };
+      const rv3Height = () => 0, rv3Nearest = (p: Vector3) => p.distanceTo(rv3Follow.jet);
+      const rv3A: [number, number] = [0, 0], rv3B: [number, number] = [0, 0];
+      const rv3Off = (p: Vector3) => {
+        rv3Px(p, rv3A);
+        rv3Cam.updateMatrixWorld();
+        rv3Px(p, rv3B);
+        return Math.hypot(rv3A[0] - rv3B[0], rv3A[1] - rv3B[1]);
+      };
+      const rv3JetAt = (t: number) => rv3Follow.jet.set(800, 1500, 4000 - 250 * t); // z = −north
+      rv3JetAt(0);
+      rv3Rig.setMode('target', rv3Follow);
+      rv3Cam.updateMatrixWorld();
+      let rv3Worst = 0, rv3At = -1;
+      for (let f = 1; f < 120; f++) {
+        rv3JetAt((f * 16) / 60);
+        rv3Rig.update(rv3Height, rv3Nearest, rv3Follow);
+        const off = rv3Off(rv3Follow.jet);
+        if (off > rv3Worst) { rv3Worst = off; rv3At = f; }
+      }
+      ok('playback B3 [RV3]: after the camera rig\'s update the 2D overlay projects through the final camera: From target at 16×, the jet 800 m abeam of its target, within 1 px of a refreshed camera every frame',
+         rv3Worst <= 1, `From target at 16×: worst ${rv3Worst.toFixed(2)} px off${rv3At >= 0 ? ` at frame ${rv3At}` : ''} over 119 frames (want ≤ 1)`);
+      rv3Rig.dispose();
+
+      // [RV4] From target never spins: the watched jet flies north at 250 m/s, 1,500 m up, straight over its target (the
+      // eye 30 m above it) at 0, 5 and 20 m of offset, from 4 km short to 4 km past, at 1× and 16× (60 frames a second).
+      // From one frame to the next the picture's roll about the view axis stays under 2.5° at 1× and 32° at 16×; the look
+      // is never more than TARGET_MAX_UP_DEG (80°) up and the jet never more than 12° from it, so it stays in the picture.
+      // Once with targetLook alone (the camera turned as three's lookAt turns it), once on the real rig.
+      // Measured 2026-11-16 (the same on both): worst roll 1.81° at 1× and 27.15° at 16× (offset 0), 1.78° and 26.50° (5 m),
+      // 1.68° and 25.54° (20 m); the jet at most 10.0° from the look. A plain look at the jet, before: at offset 0 a half
+      // turn in one frame (here 90° on each side of the frame that falls right overhead), 39.8° and 85.7° at 5 m, 11.8°
+      // and 73.3° at 20 m. (Only a limit is not enough: at 80° and at 90° the plain look's
+      // roll is the same, as it is the look's heading that swings, so the heading turns across the track above the limit.)
+      // Mutation proof (seen red 2026-11-16): targetLook.ts `TARGET_MAX_UP_DEG = 80` → `90`:
+      //   FAIL playback B3 [RV4]: … targetLook, 0 m at 1×: worst roll 90.00° at frame 960 of 1920, look at most 90.00° up, jet at most 0.00° from it (want roll ≤ 2.5°, look ≤ 80° up, jet ≤ 12° from it); … 5 m at 16×: worst roll 85.71° … 20 m at 16×: worst roll 73.28° …
+      const rv4Bad: string[] = [];
+      const R2D = 180 / Math.PI;
+      const rv4Up = new Vector3(0, 1, 0), rv4M = new Matrix4(), rv4Prev = new Quaternion(), rv4Now = new Quaternion(), rv4Rel = new Quaternion();
+      const rv4Fwd = new Vector3(), rv4To = new Vector3(), rv4Eye = new Vector3(), rv4Point = new Vector3();
+      const rv4Roll = () => {
+        rv4Rel.copy(rv4Prev).invert().multiply(rv4Now);
+        if (rv4Rel.w < 0) rv4Rel.set(-rv4Rel.x, -rv4Rel.y, -rv4Rel.z, -rv4Rel.w);
+        return Math.abs(2 * Math.atan2(rv4Rel.z, rv4Rel.w)) * R2D; // the twist about the camera's own view axis
+      };
+      const rv4Bound = { 1: 2.5, 16: 32 } as Record<number, number>;
+      const rv4Lines: string[] = [];
+      for (const how of ['targetLook', 'the rig'] as const) {
+        for (const offset_m of [0, 5, 20]) {
+          for (const speed of [1, 16]) {
+            const jetAt = (t: number, out: Vector3) => out.set(offset_m, 1500, 4000 - 250 * t);
+            const frames = Math.ceil((32 * 60) / speed);
+            let worst = 0, worstAt = -1, highest = 0, farthest = 0;
+            const measure = (k: number, eye: Vector3, q: Quaternion, jet: Vector3) => {
+              rv4Now.copy(q);
+              if (k > 0) {
+                const r = rv4Roll();
+                if (r > worst) { worst = r; worstAt = k; }
+              }
+              rv4Prev.copy(rv4Now);
+              rv4Fwd.set(0, 0, -1).applyQuaternion(q);
+              highest = Math.max(highest, Math.asin(Math.min(1, rv4Fwd.y)) * R2D);
+              rv4To.subVectors(jet, eye).normalize();
+              farthest = Math.max(farthest, Math.acos(Math.min(1, rv4Fwd.dot(rv4To))) * R2D);
+            };
+            if (how === 'targetLook') {
+              rv4Eye.set(0, MIN_CAMERA_AGL_M, 0);
+              const eye: Look3 = { x: rv4Eye.x, y: rv4Eye.y, z: rv4Eye.z }, jet: Look3 = { x: 0, y: 0, z: 0 }, d: Look3 = { x: 0, y: 0, z: 0 };
+              const jv = new Vector3();
+              let side = 0;
+              for (let k = 0; k <= frames; k++) {
+                jetAt((k * speed) / 60, jv);
+                jet.x = jv.x; jet.y = jv.y; jet.z = jv.z;
+                side = targetLook(eye, jet, 0, TARGET_MAX_UP_DEG, side, d);
+                rv4M.lookAt(rv4Eye, rv4Point.set(eye.x + d.x, eye.y + d.y, eye.z + d.z), rv4Up); // as Object3D.lookAt turns a camera
+                measure(k, rv4Eye, rv4Now.setFromRotationMatrix(rv4M).clone(), jv);
+              }
+            } else {
+              const rig = new CameraRig(rv3El, (a) => homePose({ box: rv3Box, axis: [0, 1], aspect: a }), () => rv3Box, rv3W / rv3H, 40000, 88000);
+              const fol: Follow = { jet: new Vector3(), vel: new Vector3(0, 0, -250), heading_deg: 0, target: new Vector3(0, 0, 0), targetGround: 0, aim: new Vector3(), aimWeight: 0 };
+              jetAt(0, fol.jet);
+              rig.setMode('target', fol);
+              rig.camera.updateMatrixWorld();
+              measure(0, rig.camera.position, rig.camera.quaternion, fol.jet);
+              for (let k = 1; k <= frames; k++) {
+                jetAt((k * speed) / 60, fol.jet);
+                rig.update(() => 0, (p) => p.distanceTo(fol.jet), fol);
+                measure(k, rig.camera.position, rig.camera.quaternion, fol.jet);
+              }
+              rig.dispose();
+            }
+            const line = `${how}, ${offset_m} m at ${speed}×: worst roll ${worst.toFixed(2)}° at frame ${worstAt} of ${frames}, look at most ${highest.toFixed(2)}° up, jet at most ${farthest.toFixed(2)}° from it`;
+            rv4Lines.push(line);
+            if (!(worst <= rv4Bound[speed]) || !(highest <= 80 + 1e-6) || !(farthest <= 12)) {
+              rv4Bad.push(`${line} (want roll ≤ ${rv4Bound[speed]}°, look ≤ 80° up, jet ≤ 12° from it)`);
+            }
+          }
+        }
+      }
+      ok('playback B3 [RV4]: From target never spins as the jet passes over its target (0, 5, 20 m off, 1× and 16×): the roll from frame to frame stays under 2.5° at 1× and 32° at 16×, the look at most 80° up with the jet in the picture, with targetLook and on the real rig',
+         rv4Bad.length === 0, rv4Bad.join('; ') || rv4Lines.join('; '));
+
+      // [RV5] A re-timed strike (every step of a time nudged, typed or dragged hands the scene a new source with the same
+      // points) keeps every callout's fade: the real label layer (a stand-in 2D canvas), Action points Always, the
+      // four-ship with #1 watched, 60 frames to bring every callout up; #2's time nudged twice (11 s, then 12 s), one
+      // frame each: every callout's alpha is what it was. A source with other points (the same strike saved under other
+      // attack ids) starts afresh: one frame later every callout is only just fading in.
+      // Mutation proof (seen red 2026-11-16): scene/labelLayer.ts `if (!sameKeys) fader = new CalloutFader(n);` → `fader = new CalloutFader(n);` (the reset put back):
+      //   FAIL playback B3 [RV5]: … after the nudge to 11 s: 8 of 8 callouts changed (b3-1:REL 1 → 0.033, b3-1:TRK 1 → 0.033, b3-1:TGT 1 → 0.033, …); after the nudge to 12 s: 8 of 8 callouts changed (…)
+      const rv5Doc = (globalThis as { document?: unknown }).document;
+      const rv5G = new Proxy({}, { get: (_t, k) => (k === 'measureText' ? () => ({ width: 50 }) : () => undefined), set: () => true });
+      (globalThis as { document?: unknown }).document = {
+        createElement: () => ({ setAttribute() {}, dataset: {}, style: {}, getContext: () => rv5G, remove() {}, width: 0, height: 0 }),
+      };
+      try {
+        const rv5Bad: string[] = [];
+        const rv5Cam = new PerspectiveCamera(45, 1000 / 600, 1, 1e6);
+        rv5Cam.position.set(0, 20000, 20000);
+        rv5Cam.lookAt(0, 0, 0);
+        rv5Cam.updateMatrixWorld();
+        const rv5Jets = [0, 1, 2, 3].map((k) => ({ jet: k, colour: '#ffffff', pose: { agl_ft: 0, msl_ft: 0, tas_kt: 0 }, jetPosition: () => undefined, bombPosition: () => undefined }));
+        const rv5Layer = createLabelLayer({
+          host: { appendChild() {} } as never as HTMLElement, source: s4Src, targets: { markTop: () => new Vector3(0, 50, 0) } as never,
+          jets: rv5Jets as never, impacts: [], bag: new DisposeBag(),
+        });
+        const rv5Ctx = {
+          t: s4Timing.jets[0].release_s, dt: 1 / 60, source: s4Src, camera: rv5Cam, viewW: 1000, viewH: 600, dpr: 1,
+          ground: 'flat', groundVersion: 0, heightAt: () => 0, watched: 0, attackColours: 'watched', focusPxPerM: 1, speed: 1,
+          labels: true, actionPoints: 'always', impact: true, again: false,
+        } as FrameCtx;
+        const rv5Alphas = () => new Map(rv5Layer.debugLabels().callouts.map((c) => [c.key, c.alpha]));
+        for (let f = 0; f < 60; f++) rv5Layer.afterCamera!(rv5Ctx);
+        const rv5Up = rv5Alphas();
+        if (rv5Up.size < 3 || [...rv5Up.values()].some((a) => a !== 1)) rv5Bad.push(`after a second ${rv5Up.size} callouts, alphas ${[...rv5Up.values()].join(' ')} (want at least 3, all 1)`);
+        const rv5B = s4Pb.members[1].id;
+        for (const tot of [11, 12]) {
+          rv5Ctx.source = sceneSourceFrom(s4Pb, retime(s4Pb, { ...s4Pb.planDelays_s, [rv5B]: tot }));
+          rv5Layer.afterCamera!(rv5Ctx);
+          const now = rv5Alphas();
+          const changed = [...rv5Up].filter(([k, a]) => now.get(k) !== a).map(([k, a]) => `${k} ${a} → ${now.get(k)?.toFixed(3) ?? 'gone'}`);
+          if (changed.length || now.size !== rv5Up.size) rv5Bad.push(`after the nudge to ${tot} s: ${changed.length} of ${rv5Up.size} callouts changed (${changed.slice(0, 3).join(', ')}${changed.length > 3 ? ', …' : ''})`);
+        }
+        const rv5Other = b3Saved(b3m, 'b3k', [
+          { who: 'p1', target: wpTgt.id, profile: 'f16c.popup.std', tot: 0 },
+          { who: 'p2', target: wpTgt.id, profile: 'f16c.popup.std', tot: 10 },
+          { who: 'p3', target: b3Tgt2.id, profile: 'f16c.popup.std', tot: 40 },
+          { who: 'p4', target: wpTgt.id, profile: 'f16c.loft.std', tot: 40 },
+        ]).mission;
+        const rv5OtherPb = buildStrikePlayback(playbackInputFromMission(rv5Other, { strikeId: 'b3k' }, refWeapons as never)!);
+        rv5Ctx.source = sceneSourceFrom(rv5OtherPb, retime(rv5OtherPb));
+        rv5Layer.afterCamera!(rv5Ctx);
+        const rv5Fresh = rv5Alphas();
+        if (rv5Fresh.size === 0 || [...rv5Fresh.values()].some((a) => !(a > 0 && a < 0.1)) || [...rv5Fresh.keys()].some((k) => rv5Up.has(k))) {
+          rv5Bad.push(`the strike under other ids: ${[...rv5Fresh].map(([k, a]) => `${k} ${a.toFixed(3)}`).join(', ')} (want every callout just fading in, none of the old keys)`);
+        }
+        rv5Layer.dispose();
+        ok('playback B3 [RV5]: a re-timed strike keeps every callout\'s fade (Always, #2 nudged twice: every alpha the same); a source with other points starts afresh',
+           rv5Bad.length === 0, rv5Bad.join('; ') || `${rv5Up.size} callouts at 1 before and after both nudges; ${rv5Fresh.size} new callouts at ${[...rv5Fresh.values()][0]?.toFixed(3)} after one frame of the other strike`);
+      } finally {
+        (globalThis as { document?: unknown }).document = rv5Doc;
+      }
+
+      // [RV7] Apply only when a time changed, at the thousandth of a second Apply writes: a two-ship planned at 0 and 30 s;
+      // #2 typed as 30.0004 leaves the session clean (no Apply, nothing for Reset), and the offsets Apply would write,
+      // forced through the plan's setStrikeOffsets anyway, give back the very mission (and through the store, no Undo
+      // step and nothing unsaved); 30.4 makes it dirty and writes 30.4, one Undo step.
+      // Mutation proofs (each seen red 2026-11-16):
+      // session.ts isDirty `toMs(s.delays_s[id]) !== toMs(s.plan_s[id])` → `s.delays_s[id] !== s.plan_s[id]` (left exact):
+      //   FAIL playback B3 [RV7]: … 30.0004 against 30: dirty (want clean)
+      // strike.ts setStrikeOffsets, the `|| mission.attacks.every(…)` early return taken out:
+      //   FAIL playback B3 [RV7]: … equal offsets forced: a new mission (want the very one); through the store: 1 Undo step, unsaved true (want 0, false); 30.4 through the store: 2 Undo steps, unsaved true, #2 stored at 30.4 (want 1, true, 30.4)
+      const rv7Bad: string[] = [];
+      const rv7Saved = b3Saved(b3m, 'b3r', [
+        { who: 'p1', target: wpTgt.id, profile: 'f16c.popup.std', tot: 0 },
+        { who: 'p2', target: wpTgt.id, profile: 'f16c.popup.std', tot: 30 },
+      ]).mission;
+      const rv7Pb = buildStrikePlayback(playbackInputFromMission(rv7Saved, { strikeId: 'b3r' }, refWeapons as never)!);
+      const rv7B = rv7Pb.members[1].id;
+      if (rv7Pb.planDelays_s[rv7B] !== 30) rv7Bad.push(`the fixture plans #2 at ${rv7Pb.planDelays_s[rv7B]} s (want 30)`);
+      const rv7Ses = initSession(rv7Pb);
+      const rv7Tiny = sessionReducer(rv7Ses, { type: 'delay', id: rv7B, value_s: 30.0004 });
+      if (isDirty(rv7Tiny)) rv7Bad.push('30.0004 against 30: dirty (want clean)');
+      const rv7TinyOffsets = planOffsets(rv7Pb, rv7Tiny.delays_s);
+      if (setStrikeOffsets(rv7Saved, 'b3r', rv7TinyOffsets) !== rv7Saved) rv7Bad.push('equal offsets forced: a new mission (want the very one)');
+      const rv7Store = useMissionStore;
+      rv7Store.getState().loadMission(rv7Saved);
+      rv7Store.getState().setStrikeOffsets('b3r', rv7TinyOffsets);
+      const rv7Steps0 = rv7Store.getState().past.length, rv7Dirty0 = rv7Store.getState().isDirty;
+      if (rv7Steps0 !== 0 || rv7Dirty0) rv7Bad.push(`through the store: ${rv7Steps0} Undo step, unsaved ${rv7Dirty0} (want 0, false)`);
+      const rv7Real = sessionReducer(rv7Ses, { type: 'delay', id: rv7B, value_s: 30.4 });
+      const rv7RealOffsets = planOffsets(rv7Pb, rv7Real.delays_s);
+      if (!isDirty(rv7Real)) rv7Bad.push('30.4 against 30: clean (want dirty)');
+      if (rv7RealOffsets[rv7B] !== 30.4) rv7Bad.push(`30.4 writes ${rv7RealOffsets[rv7B]} (want 30.4)`);
+      rv7Store.getState().setStrikeOffsets('b3r', rv7RealOffsets);
+      const rv7Written = rv7Store.getState().mission?.attacks.find((a) => a.id === rv7B)?.totOffset_s;
+      if (rv7Store.getState().past.length !== 1 || !rv7Store.getState().isDirty || rv7Written !== 30.4) {
+        rv7Bad.push(`30.4 through the store: ${rv7Store.getState().past.length} Undo steps, unsaved ${rv7Store.getState().isDirty}, #2 stored at ${rv7Written} (want 1, true, 30.4)`);
+      }
+      ok('playback B3 [RV7]: Apply is offered only for a change Apply would write (to a thousandth of a second): 30.0004 against 30 is clean and its offsets forced through change nothing (the very mission, no Undo step); 30.4 is dirty and writes 30.4 in one Undo step',
+         rv7Bad.length === 0, rv7Bad.join('; ') || `30.0004 clean, offsets ${JSON.stringify(rv7TinyOffsets)} gave the same mission and no Undo step; 30.4 dirty, wrote ${rv7Written}, ${rv7Store.getState().past.length} Undo step`);
+
+      // [RV8] The panel shown when playback stops never says more than is true: before an Apply has written the plan,
+      // "Your plan is unchanged, …"; after one, "The times you applied are saved in the plan." in its place.
+      // Mutation proof (seen red 2026-11-16): PlaybackErrorBoundary.tsx planWords `applied ? … : …` → `(applied, false) ? … : …` (the flag ignored):
+      //   FAIL playback B3 [RV8]: … after an Apply: "Your plan is unchanged, and the map and side view still show the attack." (want "The times you applied are saved in the plan.")
+      const rv8Cases: [string, boolean | undefined, string][] = [
+        ['before any Apply', false, 'Your plan is unchanged, and the map and side view still show the attack.'],
+        ['not told', undefined, 'Your plan is unchanged, and the map and side view still show the attack.'],
+        ['after an Apply', true, 'The times you applied are saved in the plan.'],
+      ];
+      const rv8Bad = rv8Cases.filter(([, f, want]) => planWords(f) !== want).map(([n, f, want]) => `${n}: "${planWords(f)}" (want "${want}")`);
+      ok('playback B3 [RV8]: the stopped panel says the plan is unchanged until an Apply has written it, then that the applied times are saved in the plan',
+         rv8Bad.length === 0, rv8Bad.join('; ') || rv8Cases.map(([n, f]) => `${n}: "${planWords(f)}"`).join('; '));
+    } catch (e) {
+      ok('playback B3 (the review\'s fixes to the view): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }
   } catch (e) {
     ok('playback B3 (start, Home, Show, colours, lanes): the section ran without throwing', false, String((e as Error)?.stack ?? e));

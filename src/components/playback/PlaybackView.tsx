@@ -118,6 +118,11 @@ export interface PlaybackViewOwnProps extends PlaybackViewProps {
    * the same change a click would): for the dev harness's checks only.
    */
   onSession?: (session: Session, act: (a: SessionAction) => void) => void;
+  /**
+   * An Apply from this playback has written times into the saved plan, so the panel shown if the 3D view is lost no
+   * longer says the plan is unchanged. The host keeps it (it outlives the view, for its crash panel too).
+   */
+  applied?: boolean;
 }
 
 /** How long a lost WebGL context may stay away before playback offers Try again. */
@@ -193,7 +198,7 @@ function FrameTime({ scene, reTime }: { scene: PlaybackScene; reTime: () => numb
 /** The clock for the dev readout above: a release build never calls it. */
 const devNow = () => (import.meta.env.DEV ? performance.now() : 0);
 
-export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, onScene, onSession }: PlaybackViewOwnProps) {
+export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, onScene, onSession, applied }: PlaybackViewOwnProps) {
   const support = probeWebGL2(); // cached: free after the first call
   const built = useMemo(() => buildView(launch), [launch]);
   if (!support.ok) {
@@ -202,17 +207,17 @@ export default function PlaybackView({ launch, onClose, bindTogglePlay, tiles, o
   if (!built.ok) {
     return <PlaybackUnavailable heading="Nothing to play" message={built.message} detail={built.detail} onClose={onClose} />;
   }
-  return <PlaybackStage built={built} software={support.software} onClose={onClose} bindTogglePlay={bindTogglePlay} tiles={tiles} onScene={onScene} onSession={onSession} />;
+  return <PlaybackStage built={built} software={support.software} onClose={onClose} bindTogglePlay={bindTogglePlay} tiles={tiles} onScene={onScene} onSession={onSession} applied={applied} />;
 }
 
-interface PlaybackStageProps extends Pick<PlaybackViewOwnProps, 'onClose' | 'bindTogglePlay' | 'tiles' | 'onScene' | 'onSession'> {
+interface PlaybackStageProps extends Pick<PlaybackViewOwnProps, 'onClose' | 'bindTogglePlay' | 'tiles' | 'onScene' | 'onSession' | 'applied'> {
   built: BuiltOk;
   /** The machine draws 3D in software: a chip on the picture says so. */
   software: boolean;
 }
 
 /** Everything that needs a plan to hold: the session, the lanes, the scene and its wiring. */
-function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScene, onSession }: PlaybackStageProps) {
+function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScene, onSession, applied }: PlaybackStageProps) {
   const { pb } = built;
   const tileSource = tiles === null ? undefined : (tiles ?? tauriTiles);
 
@@ -514,6 +519,7 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
             message="The graphics driver stopped the 3D view and hasn't given it back."
             onRetry={rebuild}
             onClose={onClose}
+            applied={applied}
           />
         )}
       </div>

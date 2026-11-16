@@ -7,6 +7,16 @@ interface UnavailableProps {
   detail?: string;
   onRetry?: () => void;
   onClose: () => void;
+  /** An Apply has written times into the saved plan from this playback: the plan is no longer "unchanged". */
+  applied?: boolean;
+}
+
+/**
+ * What the panel says about the plan: unchanged, until an Apply from this playback has written times into it.
+ * Never more than is true.
+ */
+export function planWords(applied: boolean | undefined): string {
+  return applied ? 'The times you applied are saved in the plan.' : 'Your plan is unchanged, and the map and side view still show the attack.';
 }
 
 /**
@@ -14,13 +24,13 @@ interface UnavailableProps {
  * lives in the store, outside playback, so nothing the user planned is lost:
  * the message says so, because that is the first thing they will wonder.
  */
-export function PlaybackUnavailable({ heading, message, detail, onRetry, onClose }: UnavailableProps) {
+export function PlaybackUnavailable({ heading, message, detail, onRetry, onClose, applied }: UnavailableProps) {
   return (
     <div className="absolute inset-0 flex items-center justify-center p-6">
       <div className="bg-dcs-navy rounded-lg max-w-lg w-full p-6 space-y-4">
         <h3 className="text-lg font-semibold text-dcs-accent">{heading}</h3>
         <p className="text-sm text-gray-300">
-          {message} Your plan is unchanged, and the map and side view still show the attack.
+          {message} {planWords(applied)}
         </p>
         {detail && (
           <details className="text-xs text-gray-400">
@@ -46,6 +56,8 @@ export function PlaybackUnavailable({ heading, message, detail, onRetry, onClose
 interface BoundaryProps {
   onRetry: () => void;
   onClose: () => void;
+  /** As PlaybackUnavailable's: an Apply from this playback has written the plan. */
+  applied?: boolean;
   children: ReactNode;
 }
 
@@ -56,7 +68,8 @@ const CHUNK_LOAD = /dynamically imported module|Importing a module script failed
  * Catches anything playback throws, so a 3D failure stays inside the
  * playback window and never reaches the app-wide "Something went wrong"
  * screen. A class component because React has no hook for this. The caller
- * remounts it (a new key) on Try again, which clears the error.
+ * remounts it (a new key) on Try again, which clears the error, and hands the
+ * view a launch made afresh, so an Apply written before the crash is in it.
  */
 export class PlaybackErrorBoundary extends Component<BoundaryProps, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -80,6 +93,7 @@ export class PlaybackErrorBoundary extends Component<BoundaryProps, { error: Err
         detail={error.message}
         onRetry={this.props.onRetry}
         onClose={this.props.onClose}
+        applied={this.props.applied}
       />
     );
   }

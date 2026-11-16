@@ -15,7 +15,10 @@ interface PlaybackOverlayProps {
   children: ReactNode;
 }
 
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+// A fold's <summary> is a control too (the small print's "Elevation sources"): left out, Tab would wrap past it when it is the last.
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+/** Controls that keep Space for themselves (a fold's summary opens on it); anywhere else Space plays and pauses. */
+const OWN_SPACE = 'button, summary, input:not([type="range"]), select, textarea, [contenteditable="true"]';
 
 // Playback is opened from inside other components (the attack editor now, an
 // attack-list row later). React delivers events from a portal to its React
@@ -95,10 +98,10 @@ export function PlaybackOverlay({ title, onClose, onTogglePlay, returnFocusTo, c
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     if (e.key !== ' ' || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-    // Space on a control means that control (press the button, type the space). A range does nothing with
-    // Space, and the time bar keeps the focus after a drag, so it is left out: Space plays from there.
+    // Space on a control means that control (press the button, open the fold, type the space). A range does
+    // nothing with Space, and the time bar keeps the focus after a drag, so it is left out: Space plays from there.
     const target = e.target as HTMLElement;
-    if (target.closest('button, input:not([type="range"]), select, textarea, [contenteditable="true"]')) return;
+    if (target.closest(OWN_SPACE)) return;
     e.preventDefault();
     latest.current.onTogglePlay?.();
   };

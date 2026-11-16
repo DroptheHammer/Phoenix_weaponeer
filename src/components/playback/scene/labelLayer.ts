@@ -186,7 +186,7 @@ export function createLabelLayer(o: {
   let cMark = new Float64Array(0), cJet = new Int16Array(0), cKind = new Uint8Array(0), cAt = new Int16Array(0);
   let cW = new Float32Array(0), cH = new Float32Array(0), cTW = new Float32Array(0);
   let cTarget = new Float32Array(0), cOrder = new Int16Array(0), cPlaced = new Uint8Array(0), cX = new Float32Array(0), cY = new Float32Array(0);
-  let fader = new CalloutFader(0), placer = new CalloutPlacer(1);
+  let fader = new CalloutFader(0), placer = new CalloutPlacer(1), placerRoom = 1;
   let nCallouts = 0, nCandidates = 0, showPoints = false;
 
   /** The tags and the jets' words, once per source. */
@@ -276,6 +276,11 @@ export function createLabelLayer(o: {
     egOn = new Uint8Array(eg.length);
 
     const n = list.length;
+    // A re-timed strike (every step of a time dragged or typed) hands over a new source with the same points:
+    // its callouts keep how far each has faded in and the spot each plate had, so the planner's words hold
+    // steady instead of blinking out and fading back at every step. Only other points (another source, another
+    // watched jet or Attack colours choice) start afresh.
+    const sameKeys = n === nCallouts && cKey.length === n && list.every((c, i) => c.key === cKey[i]);
     nCallouts = n;
     cKey = list.map((c) => c.key);
     cLines = list.map((c) => c.lines);
@@ -293,10 +298,12 @@ export function createLabelLayer(o: {
     cPlaced = new Uint8Array(n);
     cX = new Float32Array(n);
     cY = new Float32Array(n);
-    fader = new CalloutFader(n);
+    if (!sameKeys) fader = new CalloutFader(n);
     // Room for every callout, a blocked box per jet label, two slots per jet beside its burst, and every box words keep
     // off (the targets', a ring per jet, the controls').
-    placer = new CalloutPlacer(n + 4 * nJ + tags.length + CHROME_BOXES_MAX);
+    const room = n + 4 * nJ + tags.length + CHROME_BOXES_MAX;
+    if (!sameKeys || room !== placerRoom) placer = new CalloutPlacer(room);
+    placerRoom = room;
     nCandidates = 0;
   }
 

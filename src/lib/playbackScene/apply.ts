@@ -12,8 +12,11 @@
 import { delaysToOffsets, type StrikePlayback } from '../playback';
 import type { ApplyStatus } from './session';
 
-/** A time is written to a thousandth of a second: no 0.1 + 0.2 noise reaches a saved plan (the attack list prints its offsets raw). */
-const toMs = (s: number) => Math.round(s * 1000) / 1000 + 0; // + 0 turns a −0 into 0
+/**
+ * A time is written to a thousandth of a second: no 0.1 + 0.2 noise reaches a saved plan (the attack list prints its
+ * offsets raw). The session asks the same rounding whether there is anything to apply.
+ */
+export const toMs = (s: number) => Math.round(s * 1000) / 1000 + 0; // + 0 turns a −0 into 0
 
 /**
  * The editor's Apply: each member's time over target less the first member's, in member (the editor's) order.

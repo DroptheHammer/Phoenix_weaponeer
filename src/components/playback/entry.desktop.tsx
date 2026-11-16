@@ -46,6 +46,11 @@ export function PlayStrikeButton({ disabled, title, variant, build, fromMission 
   const [open, setOpen] = useState<{ launch: PlaybackLaunch | undefined }>();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setOpen(undefined), []);
+  // What the planner gives now: the press asks it, and Try again after a crash asks it afresh (an Apply may have moved the times since).
+  const launchNow = useCallback(
+    () => (build ? build() : fromMission && playbackLaunchFromMission(fromMission.subject, fromMission.weapons)),
+    [build, fromMission],
+  );
   return (
     <>
       <button
@@ -55,7 +60,7 @@ export function PlayStrikeButton({ disabled, title, variant, build, fromMission 
         onClick={(e) => {
           // In a list row this click must not also select the row.
           e.stopPropagation();
-          setOpen({ launch: build ? build() : fromMission && playbackLaunchFromMission(fromMission.subject, fromMission.weapons) });
+          setOpen({ launch: launchNow() });
         }}
         className={
           variant === 'text'
@@ -68,20 +73,31 @@ export function PlayStrikeButton({ disabled, title, variant, build, fromMission 
       >
         ▶ Play
       </button>
-      {open && <PlaybackHost launch={open.launch} onClose={close} returnFocusTo={buttonRef.current} />}
+      {open && <PlaybackHost launch={open.launch} relaunch={launchNow} onClose={close} returnFocusTo={buttonRef.current} />}
     </>
   );
 }
 
 interface PlaybackHostProps {
   launch: PlaybackLaunch | undefined;
+  /** A launch made afresh from the plan as it stands, for Try again. */
+  relaunch: () => PlaybackLaunch | undefined;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null;
 }
 
 /** The overlay, the error boundary and the lazily loaded 3D view inside it. */
-function PlaybackHost({ launch, onClose, returnFocusTo }: PlaybackHostProps) {
+function PlaybackHost({ launch: first, relaunch, onClose, returnFocusTo }: PlaybackHostProps) {
   const [attempt, setAttempt] = useState(0);
+  const [launch, setLaunch] = useState(first);
+  // Whether an Apply has written times into the saved plan from here, so neither the crash panel nor the view's own
+  // lost-graphics panel says the plan is unchanged after one: kept here alone, as it must outlive a crashed view.
+  // (An Apply to the editor's strike changes only the editor, not the plan.)
+  const [applied, setApplied] = useState(false);
+  const shown = useMemo(() => {
+    const a = launch?.apply;
+    return a?.to === 'mission' ? { ...launch!, apply: { ...a, write: (o: Record<string, number>) => (a.write(o), setApplied(true)) } } : launch;
+  }, [launch]);
   // A new lazy() for every attempt: React.lazy remembers a failed import
   // forever, so Try again would otherwise show the same failure.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,9 +112,9 @@ function PlaybackHost({ launch, onClose, returnFocusTo }: PlaybackHostProps) {
   return (
     <PlaybackOverlay title="Strike playback" onClose={onClose} onTogglePlay={() => toggle.current?.()} returnFocusTo={returnFocusTo}>
       {support.ok ? (
-        <PlaybackErrorBoundary key={attempt} onRetry={() => setAttempt((a) => a + 1)} onClose={onClose}>
+        <PlaybackErrorBoundary key={attempt} onRetry={() => (setLaunch(relaunch()), setAttempt((a) => a + 1))} onClose={onClose} applied={applied}>
           <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center text-gray-400">Loading 3D playback…</div>}>
-            <View launch={launch} onClose={onClose} bindTogglePlay={bindTogglePlay} />
+            <View launch={shown} onClose={onClose} bindTogglePlay={bindTogglePlay} applied={applied} />
           </Suspense>
         </PlaybackErrorBoundary>
       ) : (

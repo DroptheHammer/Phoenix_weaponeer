@@ -82,6 +82,8 @@ export interface ImpactDebug {
   ringPx: number;
   /** How strongly the ring is drawn for that size (impactFx.ringFade), before its strength in time. */
   ringFade: number;
+  /** The radius the drawn ring's geometry was laid at, m (0 while the ring is not drawn): what the picture shows, not what was asked. */
+  laidRadius_m: number;
   /** Where the burst is, three.js axes. */
   centre: { x: number; y: number; z: number };
 }
@@ -93,7 +95,10 @@ export interface ImpactLayer extends Layer {
   readonly info: SceneImpactInfo;
   /** What the words beside the burst need, as of the last frame. */
   readonly tag: ImpactTag;
-  /** Where the burst is now (three.js axes; the layer's own object, read, never kept or written), or undefined while nothing of it shows. */
+  /**
+   * Where the burst is now (three.js axes; the layer's own object, read, never kept or written), for as long as the
+   * flash or the ring's time lasts with Show › Impact on (a weapon with no radius: the flash's); otherwise undefined.
+   */
   burstPosition(): Vector3 | undefined;
   /** What the layer drew on the last frame. Allocates, so only for the checks. */
   debug(): ImpactDebug;
@@ -253,6 +258,7 @@ export function createImpactLayer(o: { source: SceneSource; jet: number; parent:
       ringRadius_m: info.ringRadius_m ?? 0,
       ringPx,
       ringFade: fade,
+      laidRadius_m: group.visible && (ringFill.visible || ringCasing.visible) ? laidR : 0,
       centre: { x: centre.x, y: centre.y, z: centre.z },
     }),
 

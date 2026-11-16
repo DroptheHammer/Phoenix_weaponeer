@@ -11,6 +11,7 @@
  */
 
 import type { StrikePlayback } from '../playback';
+import { toMs } from './apply';
 import type { CameraMode } from './cameraMath';
 import { initShow, showReducer, type ShowAction, type ShowState } from './show';
 
@@ -75,10 +76,17 @@ export function initSession(pb: StrikePlayback, watchId?: string, opts: { show?:
   };
 }
 
-/** Are the times other than the ones Reset goes back to? By value, so a time dragged away and back is clean. */
+/**
+ * Are the times other than the ones Reset goes back to? By value, so a time dragged away and back is clean, and to
+ * the thousandth of a second Apply writes: a difference smaller than that would write the plan's own times again,
+ * so it offers no Apply (and no Undo step for nothing).
+ */
 export function isDirty(s: Session): boolean {
-  return s.memberIds.some((id) => s.delays_s[id] !== s.plan_s[id]);
+  return s.memberIds.some((id) => toMs(s.delays_s[id]) !== toMs(s.plan_s[id]));
 }
+
+/** Any time other than the plan's at all, however little: what Reset puts back. */
+const anyMoved = (s: Session) => s.memberIds.some((id) => s.delays_s[id] !== s.plan_s[id]);
 
 /**
  * The next session. Returns the same object when nothing changes: a time for
@@ -95,7 +103,7 @@ export function sessionReducer(s: Session, a: SessionAction): Session {
     case 'drag':
       return a.on === s.dragging ? s : { ...s, dragging: a.on };
     case 'reset':
-      return isDirty(s) ? { ...s, delays_s: { ...s.plan_s }, status: undefined } : s;
+      return anyMoved(s) ? { ...s, delays_s: { ...s.plan_s }, status: undefined } : s;
     case 'applied': {
       // The strike's clock is re-based on whoever is first: every time moves by the same amount (a shift that is not a number moves none).
       const shift = Number.isFinite(a.shift_s) ? a.shift_s : 0;
