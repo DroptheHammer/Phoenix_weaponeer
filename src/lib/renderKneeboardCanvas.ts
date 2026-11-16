@@ -282,7 +282,7 @@ function drawMarker(ctx: CanvasRenderingContext2D, theme: CardTheme, x: number, 
  * edge or its centre, as `align` says. `plate` is known before the note is drawn, so
  * the labels can be laid out around it.
  */
-interface PlatedNote {
+export interface PlatedNote {
   str: string;
   x: number;
   y: number;
@@ -499,29 +499,58 @@ function overlaps(a: Rect, b: Rect): boolean {
 }
 
 /**
+ * How far, in card pixels along its path, the route's edge note may be moved from where the route
+ * crosses the frame. Any farther and the note no longer reads as where the route leaves: it stays.
+ */
+export const EDGE_NOTE_MAX_MOVE = 140;
+
+/** What a moved edge note must not land on. */
+export interface EdgeNoteKeepOff {
+  /** The north arrow's and the scale bar's rooms. */
+  furniture: Rect[];
+  /** Every marker's disc. */
+  markers: Rect[];
+  /** The plates of the notes already measured: the wingmen's name tags. */
+  plates: Rect[];
+  /** The map's credit line, when a map is drawn. */
+  credit?: Rect;
+}
+
+/**
  * The route's edge note moved off the north arrow or the scale bar. A route leaving by the top
  * right corner put the note on the arrow's "N", and there the arrow's room can reach past the
  * action point, so walking back along the route is not always enough. The note first walks back
  * along the route from the edge, in the steps of the walk that found the edge (`along`, step `t`
- * being the edge), to the first spot whose plate is clear of everything in `keepOff` (the
- * furniture and every marker, so the move never puts it on a marker instead). Failing that, it
+ * being the edge), to the first spot whose plate is clear of everything in `keepOff` (so the move
+ * never puts it on a marker, a wingman's tag or the map's credit instead). Failing that, it
  * slides along the frame, either way round, to the nearest such spot: `inner` is the box the
  * note's anchor is held to (left, top, right, bottom), and the slide runs round its edge.
- * Failing both, it stays where it was.
+ * Neither goes farther than EDGE_NOTE_MAX_MOVE along its path. Failing both, it stays where it
+ * was, and the note handed in is the one handed back.
  */
-function offFurniture(
+export function offFurniture(
   note: PlatedNote,
   along: (k: number) => [number, number],
   t: number,
   held: (p: [number, number]) => [number, number],
   inner: [number, number, number, number],
-  keepOff: Rect[],
+  { furniture, markers, plates, credit }: EdgeNoteKeepOff,
 ): PlatedNote {
-  const at = ([x, y]: [number, number]): PlatedNote => ({ ...note, x, y, plate: { ...note.plate, x: note.plate.x + x - note.x, y: note.plate.y + y - note.y } });
-  const clear = (n: PlatedNote) => !keepOff.some((r) => overlaps(n.plate, r));
+  const blocks = [...furniture, ...markers, ...plates, ...(credit ? [credit] : [])];
+  // The note at a point, when its plate there is clear of everything it must keep off.
+  const clearAt = ([x, y]: [number, number]): PlatedNote | undefined => {
+    const plate = { ...note.plate, x: note.plate.x + x - note.x, y: note.plate.y + y - note.y };
+    return blocks.some((r) => overlaps(plate, r)) ? undefined : { ...note, x, y, plate };
+  };
+  let walked = 0;
+  let last: [number, number] = [note.x, note.y];
   for (let k = t - 1; k >= 0; k--) {
-    const n = at(held(along(k)));
-    if (clear(n)) return n;
+    const p = held(along(k));
+    walked += Math.hypot(p[0] - last[0], p[1] - last[1]);
+    last = p;
+    if (walked > EDGE_NOTE_MAX_MOVE) break;
+    const n = clearAt(p);
+    if (n) return n;
   }
   const [x0, y0, x1, y1] = inner;
   const w = x1 - x0, h = y1 - y0;
@@ -539,10 +568,14 @@ function offFurniture(
   const toSide = [note.y - y0, x1 - note.x, y1 - note.y, note.x - x0];
   const nearestSide = toSide.indexOf(Math.min(...toSide));
   const start = [note.x - x0, w + note.y - y0, w + h + x1 - note.x, 2 * w + h + y1 - note.y][nearestSide];
-  for (let d = 2; d <= round / 2; d += 2) {
+  // Held in at the frame, the note mostly sits on that edge already; where it does not, the step
+  // onto the edge counts toward how far it moved.
+  const [sx, sy] = pointAt(start);
+  const onto = Math.hypot(sx - note.x, sy - note.y);
+  for (let d = 2; d <= round / 2 && onto + d <= EDGE_NOTE_MAX_MOVE; d += 2) {
     for (const s of [start + d, start - d]) {
-      const n = at(pointAt(s));
-      if (clear(n)) return n;
+      const n = clearAt(pointAt(s));
+      if (n) return n;
     }
   }
   return note;
@@ -637,8 +670,18 @@ function drawPlanView(
     const [x, y] = toPx(marker.position);
     return { x: x - markerR - 1, y: y - markerR - 1, w: 2 * markerR + 2, h: 2 * markerR + 2 };
   });
+  // The map's credit line, bottom right, only when there is a map to credit. Its box is worked
+  // out here, before the edge note, so that a note moved off the furniture keeps off it too.
+  let attributionW = 0;
+  if (report && report.drawn > 0) {
+    ctx.font = `11px ${SANS}`;
+    attributionW = ctx.measureText(OSM_ATTRIBUTION).width + 8;
+  }
+  const credit: Rect | undefined = attributionW ? { x: box.x + box.w - attributionW - 2, y: box.y + box.h - 19, w: attributionW + 2, h: 19 } : undefined;
 
-  // Where the route leaves the frame toward the IP, say so.
+  // Where the route leaves the frame toward the IP, say so. When the note had to be moved off
+  // the furniture, the IP's label points at the note where it now sits, not at the crossing.
+  let movedNote: PlatedNote | undefined;
   const route = picture.lines.find((l) => l.style === 'route');
   if (route && route.points.length >= 2) {
     const far = toPx(route.points[0]);
@@ -665,7 +708,11 @@ function drawPlanView(
         const held = (p: [number, number]): [number, number] => [Math.min(Math.max(p[0], x0), x1), Math.min(Math.max(p[1], y0), y1)];
         const [tx, ty] = held(edge);
         const note = platedNote(ctx, text, tx, ty, { color: theme.ipArrow, size: 12, align: 'center' });
-        notes.push(furniture.some((f) => overlaps(note.plate, f)) ? offFurniture(note, along, t, held, [x0, y0, x1, y1], [...furniture, ...markerRooms]) : note);
+        const placed = furniture.some((f) => overlaps(note.plate, f))
+          ? offFurniture(note, along, t, held, [x0, y0, x1, y1], { furniture, markers: markerRooms, plates: notes.map((n) => n.plate), credit })
+          : note;
+        if (placed !== note) movedNote = placed;
+        notes.push(placed);
       }
     }
   }
@@ -677,10 +724,7 @@ function drawPlanView(
     obstacles.push(markerRooms[i]);
   });
   obstacles.push(...furniture);
-  // The map's credit line, bottom right, only when there is a map to credit.
-  ctx.font = `11px ${SANS}`;
-  const attributionW = report && report.drawn > 0 ? ctx.measureText(OSM_ATTRIBUTION).width + 8 : 0;
-  if (attributionW) obstacles.push({ x: box.x + box.w - attributionW - 2, y: box.y + box.h - 19, w: attributionW + 2, h: 19 });
+  if (credit) obstacles.push(credit);
 
   const requests: LabelRequest[] = [
     // Markers first, then the boxes, so the numbers a pilot flies win the space.
@@ -690,8 +734,15 @@ function drawPlanView(
     ...picture.labels
       .map((l) => {
         let anchor = toPx(l.position);
-        // Pin off-frame IP labels to the edge where the run-in enters
-        if (l.kind === 'ip' && !insideBox(anchor)) {
+        // Pin off-frame IP labels to the edge where the run-in enters, or to the edge note when it
+        // was moved away from there: a leader to the bare crossing, the note elsewhere, left the eye
+        // unable to tell what the box pointed at. The box is laid out round the plate's middle, and
+        // its leader runs there; the plate, drawn after the labels, covers the leader's last stretch,
+        // so on the card the leader stops at the plate's edge.
+        if (l.kind === 'ip' && !insideBox(anchor) && movedNote) {
+          const { x, y, w, h } = movedNote.plate;
+          anchor = [x + w / 2, y + h / 2];
+        } else if (l.kind === 'ip' && !insideBox(anchor)) {
           const routeLine = picture.lines.find((ln) => ln.style === 'route');
           if (routeLine && routeLine.points.length >= 2) {
             const actionPoint = routeLine.points[routeLine.points.length - 1];
@@ -898,9 +949,7 @@ export function drawSideProfile(ctx: CanvasRenderingContext2D, side: SideProfile
     .map((p, i) => ({ p, i }))
     .filter(({ p }) => p.label)
     .map(({ p, i }) => ({ lines: [p.label!], anchor: P(i), side: p.side ?? 'top', size: 13, anchorRadius: p.kind !== 'APEX' && p.kind !== 'EGRESS' ? markerR : 0 }));
-  // The side view keeps the first clear spot: only the north-up picture's boxes were moved to
-  // their nearest spot, and the side view's pictures stay as they were drawn before.
-  for (const label of layoutLabels(ctx, requests, obstacles, box, { firstClear: true })) drawPlacedLabel(ctx, theme, label);
+  for (const label of layoutLabels(ctx, requests, obstacles, box)) drawPlacedLabel(ctx, theme, label);
 
   ctx.restore();
 }

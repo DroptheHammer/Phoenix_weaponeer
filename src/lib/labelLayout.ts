@@ -71,17 +71,12 @@ function distanceToRect([px, py]: [number, number], r: Rect): number {
  * far nearer. On a tie the spot looked at first wins. Only a side with no clear
  * spot passes the label on to the next side. If nothing is clear anywhere it
  * takes a clear spot anywhere in the frame, then the least-bad spot.
- *
- * `firstClear` keeps the older rule, the first clear spot in the order above:
- * the card's side view asks for it, so that its labels stay exactly where they
- * were drawn when the north-up picture's boxes moved to their nearest spot.
  */
 export function layoutLabels(
   ctx: CanvasRenderingContext2D,
   requests: LabelRequest[],
   obstacles: Rect[],
   bounds: Rect,
-  opts: { firstClear?: boolean } = {},
 ): PlacedLabel[] {
   const placed: PlacedLabel[] = [];
   const blocked = [...obstacles];
@@ -101,7 +96,7 @@ export function layoutLabels(
     let clear = false;
     for (const side of SIDE_ORDER[req.side]) {
       let nearest: { rect: Rect; leader: boolean; dist: number } | undefined;
-      scan: for (const gap of [18, 30, 46, 66, 90, 120, 155, 195]) {
+      for (const gap of [18, 30, 46, 66, 90, 120, 155, 195]) {
         for (const shift of [0, -w * 0.35, w * 0.35, -w * 0.7, w * 0.7, -w * 1.05, w * 1.05, -w * 1.4, w * 1.4]) {
           const rect = candidateRect(req.anchor, side, gap, shift, w, h);
           if (!inside(rect)) continue;
@@ -110,7 +105,6 @@ export function layoutLabels(
           if (area === 0) {
             const dist = distanceToRect(req.anchor, rect);
             if (!nearest || dist < nearest.dist - 1e-9) nearest = { rect, leader, dist };
-            if (opts.firstClear) break scan;
           } else {
             const score = area + gap * 2 + Math.abs(shift);
             if (!best || score < best.score) best = { rect, leader, score };

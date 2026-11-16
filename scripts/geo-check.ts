@@ -112,7 +112,7 @@ import {
 } from '../src/lib/kneeboardBasemap';
 import {
   planViewTransform, mapStatusOf, renderKneeboardCard, renderKneeboardCardWithMap, drawSideProfile,
-  PLAN_MARKER_R, SIDE_MARKER_R, markerLabelSize,
+  PLAN_MARKER_R, SIDE_MARKER_R, markerLabelSize, offFurniture, EDGE_NOTE_MAX_MOVE, type PlatedNote,
   KNEEBOARD_WIDTH, KNEEBOARD_HEIGHT, KNEEBOARD_SCALE, KNEEBOARD_PIXEL_WIDTH, KNEEBOARD_PIXEL_HEIGHT, releaseCanvas,
 } from '../src/lib/renderKneeboardCanvas';
 import { DAY_THEME, NIGHT_THEME, NVG_THEME, CARD_LIGHTINGS, themeForLighting, themeColours, parseColour, type CardTheme } from '../src/lib/cardTheme';
@@ -3455,6 +3455,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // found none, the new placement is the old one exactly.
   // Seen red (2026-11-15) with layoutLabels taking the farthest clear spot (`dist < nearest.dist - 1e-9` → `dist > nearest.dist + 1e-9`):
   //   FAIL label layout [LL2]: over 3,000 seeded scenes … unchanged where nothing was clear  2596 farther, 0 off-side, 0 not clear, 0 of 280 with no near clear spot changed; 2596 of 2720 clear scenes differ
+  // (seen red again, the same line, once the side view's first-clear option was gone: one rule everywhere)
   // Measuring by gap alone is the old rule over again (the smallest clear gap, its first shift), so
   // nothing is farther; it is seen red here only as "0 of 2720 clear scenes differ", and by [LL1].
   let seed = 20261115;
@@ -3463,8 +3464,6 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   const picture: Rect = { x: 0, y: 0, w: 768, h: 423 };
   const ctx7 = evenWidth(7);
   const tally = { clear: 0, none: 0, differ: 0, farther: 0, offSide: 0, notClear: 0, fallbackChanged: 0 };
-  // The side view asks for the old rule by name; in every scene that must be the old placement exactly.
-  const keptOld = { differ: 0 };
   const SCENES = 3000;
   for (let n = 0; n < SCENES; n++) {
     const anchor: [number, number] = [10 + rand() * (picture.w - 20), 10 + rand() * (picture.h - 20)];
@@ -3478,7 +3477,6 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     });
     const was = firstClear(ctx7, req, obstacles, picture);
     const now = layoutLabels(ctx7, [req], obstacles, picture)[0].rect;
-    if (!same(layoutLabels(ctx7, [req], obstacles, picture, { firstClear: true })[0].rect, was.rect)) keptOld.differ++;
     if (!was.side) {
       tally.none++;
       if (!same(now, was.rect)) tally.fallbackChanged++;
@@ -3494,10 +3492,55 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   ok('label layout [LL2]: over 3,000 seeded scenes the box is never farther from its point than the old first-clear spot, always on the same side, and unchanged where nothing was clear',
      tally.clear >= 2000 && tally.none >= 20 && tally.differ > 0 && tally.farther === 0 && tally.offSide === 0 && tally.notClear === 0 && tally.fallbackChanged === 0,
      `${tally.farther} farther, ${tally.offSide} off-side, ${tally.notClear} not clear, ${tally.fallbackChanged} of ${tally.none} with no near clear spot changed; ${tally.differ} of ${tally.clear} clear scenes differ`);
-  // Seen red (2026-11-15) with layoutLabels ignoring `firstClear`:
-  //   FAIL label layout: asked for the first clear spot (as the side view asks), the box is where the old search put it, in all 3,000 scenes  438 of 3000 differ
-  ok('label layout: asked for the first clear spot (as the side view asks), the box is where the old search put it, in all 3,000 scenes',
-     keptOld.differ === 0, `${keptOld.differ} of ${SCENES} differ`);
+}
+
+// ─── The route's edge note, moved off the furniture: what it keeps off, and how far it may go ──
+// The card's renderer moves the "→ STPT" note off the north arrow or the scale bar (offFurniture):
+// back along the route, else along the frame's edge. Built here by hand in a 768 x 423 picture: the
+// route leaves by the right edge at y = 100, in 2 px steps (step 100 is the edge), and the note
+// ("→ STPT 7", 48 px of text on a 54 x 15 plate) is held 28 px in from the right, at x = 740. A tall
+// block of "furniture" down the right edge (x 700 to 768) covers the note's start and the whole
+// slide down and up that edge, so the walk back along the route decides: clear of the block it
+// would stop at x = 672, 68 px back. A wingman's tag at x 640 to 670 sends it on to x = 612
+// (128 px), the map's credit at x 630 to 690 to x = 602 (138 px). For the last case the route runs
+// on back to x = 368 (4 px steps), and a tag 110 px wide (x 560 to 670) would send the note to
+// x = 532, 208 px back, past the 140 px it may go; the slide round the frame's top corner would
+// find a clear spot 152 px along (84 up, 68 along the top), past it too: so it stays where it started.
+// Seen red (2026-11-15) with offFurniture keeping off only the furniture and the markers (the
+// wingmen's plates and the credit left out of what it checks):
+//   FAIL edge note: with a wingman's tag in the way the note walks on past it, clear of it and of the furniture, 128 px back  note at 672.0,100.0, clear of the tag false
+//   FAIL edge note: with the map's credit line in the way the note walks on past it, clear of it, 138 px back  note at 672.0,100.0, clear of the credit false
+//   (and the last case below, and the dive card's wingman case in [LL3])
+// with the walk's 140 px limit taken off:
+//   FAIL edge note: a clear spot farther than 140 px along its path leaves the note where it started  note at 532.0,100.0
+// and with the slide's taken off: the same line, "note at 672.0,16.0" (round the top corner).
+{
+  const note: PlatedNote = { str: '→ STPT 7', x: 740, y: 100, color: '#000', size: 12, align: 'center', plate: { x: 713, y: 88, w: 54, h: 15 } };
+  const along = (k: number): [number, number] => [568 + 2 * k, 100];
+  const held = (p: [number, number]): [number, number] => [Math.min(Math.max(p[0], 28), 740), Math.min(Math.max(p[1], 16), 415)];
+  const inner: [number, number, number, number] = [28, 16, 740, 415];
+  const column: Rect = { x: 700, y: 0, w: 68, h: 423 };
+  const hits = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const move = (plates: Rect[], credit?: Rect) => offFurniture(note, along, 100, held, inner, { furniture: [column], markers: [], plates, credit });
+  // A walk back runs straight along y = 100, so how far it went is how far x came in from 740.
+  const show = (n: PlatedNote) => `note at ${n.x.toFixed(1)},${n.y.toFixed(1)}${n === note ? ' (where it started)' : ''}`;
+  const bare = move([]);
+  ok('edge note: with nothing but the furniture in the way the note walks back along the route to the first clear spot, 68 px',
+     bare.x === 672 && bare.y === 100 && !hits(bare.plate, column), show(bare));
+  const tag: Rect = { x: 640, y: 90, w: 30, h: 15 };
+  const pastTag = move([tag]);
+  ok('edge note: with a wingman\'s tag in the way the note walks on past it, clear of it and of the furniture, 128 px back',
+     pastTag.x === 612 && pastTag.y === 100 && !hits(pastTag.plate, tag) && !hits(pastTag.plate, column),
+     `${show(pastTag)}, clear of the tag ${!hits(pastTag.plate, tag)}`);
+  const credit: Rect = { x: 630, y: 85, w: 60, h: 19 };
+  const pastCredit = move([], credit);
+  ok('edge note: with the map\'s credit line in the way the note walks on past it, clear of it, 138 px back',
+     pastCredit.x === 602 && pastCredit.y === 100 && !hits(pastCredit.plate, credit) && note.x - pastCredit.x <= EDGE_NOTE_MAX_MOVE,
+     `${show(pastCredit)}, clear of the credit ${!hits(pastCredit.plate, credit)}`);
+  const farAlong = (k: number): [number, number] => [368 + 4 * k, 100];
+  const tooFar = offFurniture(note, farAlong, 100, held, inner, { furniture: [column], markers: [], plates: [{ x: 560, y: 90, w: 110, h: 15 }] });
+  ok('edge note: a clear spot farther than 140 px along its path leaves the note where it started',
+     EDGE_NOTE_MAX_MOVE === 140 && tooFar === note, show(tooFar));
 }
 
 // ─── The card's colours: Day is the card as it always was ────────────────────
@@ -3728,23 +3771,35 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   //   FAIL Day card: A-4E manual dive is drawn exactly as it always was  1024 draw calls, 91738b7322722e56   (and a4e-map, popup, wingman, loft-strike, in all four themes)
   // and with the walk back along the route skipped (only the slide along the frame's edge left):
   //   FAIL Day card: F-4E LABS loft, #2 of a two-jet strike is drawn exactly as it always was  1096 draw calls, bfa04fa8d0499e92   (in all four themes)
-  // The side views keep the first clear spot. Seen red with the side view's layoutLabels call
-  // asking for the nearest spot instead (the "4,887ft: track 5s" box comes in close and pushes
-  // the Release box one step out, onto a leader):
-  //   FAIL Day card: the side view alone, as the attack editor draws it is drawn exactly as it always was  501 draw calls, 2e3ec491d36c1e40   (and popup, in all four themes)
+  // Re-pinned on purpose again, in all four themes, when the side view took the nearest clear spot
+  // too and the IP's blue box came to point at the moved edge note. Diffing every log before and
+  // after: in the side views (side, and popup's) the "4,887ft: track 5s" box comes in under its TRK
+  // marker on a 15 px leader instead of off to the left on a 116 px one, and the Release box steps
+  // one spot out, from a pointer to a 15 px leader (in popup's side view: from 3 px to 31 px);
+  // in a4e, a4e-map, wingman, popup and loft-strike the IP box moved and its leader runs to the
+  // middle of the "→ STPT 7" plate, under it. Nothing else moved: no text added, lost or changed, no colour changed, every
+  // marker, line and note the same. The credit line's font is now set (and its width measured) only
+  // when a map is drawn, and before the edge note: every card with a north-up picture and no map lost
+  // that one line, which drew nothing (strike, no-tiles, loft-labs and loft-ccrp moved for that
+  // alone), and on the map card the two lines moved up the log.
+  // The gun card "bare" and the loft side view are unchanged. The new pins seen red (2026-11-15) with
+  // the IP label's anchor left at the crossing:
+  //   FAIL Day card: A-4E manual dive is drawn exactly as it always was  1023 draw calls, 089fa91a8645d9e5   (and a4e-map, popup, wingman, loft-strike, in all four themes)
+  // and with layoutLabels taking the farthest clear spot: every card here, in all four themes, the
+  // two side views and the gun card included (side: 504 draw calls, 59b0ded0ffb9b658).
   const DAY_PIN: Record<string, { ops: number; sha: string }> = {
-    a4e: { ops: 1024, sha: 'eed3f52332297c0a' },
-    'a4e-map': { ops: 1141, sha: '5ef60f941c921137' },
-    strike: { ops: 1154, sha: 'a9a0b47e7d338199' },
-    popup: { ops: 1295, sha: 'c49f486f4c2087b0' },
-    side: { ops: 500, sha: '5af01fbeeba5515e' },
+    a4e: { ops: 1023, sha: '06ea9a052705f590' },
+    'a4e-map': { ops: 1141, sha: 'eefdcdd2102e21df' },
+    strike: { ops: 1153, sha: 'bede9bc30c5d6bd6' },
+    popup: { ops: 1294, sha: 'e07116bc38346955' },
+    side: { ops: 501, sha: '2e3ec491d36c1e40' },
     bare: { ops: 504, sha: 'f4f2a5a9dab7b284' },
-    'no-tiles': { ops: 616, sha: '94791f35a7d9a8df' },
-    wingman: { ops: 1107, sha: '2a94d547308c5386' },
-    // The loft cards, first pinned 2026-11-14 on the code as shipped in v0.3.4; all but the side view re-pinned as above.
-    'loft-labs': { ops: 1034, sha: '1d82e45935747850' },
-    'loft-ccrp': { ops: 1036, sha: '422e20893ee39b94' },
-    'loft-strike': { ops: 1096, sha: '4014de7ee102a9a8' },
+    'no-tiles': { ops: 615, sha: '1a3a9697b39dc4f6' },
+    wingman: { ops: 1106, sha: 'b0f42a5a4adca734' },
+    // The loft cards, first pinned 2026-11-14 on the code as shipped in v0.3.4; all but the loft side view re-pinned as above.
+    'loft-labs': { ops: 1033, sha: '708b648651074ff8' },
+    'loft-ccrp': { ops: 1035, sha: '8939a10b0491e80e' },
+    'loft-strike': { ops: 1095, sha: '27c280d5ee8be37f' },
     'loft-side': { ops: 419, sha: '918baef989834be8' },
   };
   const runs = runAll();
@@ -3926,20 +3981,21 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // every check above; the marked log tells them apart. A new slot changes these: re-pin.
   // Re-pinned on purpose for 3x, like the Day pins: the setTransform line, and the map card's finer tiles.
   // The A-4E dive cards re-pinned again for the dive's aim-off, as the Day pins say, and every card
-  // with a north-up picture for its labels' nearest clear spot and the edge note, as the Day pins say.
+  // with a north-up picture for its labels' nearest clear spot and the edge note, as the Day pins say;
+  // and again for the side view's nearest spot and the IP box on the moved note, as the Day pins say.
   const MARKED_PIN: Record<string, string> = {
-    a4e: '3b2b376f1d07b4f6',
-    'a4e-map': '655fc19fff1a7508',
-    strike: '7d1a9647d405e9f0',
-    popup: 'ea5818629d0d951f',
+    a4e: '9b8a361d00624068',
+    'a4e-map': 'b8e96371143b6155',
+    strike: 'e9e640db4af932fe',
+    popup: 'd7660655d6db317a',
     bare: 'c06f7d5c3df3ae67',
-    'no-tiles': '1ab55360a6299ddd',
-    wingman: 'c47473eb54b98cd8',
-    side: 'c5ad2258b64c94f0',
+    'no-tiles': 'dc67fb349e3bb12f',
+    wingman: '17a4f57b22821e23',
+    side: '1e609f2b2e14723f',
     // The loft cards, first pinned 2026-11-14 (see DAY_PIN).
-    'loft-labs': '0c04fec5d3800719',
-    'loft-ccrp': '5fbd0271bfec47c6',
-    'loft-strike': 'bf7c9248c02e75e3',
+    'loft-labs': '6bd32af6b3b6bc74',
+    'loft-ccrp': 'd0918c187d1abd58',
+    'loft-strike': 'ac1922a5b47b3ae7',
     'loft-side': 'fddeb05de1b37ec6',
   };
   for (const run of markedRuns) {
@@ -4176,6 +4232,66 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     ok('dive card [LL3]: the "→ STPT 7" plate, moved off the furniture, sits on no marker',
        !!notePlate && Object.keys(centres).length >= 4 && onMarkers.length === 0,
        notePlate ? `${showPlate(notePlate)}${onMarkers.length ? ` over ${onMarkers.join(', ')}` : ''}` : 'no edge note drawn');
+
+    // The IP is off the frame, so its blue box points at where the route leaves. Its leader used to
+    // end at the frame-edge crossing, beside the north arrow, while the note had been moved down
+    // the edge: the eye could not tell what the box pointed at. Now the box is laid out round the
+    // moved note and its leader runs to the middle of the note's plate; the plate is drawn after it,
+    // so on the card the leader stops at the plate's edge. Read back from the log: the leader is the
+    // stroked line the IP label's block opens with, and the plate is the note's rounded fill.
+    // Seen red (2026-11-15) with the IP label's anchor left at the crossing (the branch that anchors it
+    // on the moved note switched off):
+    //   FAIL dive card [LL3]: the IP box's leader ends on the moved "→ STPT 7" plate, under it, not at the frame-edge crossing  leader 704.3,377.7 → 760.0,331.7; plate 713.0,371.0 → 767.0,386.0
+    //   (and the wingman case below, its leader ending at the same crossing)
+    /** The IP label's leader, and whether the "→ STPT" note's plate is drawn after it (so over its end). */
+    const ipLeaderOf = (lines: string[]) => {
+      const at = lines.findIndex((l) => /^fillText\("STPT 7: /.test(l));
+      if (at < 0) return undefined;
+      const start = lines.lastIndexOf('save()', at);
+      const block = lines.slice(start, at);
+      const mv = block.findIndex((l, i) => l.startsWith('moveTo(') && block[i + 1]?.startsWith('lineTo(') && block[i + 2] === 'stroke()');
+      const noteAt = lines.findIndex((l) => l.startsWith('fillText("→ STPT'));
+      return mv >= 0 ? { from: nums(block[mv]), to: nums(block[mv + 1]), plateAfter: noteAt > start + mv } : undefined;
+    };
+    /** Ends on the plate: inside it or on its edge, and the plate drawn over that end. */
+    const endsOn = (l: { to: number[]; plateAfter: boolean } | undefined, b: Box | undefined) =>
+      !!l && !!b && l.plateAfter && l.to[0] >= b.x0 - 0.01 && l.to[0] <= b.x1 + 0.01 && l.to[1] >= b.y0 - 0.01 && l.to[1] <= b.y1 + 0.01;
+    const showLeader = (l: { from: number[]; to: number[] } | undefined, p: Box | undefined) =>
+      `leader ${l ? `${l.from.map((v) => v.toFixed(1))} → ${l.to.map((v) => v.toFixed(1))}` : 'none'}; ${p ? showPlate(p) : 'no plate'}`;
+    const ipLeader = ipLeaderOf(log);
+    ok('dive card [LL3]: the IP box\'s leader ends on the moved "→ STPT 7" plate, under it, not at the frame-edge crossing',
+       !!notePlate && onRooms.length === 0 && endsOn(ipLeader, notePlate), showLeader(ipLeader, notePlate));
+
+    // The same card with a wingman whose "#1" tag sits right where the note was moved to. The note
+    // must keep off the tag too, so it moves on down the edge, and the IP box follows it there.
+    // Seen red (2026-11-15) with the renderer handing the move no plates and no credit line (and with
+    // the move itself keeping off only the furniture and the markers):
+    //   FAIL dive card [LL3]: with a wingman's "#1" tag where the note went, the note keeps off it (and off the furniture and the markers), and the IP box still points at it  tag plate 726.0,371.0 → 745.0,386.0; note plate 713.0,371.0 → 767.0,386.0 over the #1 tag; …
+    // (No card puts the map's credit line, at the bottom right, within the 140 px a note may move from
+    // the north arrow or the scale bar; that the move keeps off it is held by the hand-built case above.)
+    const planBox = { x: plan.left, y: plan.top, w: plan.right - plan.left, h: plan.bottom - plan.top };
+    const dPicture = diveCard.attackSection.diagram!.picture!;
+    const view = planViewTransform(dPicture, planBox);
+    if (notePlate && view) {
+      // A tag is drawn 6 px right of and 6 px above the jet's turn-in, its plate 9 + 6 px tall above that.
+      const jx = notePlate.x0 + 10, jy = notePlate.y0 + 18;
+      const tagPicture = { ...dPicture, lines: [{ style: 'attack', points: [view.fromPx(jx, jy), view.fromPx(jx - 200, jy + 100)] }] };
+      const withTag = { ...diveCard, attackSection: { ...diveCard.attackSection, diagram: { ...diveCard.attackSection.diagram!, wingmen: [{ label: '#1', picture: tagPicture }] } } };
+      const tagged = recordingContext(false, 0.5);
+      paint(tagged.ctx, withTag as never, undefined);
+      const tagNotes = readPlates(tagged.log).notes;
+      const tagPlate = tagNotes.find((n) => n.text === '#1')?.plate;
+      const movedPlate = tagNotes.find((n) => n.text.startsWith('→ STPT'))?.plate;
+      const tagLeader = ipLeaderOf(tagged.log);
+      const blockedBy = movedPlate ? [
+        ...(tagPlate && overlap(movedPlate, tagPlate) ? ['the #1 tag'] : []),
+        ...Object.entries(rooms).filter(([, r]) => overlap(movedPlate, r)).map(([name]) => name),
+        ...Object.entries(centres).filter(([, [x, y]]) => overlap(movedPlate, { x0: x - PLAN_MARKER_R, y0: y - PLAN_MARKER_R, x1: x + PLAN_MARKER_R, y1: y + PLAN_MARKER_R })).map(([name]) => name),
+      ] : [];
+      ok('dive card [LL3]: with a wingman\'s "#1" tag where the note went, the note keeps off it (and off the furniture and the markers), and the IP box still points at it',
+         !!tagPlate && !!movedPlate && overlap(tagPlate, notePlate) && blockedBy.length === 0 && endsOn(tagLeader, movedPlate),
+         `tag ${tagPlate ? showPlate(tagPlate) : 'not drawn'}; note ${movedPlate ? showPlate(movedPlate) : 'not drawn'}${blockedBy.length ? ` over ${blockedBy.join(', ')}` : ''}; ${showLeader(tagLeader, movedPlate)}`);
+    } else ok('dive card [LL3]: the plan view\'s frame is read back, for the wingman case', false, `${plan.left},${plan.top} → ${plan.right},${plan.bottom}`);
   }
 
   // The elevation prints in whole feet: the card data is rounded, the waypoint is not.
@@ -4199,34 +4315,35 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // Re-pinned on purpose for 3x, like the Day pins: the setTransform line, and the map card's
   // finer tiles (each one tinted, so that card's count grows by more than Day's does).
   // The A-4E dive cards re-pinned again for the dive's aim-off, as the Day pins say, and every card
-  // with a north-up picture for its labels' nearest clear spot and the edge note, as the Day pins say.
+  // with a north-up picture for its labels' nearest clear spot and the edge note, as the Day pins say;
+  // and again for the side view's nearest spot and the IP box on the moved note, as the Day pins say.
   const DARK_PIN: Record<string, Record<string, { ops: number; sha: string }>> = {
     night: {
-      a4e: { ops: 1025, sha: '17d26e8d70fe57d9' },
-      'a4e-map': { ops: 1974, sha: '1430e3c491bebfff' },
-      strike: { ops: 1155, sha: '551fae3c454b713b' },
-      popup: { ops: 1296, sha: 'debec9f4e2428238' },
-      side: { ops: 500, sha: 'ec8d27b5fb7dd3c2' },
+      a4e: { ops: 1024, sha: 'b87b2b8618b7fb6d' },
+      'a4e-map': { ops: 1974, sha: '500f6c528ddf6c61' },
+      strike: { ops: 1154, sha: '43c2178c9639c7c4' },
+      popup: { ops: 1295, sha: '90ac28139b63ab99' },
+      side: { ops: 501, sha: 'b46f838639f8d589' },
       bare: { ops: 504, sha: '40db2361c27f642a' },
-      'no-tiles': { ops: 617, sha: '30b822539063867b' },
-      wingman: { ops: 1108, sha: '552c7d30de68b12b' },
-      'loft-labs': { ops: 1035, sha: '8d36235ebe8324ac' },
-      'loft-ccrp': { ops: 1037, sha: 'f71f80156196b587' },
-      'loft-strike': { ops: 1097, sha: '08bb4342ab8f867d' },
+      'no-tiles': { ops: 616, sha: '448b6d3690fc2739' },
+      wingman: { ops: 1107, sha: '1b416f934213fd11' },
+      'loft-labs': { ops: 1034, sha: 'fb6f020baf15fcae' },
+      'loft-ccrp': { ops: 1036, sha: '1c8115d85e240989' },
+      'loft-strike': { ops: 1096, sha: '64ea178b0562bd7b' },
       'loft-side': { ops: 419, sha: '79436a427ed72875' },
     },
     nvg: {
-      a4e: { ops: 1025, sha: '56a222316f405023' },
-      'a4e-map': { ops: 1974, sha: '8aef2df940e051cb' },
-      strike: { ops: 1155, sha: '9eea2c04dac5c67c' },
-      popup: { ops: 1296, sha: '067d9a2fc63e5bb6' },
-      side: { ops: 500, sha: 'e3142dc060b86433' },
+      a4e: { ops: 1024, sha: '497144d257f2d319' },
+      'a4e-map': { ops: 1974, sha: 'aacb6c07fca32aab' },
+      strike: { ops: 1154, sha: '9b54822e25d3ee5e' },
+      popup: { ops: 1295, sha: '6231a5e93be30ceb' },
+      side: { ops: 501, sha: 'a8fe6cc8011af3e2' },
       bare: { ops: 504, sha: 'fa3c2f2b977024bf' },
-      'no-tiles': { ops: 617, sha: '268ec385806e7891' },
-      wingman: { ops: 1108, sha: 'af775193e7639e2b' },
-      'loft-labs': { ops: 1035, sha: 'b65c340a29e10fcb' },
-      'loft-ccrp': { ops: 1037, sha: '6dc7e64fd7878bcb' },
-      'loft-strike': { ops: 1097, sha: '06e659114b24893b' },
+      'no-tiles': { ops: 616, sha: '4727acd5e5b789d2' },
+      wingman: { ops: 1107, sha: '8e3576fc33bf208c' },
+      'loft-labs': { ops: 1034, sha: '98f19649a4673a09' },
+      'loft-ccrp': { ops: 1036, sha: '79dc5dcd2cd6e9a0' },
+      'loft-strike': { ops: 1096, sha: 'e7b71e41b93b6217' },
       'loft-side': { ops: 419, sha: '6fdcd02cb615657b' },
     },
   };
