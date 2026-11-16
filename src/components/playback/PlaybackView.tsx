@@ -17,7 +17,8 @@
  * (what ground is drawn, the Real | Flat switch, the theater warnings, the
  * credits). Fits a 1024×768 window. The overlay around it has the title bar and
  * the Close button. While the playhead is on a frag warning, a chip over the
- * picture names it, also at 16×.
+ * picture names it, also at 16×. The words the 3D lays on the picture keep off
+ * the camera buttons and the strike's name, whose boxes are measured here.
  *
  * The frag warnings follow the rule the strike is warned by: the spacing
  * rule, or a jet's distance from a bomb's blast radius at the moment it goes
@@ -431,11 +432,56 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
     scene?.setBombCam(show.bombCam);
   }, [scene, show.bombCam]);
 
+  // The view's own controls over the picture (the camera buttons along the top right, the strike's name at the top
+  // left), measured against the canvas and handed to the scene, so callout plates and jet labels keep off them. Measured
+  // when a scene is made (a rebuilt one included) and again whenever the picture, the name or a button changes size:
+  // the Chase button's text names the watched seat, so the row widens and narrows with it.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const nameRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const stage = stageRef.current, name = nameRef.current;
+    // The row is whatever holds the first button (Orbit), however deep the toolbar nests it.
+    const row = toolbarRef.current?.querySelector('button')?.parentElement;
+    if (!scene || !stage || !name || !row) {
+      // Without the boxes words may sit under the buttons: say so loudly on the dev server, where every screenshot
+      // check's "no page errors" step reads the console.
+      if (import.meta.env.DEV && scene) {
+        console.error('PlaybackView: the camera buttons or the name chip were not found; words will not keep off them');
+      }
+      return;
+    }
+    const buttons = Array.from(row.children).filter((e) => e.tagName === 'BUTTON'); // the buttons alone, not the Show panel
+    const measure = () => {
+      const canvas = stage.querySelector('canvas') ?? stage;
+      const c = canvas.getBoundingClientRect();
+      if (!(c.width > 0) || buttons.length === 0) return;
+      // In the canvas's own CSS pixels, also while the overlay around it is still scaling in.
+      const k = canvas.clientWidth / c.width;
+      const box = (l: number, t: number, r: number, b: number) => ({ x: (l - c.left) * k, y: (t - c.top) * k, w: (r - l) * k, h: (b - t) * k });
+      let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+      for (const e of buttons) {
+        const q = e.getBoundingClientRect();
+        l = Math.min(l, q.left);
+        t = Math.min(t, q.top);
+        r = Math.max(r, q.right);
+        b = Math.max(b, q.bottom);
+      }
+      const n = name.getBoundingClientRect();
+      scene.setChromeBoxes([box(l, t, r, b), box(n.left, n.top, n.right, n.bottom)]);
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(stage);
+    ro.observe(name);
+    for (const e of buttons) ro.observe(e);
+    return () => ro.disconnect();
+  }, [scene]);
+
   if (fatal) throw fatal; // into the local error boundary, which keeps the plan safe and offers Try again
 
   return (
     <div className="absolute inset-0 flex flex-col">
-      <div className="relative flex-1 min-h-0">
+      <div ref={stageRef} className="relative flex-1 min-h-0">
         <SceneHost
           key={mountKey}
           source={source}
@@ -451,11 +497,14 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
           onRemount={rebuild}
         />
         {/* On its own dark plate: behind it can be the navy sky, the pale haze or the map. */}
-        <div className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
+        <div ref={nameRef} data-name-chip="" className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
         {scene && <CanvasChips scene={scene} source={source} jet={watchedJet} mode={cameraMode} conflicts={timing.conflicts} warnings={timing.readout.warnings} />}
         {software && <SoftwareChip />}
         {scene && (
-          <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={cameraMode} seat={source.labelOf(watchedJet)} onMode={pickCamera} />
+          // A wrapper with no box of its own (the toolbar still lies over the whole picture), there to find its buttons by.
+          <div ref={toolbarRef} className="contents">
+            <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={cameraMode} seat={source.labelOf(watchedJet)} onMode={pickCamera} />
+          </div>
         )}
         {import.meta.env.DEV && scene && <FrameTime scene={scene} reTime={reTimeMs} />}
         {!scene && <div className="absolute inset-0 flex items-center justify-center text-gray-400 pointer-events-none">Starting 3D…</div>}

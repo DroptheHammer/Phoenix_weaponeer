@@ -148,9 +148,16 @@ interface PbHandle {
   /**
    * What the 2D overlay drew on the last frame, canvas pixels: each target's disc and tag, the action points' discs, the
    * callouts, the jets' labels, the bombs' rings, and the words beside each burst (`tags`: their lines, strength, plate and
-   * whether a spot was found for them).
+   * whether a spot was found for them); the boxes of the view's own controls the scene was handed (`chrome`), and every box
+   * the plates and jet labels kept off besides the targets' (`kept`: the rings of the bombs that wear the colour code, then
+   * the controls).
    */
   debugLabels(): ReturnType<PlaybackScene['debugLabels']> | null;
+  /**
+   * The boxes of the view's own controls (the button row, then the name chip) as the scene holds them, canvas pixels: what
+   * the plates and jet labels keep off. Null before the scene exists.
+   */
+  chrome(): ReturnType<PlaybackScene['debugLabels']>['chrome'] | null;
   /**
    * Jet `jet`'s arrow (default the lead) at the clock's time now, read off its mesh: `visible` (it is drawn), `bank_deg`
    * (the roll the mesh really has, wrapped to (−180, 180], right wing down positive), `nose` and `up` (unit vectors, three.js
@@ -290,6 +297,7 @@ const pb: PbHandle = {
     return p ? toPage(p.x, p.y) : null;
   },
   debugLabels: () => scene?.debugLabels() ?? null,
+  chrome: () => scene?.debugLabels().chrome ?? null,
   effects: () => scene?.debugEffects() ?? null,
   renderInfo: () => scene?.renderInfo() ?? null,
   arrow(jet = 0) {

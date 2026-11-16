@@ -1539,6 +1539,167 @@ async function checkBombCam(page, tag) {
   step(`57 Chase watches the bomb fall and land, holds, and leaves it with Watch the bomb land off; From target never turns (${tag})`, ok, parts.join('; '));
 }
 
+/** The margin kept clear round the watched bomb's ring, CSS pixels (the label layer's own figure). */
+const WORDS_RING_CLEAR_PX = 4;
+/** The view's own controls over the picture, canvas pixels: the button row (Orbit … Show, the buttons alone) and the name chip. */
+const viewChrome = (page) => pbEval(page, () => {
+  const c = document.querySelector('[role="dialog"] canvas');
+  const home = [...document.querySelectorAll('[role="dialog"] button')].find((b) => (b.textContent || '').trim() === 'Home view');
+  const chip = document.querySelector('[role="dialog"] [data-name-chip]');
+  if (!c || !home || !home.parentElement || !chip) return null;
+  const cv = c.getBoundingClientRect();
+  const rs = [...home.parentElement.children].filter((e) => e.tagName === 'BUTTON').map((e) => e.getBoundingClientRect());
+  const l = Math.min(...rs.map((r) => r.left)), t = Math.min(...rs.map((r) => r.top));
+  const r = Math.max(...rs.map((q) => q.right)), b = Math.max(...rs.map((q) => q.bottom));
+  const k = chip.getBoundingClientRect();
+  return { row: { x: l - cv.left, y: t - cv.top, w: r - l, h: b - t }, chip: { x: k.left - cv.left, y: k.top - cv.top, w: k.width, h: k.height } };
+});
+/** Every callout plate and burst's words placed on the overlay's last frame, and every jet's label, as boxes with a name. */
+const wordsOnOverlay = (d) => [
+  ...d.callouts.filter((c) => c.placed).map((c) => ({ name: `plate ${JSON.stringify(c.lines[0])}`, x: c.x, y: c.y, w: c.w, h: c.h })),
+  ...(d.tags || []).filter((t) => t.placed).map((t) => ({ name: `words ${JSON.stringify(t.lines[0])}`, x: t.x, y: t.y, w: t.w, h: t.h })),
+  ...d.jets.map((j, i) => ({ name: `label ${JSON.stringify(j.lines[0])}`, label: i, x: j.x, y: j.y, w: j.w, h: j.h })),
+];
+const fmtBox = (b) => `${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.w)}×${Math.round(b.h)}`;
+/** Two boxes overlap by more than half a pixel each way (the layer's float32 arithmetic and the page's can differ by less). */
+const coversBox = (a, b) => a.x < b.x + b.w - 0.5 && a.x + a.w > b.x + 0.5 && a.y < b.y + b.h - 0.5 && a.y + a.h > b.y + 0.5;
+/** A jet's label stands this far from its arrow, diagonally, CSS pixels (labels.ts LABEL_OFFSET_PX). */
+const LABEL_OFFSET_PX = 14;
+/**
+ * Whether jet label `i` of the overlay's list (anchored at `anchor` on the canvas) had a corner wholly in the `w`×`h` view
+ * and clear of the labels laid out before it and of every box in `boxes`: then it must have taken one.
+ */
+function labelHadClearCorner(d, i, anchor, boxes, w, h) {
+  const j = d.jets[i];
+  for (let c = 0; c < 4; c++) {
+    const b = { x: c === 0 || c === 2 ? anchor[0] + LABEL_OFFSET_PX : anchor[0] - LABEL_OFFSET_PX - j.w, y: c < 2 ? anchor[1] - LABEL_OFFSET_PX - j.h : anchor[1] + LABEL_OFFSET_PX, w: j.w, h: j.h };
+    if (b.x < 0 || b.y < 0 || b.x + b.w > w || b.y + b.h > h) continue;
+    if (d.jets.slice(0, i).some((o) => coversBox(b, o)) || boxes.some((o) => coversBox(b, o))) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Check 74: words keep off the bomb being followed and off the view's own controls. The four dives (dive4), and the lone
+ * pop-up too (where the owner saw a plate over the falling bomb; there the release plate stays over the ring for longer
+ * than the release frame, so the fall is not proven on one moment alone); flat ground, Chase #1 pressed, Watch the bomb
+ * land and Impact on, Action points As they come, 1×, paused; each moment sought and waited on until the scene stops
+ * drawing.
+ * - Every 0.25 s from #1's release to its impact: the ring round #1's bomb is drawn, and no callout plate, no burst's
+ *   words and no jet's label of the overlay's own list (`__pb.debugLabels()`) overlaps the box round that ring (its
+ *   radius as drawn, the release pulse in it, plus 4 px).
+ * - Every 0.25 s from 0.5 s after the release to 3 s after the impact (the four moments asked for, and every moment
+ *   between: #1's label passes under the buttons for half a second only): none of them overlaps the button row (the
+ *   camera buttons, Home view and Show, measured on the page) or the name chip at the top left; and the boxes the scene
+ *   holds for them (`__pb.chrome()`) are those two, within 1 px.
+ * A jet's label is let off only where none of its four spots was clear (of the view's edge, the labels before it, the
+ * targets, the ring and the controls), as at the release, where the ring pulsing to twice its size reaches past all four
+ * of #1's spots 14 px off the arrow: the label then takes the least covering one, and the step lists each such moment.
+ * At 1400×900 and 1024×768.
+ *
+ * Measured on the first green run (2026-11-16): 35 moments of the fall and 45 for the controls at both sizes, nothing over
+ * the ring or under the controls; let off: #1's label at the release (both sizes) and, at 1024×768, 1.75 s after it, under
+ * the buttons with every corner touching something. The lone pop-up: 34 moments of the fall and 44 for the controls,
+ * nothing over the ring or under the controls; let off: #1's label at the release (both sizes) and, at 1024×768, 2.00 s
+ * after it, under the buttons.
+ *
+ * Measured before the words were kept clear (2026-11-16), both faults the owner saw, at both sizes:
+ *   STEP FAIL 74 … (1400x900-dive4) — …; the fall, 35 moments, 35 with #1's ring drawn: 1 overlap(s): +0.00 s plate "Release by 4,500ft AGL @ 450 KTAS" at 455,265 229×25 over the ring's box 674,280 52×52; the controls, 45 moments (buttons 952,8 436×26, name chip 12,8 60×24): 2 overlap(s): +1.50 s label "#1 Viper 1-1" at 814,18 143×32 under the buttons 952,8 436×26; +1.75 s label "#1 Viper 1-1" at 852,13 143×32 under the buttons 952,8 436×26; the scene holds none; labels let off: +0.00 s label "#1 Viper 1-1" over the ring's box 674,280 52×52 (no clear corner)
+ *   STEP FAIL 74 … (1024x768-dive4) — …; 1 overlap(s): +0.00 s plate "Release by 4,500ft AGL @ 450 KTAS" at 267,199 229×25 over the ring's box 486,214 52×52; the controls, 45 moments (buttons 576,8 436×26, name chip 12,8 60×24): 1 overlap(s): +1.50 s label "#1 Viper 1-1" at 604,4 143×32 under the buttons 576,8 436×26; the scene holds none; …
+ *   STEP FAIL 74 … (1400x900-one) — …; the fall, 34 moments, 34 with #1's ring drawn: 1 overlap(s): +0.00 s plate "Release by 3,500ft AGL · 1.1nm from TGT" at 430,300 254×25 over the ring's box 674,315 52×52; the controls, 44 moments (buttons 952,8 436×26, name chip 12,8 76×24): 2 overlap(s): +1.75 s label "#1 Viper 1-1" at 832,4 143×32 under the buttons 952,8 436×26; +2.00 s label "#1 Viper 1-1" at 869,4 143×32 under the buttons 952,8 436×26; the scene holds none; …
+ *   STEP FAIL 74 … (1024x768-one) — …; the fall, 34 moments, 34 with #1's ring drawn: 2 overlap(s): +0.00 s plate "Release by 3,500ft AGL · 1.1nm from TGT" at 242,234 254×25 over the ring's box 486,249 52×52; +1.00 s plate "Release by 3,500ft AGL · 1.1nm from TGT" at 248,259 254×25 over the ring's box 497,260 30×30; the controls, 44 moments …: nothing under them; the scene holds none; …
+ * In neither fixture does the "Attack hdg" plate the owner also saw over the bomb reach its ring at these sizes; the
+ * release plate shows the same fault, over the release frame in the four dives and for a second of the fall in the lone
+ * pop-up at 1024×768.
+ *
+ * Proven red 2026-11-16 by one temporary edit to scene/labelLayer.ts, no ring kept clear (`bKeep[k] = jCoded[k]` → `0`):
+ *   STEP FAIL 74 … (1400x900-dive4) — …; the fall, 35 moments, 35 with #1's ring drawn: 1 overlap(s): +0.00 s plate "Release by 4,500ft AGL @ 450 KTAS" at 455,265 229×25 over the ring's box 674,280 52×52; the controls, 45 moments …: nothing under them; the scene holds 952,8 436×26 and 12,8 60×24; …
+ *   STEP FAIL 74 … (1024x768-dive4) — …; 1 overlap(s): +0.00 s plate "Release by 4,500ft AGL @ 450 KTAS" at 267,199 229×25 over the ring's box 486,214 52×52; …
+ *   STEP FAIL 74 … (1400x900-one) — …; 1 overlap(s): +0.00 s plate "Release by 3,500ft AGL · 1.1nm from TGT" at 430,300 254×25 over the ring's box 674,315 52×52; …
+ *   STEP FAIL 74 … (1024x768-one) — …; 2 overlap(s): +0.00 s plate "Release by 3,500ft AGL · 1.1nm from TGT" at 242,234 254×25 over the ring's box 486,249 52×52; +1.00 s plate "Release by 3,500ft AGL · 1.1nm from TGT" at 248,259 254×25 over the ring's box 497,260 30×30; …
+ * and by one temporary edit to PlaybackView.tsx, the controls' boxes measured but never handed over (the
+ * `scene.setChromeBoxes(…)` call dropped):
+ *   STEP FAIL 74 … (1400x900-dive4) — …; the fall, …: nothing over the ring; the controls, 45 moments (buttons 952,8 436×26, name chip 12,8 60×24): 2 overlap(s): +1.50 s label "#1 Viper 1-1" at 814,18 143×32 under the buttons 952,8 436×26; +1.75 s label "#1 Viper 1-1" at 852,13 143×32 under the buttons 952,8 436×26; the scene holds none; …
+ *   STEP FAIL 74 … (1024x768-dive4) — …; 1 overlap(s): +1.50 s label "#1 Viper 1-1" at 604,4 143×32 under the buttons 576,8 436×26; the scene holds none; …
+ *   STEP FAIL 74 … (1400x900-one) — …; 2 overlap(s): +1.75 s label "#1 Viper 1-1" at 832,4 143×32 under the buttons 952,8 436×26; +2.00 s label "#1 Viper 1-1" at 869,4 143×32 under the buttons 952,8 436×26; the scene holds none; …
+ *   STEP FAIL 74 … (1024x768-one) — …: nothing under them; the scene holds none; …
+ */
+async function checkWordsClear(page, tag, what = 'the four dives') {
+  const { rel, imp } = await pbEval(page, () => ({ rel: __pb.moments.jets[0].release, imp: __pb.moments.jets[0].impact }));
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.setActionPoints('coming'); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  await page.getByRole('button', { name: 'Chase #1', exact: true }).click();
+  const chasePressed = (await pressedCamera(page)).join() === 'Chase #1';
+  const shown = await pbEval(page, () => { const s = __pb.show(); return !!s && s.bombCam && s.impact && s.actionPoints === 'coming'; });
+  const at = async (t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settleIdle(page, 200);
+  };
+  const parts = [`Chase pressed ${chasePressed}, Watch the bomb land, Impact and As they come ${shown}`];
+
+  // One pass, every 0.25 s from the release to 3 s after the impact: while the bomb falls nothing over its ring; from
+  // 0.5 s after the release nothing under the button row or the name chip, and the scene holds their boxes. A jet's label
+  // that covers one of them is let off only when it had no clear corner at all (each of its four spots met the view's
+  // edge, a label before it, a target's disc and tag, the ring or a control, all measured here): then it takes the least
+  // covering one, as the layout says. At the release the bomb leaves from under the jet and the ring, pulsing twice its
+  // size, reaches past all four of #1's spots.
+  const ringHits = [], chromeHits = [], letOff = [];
+  let samples = 0, ringed = 0, chromeSamples = 0, chromeFound = true, heldOk = true, held = null, measured = null;
+  const same = (a, b) => !!a && !!b && Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1 && Math.abs(a.w - b.w) <= 1 && Math.abs(a.h - b.h) <= 1;
+  const cv = await canvasBox(page);
+  for (let k = 0; rel + 0.25 * k <= imp + 3; k++) {
+    const t = rel + 0.25 * k, falling = t < imp, when = `+${(t - rel).toFixed(2)} s`;
+    await at(t);
+    const d = await pbEval(page, () => __pb.debugLabels());
+    const c = await viewChrome(page);
+    if (k === 1 || k === 6 || k === Math.floor((imp - rel) / 0.25) - 4) await shot(page, `${tag}-74-at-${(t - rel).toFixed(2)}s`);
+    if (!c || !d) { chromeFound = false; continue; }
+    measured = c;
+    const ring = falling ? d.bombs.find((b) => b.jet === 0) : undefined;
+    const m = ring ? ring.r + WORDS_RING_CLEAR_PX : 0;
+    const ringBox = ring ? { x: ring.x - m, y: ring.y - m, w: 2 * m, h: 2 * m } : null;
+    if (falling) samples++;
+    if (ring) ringed++;
+    const checkChrome = t >= rel + 0.5;
+    const keptOff = [...d.targets.map((g) => ({ x: g.box[0], y: g.box[1], w: g.box[2], h: g.box[3] })), ...(ringBox ? [ringBox] : []), c.row, c.chip];
+    let anchors = null;
+    for (const w of wordsOnOverlay(d)) {
+      const over = [];
+      if (ringBox && coversBox(w, ringBox)) over.push([ringHits, `over the ring's box ${fmtBox(ringBox)}`]);
+      if (checkChrome && coversBox(w, c.row)) over.push([chromeHits, `under the buttons ${fmtBox(c.row)}`]);
+      if (checkChrome && coversBox(w, c.chip)) over.push([chromeHits, `under the name chip ${fmtBox(c.chip)}`]);
+      if (over.length === 0) continue;
+      if (w.label !== undefined) {
+        anchors ??= await pbEval(page, () => {
+          const s = __pb.source(), r = document.querySelector('[role="dialog"] canvas').getBoundingClientRect(), out = {};
+          for (let j = 0; j < s.jetCount; j++) { const p = __pb.project(j, 'jet'); if (p) out[s.labelOf(j)] = [p[0] - r.left, p[1] - r.top]; }
+          return out;
+        });
+        const anchor = anchors[d.jets[w.label].key];
+        if (anchor && !labelHadClearCorner(d, w.label, anchor, keptOff, cv.w, cv.h)) {
+          letOff.push(`${when} ${w.name} ${over.map(([, s]) => s).join(', ')} (no clear corner)`);
+          continue;
+        }
+      }
+      for (const [list, s] of over) list.push(`${when} ${w.name} at ${fmtBox(w)} ${s}`);
+    }
+    if (!checkChrome) continue;
+    chromeSamples++;
+    held = await pbEval(page, () => (typeof __pb.chrome === 'function' ? __pb.chrome() : null));
+    heldOk = heldOk && !!held && held.length === 2 && held.some((b) => same(b, c.row)) && held.some((b) => same(b, c.chip));
+  }
+  const ringOk = samples > 0 && ringed === samples && ringHits.length === 0;
+  parts.push(`the fall, ${samples} moments, ${ringed} with #1's ring drawn: ${ringHits.length ? `${ringHits.length} overlap(s): ${ringHits.slice(0, 6).join('; ')}` : 'nothing over the ring'}`);
+  const chromeOk = chromeSamples >= 4 && chromeFound && chromeHits.length === 0 && heldOk;
+  parts.push(`the controls, ${chromeSamples} moments (buttons ${measured ? fmtBox(measured.row) : 'not found'}, name chip ${measured ? fmtBox(measured.chip) : 'not found'}): ` +
+    `${chromeHits.length ? `${chromeHits.length} overlap(s): ${chromeHits.slice(0, 6).join('; ')}` : 'nothing under them'}; the scene holds ${held && held.length ? held.map(fmtBox).join(' and ') : 'none'}`);
+  parts.push(`labels let off: ${letOff.length ? letOff.join('; ') : 'none'}`);
+
+  step(`74 words keep off the watched bomb's ring from the release to the impact, and off the view's buttons and name chip, ${what} in Chase (${tag})`,
+    chasePressed && shown && ringOk && chromeOk, parts.join('; '));
+}
+
 /**
  * Check 5d: a rebuilt scene keeps Show › Impact and Show › Watch the bomb land as they were chosen. The lone pop-up, 1×,
  * paused, Chase #1: both switched off through the session (`act`), the context lost and given back, and in the rebuilt
@@ -4617,6 +4778,11 @@ async function runStrikeChecks(browser, base) {
     await checkBombTraceOthers(bo.page, `${tag}-strike4-watch2`);
     step(`8 no page errors, four-ship watching #2 (${tag})`, bo.problems.length === 0, bo.problems.length ? bo.problems.slice(0, 8).join(' | ') : 'none');
     await bo.context.close();
+    // 74 on the four dives: Chase turned to #1's falling bomb, where the words once covered it and the buttons covered #1's label.
+    const dv = await openPage(browser, `${base}?tiles=synthetic&fixture=dive4`, w, h);
+    await checkWordsClear(dv.page, `${tag}-dive4`);
+    step(`8 no page errors, four dives (${tag})`, dv.problems.length === 0, dv.problems.length ? dv.problems.slice(0, 8).join(' | ') : 'none');
+    await dv.context.close();
     // 7b on the four-ship with its theater note: four lanes and the warnings line under the picture, the
     // tightest the rows get (a page of its own: the note takes a row from the pictures the checks above measure).
     const lay = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1`, w, h);
@@ -4715,6 +4881,12 @@ async function runChecks(browser, base) {
     }
     step(`8 no page errors (${tag})`, problems.length === 0, problems.length ? problems.slice(0, 8).join(' | ') : 'none');
     await context.close();
+    // 74 on the lone pop-up as well, on a page of its own: the step leaves the camera, the ground and Action points
+    // changed, which the checks above do not expect.
+    const lp = await openPage(browser, `${base}?tiles=synthetic&notes=1`, w, h);
+    await checkWordsClear(lp.page, `${tag}-one`, 'the lone pop-up');
+    step(`8 no page errors, lone pop-up for 74 (${tag})`, lp.problems.length === 0, lp.problems.length ? lp.problems.slice(0, 8).join(' | ') : 'none');
+    await lp.context.close();
   }
 }
 

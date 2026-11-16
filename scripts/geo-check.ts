@@ -147,7 +147,7 @@ import { ANCHOR_VERTICES, PATH_STEP_S, DRAG_PATH_STEP_S, LINE_CASING, newSceneFr
 import { groupTargets, targetTag, targetPost, letterInk, TARGET_STAND_PX, TARGET_GROUP_M, DISC_EDGE } from '../src/lib/playbackScene';
 import {
   calloutAlpha, calloutTargets, CalloutPlacer, CalloutFader, CALLOUT_BEFORE_WALL_S, CALLOUT_AFTER_WALL_S, CALLOUT_FADE_WALL_S, CALLOUT_MAX_PER_JET,
-  labelLine1, labelLine2, LabelText, placeLabels, LABEL_OFFSET_PX, type SceneSource,
+  labelLine1, labelLine2, LabelText, placeLabels, LABEL_OFFSET_PX, blockKeepClear, RING_CLEAR_PX, CHROME_BOXES_MAX, type SceneSource,
 } from '../src/lib/playbackScene';
 import {
   laneMarks, laneBands, laneChips, placeChips, pinnedGroup, axisFraction, axisTime, chipWidth, CHIP_GAP_PX, CHIP_TEXT, BAND_OUTLINE, DIAMOND_EDGE, IP_TEXT,
@@ -9317,6 +9317,58 @@ void (async () => {
     ok('playback B3 [LB3b]: a jet\'s label takes the spot that leaves a target\'s disc and tag uncovered: up-left when the box is up-right, down-right when it lies over both upper spots, the least covering one when every spot touches a box',
        lb3bIs(lb3bNone, 214, 104) && lb3bIs(lb3bRight, 86, 104) && lb3bIs(lb3bUpper, 214, 164) && lb3bIs(lb3bAll, 86, 164),
        `no box (${lb3bNone.join(', ')}); box up-right (${lb3bRight.join(', ')}) (want 86, 104); box over both upper spots (${lb3bUpper.join(', ')}) (want 214, 164); every spot touched (${lb3bAll.join(', ')}) (want 86, 164)`);
+
+    // [KC1] Words keep off a falling bomb that wears the colour code and off the view's own controls: blockKeepClear
+    // appends the box round each kept ring (radius + 4 px) and each control's box after the targets', and the label
+    // layout and the plates' placer, handed that count, avoid them. A jet's label with a kept ring over its up-right spot
+    // goes up-left (a ring not kept, over the up-left spot, does not count); with a control over both upper spots, down-
+    // right; with a pulsing ring touching all four and a control over the up-right one too, the least covering corner
+    // (up-left). A plate with a kept ring over its first spot takes another clear of it; with a control over its first
+    // spot, the next; with a control over the whole view it is dropped (−1). The boxes go rings first, then controls, and
+    // stop when the arrays are full.
+    // Mutation proof: labels.ts blockKeepClear handing nothing over (`return n;` as its first line), seen red 2026-11-16:
+    //   FAIL playback B3 [KC1]: … label: kept ring up-right (214, 104) (want 86, 104); control over both upper spots (214, 104) (want 214, 164); pulsing ring and a control (214, 104) (want 86, 104); plate: kept ring over spot 0 → spot 0 (covers it true); control over spot 0 → spot 0 (want 1); control over the view → spot 0 (want −1); boxes 0 / 3: none
+    const kcBoxes = (cap: number, rings: number[][], keep: number[], chrome: number[][]) => {
+      const bx = new Float32Array(cap), by = new Float32Array(cap), bw = new Float32Array(cap), bh = new Float32Array(cap);
+      const col = (a: number[][], k: number) => Float32Array.from(a, (r) => r[k]);
+      const n = blockKeepClear(0, bx, by, bw, bh, rings.length, Uint8Array.from(keep), col(rings, 0), col(rings, 1), col(rings, 2),
+        chrome.length, col(chrome, 0), col(chrome, 1), col(chrome, 2), col(chrome, 3));
+      return { n, bx, by, bw, bh };
+    };
+    const kcLabel = (rings: number[][], keep: number[], chrome: number[][]) => {
+      const b = kcBoxes(8, rings, keep, chrome), outX = new Float32Array(1), outY = new Float32Array(1);
+      placeLabels(1, Float32Array.of(200), Float32Array.of(150), Float32Array.of(100), Float32Array.of(32), 400, 300, outX, outY, b.n, b.bx, b.by, b.bw, b.bh);
+      return [outX[0], outY[0]];
+    };
+    const kcPlate = (rings: number[][], keep: number[], chrome: number[][]) => {
+      const b = kcBoxes(8, rings, keep, chrome), pl = new CalloutPlacer(16);
+      pl.begin(800, 600);
+      for (let i = 0; i < b.n; i++) pl.block(b.bx[i], b.by[i], b.bw[i], b.bh[i]);
+      const s = pl.place(0, 400, 300, 13, 120, 25);
+      return { s, box: [pl.x, pl.y, 120, 25] };
+    };
+    // Spots round the label's anchor (200, 150): up-right 214…314 × 104…136, up-left 86…186 × 104…136.
+    const kcRing = kcLabel([[240, 120, 11], [150, 120, 11]], [1, 0], []);
+    const kcChrome = kcLabel([], [], [[60, 90, 300, 30]]);
+    // A ring at the release, twice its size (22 px): its box 174…226 × 124…176 takes 12 × 12 of every corner; the control
+    // adds 6 × 100 to the up-right one.
+    const kcLeast = kcLabel([[200, 150, 22]], [1], [[214, 60, 186, 50]]);
+    // The plate's first spot round the disc (400, 300), radius 13: 416.3…536.3 × 258.7…283.7.
+    const kcRingBox = [440 - 15, 270 - 15, 30, 30];
+    const kcPlateRing = kcPlate([[440, 270, 11]], [1], []);
+    const kcPlateChrome = kcPlate([], [], [[410, 250, 60, 20]]);
+    const kcPlateFull = kcPlate([], [], [[0, 0, 800, 600]]);
+    const kcFull = kcBoxes(3, [[100, 100, 11], [300, 100, 22], [500, 100, 11]], [1, 0, 1], [[1, 2, 3, 4], [5, 6, 7, 8]]);
+    const kcList = Array.from({ length: kcFull.n }, (_, i) => [kcFull.bx[i], kcFull.by[i], kcFull.bw[i], kcFull.bh[i]]);
+    const kcIs = (p: number[], x: number, y: number) => p[0] === x && p[1] === y;
+    ok('playback B3 [KC1]: a jet\'s label and a callout plate keep off a falling bomb\'s ring that wears the colour code (ring + 4 px) and the view\'s own controls: another spot when one is clear, the least covering corner for a label, dropped for a plate; the boxes go rings first, then controls, up to the room there is',
+       RING_CLEAR_PX === 4 && CHROME_BOXES_MAX >= 2 &&
+       kcIs(kcRing, 86, 104) && kcIs(kcChrome, 214, 164) && kcIs(kcLeast, 86, 104) &&
+       kcPlateRing.s > 0 && !fb12Over(kcPlateRing.box, kcRingBox) && kcPlateChrome.s === 1 && kcPlateFull.s === -1 &&
+       JSON.stringify(kcList) === JSON.stringify([[85, 85, 30, 30], [485, 85, 30, 30], [1, 2, 3, 4]]),
+       `label: kept ring up-right (${kcRing.join(', ')}) (want 86, 104); control over both upper spots (${kcChrome.join(', ')}) (want 214, 164); pulsing ring and a control (${kcLeast.join(', ')}) (want 86, 104); ` +
+       `plate: kept ring over spot 0 → spot ${kcPlateRing.s} (covers it ${fb12Over(kcPlateRing.box, kcRingBox)}); control over spot 0 → spot ${kcPlateChrome.s} (want 1); control over the view → spot ${kcPlateFull.s} (want −1); ` +
+       `boxes ${kcFull.n} / 3: ${kcList.map((b) => b.join(' ')).join('; ') || 'none'}`);
 
     // ── Every jet's frag cloud and the clock's re-base (source.ts: fragAt; playClock.ts: shiftRange).
 

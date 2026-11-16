@@ -22,8 +22,12 @@
  *   any distance, so the bomb is found whatever its line, its size and the view do to it. A jet that wears
  *   the planner's colour code gets the larger solid ring, the others a smaller, fainter one. It starts
  *   twice its size at the release and settles to its size in half a real second (a pure function of the
- *   clock's time and speed, so it is the same after a seek or a re-time). A callout plate or a jet's label
- *   always covers a ring, never the reverse.
+ *   clock's time and speed, so it is the same after a seek or a re-time). No words cover the ring of a jet
+ *   that wears the colour code: the box round it as drawn this frame (the pulse in it, plus a few pixels) is
+ *   kept clear of every callout plate, the words beside a burst and the jets' labels, so the bomb Chase
+ *   turns to watch is never hidden. A plate with no clear spot left is left out that frame; a jet's label
+ *   takes its least covering corner. The other jets' fainter rings are not kept clear (with four jets
+ *   there would be no room left for words): a plate or a label still covers them.
  * - The planner's words at the watched jet's points (every jet's with All
  *   jets), word for word what the map and the
  *   card print, on a white plate joined to its disc by a thin line: the
@@ -45,6 +49,12 @@
  *   them. It takes the side of the arrow that leaves a target's disc and tag
  *   uncovered (the jet passes right by its target at release).
  *
+ * The view's own controls lie over the picture too (the camera buttons along
+ * the top right, the strike's name at the top left). The view measures them
+ * and hands their boxes over (setChromeBoxes); every plate and every jet's
+ * label keeps off them, as off a target's disc and tag, so a word is never
+ * hidden under a button. Discs, rings and the targets' tags stay where they are.
+ *
  * The backing store follows the canvas's CSS size times the scene's capped
  * device pixel ratio, so text is sharp on a Retina screen without costing
  * more pixels than the 3D itself draws. Strings and their widths are worked
@@ -54,10 +64,10 @@
 import { Vector3, type PerspectiveCamera } from 'three';
 import { LABEL_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import {
-  BOMB_RING_EDGE_PX, BOMB_RING_LINE_PX, CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CalloutFader, CalloutPlacer,
-  DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, EGRESS_DOT_PX, FLASH_R_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
-  LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, bombRingLook, calloutTargets, impactTagLines, letterInk, placeLabels,
-  releasePulse, targetTag, type AttackColours, type BombRingLook, type SceneSource,
+  BOMB_RING_EDGE_PX, BOMB_RING_LINE_PX, CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CHROME_BOXES_MAX, CalloutFader,
+  CalloutPlacer, DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, EGRESS_DOT_PX, FLASH_R_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
+  LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, blockKeepClear, bombRingLook, calloutTargets, impactTagLines, letterInk,
+  placeLabels, releasePulse, targetTag, type AttackColours, type BombRingLook, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
 import type { ImpactLayer } from './impactLayer';
@@ -79,9 +89,26 @@ export interface LabelDebug {
   bombs: { jet: number; x: number; y: number; r: number; alpha: number }[];
   /** The words beside each burst showing at all (`impact-<playback jet index>`), placed or dropped for want of room; the plate's top left and size. */
   tags: { key: string; kind: 'impact'; lines: readonly string[]; alpha: number; x: number; y: number; w: number; h: number; placed: boolean }[];
+  /** The boxes of the view's own controls as last handed over (setChromeBoxes). */
+  chrome: ScreenBox[];
+  /** Every box the plates and the jets' labels kept off on the last frame besides the targets': each kept ring's (`ring`, its jet), then each control's. */
+  kept: { kind: 'ring' | 'chrome'; jet?: number; x: number; y: number; w: number; h: number }[];
+}
+
+/** A box on the canvas, CSS pixels from its top left. */
+export interface ScreenBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 export interface LabelLayer extends Layer {
+  /**
+   * The boxes of the view's own controls over the picture (CSS pixels from the canvas's top left), which plates and jet
+   * labels keep off from the next frame on; at most CHROME_BOXES_MAX are kept. Copied: the array may be reused.
+   */
+  setChromeBoxes(boxes: readonly ScreenBox[]): void;
   /** What the last drawn frame put on the overlay (allocated only when called). */
   debugLabels(): LabelDebug;
 }
@@ -116,9 +143,13 @@ export function createLabelLayer(o: {
   let tags: string[] = [];
   let tagW = new Float32Array(0);
   let tx = new Float32Array(0), ty = new Float32Array(0), tOn = new Uint8Array(0);
-  // The box round each target on screen this frame, its disc and its tag together: no jet's label and no plate covers it.
+  // The boxes no jet's label and no plate covers this frame: first each target on screen, its disc and its tag together
+  // (shownTargets of them), then the coded jets' falling bombs' rings, then the view's own controls (nBlocked in all).
   let tbx = new Float32Array(0), tby = new Float32Array(0), tbw = new Float32Array(0), tbh = new Float32Array(0);
-  let shownTargets = 0;
+  let shownTargets = 0, nBlocked = 0;
+  // The view's own controls as handed over, kept until the next hand-over.
+  const chX = new Float32Array(CHROME_BOXES_MAX), chY = new Float32Array(CHROME_BOXES_MAX), chW = new Float32Array(CHROME_BOXES_MAX), chH = new Float32Array(CHROME_BOXES_MAX);
+  let nChrome = 0;
   let jetText: LabelText[] = [];
   // Per jet layer, each frame: anchor, plate size and place, whether shown, the second line shown.
   const nJ = o.jets.length;
@@ -129,6 +160,8 @@ export function createLabelLayer(o: {
   // Per jet layer: whether it wears the planner's colour code (set with the discs), and each frame its bomb's ring.
   const jCoded = new Uint8Array(nJ);
   const bx = new Float32Array(nJ), by = new Float32Array(nJ), br = new Float32Array(nJ), ba = new Float32Array(nJ), bOn = new Uint8Array(nJ);
+  // Each frame: whether that ring is drawn and its jet wears the colour code, so words keep off it.
+  const bKeep = new Uint8Array(nJ);
   const ringLook: BombRingLook = { r: 0, alpha: 0 };
   // Per impact layer: the words beside its burst, both ways they can read (with the radius and without), and each
   // plate's size, worked out once per source; each frame where the plate went and whether it was placed.
@@ -165,10 +198,12 @@ export function createLabelLayer(o: {
     tx = new Float32Array(tags.length);
     ty = new Float32Array(tags.length);
     tOn = new Uint8Array(tags.length);
-    tbx = new Float32Array(tags.length);
-    tby = new Float32Array(tags.length);
-    tbw = new Float32Array(tags.length);
-    tbh = new Float32Array(tags.length);
+    // Room for every target, every jet's ring and every control.
+    const nb = tags.length + nJ + CHROME_BOXES_MAX;
+    tbx = new Float32Array(nb);
+    tby = new Float32Array(nb);
+    tbw = new Float32Array(nb);
+    tbh = new Float32Array(nb);
     jetText = o.jets.map((jl) => new LabelText(s.labelOf(jl.jet), s.callsignOf(jl.jet)));
     tagWith = o.impacts.map((il) => impactTagLines(s.labelOf(il.jet), s.impactInfo(il.jet).ringRadius_ft, true));
     tagWithout = o.impacts.map((il) => impactTagLines(s.labelOf(il.jet), s.impactInfo(il.jet).ringRadius_ft, false));
@@ -259,8 +294,9 @@ export function createLabelLayer(o: {
     cX = new Float32Array(n);
     cY = new Float32Array(n);
     fader = new CalloutFader(n);
-    // Room for every callout, a blocked box per jet label, two slots per jet beside its burst, and the targets' boxes.
-    placer = new CalloutPlacer(n + 3 * nJ + tags.length);
+    // Room for every callout, a blocked box per jet label, two slots per jet beside its burst, and every box words keep
+    // off (the targets', a ring per jet, the controls').
+    placer = new CalloutPlacer(n + 4 * nJ + tags.length + CHROME_BOXES_MAX);
     nCandidates = 0;
   }
 
@@ -328,6 +364,19 @@ export function createLabelLayer(o: {
   return {
     update() {},
 
+    setChromeBoxes(boxes) {
+      nChrome = 0;
+      for (const b of boxes) {
+        if (nChrome >= CHROME_BOXES_MAX) break;
+        if (!(b.w > 0 && b.h > 0)) continue; // a control not laid out (hidden, or not there yet) blocks nothing
+        chX[nChrome] = b.x;
+        chY[nChrome] = b.y;
+        chW[nChrome] = b.w;
+        chH[nChrome] = b.h;
+        nChrome++;
+      }
+    },
+
     afterCamera(ctx) {
       if (!g) return;
       if (ctx.source !== src) remember(ctx.source);
@@ -375,7 +424,29 @@ export function createLabelLayer(o: {
         jw[n] = Math.max(text.width(1, measureLabel), l2 === undefined ? 0 : text.width(2, measureLabel)) + 2 * LABEL_PAD_PX;
         jh[n] = (l2 === undefined ? 1 : 2) * LABEL_LINE_PX;
       }
-      placeLabels(shownJets, jax, jay, jw, jh, w, h, jx, jy, shownTargets, tbx, tby, tbw, tbh);
+
+      // The rings round the falling bombs: where, how big (the pulse at the release is in it) and how solid.
+      // A bomb behind the camera or past its far plane has none; a bomb hidden behind a hill in the 3D still has
+      // its ring, as a disc does. Worked out before any words are placed: a coded jet's ring is kept clear of them.
+      for (let k = 0; k < nJ; k++) {
+        bOn[k] = 0;
+        bKeep[k] = 0;
+        const at = ctx.impact ? o.jets[k].bombPosition() : undefined;
+        if (!at || !toScreen(v.copy(at), ctx.camera, ctx)) continue;
+        bombRingLook(jCoded[k] === 1, ringLook);
+        const r = ringLook.r * releasePulse(ctx.t - ctx.source.releaseOf(o.jets[k].jet), ctx.speed);
+        if (!inView(v.x, v.y, r + 4)) continue;
+        bOn[k] = 1;
+        bKeep[k] = jCoded[k];
+        bx[k] = v.x;
+        by[k] = v.y;
+        br[k] = r;
+        ba[k] = ringLook.alpha;
+      }
+
+      // What words keep off besides the targets: the coded jets' rings, then the view's own controls.
+      nBlocked = blockKeepClear(shownTargets, tbx, tby, tbw, tbh, nJ, bKeep, bx, by, br, nChrome, chX, chY, chW, chH);
+      placeLabels(shownJets, jax, jay, jw, jh, w, h, jx, jy, nBlocked, tbx, tby, tbw, tbh);
 
       // Every jet's discs and the coded jets' egress dots.
       showPoints = ctx.actionPoints !== 'off';
@@ -394,28 +465,12 @@ export function createLabelLayer(o: {
         egY[i] = v.y;
       }
 
-      // The rings round the falling bombs: where, how big (the pulse at the release is in it) and how solid.
-      // A bomb behind the camera or past its far plane has none; a bomb hidden behind a hill in the 3D still has
-      // its ring, as a disc does.
-      for (let k = 0; k < nJ; k++) {
-        bOn[k] = 0;
-        const at = ctx.impact ? o.jets[k].bombPosition() : undefined;
-        if (!at || !toScreen(v.copy(at), ctx.camera, ctx)) continue;
-        bombRingLook(jCoded[k] === 1, ringLook);
-        const r = ringLook.r * releasePulse(ctx.t - ctx.source.releaseOf(o.jets[k].jet), ctx.speed);
-        if (!inView(v.x, v.y, r + 4)) continue;
-        bOn[k] = 1;
-        bx[k] = v.x;
-        by[k] = v.y;
-        br[k] = r;
-        ba[k] = ringLook.alpha;
-      }
-
-      // The plates' placer starts afresh each frame with the jets' labels and the targets blocked, whatever Show ›
-      // Action points says: the words beside a burst are placed through it with the action points off too.
+      // The plates' placer starts afresh each frame with the jets' labels, the targets, the coded jets' rings and the
+      // view's controls blocked, whatever Show › Action points says: the words beside a burst are placed through it
+      // with the action points off too.
       placer.begin(w, h);
       for (let n = 0; n < shownJets; n++) placer.block(jx[n], jy[n], jw[n], jh[n]);
-      for (let b = 0; b < shownTargets; b++) placer.block(tbx[b], tby[b], tbw[b], tbh[b]);
+      for (let b = 0; b < nBlocked; b++) placer.block(tbx[b], tby[b], tbw[b], tbh[b]);
 
       // The callouts: which show and how much, then a spot for each, nearest the playhead first.
       nCandidates = 0;
@@ -605,7 +660,18 @@ export function createLabelLayer(o: {
           x: iX[i], y: iY[i], w: r ? tagWithW[i] : tagWithoutW[i], h: r ? tagWithH[i] : tagWithoutH[i], placed: !!iPlaced[i],
         });
       }
-      return { targets, markers, callouts, jets, bombs, tags: tagList };
+      const chrome: ScreenBox[] = [];
+      for (let i = 0; i < nChrome; i++) chrome.push({ x: chX[i], y: chY[i], w: chW[i], h: chH[i] });
+      // The kept boxes after the targets', in the order blockKeepClear wrote them: the kept rings by jet, then the controls.
+      const kept: LabelDebug['kept'] = [];
+      let at = shownTargets;
+      for (let k = 0; k < nJ && at < nBlocked; k++) {
+        if (!bKeep[k]) continue;
+        kept.push({ kind: 'ring', jet: o.jets[k].jet, x: tbx[at], y: tby[at], w: tbw[at], h: tbh[at] });
+        at++;
+      }
+      for (; at < nBlocked; at++) kept.push({ kind: 'chrome', x: tbx[at], y: tby[at], w: tbw[at], h: tbh[at] });
+      return { targets, markers, callouts, jets, bombs, tags: tagList, chrome, kept };
     },
 
     dispose() {

@@ -67,12 +67,50 @@ export class LabelText {
   }
 }
 
+/** The space kept clear round a bomb's ring beyond its radius, CSS pixels: the ring's dark band reaches about 3 px past it. */
+export const RING_CLEAR_PX = 4;
+/** At most this many boxes of the view's own controls over the picture (today the button row and the name chip). */
+export const CHROME_BOXES_MAX = 4;
+
+/**
+ * Appends to the blocked boxes (bx, by, bw, bh; `n` already in them, the targets' discs and tags) what words must also
+ * keep off: the box round each ring flagged in `keep` (ring k at rx[k], ry[k], radius rr[k] as drawn, plus
+ * RING_CLEAR_PX; the falling bombs of the jets that wear the planner's colour code), then the `nChrome` boxes of the
+ * view's own controls (cx, cy, cw, ch). Stops when the arrays are full. Returns the new count, to hand to placeLabels and
+ * to block in the CalloutPlacer. Allocates nothing.
+ */
+export function blockKeepClear(
+  n: number, bx: Float32Array, by: Float32Array, bw: Float32Array, bh: Float32Array,
+  nRings: number, keep: Uint8Array, rx: Float32Array, ry: Float32Array, rr: Float32Array,
+  nChrome: number, cx: Float32Array, cy: Float32Array, cw: Float32Array, ch: Float32Array,
+): number {
+  const cap = bx.length;
+  for (let k = 0; k < nRings && n < cap; k++) {
+    if (!keep[k]) continue;
+    const m = rr[k] + RING_CLEAR_PX;
+    bx[n] = rx[k] - m;
+    by[n] = ry[k] - m;
+    bw[n] = 2 * m;
+    bh[n] = 2 * m;
+    n++;
+  }
+  for (let i = 0; i < nChrome && n < cap; i++) {
+    bx[n] = cx[i];
+    by[n] = cy[i];
+    bw[n] = cw[i];
+    bh[n] = ch[i];
+    n++;
+  }
+  return n;
+}
+
 /**
  * Lays out `n` labels, in seat order: label i (w[i] × h[i]) beside its anchor (ax[i], ay[i]), tried
  * up-right, up-left, down-right, down-left, LABEL_OFFSET_PX from the anchor; the first that overlaps
  * no label already placed and none of the `nBlocked` boxes already on the picture (a target's disc
- * and its name), and lies wholly in the `viewW`×`viewH` view, else the one that overlaps and leaves
- * the view least. Top lefts go to outX, outY. Deterministic; allocates nothing.
+ * and its name, a followed bomb's ring, the view's own controls), and lies wholly in the
+ * `viewW`×`viewH` view, else the one that overlaps and leaves the view least. Top lefts go to outX,
+ * outY. Deterministic; allocates nothing.
  */
 export function placeLabels(
   n: number, ax: Float32Array, ay: Float32Array, w: Float32Array, h: Float32Array,

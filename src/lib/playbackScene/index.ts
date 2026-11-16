@@ -14,7 +14,8 @@
  * source (the only file that knows the playback library's sampling names),
  * targets (one mark per distinct target, its tag, its post), callouts (the
  * letters on the discs, when the planner's words show, where their plates go,
- * how they fade), labels (each jet's label words and where they go),
+ * how they fade), labels (each jet's label words and where they go, and the
+ * boxes all words keep off: a followed bomb's ring, the view's own controls),
  * actionPoints (each jet's first action, the moments that carry the
  * planner's words, the stretch of the clock that is played), homeView (what
  * Home frames, which camera opens), show (what the 3D view shows: the Show

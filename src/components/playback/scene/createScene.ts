@@ -38,12 +38,13 @@ import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
 import { createImpactLayer, type ImpactDebug, type ImpactLayer } from './impactLayer';
 import { createJetLayer, type ArrowDebug, type JetLayer } from './jetLayer';
-import { createLabelLayer, type LabelDebug, type LabelLayer } from './labelLayer';
+import { createLabelLayer, type LabelDebug, type LabelLayer, type ScreenBox } from './labelLayer';
 import type { FrameCtx, Layer } from './layer';
 import { createTargetLayer, type TargetLayer } from './targetLayer';
 import { createTerrainLayer, type TerrainStatus } from './terrainLayer';
 
 export type { TerrainStatus } from './terrainLayer';
+export type { ScreenBox } from './labelLayer';
 
 export interface SceneOptions {
   /** The element the canvas fills (give it a size; the scene follows it with a ResizeObserver). */
@@ -168,6 +169,12 @@ export interface PlaybackScene {
    */
   setBombCam(on: boolean): void;
   /**
+   * The boxes of the view's own controls that lie over the picture (the camera buttons, the strike's name), CSS pixels
+   * from the canvas's top left, as the view measured them: callout plates, the words beside a burst and the jets' labels
+   * keep off them from the next frame on. A handful at most; a new hand-over replaces the last.
+   */
+  setChromeBoxes(boxes: readonly ScreenBox[]): void;
+  /**
    * The strike re-timed: a new source for the same jets (the same playback, other delays). Nothing
    * happens when it is the source already shown. Every jet's path and trail follow it; the terrain and
    * the targets never move. With `range`, the clock's range moves too, and the playhead steps back by
@@ -191,7 +198,10 @@ export interface PlaybackScene {
   debugEffects(): EffectsDebug | null;
   /** The graphics card's counts for the last frame drawn (a pending change is drawn first). Null when the scene is gone. For the screenshot checks. */
   renderInfo(): RenderInfo | null;
-  /** What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels, the bombs' rings, the words beside each burst). For the screenshot checks. */
+  /**
+   * What the 2D overlay drew on the last frame (target discs and tags, action point discs, callouts, jet labels, the bombs' rings, the
+   * words beside each burst), the controls' boxes it was handed and every box its words kept off. For the screenshot checks.
+   */
   debugLabels(): LabelDebug;
   /**
    * Jet `jet`'s (a playback index, default 0) arrow as its mesh has it at the clock's current time (a pending
@@ -578,6 +588,10 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     },
     setBombCam: (on) => {
       bombCam = on;
+      invalidate();
+    },
+    setChromeBoxes: (boxes) => {
+      labels.setChromeBoxes(boxes);
       invalidate();
     },
     setSource: (next, o) => {
