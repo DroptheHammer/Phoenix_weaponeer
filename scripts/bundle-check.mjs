@@ -16,7 +16,11 @@
 // may reach (it started at the baseline plus 1,536; the Play buttons and what
 // they hand over, in the planner's lists and editor, took it to plus 3,072;
 // the dive's aim-off, which is planner code, took it to plus 4,096; the card's
-// label placement, planner code again, took it to plus 5,120).
+// label placement, planner code again, took it to plus 5,120). The redesigned
+// shell is start-up code by nature (every screen draws its dialogs, icons,
+// header and rail at once), so from there the ceiling follows it part by
+// part: set ahead of a part to what that part was measured to need, and
+// brought back down to the built figure plus 512 once the part is in.
 // Growth over 1,024 bytes is printed as a warning: it is worth a second look
 // in review. Raising the file is a change of its own, reviewed on its own,
 // never folded into the change that needed it.
