@@ -375,7 +375,7 @@ export function MapView({
     });
 
   return (
-    <div className="h-full w-full relative">
+    <div className="h-full w-full relative font-map">
       <MapContainer
         ref={setMap}
         center={[center.lat, center.lon]}

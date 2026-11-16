@@ -75,11 +75,11 @@ export default {
         },
       },
       fontFamily: {
-        // Monospace is the stack the app has always used, and there is no `sans` entry, so Tailwind's own
-        // sans stack stays in place. The new font stacks (--font-sans, --font-mono) are written in
-        // tokens.css but nothing reads them until the font files themselves are registered; pointing
-        // the theme at them sooner would swap the typeface on screen before the fonts exist.
-        mono: ['Consolas', 'Monaco', 'monospace'],
+        // The bundled fonts (src/styles/fonts.css): Figtree for text and JetBrains Mono for `font-mono`.
+        // Tailwind's base styles put `html`, `pre` and `code` in these, so the one place the stacks are
+        // written is tokens.css.
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
         map: ['var(--font-map)'], // today's stack: for what sits on the map
       },
       fontSize: {

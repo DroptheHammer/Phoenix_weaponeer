@@ -1,12 +1,13 @@
-/* The design tokens first: @import must come before every other statement. */
+/* The design tokens and the bundled fonts first: @import must come before every other statement. */
 @import './styles/tokens.css';
+@import './styles/fonts.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   line-height: 1.5;
   font-weight: 400;
 
@@ -28,6 +29,39 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+}
+
+/* The map keeps today's look. Leaflet sets its own font inside .leaflet-container,
+   but the labels, legend and crosshair bar sit beside it in a wrapper that carries
+   `font-map` (MapView, AttackPreviewMap): the old font stack, ordinary digits. */
+.font-map,
+.legacy-ui,
+.leaflet-container {
+  font-variant-numeric: normal;
+}
+
+/* The 3D playback keeps today's look until its own restyle: its overlay (PlaybackOverlay)
+   carries `legacy-ui`: today's sans stack, today's monospace (Consolas, Monaco) for its
+   `font-mono` text and its error panel's <pre> (the timeline's chips are sized for that,
+   laneStyle.ts), ordinary digits, light native controls (its checkboxes and time slider) and
+   the browser's own scrollbars. Keyboard focus still gets the one sky ring. */
+.legacy-ui {
+  font-family: var(--font-map);
+  color-scheme: normal;
+}
+.legacy-ui :is(.font-mono, pre, code, kbd, samp) {
+  font-family: var(--font-legacy-mono);
+  font-variant-ligatures: normal;
+}
+.legacy-ui,
+.legacy-ui * {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+/* Code in the mono face reads as typed: no ligatures turning -> or != into one glyph. */
+.font-mono {
+  font-variant-ligatures: none;
 }
 
 /* ---- Phones (the web build's phone layout; see useIsPhone) ---- */

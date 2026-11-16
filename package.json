@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && node scripts/bundle-check.mjs dist",
+    "build": "tsc && vite build && node scripts/bundle-check.mjs dist && node scripts/style-check.mjs dist",
     "dev:web": "vite --config vite.config.web.ts",
-    "build:web": "npm run build:wasm && tsc -p tsconfig.web.json && vite build --config vite.config.web.ts && node scripts/web-privacy-check.mjs dist-web && node scripts/bundle-check.mjs dist-web --none",
+    "build:web": "npm run build:wasm && tsc -p tsconfig.web.json && vite build --config vite.config.web.ts && node scripts/web-privacy-check.mjs dist-web && node scripts/bundle-check.mjs dist-web --none && node scripts/style-check.mjs dist-web --web",
     "preview:web": "vite preview --config vite.config.web.ts",
     "build:wasm": "node scripts/build-wasm.mjs",
     "preview": "vite preview",

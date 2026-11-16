@@ -231,6 +231,101 @@ const KNOWN: Record<string, Partial<Record<Vision | 'normal', number>>> = {
      `stray: ${stray.join(', ')}; index.html ${html}; tauri ${tauri}; token ${window}; derived ${derived}; scene ${scene}; panel ${panel} vs ${navy}`);
 }
 
+// ─── Fonts ───────────────────────────────────────────────────────────────────────
+{
+  const css = read('src/styles/fonts.css');
+  const faces = [...css.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  const families = faces.map((f) => /font-family:\s*'([^']+)'/.exec(f)?.[1]);
+  const srcs = faces.map((f) => /src:\s*url\('([^']+)'\)/.exec(f)?.[1] ?? '');
+  const registered = new Set(families);
+  const familiesOk = families.join('|') === 'Figtree Variable|Figtree Variable|JetBrains Mono Variable';
+  const first = (name: string) => /^\s*'([^']+)'/.exec(tokens[name] ?? '')?.[1];
+  const pkg = JSON.parse(read('package.json')).dependencies as Record<string, string>;
+  const pinned = ['@fontsource-variable/figtree', '@fontsource-variable/jetbrains-mono'].filter((p) => !/^\d+\.\d+\.\d+$/.test(pkg[p] ?? ''));
+  const missing = srcs.filter((s) => !existsSync(join('node_modules', s)));
+  const bytes = srcs.reduce((n, s) => n + (existsSync(join('node_modules', s)) ? statSync(join('node_modules', s)).size : 0), 0);
+  // What the theme makes of `font-sans` and `font-mono`: Tailwind's base styles put html, pre and code in these, so the
+  // theme must name the two stacks in tokens.css, not a stack of its own.
+  const themeFonts = JSON.parse(execFileSync(process.execPath, ['scripts/tailwind-probe.mjs', 'font-sans', 'font-mono'], { encoding: 'utf8' })) as Record<string, string | null>;
+  const themeOk = themeFonts['font-sans'] === 'font-family:var(--font-sans)' && themeFonts['font-mono'] === 'font-family:var(--font-mono)';
+  // Red when: fonts.css renames 'Figtree Variable' to 'Figtree'; or package.json says "^5.3.0"; or a src becomes url(https://fonts.gstatic.com/...);
+  // or tailwind.config.js has `mono: ['Consolas', 'Monaco', 'monospace']` back in place of `mono: ['var(--font-mono)']`, or loses its `sans:` line.
+  // Seen: FAIL DS11 fonts: …  faces 3; families Figtree|Figtree Variable|JetBrains Mono Variable; …                   (the first face renamed)
+  //       FAIL DS11 fonts: …  unpinned @fontsource-variable/figtree; …                                                (a caret on the pin)
+  //       FAIL DS11 fonts: …  missing https://fonts.gstatic.com/s/figtree/v1/x.woff2; bytes 60560; …                  (a remote src; DS13 goes red too)
+  //       FAIL DS11 fonts: …  theme font-sans font-family:var(--font-sans), font-mono font-family:Consolas, Monaco, monospace   (the old literal stack left in the theme)
+  //       FAIL DS11 fonts: …  theme font-sans font-family:ui-sans-serif, system-ui, sans-serif, …, font-mono font-f…           (no `sans:` entry)
+  ok('DS11 fonts: exactly 3 @font-face (Figtree latin and latin-ext, JetBrains Mono latin), swap, bare package paths that exist, the stack names a registered family, both packages pinned exactly, 60-71 kB, and the theme\'s sans and mono are those stacks',
+     faces.length === 3 && familiesOk && faces.every((f) => /font-display:\s*swap/.test(f)) && srcs.every((s) => /^@fontsource-variable\/(figtree|jetbrains-mono)\/files\/[\w-]+\.woff2$/.test(s))
+       && registered.has(first('--font-sans') ?? '') && registered.has(first('--font-mono') ?? '') && pinned.length === 0 && missing.length === 0 && bytes >= 60000 && bytes <= 71000 && themeOk,
+     `faces ${faces.length}; families ${[...registered].join('|')}; sans ${first('--font-sans')}; mono ${first('--font-mono')}; unpinned ${pinned.join(',')}; missing ${missing.join(',')}; bytes ${bytes}; theme font-sans ${themeFonts['font-sans']}, font-mono ${themeFonts['font-mono']}`);
+}
+{
+  const root = /:root\s*\{[^}]*font-family:\s*([^;]+);/.exec(read('src/index.css'))?.[1]?.trim();
+  const wrappers = ['src/components/map/MapView.tsx', 'src/components/map/AttackPreviewMap.tsx'].filter((f) => !/\bfont-map\b/.test(read(f)));
+  // The 3D playback keeps today's look: its overlay's root carries legacy-ui, which index.css maps to today's two stacks,
+  // light native controls and the browser's scrollbars.
+  const overlay = /role="dialog"[\s\S]{0,200}className="[^"]*\blegacy-ui\b/.test(read('src/components/playback/PlaybackOverlay.tsx'));
+  // Today's font-mono: the monospace stack the theme held before the bundled fonts. Written out because the config no longer holds it.
+  const LEGACY_MONO = 'Consolas, Monaco, monospace';
+  // index.css as rules: each selector list split at its top-level commas (so `:is(a, b)` stays one selector), spaces folded.
+  const selectors = (list: string) => {
+    const out: string[] = [];
+    let depth = 0;
+    let cur = '';
+    for (const ch of list) {
+      if (ch === '(') depth++;
+      if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { out.push(cur); cur = ''; } else cur += ch;
+    }
+    out.push(cur);
+    return out.map((s) => s.trim().replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', '));
+  };
+  const rules = [...read('src/index.css').replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: selectors(m[1]), body: m[2] }));
+  const has = (selector: string, decl: RegExp) => rules.some((r) => r.sel.includes(selector) && decl.test(r.body));
+  const LEGACY_MONO_SEL = '.legacy-ui :is(.font-mono, pre, code, kbd, samp)';
+  // Each promise of the playback fence, by name, so a FAIL says which one went.
+  const fence: [string, boolean][] = [
+    ['today\'s sans', has('.legacy-ui', /font-family:\s*var\(--font-map\)/)],
+    ['light native controls', has('.legacy-ui', /color-scheme:\s*normal/)],
+    ['today\'s mono, <pre> included', has(LEGACY_MONO_SEL, /font-family:\s*var\(--font-legacy-mono\)/)],
+    ['today\'s mono ligatures', has(LEGACY_MONO_SEL, /font-variant-ligatures:\s*normal/)],
+    ['ordinary digits', has('.legacy-ui', /font-variant-numeric:\s*normal/)],
+    ['browser scrollbar width', has('.legacy-ui *', /scrollbar-width:\s*auto/)],
+    ['browser scrollbar colour', has('.legacy-ui *', /scrollbar-color:\s*auto/)],
+    ['no ligatures in the app\'s mono (outside the fence)', has('.font-mono', /font-variant-ligatures:\s*none/)],
+  ];
+  const broken = fence.filter(([, kept]) => !kept).map(([name]) => name);
+  // Red when: ` font-map` is deleted from MapView.tsx; or --font-map in tokens.css gains Figtree; or ` legacy-ui` is deleted from PlaybackOverlay.tsx;
+  // or --font-legacy-mono loses `Monaco, `; or `color-scheme: normal` leaves the .legacy-ui rule (the playback's checkboxes and slider would turn dark);
+  // or `.legacy-ui,` leaves the digits rule (tabular digits in the playback); or `scrollbar-color: auto;` is deleted; or `font-variant-ligatures: none;`
+  // leaves the .font-mono rule; or the fence's mono selector loses `pre, ` (the error panel's details in JetBrains Mono).
+  // Seen: FAIL DS12 map and playback fonts: …  no font-map: src/components/map/MapView.tsx; …                          (and the same with AttackPreviewMap.tsx)
+  //       FAIL DS12 map and playback fonts: …  'Figtree Variable', Inter, system-ui, Avenir, Helvetica, Arial, sans-serif; root …   (--font-map gaining Figtree)
+  //       FAIL DS12 map and playback fonts: …  overlay false; fence broken: none; …                                     (legacy-ui left off the overlay)
+  //       FAIL DS12 map and playback fonts: …  fence broken: light native controls; …
+  //       FAIL DS12 map and playback fonts: …  legacy mono Consolas, monospace vs Consolas, Monaco, monospace          (Monaco dropped)
+  //       FAIL DS12 map and playback fonts: …  fence broken: ordinary digits; …
+  //       FAIL DS12 map and playback fonts: …  fence broken: browser scrollbar colour; …
+  //       FAIL DS12 map and playback fonts: …  fence broken: no ligatures in the app's mono (outside the fence); …
+  //       FAIL DS12 map and playback fonts: …  fence broken: today's mono, <pre> included, today's mono ligatures; …     (`pre, ` dropped from the :is list)
+  //       FAIL DS12 map and playback fonts: …  fence broken: today's mono ligatures; …
+  ok('DS12 map and playback fonts: --font-map is today\'s stack, the root font is Figtree, both map wrappers carry font-map, the playback overlay carries legacy-ui, which keeps today\'s sans, mono, digits, native controls and scrollbars',
+     tokens['--font-map'] === 'Inter, system-ui, Avenir, Helvetica, Arial, sans-serif' && root === 'var(--font-sans)' && wrappers.length === 0 && overlay && broken.length === 0 && tokens['--font-legacy-mono'] === LEGACY_MONO,
+     `${tokens['--font-map']}; root ${root}; no font-map: ${wrappers.join(', ')}; overlay ${overlay}; fence broken: ${broken.join(', ') || 'none'}; legacy mono ${tokens['--font-legacy-mono']} vs ${LEGACY_MONO}`);
+}
+{
+  const HOST = /fonts\.googleapis\.com|fonts\.gstatic\.com|fonts\.bunny\.net|use\.typekit\.net|fonts\.adobe\.com/i;
+  const hits = ['index.html', 'vite.config.ts', 'vite.config.web.ts', 'tailwind.config.js', 'src-tauri/tauri.conf.json', 'src/index.css', 'src/styles/fonts.css', 'src/styles/tokens.css'].filter((f) => HOST.test(read(f)));
+  const sec = JSON.parse(read('src-tauri/tauri.conf.json')).app.security as { csp: Record<string, string[]>; devCsp: Record<string, string[]> };
+  const fontSrc = (c: Record<string, string[]>) => c['font-src'] ?? [];
+  const cspOk = [sec.csp, sec.devCsp].every((c) => fontSrc(c).includes("'self'") && !fontSrc(c).some((s) => /^https?:/i.test(s)));
+  // Red when: a <link href="https://fonts.googleapis.com/..."> goes into index.html; or 'self' leaves font-src in tauri.conf.json.
+  // Seen: FAIL DS13 no font host: …  index.html; font-src 'self',data: / 'self',data:                                  (the link in index.html)
+  //       FAIL DS13 no font host: …  ; font-src https://example.org,data: / https://example.org,data:                  (font-src without 'self', run on a copy of the file)
+  ok('DS13 no font host: none of the sources names one, and both Content Security Policies allow own-origin fonts only', hits.length === 0 && cspOk, `${hits.join(', ')}; font-src ${fontSrc(sec.csp)} / ${fontSrc(sec.devCsp)}`);
+}
+
 // ─── Motion and the phone block live where they are promised ─────────────────────
 {
   const css = read('src/index.css');

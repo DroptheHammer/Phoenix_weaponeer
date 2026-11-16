@@ -113,7 +113,7 @@ export function PlaybackOverlay({ title, onClose, onTogglePlay, returnFocusTo, c
       aria-modal="true"
       aria-label={title}
       tabIndex={-1}
-      className="fixed inset-0 z-[2000] bg-dcs-dark text-white flex flex-col outline-none"
+      className="fixed inset-0 z-[2000] bg-dcs-dark text-white flex flex-col outline-none legacy-ui"
       onClick={stop}
       onPointerDown={stop}
       onMouseDown={stop}

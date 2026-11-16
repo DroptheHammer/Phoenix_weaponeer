@@ -165,7 +165,7 @@ export function AttackPreviewMap({
   const center = targetWaypoint?.coordinates ?? waypoints[0]?.coordinates ?? { lat: 0, lon: 0 };
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full font-map">
       <MapContainer
         ref={setMap}
         center={ll(center)}
