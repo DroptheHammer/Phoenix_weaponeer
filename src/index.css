@@ -7,19 +7,28 @@
 @tailwind utilities;
 
 :root {
+  /* Dark only, on purpose: the app and the cards' own Night and NVG lighting are
+     all dark. This also darkens native scrollbars, selects and checkboxes. */
+  color-scheme: dark;
+
   font-family: var(--font-sans);
   line-height: 1.5;
   font-weight: 400;
+  /* Digits of equal width, so counts, times and tables line up. The map and
+     what sits on it are fenced off below. */
+  font-variant-numeric: tabular-nums;
 
   /* App-wide dark theme defaults. These were the light-theme values left over
      from the Vite template, which App.tsx masked with `text-white`. Anything
      rendered through a React portal (the modals) mounts on document.body,
      outside that container, so it inherited near-black text on a navy panel and
      was effectively unreadable. */
-  color: #f1f5f9; /* slate-100 */
+  color: var(--c-text);
   background-color: var(--c-window);
 
-  font-synthesis: none;
+  /* No italic face is bundled, so the browser slants the few italic notes
+     itself; weights come from the variable font and are never faked. */
+  font-synthesis: style;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -29,6 +38,14 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+}
+
+/* Thin scrollbars in the app's own quiet colour, where the browser lets a page
+   style them. The playback puts the browser's own back (.legacy-ui below) and the
+   sideways chip row hides its bar (.no-scrollbar); both outrank this rule. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-scrollbar) transparent;
 }
 
 /* The map keeps today's look. Leaflet sets its own font inside .leaflet-container,
@@ -81,6 +98,22 @@ body {
   }
 }
 
+/* Keyboard focus: one ring for every control, sky blue (8.4:1 on navy, 9.0:1 on
+   the window). :where() keeps it at zero specificity, so a component's own
+   focus-visible style, or an existing focus:outline-none, still wins. Leaflet's
+   own controls keep the browser's default ring. The map is named by an attribute
+   selector on purpose: Leaflet adds the class at run time, and Tailwind drops a
+   base rule whose class it cannot find in the source. */
+@layer base {
+  :where(a, button, input, select, textarea, summary, [role='button'], [tabindex]):focus-visible {
+    outline: 2px solid var(--c-sky);
+    outline-offset: 2px;
+  }
+  [class~='leaflet-container'] :where(a, button, [tabindex]):focus-visible {
+    outline: revert;
+  }
+}
+
 /* A slider for a thumb (SliderField on a phone): the default knob is about
    16px, too small to grab and too small to see under a finger. The input is
    44px tall so the whole row takes the touch, not just the thin track. */
@@ -102,7 +135,7 @@ body {
   margin-top: -11px; /* centre the knob on the 6px track */
   border-radius: 50%;
   background: var(--c-accent);
-  border: 2px solid #f1f5f9;
+  border: 2px solid var(--c-text);
 }
 .range-lg::-moz-range-track {
   height: 6px;
@@ -114,7 +147,7 @@ body {
   height: 24px;
   border-radius: 50%;
   background: var(--c-accent);
-  border: 2px solid #f1f5f9;
+  border: 2px solid var(--c-text);
 }
 
 /* A sideways chip row that scrolls by swipe; the scrollbar would only eat

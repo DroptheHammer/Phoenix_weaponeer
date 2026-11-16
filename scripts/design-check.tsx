@@ -21,6 +21,8 @@ const ok = (name: string, cond: boolean, detail = '') => {
   if (!cond) process.exitCode = 1;
 };
 const read = (path: string) => readFileSync(path, 'utf8');
+/** A stylesheet with its comments blanked but every line break kept, so a line number found in the result is the file's own. */
+const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ''));
 const walk = (dir: string): string[] => readdirSync(dir).flatMap((n) => (statSync(join(dir, n)).isDirectory() ? walk(join(dir, n)) : [join(dir, n).split('\\').join('/')]));
 const nodeRequire = createRequire(process.cwd() + '/');
 const tokens: Record<string, string> = readTokens();
@@ -204,6 +206,22 @@ const KNOWN: Record<string, Partial<Record<Vision | 'normal', number>>> = {
      missingFiles.length === 0 && hits.length === 0 && tooltipOk, `missing: ${missingFiles.join(', ')}; hits: ${hits.join(', ')}${tooltipOk ? '' : '; tooltip CSS differs from LABEL_STYLE'}`);
 }
 
+// ─── No colour literal in the fonts or the base stylesheet ───────────────────────
+{
+  const COLOUR = [/#[0-9a-fA-F]{3,8}\b/, /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/];
+  // index.css may hold a colour only inside the map tooltip block (LABEL_STYLE, see DS7): a CSS rule cannot import it.
+  const parts: [string, string][] = [
+    ['src/styles/fonts.css', stripComments(read('src/styles/fonts.css'))],
+    ['src/index.css', stripComments(read('src/index.css')).replace(/\.leaflet-tooltip\.attack-tooltip\s*\{[^}]*\}/, (m) => m.replace(/[^\n]/g, ''))],
+  ];
+  const hits = parts.flatMap(([file, css]) => css.split('\n').flatMap((line, i) => (COLOUR.some((re) => re.test(line)) ? [`${file}:${i + 1}`] : [])));
+  // Red when: index.css gets `color: #fff` in `body` (or anywhere but the tooltip block); or fonts.css gets a colour; or the thumb ring in .range-lg goes back to `#f1f5f9`.
+  // Seen: FAIL DS8 no raw colour in the base styles: …  src/index.css:38   (`color: #fff;` added to body)
+  //       FAIL DS8 no raw colour in the base styles: …  src/index.css:136; src/index.css:148   (both thumb rings back to `#f1f5f9`)
+  //       FAIL DS8 no raw colour in the base styles: …  src/styles/fonts.css:44   (`color: rgb(255 0 0);` inside the last @font-face)
+  ok('DS8 no raw colour in the base styles: fonts.css and index.css (outside the map tooltip block) write no colour literal', hits.length === 0, hits.join('; '));
+}
+
 // ─── The five base hex values are written down once (and where nothing can read a variable) ─
 {
   const BASE_HEX = ['#1a1a2e', '#10101f', '#16213e', '#0f3460', '#e94560'];
@@ -346,6 +364,30 @@ const KNOWN: Record<string, Partial<Record<Vision | 'normal', number>>> = {
      phone !== null && phone.query === PHONE_QUERY && mediaCss.includes(PHONE_QUERY) && phone.tokens['--tap-sm'] === '44px' && phone.tokens['--fs-compact'] === '15px'
        && phone.tokens['--bar'] === '44px' && Object.keys(phone.tokens).every((k) => k in tokens),
      `tokens.css phone block: ${phone ? Object.entries(phone.tokens).map(([k, v]) => `${k} ${v}`).join(', ') : 'none under ' + PHONE_QUERY}; index.css: ${mediaCss.join(' | ')}`);
+}
+
+// ─── Keyboard focus: one ring, from index.css ────────────────────────────────────
+{
+  // What the app ships is index.css after Tailwind has processed it, not the file as written: Tailwind drops a rule in
+  // `@layer base` whose selector names a class that appears nowhere in the source, and Leaflet adds `leaflet-container`
+  // at run time. So this reads Tailwind's output, with the app's own config. Tailwind's plugin is async and this
+  // script is not, hence the child process (as in tailwind-probe.mjs).
+  const shipped = execFileSync(process.execPath, ['--input-type=module', '-e', [
+    "import { readFileSync } from 'node:fs';",
+    "import postcss from 'postcss';",
+    "import tailwindcss from 'tailwindcss';",
+    "import config from './tailwind.config.js';",
+    "const result = await postcss([tailwindcss(config)]).process(readFileSync('src/index.css', 'utf8'), { from: 'src/index.css' });",
+    'process.stdout.write(result.css);',
+  ].join('\n')], { encoding: 'utf8', maxBuffer: 1 << 26 });
+  const css = stripComments(shipped);
+  const focus = /:where\([^)]*\bbutton\b[^)]*\[tabindex\][^)]*\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--c-sky\)/.test(css);
+  const leaflet = /\[class~=['"]?leaflet-container['"]?\]\s+:where\([^)]*\):focus-visible\s*\{[^}]*outline:\s*revert/.test(css);
+  // Red when: the `outline: 2px solid var(--c-sky);` line is changed or removed in index.css; or the `outline: revert;` line leaves the Leaflet rule;
+  // or the whole ring rule is commented out instead of deleted; or the Leaflet rule's selector goes back to `.leaflet-container …` (Tailwind then drops it from the build).
+  // Seen: FAIL DS16 focus: one global 2px sky ring at zero specificity (:where), …  global false; leaflet true   (the ring in the accent colour; the same with the ring rule commented out)
+  //       FAIL DS16 focus: one global 2px sky ring at zero specificity (:where), …  global true; leaflet false   (no `outline: revert;`; the same with the class selector)
+  ok('DS16 focus: one global 2px sky ring at zero specificity (:where), and Leaflet\'s own controls keep the browser ring, in the stylesheet Tailwind builds', focus && leaflet, `global ${focus}; leaflet ${leaflet}`);
 }
 
 // ─── The quantity colour marks a loadout's numbers and nothing else ──────────────
