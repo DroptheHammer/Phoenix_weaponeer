@@ -1,5 +1,5 @@
 /*
- * Layout for the component gallery (gallery.tsx) and nothing else: grids, gaps, padding and the two
+ * Layout for the component gallery (gallery.tsx) and nothing else: grids, gaps, padding and the three
  * surfaces the primitives are shown on. Every colour, gap and type size comes from a token in
  * src/styles/tokens.css and no colour is written here (ui-check's no-raw-colour check scans this
  * folder). A few measures are plain numbers (a column width, a line length, letter spacing, font
@@ -10,11 +10,18 @@
 .gallery-surface {
   padding: var(--sp-6) var(--sp-4);
 }
-.gallery-surface-window {
+/* The float surface lies on the window colour: the floating panel it holds is what is being looked at. */
+.gallery-surface-window,
+.gallery-surface-float {
   background: var(--c-window);
 }
 .gallery-surface-navy {
   background: var(--c-navy);
+}
+/* The group inside the floating panel that holds every block, with room around the blocks so a focus ring is not cut off by its edge. */
+.gallery-float-group {
+  margin: var(--sp-3);
+  padding: var(--sp-4);
 }
 
 .gallery-title {
@@ -62,6 +69,51 @@
   align-items: center;
   gap: var(--sp-2);
   min-width: 0;
+}
+
+/* A wrapper that is exactly as big as the block inside it, so the box a script reads is the block's own. */
+.gallery-fit {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+/* The panels and cards: a grid of samples, and the padding of a row inside one. */
+.gallery-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: start;
+  gap: var(--sp-4);
+}
+.gallery-pad {
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-small);
+}
+.gallery-inset {
+  margin: var(--sp-3);
+}
+.gallery-card-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.gallery-card-meta {
+  color: var(--c-text-2);
+  font-size: var(--fs-small);
+}
+
+/* A dot beside its name. */
+.gallery-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-right: var(--sp-3);
+  color: var(--c-text-2);
+  font-size: var(--fs-caption);
+}
+
+/* The phone's bottom tab bar is drawn across a phone's width, so it is shown in a frame that wide. */
+.gallery-phone-frame {
+  width: 390px;
+  max-width: 100%;
 }
 
 /* The icon table: each icon over its name. */
