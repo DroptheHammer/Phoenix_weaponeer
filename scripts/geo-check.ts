@@ -48,7 +48,7 @@ import {
   type PlaybackJetInput, type StrikePlayback, type JetState, type JetTrack,
 } from '../src/lib/playback';
 import {
-  burstSpecOf, spansInside, insideAt, distanceAt, burstConflicts, burstZones, burstReadout, BURST_MARK_S, BAND_MIN_PX, strikeJetsAt, FT_TO_M,
+  burstSpecOf, BLAST_SOURCES, BLAST_MEANINGS, spansInside, insideAt, distanceAt, burstConflicts, burstZones, burstReadout, BURST_MARK_S, BAND_MIN_PX, strikeJetsAt, FT_TO_M,
   burstSentence, burstSourceTitle, burstBandTitle, burstZoneTitle, burstChipText, noRadiusNote, notFlownNote, footerOkBurst, FOOTER_OK_BURST_TITLE,
   BURST_HATCH_KEY_TITLE, BURST_STRIPES_HANDLE_WORDS, BURST_HATCH_NOTE, burstSkipNote, FRAG_RULE_LABEL, FRAG_RULE_OPTIONS, FRAG_RULE_TITLES, isBurstRow,
   type TimedBurst, type DangerZone,
@@ -11441,20 +11441,43 @@ void (async () => {
 // ─── The blast radius on a weapon row: no number without its source ──────────
 // A warning built on a bomb's blast radius is only worth as much as the number under it, so the three
 // fields (`blast_radius_ft`, `blast_radius_meaning`, `blast_radius_source`) are all or nothing: a
-// radius needs a known meaning, a known source kind and notes that say where it came from. Every row is
-// empty until a value has been shown with its source and approved, one row at a time; the approved
-// ids are listed here and in the Rust tests (`crates/core/src/refdata.rs`), so a number put into the
-// data file on its own turns both red. The old `frag_*_radius_ft` seed numbers cite no source and are
-// not blast radii: a row with only those has none.
+// radius needs a known meaning, a known source kind and notes that say where it came from. A row is
+// empty until a value has been shown with its source and approved. Eight rows are approved (2026-11-16),
+// all from one community test: the three bombs it measured and the five whose warhead is the same one in
+// the game's files. Their ids and figures are listed here and in the Rust tests
+// (`crates/core/src/refdata.rs`), so a number put into the data file on its own, or changed, turns both
+// red. The old `frag_*_radius_ft` seed numbers cite no source and are not blast radii: a row with only
+// those has none.
+
+/**
+ * What was approved for each row that carries a blast radius: the feet, what the figure means, the bomb the community
+ * test actually named, and whether the row only takes that bomb's figure (the same warhead in the game's files; the
+ * test named the bare bomb only). Changed in the same edit that approves a value.
+ */
+const BLAST_FIGURES: Record<string, { feet: number; meaning: BlastMeaning; bomb: string; inherited: boolean }> = {
+  mk82: { feet: 250, meaning: 'any_damage', bomb: 'Mk-82', inherited: false },
+  mk83: { feet: 250, meaning: 'any_damage', bomb: 'Mk-83', inherited: false },
+  mk84: { feet: 360, meaning: 'destroyed', bomb: 'Mk-84', inherited: false },
+  mk82air: { feet: 250, meaning: 'any_damage', bomb: 'Mk-82', inherited: true },
+  mk82se: { feet: 250, meaning: 'any_damage', bomb: 'Mk-82', inherited: true },
+  gbu38: { feet: 250, meaning: 'any_damage', bomb: 'Mk-82', inherited: true },
+  mk83air: { feet: 250, meaning: 'any_damage', bomb: 'Mk-83', inherited: true },
+  gbu31: { feet: 360, meaning: 'destroyed', bomb: 'Mk-84', inherited: true },
+};
+/** What the community test saw for each bomb it named; every row that rests on it says so in its notes. */
+const BLAST_SAW: Record<string, string> = {
+  'Mk-82': 'minor damage at 240 ft and none at 250 ft', 'Mk-83': 'limited damage at 240 ft and none at 250 ft', 'Mk-84': 'destroyed at 350 ft and not at 365 ft',
+};
+/** The rows that carry a blast radius on purpose. */
+const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
+
 {
   try {
     type BlastRowLike = { id?: string; name?: string; notes?: string | null; blast_radius_ft?: unknown; blast_radius_meaning?: unknown; blast_radius_source?: unknown };
-    /** The rows that carry a blast radius on purpose. Changed in the same edit that approves a value. */
-    const BLAST_APPROVED: string[] = [];
-    // Typed as records over the unions so the compiler asks for a new kind here when one is added.
-    const BLAST_MEANING_KINDS: Record<BlastMeaning, true> = { any_damage: true, destroyed: true };
+    // The lists of meanings and source kinds are the library's own (`BLAST_MEANINGS`, `BLAST_SOURCES`), the ones `burstSpecOf` reads.
+    // Nothing type-checks this file, so the words table below is held to them by the check after it, not by the compiler.
     /** The words (lower case) each kind of source must leave in the row's notes; the Rust test holds the same table. */
-    const BLAST_SOURCE_WORDS: Record<BlastSource, string> = {
+    const BLAST_SOURCE_WORDS: Record<string, string> = {
       game_data: 'game data', developer: 'developer', scripting_doc: 'scripting', community_measurement: 'community', owner_test: 'own test', estimate: 'estimate',
     };
     /** Why a row's blast fields are wrong, or '' when they are fine. */
@@ -11463,10 +11486,11 @@ void (async () => {
       if (radius == null) return w.blast_radius_meaning == null && w.blast_radius_source == null ? '' : 'a meaning or a source with no radius';
       if (typeof radius !== 'number' || !Number.isFinite(radius) || !(radius > 0)) return `the radius ${String(radius)} is not a number of feet above zero`;
       if (w.blast_radius_meaning == null) return 'a radius with no meaning';
-      if (!Object.keys(BLAST_MEANING_KINDS).includes(String(w.blast_radius_meaning))) return `unknown meaning ${String(w.blast_radius_meaning)}`;
+      if (!(BLAST_MEANINGS as readonly string[]).includes(String(w.blast_radius_meaning))) return `unknown meaning ${String(w.blast_radius_meaning)}`;
       if (w.blast_radius_source == null) return 'a radius with no source';
-      const words = (BLAST_SOURCE_WORDS as Record<string, string | undefined>)[String(w.blast_radius_source)];
-      if (words === undefined) return `unknown source ${String(w.blast_radius_source)}`;
+      if (!(BLAST_SOURCES as readonly string[]).includes(String(w.blast_radius_source))) return `unknown source ${String(w.blast_radius_source)}`;
+      const words = BLAST_SOURCE_WORDS[String(w.blast_radius_source)];
+      if (words === undefined) return `no words are listed for the source kind ${String(w.blast_radius_source)}`;
       const notes = (w.notes ?? '').toLowerCase();
       if (!notes.includes('blast radius') || !notes.includes(words)) return `the notes must say "blast radius" and name the source (${words})`;
       return '';
@@ -11478,47 +11502,90 @@ void (async () => {
     //   FAIL playback B3 [BX3]: the rule that a blast radius has its source …  caught nothing for: no source, a null source, an unknown source, no notes, notes that do not name the source, notes that do not say what the number is
     // and with `|| !(radius > 0)` taken out of the radius test:
     //   FAIL playback B3 [BX3]: the rule that a blast radius has its source …  caught nothing for: a radius of zero, a negative radius
+    // and for the reader and the kinds (seen red 2026-11-16): burst.ts burstSpecOf `return meaning && source ? …` → `return meaning ? …`:
+    //   FAIL playback B3 [BX3]: the rule that a blast radius has its source … the library's own reader gives a radius for exactly the rows whose three fields are whole  burstSpecOf is wrong for: no source, a null source, an unknown source
+    // and the words table above with `estimate: 'estimate'` taken out (a source kind the library lists, with no words here):
+    //   FAIL playback B3 [BX3]: the rule that a blast radius has its source … the library's own reader gives a radius for exactly the rows whose three fields are whole  wrongly flagged: any_damage from estimate, destroyed from estimate
+    // Each hand-built row also says whether the playback's own reader (`burstSpecOf`) must give a radius for it: the reader looks at
+    // the three fields only, so a row broken in its fields gives none, and a row broken only in its notes still gives one (the notes
+    // are held by this check and the Rust test, not by the reader).
     const NOTES = 'Blast radius 250 ft: a community test, judged by eye.';
     const ALL = { blast_radius_ft: 250, blast_radius_meaning: 'any_damage', blast_radius_source: 'community_measurement' };
-    const fine: [string, BlastRowLike][] = [
-      ['radius, meaning, source and notes', { ...ALL, notes: NOTES }],
-      ['no radius at all', {}],
-      ['only the old seed radii', { frag_effective_radius_ft: 400, frag_lethal_radius_ft: 150 } as BlastRowLike],
+    const fine: [string, BlastRowLike, boolean][] = [
+      ['radius, meaning, source and notes', { ...ALL, notes: NOTES }, true],
+      ['no radius at all', {}, false],
+      ['only the old seed radii', { frag_effective_radius_ft: 400, frag_lethal_radius_ft: 150 } as BlastRowLike, false],
     ];
-    const broken: [string, BlastRowLike][] = [
-      ['no source', { ...ALL, blast_radius_source: undefined, notes: NOTES }],
-      ['a null source', { ...ALL, blast_radius_source: null, notes: NOTES }],
-      ['an unknown source', { ...ALL, blast_radius_source: 'hunch', notes: NOTES }],
-      ['no meaning', { ...ALL, blast_radius_meaning: null, notes: NOTES }],
-      ['an unknown meaning', { ...ALL, blast_radius_meaning: 'lethal', notes: NOTES }],
-      ['a radius of zero', { ...ALL, blast_radius_ft: 0, notes: NOTES }],
-      ['a negative radius', { ...ALL, blast_radius_ft: -5, notes: NOTES }],
-      ['a radius that is not a number', { ...ALL, blast_radius_ft: Number.NaN, notes: NOTES }],
-      ['a radius written as text', { ...ALL, blast_radius_ft: '250', notes: NOTES }],
-      ['no notes', { ...ALL }],
-      ['notes that do not name the source', { ...ALL, notes: 'Blast radius 250 ft.' }],
-      ['notes that do not say what the number is', { ...ALL, notes: 'A community test.' }],
-      ['a meaning with no radius', { blast_radius_meaning: 'any_damage' }],
-      ['a source with no radius', { blast_radius_source: 'community_measurement' }],
+    const broken: [string, BlastRowLike, boolean][] = [
+      ['no source', { ...ALL, blast_radius_source: undefined, notes: NOTES }, false],
+      ['a null source', { ...ALL, blast_radius_source: null, notes: NOTES }, false],
+      ['an unknown source', { ...ALL, blast_radius_source: 'hunch', notes: NOTES }, false],
+      ['no meaning', { ...ALL, blast_radius_meaning: null, notes: NOTES }, false],
+      ['an unknown meaning', { ...ALL, blast_radius_meaning: 'lethal', notes: NOTES }, false],
+      ['a radius of zero', { ...ALL, blast_radius_ft: 0, notes: NOTES }, false],
+      ['a negative radius', { ...ALL, blast_radius_ft: -5, notes: NOTES }, false],
+      ['a radius that is not a number', { ...ALL, blast_radius_ft: Number.NaN, notes: NOTES }, false],
+      ['a radius written as text', { ...ALL, blast_radius_ft: '250', notes: NOTES }, false],
+      ['no notes', { ...ALL }, true],
+      ['notes that do not name the source', { ...ALL, notes: 'Blast radius 250 ft.' }, true],
+      ['notes that do not say what the number is', { ...ALL, notes: 'A community test.' }, true],
+      ['a meaning with no radius', { blast_radius_meaning: 'any_damage' }, false],
+      ['a source with no radius', { blast_radius_source: 'community_measurement' }, false],
     ];
-    const wronglyFlagged = fine.filter(([, w]) => blastProblem(w) !== '').map(([what]) => what);
+    // Every meaning with every source kind the library knows, each with the words its notes must carry: a kind added to the
+    // library's lists with no words here is caught, and so is a kind the reader would not take.
+    const kindRows = BLAST_MEANINGS.flatMap((m) => BLAST_SOURCES.map((s): [string, BlastRowLike, boolean] => [`${m} from ${s}`,
+      { blast_radius_ft: 250, blast_radius_meaning: m, blast_radius_source: s, notes: `Blast radius 250 ft: ${BLAST_SOURCE_WORDS[s] ?? 'no words listed'}.` }, true]));
+    const wronglyFlagged = [...fine, ...kindRows].filter(([, w]) => blastProblem(w) !== '').map(([what]) => what);
     const missed = broken.filter(([, w]) => blastProblem(w) === '').map(([what]) => what);
-    ok('playback B3 [BX3]: the rule that a blast radius has its source catches every way of breaking it (a missing or unknown source or meaning, a radius that is not above zero, notes that do not say where it came from) and lets the fine rows through',
-       wronglyFlagged.length === 0 && missed.length === 0,
-       missed.length ? `caught nothing for: ${missed.join(', ')}` : wronglyFlagged.length ? `wrongly flagged: ${wronglyFlagged.join(', ')}` : `${broken.length} broken rows caught, ${fine.length} fine rows passed`);
+    const readerWrong = [...fine, ...broken, ...kindRows].filter(([, w, reads]) => {
+      const s = burstSpecOf(w as DbWeapon);
+      return reads ? !s || s.radius_ft !== w.blast_radius_ft || s.meaning !== w.blast_radius_meaning || s.source !== w.blast_radius_source : s !== undefined;
+    }).map(([what]) => what);
+    ok('playback B3 [BX3]: the rule that a blast radius has its source catches every way of breaking it (a missing or unknown source or meaning, a radius that is not above zero, notes that do not say where it came from) and lets the fine rows through; every meaning and source kind the library lists is accepted, and the library\'s own reader gives a radius for exactly the rows whose three fields are whole',
+       wronglyFlagged.length === 0 && missed.length === 0 && readerWrong.length === 0 && kindRows.length === BLAST_MEANINGS.length * BLAST_SOURCES.length && Object.keys(BLAST_SOURCE_WORDS).length === BLAST_SOURCES.length,
+       missed.length ? `caught nothing for: ${missed.join(', ')}` : wronglyFlagged.length ? `wrongly flagged: ${wronglyFlagged.join(', ')}` : readerWrong.length ? `burstSpecOf is wrong for: ${readerWrong.join(', ')}` : `${broken.length} broken rows caught, ${fine.length} fine rows passed, ${kindRows.length} meaning and source pairs accepted, the reader agrees on all`);
 
-    // The real table: every row follows the rule, and the rows that carry a radius are the approved ones.
-    // Mutation proofs (each seen red 2026-11-15, with the Rust tests red beside it): "blast_radius_ft": 250.0 put into the Mk-82 row
-    // of reference.json with nothing else:
+    // The real table: every row follows the rule, the rows that carry a radius are the eight approved ones, and each carries its
+    // approved figure, meaning and source and a notes sentence that says what it rests on (the public article, what the test saw, a
+    // helicopter judged by eye, not a game figure; a row that takes another bomb's figure says "same warhead as the … in the game's
+    // files; the test named the … only", and a row that was measured does not). The Mk-83's notes make no "on file" claim.
+    // Mutation proofs (each seen red 2026-11-15, with the Rust tests red beside it, when no row carried one): "blast_radius_ft": 250.0
+    // put into the Mk-82 row of reference.json with nothing else:
     //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; mk82: a radius with no meaning; rows with a radius: mk82 (approved: none)
     // and the same row given a meaning, a source kind and a notes sentence naming it (well formed, never approved):
     //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; rows with a radius: mk82 (approved: none)
+    // With the eight rows in (each seen red 2026-11-16, the Rust tests red beside it, and the Rust figures test where a figure or a
+    // notes sentence moves): the Mk-84's `blast_radius_ft` 360.0 → 365.0:
+    //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; mk84: 365 ft (approved 360); rows with a radius: gbu31, gbu38, mk82, mk82air, mk82se, mk83, mk83air, mk84 (approved: gbu31, gbu38, mk82, mk82air, mk82se, mk83, mk83air, mk84)
+    // a ninth row, well formed (GBU-12 given a radius, a meaning, a source and a notes sentence):
+    //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; rows with a radius: gbu12, gbu31, gbu38, mk82, mk82air, mk82se, mk83, mk83air, mk84 (approved: gbu31, gbu38, mk82, mk82air, mk82se, mk83, mk83air, mk84)
+    // the Mk-82 AIR's notes without "same warhead as the Mk-82 in the game's files; the test named the Mk-82 only":
+    //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; mk82air: notes lack "same warhead as the Mk-82 in the game's files; the test named the Mk-82 only"; rows with a radius: …
+    // "No other data on file." put on the end of the Mk-83's notes:
+    //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; mk83: its notes claim something is on file; rows with a radius: …
+    // and the Snakeye's three blast fields taken out:
+    //   FAIL playback B3 [BX3]: the real weapon table …  52 rows; mk82se: undefined ft (approved 250); rows with a radius: gbu31, gbu38, mk82, mk82air, mk83, mk83air, mk84 (approved: …)
     const blastRows = (JSON.parse(readFileSync('crates/core/data/reference.json', 'utf8')) as { weapons: BlastRowLike[] }).weapons;
     const blastBroken = blastRows.map((w) => ({ id: w.id, why: blastProblem(w) })).filter((x) => x.why !== '');
     const blastWith = blastRows.filter((w) => w.blast_radius_ft != null).map((w) => String(w.id)).sort();
-    ok('playback B3 [BX3]: the real weapon table has no blast radius without its source, and the rows that carry one are exactly the approved ones (none yet)',
-       blastRows.length >= 52 && blastBroken.length === 0 && blastWith.join() === [...BLAST_APPROVED].sort().join(),
-       `${blastRows.length} rows; ${blastBroken.map((x) => `${x.id}: ${x.why}`).join('; ')}${blastBroken.length ? '; ' : ''}rows with a radius: ${blastWith.join(', ') || 'none'} (approved: ${BLAST_APPROVED.join(', ') || 'none'})`);
+    const figureWrong: string[] = [];
+    for (const w of blastRows) {
+      const f = BLAST_FIGURES[String(w.id)];
+      if (!f) continue;
+      const notes = w.notes ?? '';
+      const same = `same warhead as the ${f.bomb} in the game's files; the test named the ${f.bomb} only`;
+      const lacks = ['Anatomy of explosions', 'flyandwire.com', '2026-07-11', 'a helicopter, judged by eye, DCS version not stated, not a game figure', BLAST_SAW[f.bomb] ?? '?'].filter((p) => !notes.includes(p));
+      if (w.blast_radius_ft !== f.feet) figureWrong.push(`${w.id}: ${String(w.blast_radius_ft)} ft (approved ${f.feet})`);
+      else if (w.blast_radius_meaning !== f.meaning) figureWrong.push(`${w.id}: ${String(w.blast_radius_meaning)} (approved ${f.meaning})`);
+      else if (w.blast_radius_source !== 'community_measurement') figureWrong.push(`${w.id}: source ${String(w.blast_radius_source)}`);
+      else if (lacks.length) figureWrong.push(`${w.id}: notes lack ${lacks.map((p) => JSON.stringify(p)).join(', ')}`);
+      else if (notes.includes(same) !== f.inherited) figureWrong.push(`${w.id}: notes ${f.inherited ? 'lack' : 'wrongly carry'} "${same}"`);
+      else if (w.id === 'mk83' && notes.includes('on file')) figureWrong.push('mk83: its notes claim something is on file');
+    }
+    ok('playback B3 [BX3]: the real weapon table has no blast radius without its source, and the rows that carry one are exactly the eight approved ones (Mk-82, Mk-83, Mk-84 and the five that share a warhead), each with its approved figure, meaning, community source and notes',
+       blastRows.length >= 52 && blastBroken.length === 0 && blastWith.join() === BLAST_APPROVED.join() && BLAST_APPROVED.length === 8 && figureWrong.length === 0,
+       `${blastRows.length} rows; ${blastBroken.map((x) => `${x.id}: ${x.why}`).join('; ')}${blastBroken.length ? '; ' : ''}${figureWrong.join('; ')}${figureWrong.length ? '; ' : ''}rows with a radius: ${blastWith.join(', ') || 'none'} (approved: ${BLAST_APPROVED.join(', ') || 'none'})`);
   } catch (e) {
     ok('playback B3 (blast radius fields): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
@@ -11528,8 +11595,9 @@ void (async () => {
 // src/lib/playback/burst.ts and fragWords.ts. When a bomb goes off, any other flown jet inside that weapon's sourced
 // blast radius, in 3D, at that instant, is warned; distance only, nothing after the instant, no credit for terrain.
 // It runs on the plan layer (the card's lines). Every strike here is drafted and saved the editor's way (newJet,
-// assignFlanks, saveStrikeTo) off a 15.3 nm IP on 068°, with F-16C profiles; no weapon row carries a radius yet, so
-// each fixture gives its weapon one as an override (the community figures: Mk-82 250 ft, Mk-84 360 ft).
+// assignFlanks, saveStrikeTo) off a 15.3 nm IP on 068°, with F-16C profiles. The data file now carries eight blast radii,
+// but the fixtures that depend on one still give their weapon its figure as a row override (the community figures: Mk-82
+// 250 ft, Mk-84 360 ft), so they do not move with the data file; the census and the table checks read the real rows.
 // The ridge fixture is where the rule can fire at all: a second target placed under jet #2's own plan track 12 s
 // before its impact, 150 ft below it, attacked by #1 at T+0 while #2 dives on the flat target at T+x. Its numbers are
 // worked out from #2's own track, so they follow the planner's geometry; measured 2026-11-16 on the ballistic dive:
@@ -11649,12 +11717,17 @@ void (async () => {
     }
 
     // [BX3, the rule's half] burstSpecOf reads a radius only with a known meaning and a known source, never the old seed radii,
-    // and gives back exactly the row's own fields; no real row has one yet.
+    // and gives back exactly the row's own fields. Over the real rows it gives a radius for exactly the eight approved ones, each at
+    // its approved figure, and none for any other (the unapproved bombs, clusters and missiles named below are listed on purpose).
     // Mutation proof (seen red 2026-11-16): burst.ts burstSpecOf `return meaning && source ? …` → `return meaning ? …` (the source not tested):
     //   FAIL playback B3 [BX3]: burstSpecOf gives no radius without a known meaning and source, …  read a radius for: no source, a null source, an unknown source; …
     //   (and BX11: "no source: 45 warnings over 0 to 40 s")
+    // and over the real rows (seen red 2026-11-16): GBU-12 given a well-formed radius:
+    //   FAIL playback B3 [BX3]: burstSpecOf gives no radius without a known meaning and source, … real rows with one: gbu12, gbu31, gbu38, mk82, mk82air, mk82se, mk83, mk83air, mk84; missing or reading a radius: gbu12; echoes true
+    // and the Snakeye's three blast fields taken out:
+    //   FAIL playback B3 [BX3]: burstSpecOf gives no radius without a known meaning and source, … real rows with one: gbu31, gbu38, mk82, mk82air, mk83, mk83air, mk84; not at the approved figure: mk82se; echoes true
     {
-      const R = { blast_radius_ft: 360, blast_radius_meaning: 'destroyed' as const };
+      const R ={ blast_radius_ft: 360, blast_radius_meaning: 'destroyed' as const };
       const none: [string, object][] = [
         ['no source', { ...R }], ['a null source', { ...R, blast_radius_source: null }], ['an unknown source', { ...R, blast_radius_source: 'hunch' }],
         ['no meaning', { blast_radius_ft: 360, blast_radius_source: 'community_measurement' }],
@@ -11664,27 +11737,38 @@ void (async () => {
       ];
       const wrong = none.filter(([, w]) => burstSpecOf(w as DbWeapon) !== undefined).map(([n]) => n);
       const fine = burstSpecOf({ ...R, blast_radius_source: 'owner_test' } as DbWeapon);
-      const realWith = fxRows.filter((w) => burstSpecOf(w)).map((w) => w.id);
+      const realWith = fxRows.filter((w) => burstSpecOf(w)).map((w) => w.id).sort();
+      const approvedWrong = BLAST_APPROVED.filter((id) => {
+        const s = burstSpecOf(fxRows.find((w) => w.id === id)), f = BLAST_FIGURES[id];
+        return !s || s.radius_ft !== f.feet || s.meaning !== f.meaning || s.source !== 'community_measurement';
+      });
+      // Rows that were not approved and must stay without a radius: four laser-guided bombs, two cluster bombs and two missiles.
+      const stillNone = ['gbu10', 'gbu12', 'gbu16', 'gbu24', 'cbu87', 'cbu97', 'agm65d', 'agm154a'];
+      const stillWrong = stillNone.filter((id) => !fxRows.some((w) => w.id === id) || burstSpecOf(fxRows.find((w) => w.id === id)) !== undefined);
       const echoes = fxRows.concat(withBlast(fxRows, { mk82: [250, 'any_damage'], mk84: [360, 'destroyed'] })).every((w) => {
         const s = burstSpecOf(w);
         return !s || (s.radius_ft === w.blast_radius_ft && s.meaning === w.blast_radius_meaning && s.source === w.blast_radius_source);
       });
-      ok('playback B3 [BX3]: burstSpecOf gives no radius without a known meaning and source, for the old seed radii or for a radius that is not a number above zero; a whole row gives its own fields back; no real row has one yet',
-         wrong.length === 0 && fine?.radius_ft === 360 && fine.meaning === 'destroyed' && fine.source === 'owner_test' && realWith.length === 0 && echoes,
-         `${wrong.length ? `read a radius for: ${wrong.join(', ')}; ` : ''}whole row ${JSON.stringify(fine)}; real rows with one: ${realWith.join(', ') || 'none'}; echoes ${echoes}`);
+      ok('playback B3 [BX3]: burstSpecOf gives no radius without a known meaning and source, for the old seed radii or for a radius that is not a number above zero; a whole row gives its own fields back; over the real rows it gives one for exactly the eight approved rows at their approved figures and for no other',
+         wrong.length === 0 && fine?.radius_ft === 360 && fine.meaning === 'destroyed' && fine.source === 'owner_test' && realWith.join() === BLAST_APPROVED.join() && approvedWrong.length === 0 && stillWrong.length === 0 && echoes,
+         `${wrong.length ? `read a radius for: ${wrong.join(', ')}; ` : ''}whole row ${JSON.stringify(fine)}; real rows with one: ${realWith.join(', ') || 'none'}${approvedWrong.length ? `; not at the approved figure: ${approvedWrong.join(', ')}` : ''}${stillWrong.length ? `; missing or reading a radius: ${stillWrong.join(', ')}` : ''}; echoes ${echoes}`);
     }
 
     // [BX5] The census: 150 strikes as the planner builds them (15 profile-and-weapon cases, four jets, the default mirrored split
-    // and a trail on one axis, 0, 5, 10, 15 and 30 s apart), with the Mk-82 at 250 ft and the Mk-84 at 360 ft. The 60 strikes
-    // those two weapons fly are tested and none warns, on the plan layer or (sampled at each burst) the display layer; the other 90
-    // say which weapon was not checked. The spacing rule warns on 110 of them (540 pairs). Even a 1,200 ft radius on every weapon
+    // and a trail on one axis, 0, 5, 10, 15 and 30 s apart), on the real weapon table: the Mk-82, Mk-82 Snakeye and GBU-38 at 250 ft,
+    // the Mk-84 at 360 ft. The 90 strikes those weapons fly are tested and none warns, on the plan layer or (sampled at each burst) the
+    // display layer; the other 60 say which weapon was not checked. (Before the table carried the Snakeye's and the GBU-38's radius the
+    // census ran with two row overrides, and 60 were tested and 90 noted.) The spacing rule warns on 110 of them (540 pairs). Even a 1,200 ft radius on every weapon
     // warns nowhere: the nearest any path comes to a burst point (measured 2026-11-16, on the ballistic dive) is 5,956 ft for the
     // 30° dive (7,049 before the dive aimed off), 7,586 for the 45° dive, 5,426 for the pop-up (6,933 with a
     // Mk-84), 23,210 for the 15k laser level, 29,053 for the 20k JDAM level, 1,695 for the 500 ft laydown, 1,214 for the 10° LALD
     // (1,543 before; 14 ft above the 1,200 ft radius), 14,734 for the loft. This is the canary for any change to the planner's paths.
     // Mutation proof (seen red 2026-11-16): burst.ts bombOf `spec.radius_ft * FT_TO_M` → `spec.radius_ft * 30 * FT_TO_M`:
-    //   FAIL playback B3 [BX5]: the census of 150 strikes: …  built 150, tested 60, warned 146 (display 0), noted 90 (0 wrong), spacing rule 110 strikes / 540 pairs, 1,200 ft 1378; …
+    //   FAIL playback B3 [BX5]: the census of 150 strikes: …  built 150, tested 90, warned 218 (display 0), noted 60 (0 wrong), spacing rule 110 strikes / 540 pairs, 1,200 ft 1378; …
     //   (and BX6, BX8: the ridge's zone and words move)
+    // and, for the 90 and the 60 (2026-11-16, the table carries eight radii): the Snakeye's radius fields taken out of reference.json:
+    //   FAIL playback B3 [BX5]: the census of 150 strikes: …  built 150, tested 70, warned 0 (display 0), noted 80 (0 wrong), spacing rule 110 strikes / 540 pairs, 1,200 ft 0; …
+    //   (with BX3's two table checks red beside it)
     {
       const CASES: [string, string, string, number][] = [
         ['30° dive, Mk-82', 'f16c.dive.ccip30', 'mk82', 5956.0], ['45° dive, Mk-82', 'f16c.dive.ccip45', 'mk82', 7585.8], ['30° dive, Mk-84', 'f16c.dive.ccip30', 'mk84', 5956.0],
@@ -11693,7 +11777,6 @@ void (async () => {
         ['loft, Mk-82', 'f16c.loft.std', 'mk82', 14734.4], ['pop-up, CBU-87', 'f16c.popup.std', 'cbu87', 5426.0], ['pop-up, CBU-97', 'f16c.popup.std', 'cbu97', 5426.0],
         ['500 ft laydown, CBU-87', 'f16c.level.laydown', 'cbu87', 1695.2], ['500 ft laydown, CBU-97', 'f16c.level.laydown', 'cbu97', 1695.2], ['10° LALD, CBU-97', 'f16c.dive.lald10', 'cbu97', 1214.4],
       ];
-      const sourced = withBlast(fxRows, { mk82: [250, 'any_damage'], mk84: [360, 'destroyed'] });
       const everyRow = fxRows.map((w) => ({ ...w, blast_radius_ft: 1200, blast_radius_meaning: 'destroyed' as const, blast_radius_source: 'estimate' as const }));
       /** The nearest the plan path of any jet comes to any burst point, ft (exact on its straight pieces). */
       const pathMin = (pb: StrikePlayback) => {
@@ -11719,7 +11802,7 @@ void (async () => {
         let nearest = Infinity;
         for (const trail of [false, true]) {
           for (const spacing of [0, 5, 10, 15, 30]) {
-            const { pb } = fxStrike(flatM, [0, 1, 2, 3].map(() => ({ target: wpTgt.id, weapon, profile })), [0, 1, 2, 3].map((k) => k * spacing), { trail, weapons: sourced });
+            const { pb } = fxStrike(flatM, [0, 1, 2, 3].map(() => ({ target: wpTgt.id, weapon, profile })), [0, 1, 2, 3].map((k) => k * spacing), { trail, weapons: fxRows });
             if (pb.jets.length !== 4) { why.push(`${name}: ${pb.jets.length} jets flown`); continue; }
             built++;
             const timing = retime(pb), d = timing.delays_s;
@@ -11750,8 +11833,8 @@ void (async () => {
         paths.push(`${name} ${nearest.toFixed(1)}`);
         if (!near(nearest, wantPath, 5)) why.push(`${name}: the nearest path comes ${nearest.toFixed(1)} ft from a burst (recorded ${wantPath})`);
       }
-      ok('playback B3 [BX5]: the census of 150 strikes: the 60 with a sourced radius never warn on either layer, the other 90 say what was not checked, the spacing rule warns on 110 (540 pairs), a 1,200 ft radius on every weapon still never warns, and each profile\'s nearest path to a burst is as recorded',
-         built === 150 && tested === 60 && planHits === 0 && displayHits === 0 && noted === 90 && notedWrong === 0 && timeStrikes === 110 && timePairs === 540 && wideHits === 0 && why.length === 0,
+      ok('playback B3 [BX5]: the census of 150 strikes: the 90 with a sourced radius never warn on either layer, the other 60 say what was not checked, the spacing rule warns on 110 (540 pairs), a 1,200 ft radius on every weapon still never warns, and each profile\'s nearest path to a burst is as recorded',
+         built === 150 && tested === 90 && planHits === 0 && displayHits === 0 && noted === 60 && notedWrong === 0 && timeStrikes === 110 && timePairs === 540 && wideHits === 0 && why.length === 0,
          `${why.length ? `${why.join('; ')}; ` : ''}built ${built}, tested ${tested}, warned ${planHits} (display ${displayHits}), noted ${noted} (${notedWrong} wrong), spacing rule ${timeStrikes} strikes / ${timePairs} pairs, 1,200 ft ${wideHits}; nearest: ${paths.join(', ')}`);
     }
 
@@ -11837,7 +11920,8 @@ void (async () => {
     // has no blast key. (c) The four-ship (pop-up, pop-up, pop-up on TGT2, loft, Mk-82, 0/10/40/40) and the skip variant saved with
     // fragRule 'time': the conflicts are the spacing rule's own (timedConflicts of strikeReadout's list), the readout is
     // strikeReadout's, the zones are the old closed form, at the plan times and moved ones; saved 'burst', the same strikes have no
-    // spacing-rule line and say what they could not check.
+    // spacing-rule line, are fully checked on the real table (the Mk-82 has its radius) and say what they could not check when the
+    // Mk-82's radius is taken out.
     // Mutation proofs (seen red 2026-11-16): strikePlayback.ts `fragRule: input.fragRule ?? 'time'` → `?? 'burst'` (every hand-built
     // input plays the blast rule; the [7] checks and their kin go red with it):
     //   FAIL playback B3 [BX7]: saved with the spacing rule, … saved 'burst' the same strikes drop its lines  a hand-built input with no rule: input time, plays burst, blast key true
@@ -11845,13 +11929,20 @@ void (async () => {
     // and input.ts `fragRule: strikeFragRule(strike)` → `fragRule: 'burst'` (the strike's choice not read):
     //   FAIL playback B3 [BX7]: … four-ship: plays 'burst'; four-ship: conflicts [] are not the spacing rule's; four-ship: readout []; …
     //   (with playback [7], [15], B3 [T6], [T7], [T8] red beside it: the strikes that say 'time' are read through the rule)
+    // and the 'burst' arms (seen red 2026-11-16, the table carrying the Mk-82's radius): the Mk-82's three blast fields taken out of
+    // reference.json (the real-table arm: it is checked and nothing is unchecked):
+    //   FAIL playback B3 [BX7]: … the four-ship saved 'burst': 0 conflicts, warnings [], blast {"notes":["No blast radius on file for Mk-82 LDGP (#1, #2, #3 and #4): their bombs aren't checked against the other jets"],"unchecked":["Mk-82 LDGP"]}
+    // and `noMk82Radius` matching no row (`w.id === 'mk82'` → `w.id === 'mk82x'`: the no-radius arm strips nothing):
+    //   FAIL playback B3 [BX7]: … the four-ship saved 'burst' with no Mk-82 radius: 0 conflicts, warnings [], unchecked []
     {
       const why: string[] = [];
       const b3Seats = (who: string[], targets: string[], profiles: string[]) => who.map((_, i) => ({ target: targets[i], weapon: 'mk82', profile: profiles[i] }));
       const b3M = fxMission(calculateDestination(tgt, 160, 2), 5200);
       const pops = ['f16c.popup.std', 'f16c.loft.std'];
       const fourSeats = b3Seats(['p1', 'p2', 'p3', 'p4'], [wpTgt.id, wpTgt.id, 'fx-tgt2', wpTgt.id], ['f16c.popup.std', 'f16c.popup.std', 'f16c.popup.std', 'f16c.loft.std']);
-      const fourOf = (fragRule: 'time' | 'burst') => fxStrike(b3M, fourSeats, [0, 10, 40, 40], { fragRule, profiles: pops, strikeId: `b3-${fragRule}` });
+      const fourOf = (fragRule: 'time' | 'burst', weapons?: DbWeapon[]) => fxStrike(b3M, fourSeats, [0, 10, 40, 40], { fragRule, profiles: pops, strikeId: `b3-${fragRule}`, weapons });
+      /** The weapon table with the Mk-82's blast radius taken out, for the strikes that must say what they could not check. */
+      const noMk82Radius = fxRows.map((w) => (w.id === 'mk82' ? { ...w, blast_radius_ft: null, blast_radius_meaning: null, blast_radius_source: null } : w));
       const skipOf = (fragRule: 'time' | 'burst') => {
         const s = fxStrike(b3M, b3Seats(['p1', 'p2', 'p3'], [wpTgt.id, wpTgt.id, wpTgt.id], ['f16c.popup.std', 'f16c.popup.std', 'f16c.popup.std']), [0, 10, 40], { fragRule, profiles: pops, strikeId: `b3s-${fragRule}` });
         const m = { ...s.mission, attacks: s.mission.attacks.map((a) => (a.id === s.attackIds[1] ? { ...a, targetWaypointId: 'fx-nowhere' } : a)) } as Mission;
@@ -11888,12 +11979,16 @@ void (async () => {
       const { fragRule: given, ...bare } = fromList;
       const bt = retime(buildStrikePlayback(bare)), tt = retime(buildStrikePlayback(fromList));
       if (given !== 'time' || buildStrikePlayback(bare).fragRule !== 'time' || 'blast' in bt || JSON.stringify(bt) !== JSON.stringify(tt)) why.push(`a hand-built input with no rule: input ${given}, plays ${buildStrikePlayback(bare).fragRule}, blast key ${'blast' in bt}`);
-      // The same strikes saved 'burst': the spacing rule's lines are gone and the footer's names come through.
+      // The same strikes saved 'burst': the spacing rule's lines are gone. On the real table the Mk-82 has its radius, so the four-ship is checked
+      // and nothing is left unchecked; with the Mk-82's radius taken out the footer's names come through.
       const fourBurst = retime(fourOf('burst').pb);
-      if (fourBurst.conflicts.length !== 0 || fourBurst.readout.warnings.some((w) => w.includes('s of frag (est.)')) || fourBurst.blast?.unchecked.join() !== 'Mk-82 LDGP')
-        why.push(`the four-ship saved 'burst': ${fourBurst.conflicts.length} conflicts, warnings ${JSON.stringify(fourBurst.readout.warnings)}, unchecked ${JSON.stringify(fourBurst.blast?.unchecked)}`);
-      ok('playback B3 [BX7]: saved with the spacing rule, the four-ship and the skip variant warn exactly as the spacing rule always did (conflicts, readout, zones, no blast key); a hand-built input with no rule is the spacing rule; saved \'burst\' the same strikes drop its lines',
-         why.length === 0, why.join('; ') || `four-ship ${fourTime.conflicts.length} spacing-rule conflicts; saved 'burst' ${fourBurst.conflicts.length}`);
+      if (fourBurst.conflicts.length !== 0 || fourBurst.readout.warnings.some((w) => w.includes('s of frag (est.)')) || JSON.stringify(fourBurst.blast) !== JSON.stringify({ notes: [], unchecked: [] }))
+        why.push(`the four-ship saved 'burst': ${fourBurst.conflicts.length} conflicts, warnings ${JSON.stringify(fourBurst.readout.warnings)}, blast ${JSON.stringify(fourBurst.blast)}`);
+      const fourBare = retime(fourOf('burst', noMk82Radius).pb);
+      if (fourBare.conflicts.length !== 0 || fourBare.readout.warnings.some((w) => w.includes('s of frag (est.)')) || fourBare.blast?.unchecked.join() !== 'Mk-82 LDGP')
+        why.push(`the four-ship saved 'burst' with no Mk-82 radius: ${fourBare.conflicts.length} conflicts, warnings ${JSON.stringify(fourBare.readout.warnings)}, unchecked ${JSON.stringify(fourBare.blast?.unchecked)}`);
+      ok('playback B3 [BX7]: saved with the spacing rule, the four-ship and the skip variant warn exactly as the spacing rule always did (conflicts, readout, zones, no blast key); a hand-built input with no rule is the spacing rule; saved \'burst\' the same strikes drop its lines, and name the weapon they could not check when its radius is missing',
+         why.length === 0, why.join('; ') || `four-ship ${fourTime.conflicts.length} spacing-rule conflicts; saved 'burst' ${fourBurst.conflicts.length} (nothing unchecked), without the Mk-82 radius ${fourBare.blast?.unchecked.join()} unchecked`);
     }
 
     // [BX8] The words, exactly. Distances floored to tens of feet (a jet inside a 360 ft radius never reads "360 ft").
@@ -12141,6 +12236,9 @@ void (async () => {
     //   FAIL playback B3 [BX17]: the harness ridge pair is the blast rule's one conflict by both doors …  the list door: the ridge is 1.30 nm out at 9116 ft (want 1.30 nm, 9,616 ft)
     // and the four-ship's `], 10, { rule });` → `], 10);` (the rule asked for never reaches the strike):
     //   FAIL playback B3 [BX17]: the harness ridge pair is the blast rule's one conflict by both doors …  four-ship asked for 'burst' plays 'time' with 2 conflicts and blast undefined
+    // and, for the rows (seen red 2026-11-16, the data file carrying eight radii): dev/fixture.ts `FIXTURE_BLAST` given a third row,
+    // `gbu12: [250, 'any_damage']`:
+    //   FAIL playback B3 [BX17]: the harness ridge pair is the blast rule's one conflict by both doors …  the harness gives a radius to [["mk82",250],["mk82air",250],["mk82se",250],["mk84",360],["gbu12",250],["gbu31",360],["gbu38",250],["mk83",250],["mk83air",250]] (want [["mk82",250],["mk82air",250],["mk82se",250],["mk84",360],["gbu31",360],["gbu38",250],["mk83",250],["mk83air",250]]: the data file's own rows and the two overrides, no other row)
     {
       const fixtureWords = ['#2 is 130 ft from #1\'s bomb when it goes off, inside its 360 ft blast radius (est.)'];
       let why = '';
@@ -12180,10 +12278,15 @@ void (async () => {
       const strip = (w: DbWeapon) => ({ ...w, blast_radius_ft: null, blast_radius_meaning: null, blast_radius_source: null });
       const real = refWeapons as never as DbWeapon[];
       if (rows.length !== real.length || rows.some((w, i) => JSON.stringify(strip(w)) !== JSON.stringify(strip(real[i])))) why ||= 'the harness weapon rows differ from the data file\'s by more than the blast fields';
-      if (JSON.stringify(rows.filter((w) => burstSpecOf(w)).map((w) => [w.id, burstSpecOf(w)!.radius_ft])) !== JSON.stringify([['mk82', 250], ['mk84', 360]]))
-        why ||= `the harness gives a radius to ${JSON.stringify(rows.filter((w) => burstSpecOf(w)).map((w) => w.id))} (want mk82 250 and mk84 360 only)`;
+      // A radius on a harness row is the data file's own, or one of the two fixture overrides (Mk-82 250, Mk-84 360) on a row that has none:
+      // never a row of the harness's own making. With the data file carrying eight rows the overrides change nothing today; they stand
+      // in for a row the data file loses.
+      const fixtureOverride: Record<string, number> = { mk82: 250, mk84: 360 };
+      const wantRadii = real.map((w) => [w.id, burstSpecOf(w)?.radius_ft ?? fixtureOverride[w.id]] as const).filter(([, r]) => r !== undefined);
+      if (JSON.stringify(rows.filter((w) => burstSpecOf(w)).map((w) => [w.id, burstSpecOf(w)!.radius_ft])) !== JSON.stringify(wantRadii))
+        why ||= `the harness gives a radius to ${JSON.stringify(rows.filter((w) => burstSpecOf(w)).map((w) => [w.id, burstSpecOf(w)!.radius_ft]))} (want ${JSON.stringify(wantRadii)}: the data file's own rows and the two overrides, no other row)`;
       ok('playback B3 [BX17]: the harness ridge pair is the blast rule\'s one conflict by both doors (ridge 1.30 nm and 5,616 ft up, 130 ft at 11.9 s, zone 11.4593 to 12.3429, clear at 11.0 and 12.4, 350 ft and 320 ft at 11.46 and 12.3), the four-ship plays the rule asked for, and the weapon rows differ from the data file\'s in the blast fields only',
-         why === '', why || 'list and editor doors; four-ship by burst (clear) and by time (2 warnings); rows mk82 250 and mk84 360');
+         why === '', why || 'list and editor doors; four-ship by burst (clear) and by time (2 warnings); rows: the data file\'s eight radii, nothing added');
     }
   } catch (e) {
     ok('playback B3 (the blast rule): the section ran without throwing', false, String((e as Error)?.stack ?? e));

@@ -97,10 +97,13 @@
 //! - **Blast radius** (the three `blast_radius_*` fields, added 2026-11-15): the
 //!   distance from a burst within which DCS damages an aircraft, what that
 //!   distance means (`any_damage` or `destroyed`), and where it comes from.
-//!   Every row is empty until a source is cited, and a radius never goes in
+//!   A row is empty until a source is cited, and a radius never goes in
 //!   without its meaning, its source kind and a sentence in `notes` that names
-//!   the source (tests below). A key missing from the data file reads as `None`,
-//!   so a row only needs the keys once it has a value. The older
+//!   the source (tests below). Eight rows carry one since 2026-11-16, all from
+//!   one community test (a helicopter, judged by eye, DCS version not stated):
+//!   the Mk-82, Mk-83 and Mk-84 it measured, and the five whose warhead is the
+//!   same one in the game's files. A key missing from the data file reads as
+//!   `None`, so a row only needs the keys once it has a value. The older
 //!   `frag_*_radius_ft` seed numbers cite no source and are not what a blast
 //!   test should read.
 
@@ -146,8 +149,8 @@ pub struct Weapon {
     pub frag_effective_radius_ft: Option<f64>,
     pub frag_min_safe_alt_ft: Option<f64>,
     /// The distance from a burst within which DCS damages an aircraft, in feet.
-    /// Null on every row until a source is cited: the frag radii above cite none,
-    /// so they are not a stand-in for it.
+    /// Null unless a source is cited (eight rows so far): the frag radii above
+    /// cite none, so they are not a stand-in for it.
     pub blast_radius_ft: Option<f64>,
     /// What that distance is: `any_damage` (past it a bomb of this kind did no
     /// visible damage) or `destroyed` (past it, it did not destroy the target).
@@ -516,8 +519,25 @@ mod tests {
 
     /// The rows that carry a blast radius on purpose. A value goes into
     /// `reference.json` only after it has been shown with its source and
-    /// approved, one row at a time, so this list changes in the same edit.
-    const APPROVED_BLAST_IDS: &[&str] = &[];
+    /// approved, so this list changes in the same edit. Eight rows are
+    /// approved (2026-11-16): the three bombs the community test named, and five
+    /// rows whose warhead is the same one in the game's files.
+    const APPROVED_BLAST_IDS: &[&str] = &["gbu31", "gbu38", "mk82", "mk82air", "mk82se", "mk83", "mk83air", "mk84"];
+
+    /// The approved figures: id, feet, what the figure means, the bomb the
+    /// community test actually named, and whether the row only takes that
+    /// bomb's figure because its warhead is the same one in the game's files
+    /// (true for five rows; the three bombs the test measured are false).
+    const APPROVED_BLAST_FIGURES: &[(&str, f64, &str, &str, bool)] = &[
+        ("mk82", 250.0, "any_damage", "Mk-82", false),
+        ("mk83", 250.0, "any_damage", "Mk-83", false),
+        ("mk84", 360.0, "destroyed", "Mk-84", false),
+        ("mk82air", 250.0, "any_damage", "Mk-82", true),
+        ("mk82se", 250.0, "any_damage", "Mk-82", true),
+        ("gbu38", 250.0, "any_damage", "Mk-82", true),
+        ("mk83air", 250.0, "any_damage", "Mk-83", true),
+        ("gbu31", 360.0, "destroyed", "Mk-84", true),
+    ];
 
     /// A weapon row built the way the data file writes it: `extra` is more JSON
     /// keys. Anything left out reads as `None`, as it does for every real row.
@@ -617,8 +637,9 @@ mod tests {
     }
 
     /// Every real row's blast fields follow that rule, and the rows that carry a
-    /// radius are exactly the approved ones: none yet, so none may appear until
-    /// someone has approved the value with its source and says so here.
+    /// radius are exactly the approved ones (`APPROVED_BLAST_IDS`), so no other
+    /// may appear until someone has approved the value with its source and says
+    /// so here.
     #[test]
     fn every_blast_radius_in_the_table_has_its_source_and_is_approved() {
         let mut with_radius: Vec<String> = Vec::new();
@@ -634,6 +655,47 @@ mod tests {
         let mut approved: Vec<String> = APPROVED_BLAST_IDS.iter().map(|id| id.to_string()).collect();
         approved.sort();
         assert_eq!(with_radius, approved, "a blast radius was added or removed: change the approved list on purpose, after the value was approved");
+    }
+
+    /// The approved figures, row by row: the feet, what they mean, the community
+    /// source, and a notes sentence that says what they rest on (the public
+    /// article by title and date, a helicopter judged by eye, no DCS version, not
+    /// a game figure, and what the test saw). The five rows that take another
+    /// bomb's figure say so and name that bomb; the three it measured do not
+    /// claim a likeness. The Mk-83 row must still carry no "on file" claim.
+    ///
+    /// Each of these was seen to fail (2026-11-16): the Mk-84's radius changed to
+    /// 365.0 in the data file ("mk84: feet, left Some(365.0), right Some(360.0)"),
+    /// the Mk-82 AIR's notes without the same-warhead sentence, "on file" put on
+    /// the end of the Mk-83's notes, the Snakeye's three fields taken out, and
+    /// `gbu31` taken out of `APPROVED_BLAST_IDS` (this test and the one above
+    /// both fail on the list).
+    #[test]
+    fn the_approved_blast_radii_are_pinned_with_what_they_rest_on() {
+        let mut ids: Vec<&str> = APPROVED_BLAST_FIGURES.iter().map(|f| f.0).collect();
+        ids.sort();
+        assert_eq!(ids, APPROVED_BLAST_IDS, "the figures table and the approved list name different rows");
+        for (id, feet, meaning, bomb, inherited) in APPROVED_BLAST_FIGURES {
+            let w = reference().get_weapon_by_id(id).unwrap_or_else(|| panic!("no weapon row {id}"));
+            assert_eq!(w.blast_radius_ft, Some(*feet), "{id}: feet");
+            assert_eq!(w.blast_radius_meaning.as_deref(), Some(*meaning), "{id}: meaning");
+            assert_eq!(w.blast_radius_source.as_deref(), Some("community_measurement"), "{id}: source");
+            let notes = w.notes.as_deref().unwrap_or("");
+            for phrase in ["Anatomy of explosions", "flyandwire.com", "2026-07-11", "a helicopter, judged by eye, DCS version not stated, not a game figure"] {
+                assert!(notes.contains(phrase), "{id}: notes must say {phrase:?}, not {notes:?}");
+            }
+            let saw = match *bomb {
+                "Mk-82" => "minor damage at 240 ft and none at 250 ft",
+                "Mk-83" => "limited damage at 240 ft and none at 250 ft",
+                "Mk-84" => "destroyed at 350 ft and not at 365 ft",
+                other => panic!("{id}: the test named no {other}"),
+            };
+            assert!(notes.contains(saw), "{id}: notes must say what the test saw ({saw:?}), not {notes:?}");
+            let same_warhead = format!("same warhead as the {bomb} in the game's files; the test named the {bomb} only");
+            assert_eq!(notes.contains(&same_warhead), *inherited, "{id}: notes {} {same_warhead:?}", if *inherited { "must say" } else { "must not say" });
+        }
+        let mk83 = reference().get_weapon_by_id("mk83").unwrap();
+        assert!(!mk83.notes.as_deref().unwrap_or("").contains("on file"), "mk83 has its numbers, so its notes make no \"on file\" claim");
     }
 
     /// Saved missions and the planner's loadout match a weapon on its name, so a

@@ -352,6 +352,35 @@ cards still carry the "no data on file" caution.
   1,300 ft, so no auto-built release moves. None of the envelope extras moves
   an auto-built release either: the lowest release of the Durandal and the
   CBU-105 is 500 ft AGL, above their 250 and 200 ft minimums.
+- **Blast radius, eight rows (approved 2026-11-16; separate from the 26 above).**
+  The distance from a burst within which DCS damages an aircraft: the three
+  `blast_radius_*` fields on the weapon row (feet, what the figure means, where it
+  comes from), read by the playback's blast test and by nothing else. The old
+  `frag_*_radius_ft` seed numbers cite no source and are not read for it. The
+  only public measurement is one community test, "Anatomy of explosions" on
+  flyandwire.com (2026-07-11): a Ka-50 helicopter spawned over a burst, damage
+  judged by eye, DCS version not stated, not a game figure. Its three results:
+  **Mk-82 250 ft** (`any_damage`: minor damage at 240 ft, none at 250 ft),
+  **Mk-83 250 ft** (`any_damage`: limited damage at 240 ft, none at 250 ft) and
+  **Mk-84 360 ft** (`destroyed`: destroyed at 350 ft, not at 365 ft, the author's
+  "circa 360"). Five more rows take the figure of the bomb whose warhead they
+  share in the game's files (DCS 2.9.31, the public `dcs-lua-datamine` export):
+  **Mk-82 AIR, Mk-82 Snakeye and GBU-38 take the Mk-82's 250 ft**, **Mk-83 AIR
+  the Mk-83's 250 ft**, **GBU-31 the Mk-84's 360 ft**. The AIR and Snakeye point
+  at the Mk-82's own warhead file (`_G/warheads/Mk_82.lua`); the GBU-38 (87.1 kg
+  of explosive), Mk-83 AIR (201.9 kg) and GBU-31 (428.7 kg) carry their own
+  warhead tables with the same explosive mass as the Mk-82, Mk-83 and Mk-84.
+  The test named only the three bare bombs, so each of those five rows says so
+  in its `notes`. Every row is `community_measurement`, and its `notes` carry the
+  article, what it saw and the caveats above. GBU-12, GBU-10 and GBU-16 were not
+  offered (the game's files hold two warhead tables for each, and they
+  disagree), and no cluster, missile, rocket or gun row has a radius. The same
+  article's other test, a column of Gazelle helicopters over a Mk-84 that read
+  "damaged" up to 800 ft, is not used: its author doubts it. The Rust and
+  geo-check tests list exactly these eight ids, so a ninth row, or a changed
+  figure, fails until the list is changed on purpose. Every blast number on
+  screen is marked "(est.)". The planner's own release floors and the old
+  spacing rule do not read these fields.
 - **Not audited: the older rows.** The rows from the old SQLite seed cite no
   source, and the public Dash-34 tables disagree with two of them: the same
   Fig 6-14 gives the Mk-82 about 1,100 ft and the Mk-84 about 1,700 ft (level

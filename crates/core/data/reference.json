@@ -1768,6 +1768,9 @@
   ],
   "weapons": [
     {
+      "blast_radius_ft": 250.0,
+      "blast_radius_meaning": "any_damage",
+      "blast_radius_source": "community_measurement",
       "category": "bomb_unguided",
       "dcs_weapon_name": "Mk_82",
       "drag_index": 0.027,
@@ -1781,10 +1784,13 @@
       "min_release_alt_ft": 3000.0,
       "min_release_speed_ktas": 350.0,
       "name": "Mk-82 LDGP",
-      "notes": "500lb low-drag GP bomb",
+      "notes": "500lb low-drag GP bomb. Blast radius 250 ft (any damage): from a community test, \"Anatomy of explosions\" (flyandwire.com, 2026-07-11), which saw minor damage at 240 ft and none at 250 ft. The test used a helicopter, judged by eye, DCS version not stated, not a game figure.",
       "weight_lbs": 500.0
     },
     {
+      "blast_radius_ft": 250.0,
+      "blast_radius_meaning": "any_damage",
+      "blast_radius_source": "community_measurement",
       "category": "bomb_unguided",
       "dcs_weapon_name": "Mk_82AIR",
       "drag_index": 0.032,
@@ -1798,10 +1804,13 @@
       "min_release_alt_ft": 200.0,
       "min_release_speed_ktas": 350.0,
       "name": "Mk-82 AIR",
-      "notes": "High-drag retarded delivery",
+      "notes": "High-drag retarded delivery. Blast radius 250 ft (any damage), a community figure: same warhead as the Mk-82 in the game's files; the test named the Mk-82 only (\"Anatomy of explosions\", flyandwire.com, 2026-07-11: minor damage at 240 ft and none at 250 ft; a helicopter, judged by eye, DCS version not stated, not a game figure).",
       "weight_lbs": 570.0
     },
     {
+      "blast_radius_ft": 250.0,
+      "blast_radius_meaning": "any_damage",
+      "blast_radius_source": "community_measurement",
       "category": "bomb_unguided",
       "dcs_weapon_name": "Mk_82SE",
       "drag_index": 0.03,
@@ -1815,10 +1824,13 @@
       "min_release_alt_ft": 200.0,
       "min_release_speed_ktas": 350.0,
       "name": "Mk-82 Snakeye",
-      "notes": "Retarded bomb with fins",
+      "notes": "Retarded bomb with fins. Blast radius 250 ft (any damage), a community figure: same warhead as the Mk-82 in the game's files; the test named the Mk-82 only (\"Anatomy of explosions\", flyandwire.com, 2026-07-11: minor damage at 240 ft and none at 250 ft; a helicopter, judged by eye, DCS version not stated, not a game figure).",
       "weight_lbs": 560.0
     },
     {
+      "blast_radius_ft": 360.0,
+      "blast_radius_meaning": "destroyed",
+      "blast_radius_source": "community_measurement",
       "category": "bomb_unguided",
       "dcs_weapon_name": "Mk_84",
       "drag_index": 0.024,
@@ -1832,7 +1844,7 @@
       "min_release_alt_ft": 4500.0,
       "min_release_speed_ktas": 350.0,
       "name": "Mk-84 LDGP",
-      "notes": "2000lb low-drag GP bomb",
+      "notes": "2000lb low-drag GP bomb. Blast radius 360 ft (destroyed): from a community test, \"Anatomy of explosions\" (flyandwire.com, 2026-07-11), which saw the target destroyed at 350 ft and not at 365 ft. The test used a helicopter, judged by eye, DCS version not stated, not a game figure.",
       "weight_lbs": 2000.0
     },
     {
@@ -1989,6 +2001,9 @@
       "weight_lbs": 2100.0
     },
     {
+      "blast_radius_ft": 360.0,
+      "blast_radius_meaning": "destroyed",
+      "blast_radius_source": "community_measurement",
       "category": "bomb_gps",
       "dcs_weapon_name": "GBU_31",
       "drag_index": 0.024,
@@ -2002,10 +2017,13 @@
       "min_release_alt_ft": 3000.0,
       "min_release_speed_ktas": 350.0,
       "name": "GBU-31 JDAM",
-      "notes": "2000lb GPS guided",
+      "notes": "2000lb GPS guided. Blast radius 360 ft (destroyed), a community figure: same warhead as the Mk-84 in the game's files; the test named the Mk-84 only (\"Anatomy of explosions\", flyandwire.com, 2026-07-11: destroyed at 350 ft and not at 365 ft; a helicopter, judged by eye, DCS version not stated, not a game figure).",
       "weight_lbs": 2115.0
     },
     {
+      "blast_radius_ft": 250.0,
+      "blast_radius_meaning": "any_damage",
+      "blast_radius_source": "community_measurement",
       "category": "bomb_gps",
       "dcs_weapon_name": "GBU_38",
       "drag_index": 0.027,
@@ -2019,7 +2037,7 @@
       "min_release_alt_ft": 2500.0,
       "min_release_speed_ktas": 350.0,
       "name": "GBU-38 JDAM",
-      "notes": "500lb GPS guided",
+      "notes": "500lb GPS guided. Blast radius 250 ft (any damage), a community figure: same warhead as the Mk-82 in the game's files; the test named the Mk-82 only (\"Anatomy of explosions\", flyandwire.com, 2026-07-11: minor damage at 240 ft and none at 250 ft; a helicopter, judged by eye, DCS version not stated, not a game figure).",
       "weight_lbs": 550.0
     },
     {
@@ -2465,6 +2483,9 @@
       "weight_lbs": 250.0
     },
     {
+      "blast_radius_ft": 250.0,
+      "blast_radius_meaning": "any_damage",
+      "blast_radius_source": "community_measurement",
       "category": "bomb_unguided",
       "dcs_weapon_name": null,
       "drag_index": null,
@@ -2478,10 +2499,13 @@
       "min_release_alt_ft": null,
       "min_release_speed_ktas": null,
       "name": "Mk-83 LDGP",
-      "notes": "Low-drag general-purpose bomb. Weight: 454 kg in DCS (pydcs weapons_data.py 5ddcc63). Frag min-safe 1,300 ft: USAF T.O. 1F-4C-34-1-1 (F-4C/D/E Aircrew Weapons Delivery Manual, Non-Nuclear) Sec VI, Fig 6-14 sheet 2, p.6-43, level delivery low drag, straight-and-level constant-speed escape, worst row (360 KTAS), contact burst (public scan: archive.org/details/f4cdennwdmanual); agrees with T.O. 1A-7K-34-1-1 Fig 6-15. It is a level-release figure.",
+      "notes": "Low-drag general-purpose bomb. Weight: 454 kg in DCS (pydcs weapons_data.py 5ddcc63). Frag min-safe 1,300 ft: USAF T.O. 1F-4C-34-1-1 (F-4C/D/E Aircrew Weapons Delivery Manual, Non-Nuclear) Sec VI, Fig 6-14 sheet 2, p.6-43, level delivery low drag, straight-and-level constant-speed escape, worst row (360 KTAS), contact burst (public scan: archive.org/details/f4cdennwdmanual); agrees with T.O. 1A-7K-34-1-1 Fig 6-15. It is a level-release figure. Blast radius 250 ft (any damage): from a community test, \"Anatomy of explosions\" (flyandwire.com, 2026-07-11), which saw limited damage at 240 ft and none at 250 ft. The test used a helicopter, judged by eye, DCS version not stated, not a game figure.",
       "weight_lbs": 1001.0
     },
     {
+      "blast_radius_ft": 250.0,
+      "blast_radius_meaning": "any_damage",
+      "blast_radius_source": "community_measurement",
       "category": "bomb_unguided",
       "dcs_weapon_name": null,
       "drag_index": null,
@@ -2495,7 +2519,7 @@
       "min_release_alt_ft": null,
       "min_release_speed_ktas": null,
       "name": "Mk-83 AIR",
-      "notes": "High-drag general-purpose bomb with a retarding parachute (AIR). Weight: 476.3 kg in DCS (the Mk-83 AIR (BSU-85) entry, pydcs weapons_data.py 5ddcc63). No frag data on file.",
+      "notes": "High-drag general-purpose bomb with a retarding parachute (AIR). Weight: 476.3 kg in DCS (the Mk-83 AIR (BSU-85) entry, pydcs weapons_data.py 5ddcc63). No frag data on file. Blast radius 250 ft (any damage), a community figure: same warhead as the Mk-83 in the game's files; the test named the Mk-83 only (\"Anatomy of explosions\", flyandwire.com, 2026-07-11: limited damage at 240 ft and none at 250 ft; a helicopter, judged by eye, DCS version not stated, not a game figure).",
       "weight_lbs": 1050.0
     },
     {
