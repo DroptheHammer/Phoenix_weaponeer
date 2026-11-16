@@ -1,4 +1,4 @@
-import type { ThreatInstance } from '../types';
+import type { FragOrdersThreat, ThreatInstance, ThreatSource } from '../types';
 
 /**
  * Enemy threats the mission author hid.
@@ -7,8 +7,8 @@ import type { ThreatInstance } from '../types';
  * mission planner (`hiddenOnPlanner`). Either one hides the threat here, from
  * everything: the map, the threat list, the threat-aware attack geometry and
  * the kneeboard card. Otherwise a geometry choice or a card would give the
- * position away. Planners see only a count by system ("probable threats,
- * location unknown").
+ * position away. Nor does the planner say that any are hidden, how many, or
+ * of what kind: no count, no summary, and totals count only what is shown.
  *
  * ⚙ Settings → Admin can reveal each kind, and a revealed threat behaves like
  * any other. A threat hidden both ways needs both switches.
@@ -49,41 +49,77 @@ export function visibleMission<M extends { threats: ThreatInstance[] }>(mission:
   return threats.length === mission.threats.length ? mission : { ...mission, threats };
 }
 
-export interface ProbableThreat {
-  /** What the threats were grouped by: a system id, or a system name. */
-  key: string;
-  count: number;
+/** What the planner's threat list shows, worked out from the whole mission. */
+export interface ThreatListView<T> {
+  fromMission: T[];
+  planning: T[];
+  /** The line under the list's title, e.g. "3 threats (2 from mission, 1 planning)". */
+  summary: string;
+  /** Nothing to list: the list says "No threats identified." */
+  empty: boolean;
 }
 
 /**
- * The threats this planner may NOT see, counted by `keyOf`. The result carries
- * no positions by construction, only a key and a count. Most numerous first.
+ * The threat list as this planner sees it. A mission whose threats are all
+ * hidden reads exactly like a mission with none, so nothing gives them away.
  */
-export function probableThreats<T extends HideFlags>(
+export function threatListView<T extends HideFlags & { source: ThreatSource }>(
   threats: T[],
   reveal: HiddenReveal,
-  keyOf: (threat: T) => string,
-): ProbableThreat[] {
-  const counts = new Map<string, number>();
-  for (const threat of threats) {
-    if (isThreatVisible(threat, reveal)) continue;
-    const key = keyOf(threat);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return [...counts]
-    .map(([key, count]) => ({ key, count }))
-    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+): ThreatListView<T> {
+  const shown = threats.filter((threat) => isThreatVisible(threat, reveal));
+  const fromMission = shown.filter((threat) => threat.source === 'mission');
+  const planning = shown.filter((threat) => threat.source === 'planning');
+  return {
+    fromMission,
+    planning,
+    summary: `${shown.length} threats (${fromMission.length} from mission, ${planning.length} planning)`,
+    empty: shown.length === 0,
+  };
 }
 
-/** How many threats carry each author flag, for the Admin switches' labels. */
-export function hiddenCounts(threats: HideFlags[]): { onPlanner: number; onMap: number; both: number } {
-  let onPlanner = 0;
-  let onMap = 0;
-  let both = 0;
-  for (const threat of threats) {
-    if (threat.hiddenOnPlanner) onPlanner++;
-    if (threat.hiddenOnMap) onMap++;
-    if (threat.hiddenOnPlanner && threat.hiddenOnMap) both++;
-  }
-  return { onPlanner, onMap, both };
+/** The importer's snake_case flags, in the shape the visibility rule reads. */
+export const importFlagsOf = (threat: Pick<FragOrdersThreat, 'hidden_on_planner' | 'hidden_on_map'>): HideFlags => ({
+  hiddenOnPlanner: threat.hidden_on_planner,
+  hiddenOnMap: threat.hidden_on_map,
+});
+
+type ImportThreat = Pick<FragOrdersThreat, 'hidden_on_planner' | 'hidden_on_map' | 'system_id' | 'unit_type'>;
+
+/** What the import preview says about threats, worked out before anything is imported. */
+export interface ImportThreatView<T> {
+  /** The rows the preview lists, and the number in its "Threats (N)" heading. */
+  shown: T[];
+  /** Shown threats matched to a database row. */
+  identified: number;
+  /** Shown threats with no database row. */
+  unidentified: number;
+  /** The DCS unit types of those, for the warning that they will not be imported. */
+  unmatchedTypes: string[];
+  /** The importer's notices (a link carrying no air defences), only when nothing is listed. */
+  notices: string[];
+  /** Nothing listed and no notice: the preview says "No threats detected in mission." */
+  noneDetected: boolean;
+}
+
+/**
+ * The import preview's threat section as this planner sees it. Every figure
+ * and line comes from the threats shown, so a mission whose threats are all
+ * hidden previews exactly like a mission with none.
+ */
+export function importThreatView<T extends ImportThreat>(
+  data: { threats: T[]; notices: string[] },
+  reveal: HiddenReveal,
+): ImportThreatView<T> {
+  const shown = data.threats.filter((threat) => isThreatVisible(importFlagsOf(threat), reveal));
+  const unmatched = shown.filter((threat) => threat.system_id === null);
+  const notices = shown.length === 0 ? data.notices : [];
+  return {
+    shown,
+    identified: shown.length - unmatched.length,
+    unidentified: unmatched.length,
+    unmatchedTypes: [...new Set(unmatched.map((threat) => threat.unit_type))],
+    notices,
+    noneDetected: shown.length === 0 && notices.length === 0,
+  };
 }

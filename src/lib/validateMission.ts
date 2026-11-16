@@ -44,16 +44,23 @@ export function validateMission(raw: unknown): MissionCheck {
     const lonOk = typeof lon === 'number' && lon >= -180 && lon <= 180;
     if (!latOk || !lonOk) problems.push(`${where}: not a real position (got ${show(value)})`);
   };
-  /** Each entry of a top-level list that is an object, with its 1-based number for messages. */
-  const entries = (key: string): Array<[Json, number]> => {
+  /**
+   * Each entry of a top-level list that is an object, with its 1-based number
+   * for messages. Entries `unnumbered` picks get 0 and are left out of the
+   * count, so the others keep the numbers they would have without them.
+   */
+  const entries = (key: string, unnumbered?: (item: Json) => boolean): Array<[Json, number]> => {
     const list = raw[key];
     if (!Array.isArray(list)) {
       problems.push(`${key} must be a list (got ${show(list)})`);
       return [];
     }
-    return list.flatMap((item, i): Array<[Json, number]> => {
-      if (isObject(item)) return [[item, i + 1]];
-      problems.push(`${key} entry ${i + 1} is not an object (got ${show(item)})`);
+    let n = 0;
+    return list.flatMap((item): Array<[Json, number]> => {
+      if (isObject(item) && unnumbered?.(item)) return [[item, 0]];
+      n += 1;
+      if (isObject(item)) return [[item, n]];
+      problems.push(`${key} entry ${n} is not an object (got ${show(item)})`);
       return [];
     });
   };
@@ -73,8 +80,13 @@ export function validateMission(raw: unknown): MissionCheck {
     }
   }
 
-  for (const [threat, n] of entries('threats')) {
-    const where = `Threat ${n}`;
+  // Threats the mission author hid are never named by number, and do not
+  // count towards the numbers of the others: "Threat 7" on a file whose list
+  // shows two would tell a planner that hidden threats are there, and how
+  // many. A visible threat's number is its place in the list the planner sees.
+  const hiddenThreat = (item: Json) => item.hiddenOnPlanner === true || item.hiddenOnMap === true;
+  for (const [threat, n] of entries('threats', hiddenThreat)) {
+    const where = n === 0 ? 'A threat' : `Threat ${n}`;
     text(threat, 'id', where);
     text(threat, 'systemId', where);
     position(threat.position, where);

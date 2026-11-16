@@ -181,9 +181,13 @@ history is in git and `docs/SESSION_HISTORY.md`. Still open from them:
 - **Threats the mission author hid are hidden in the planner only**
   (`src/lib/threatVisibility.ts`, 2026-09-14). Either DCS flag
   (`hiddenOnPlanner`, or `hidden` on the F10 map) keeps a threat off the map,
-  the threat list, auto-build geometry and cards. Planners see only a
-  "probable threats, location unknown" count. ⚙ Settings → Admin reveals each
-  kind for the current session. The positions are still in the saved `.json`
+  the threat list, auto-build geometry and cards. Since 2026-11-16 (the user's
+  decision) planners are not told they exist at all: no count, no summary in
+  the import preview, totals count only what is shown, and the Admin switches
+  carry no per-mission count. The note a new import saves ("Threats
+  detected: N") counts only unhidden threats, because it goes into the
+  mission file and the brief pack (missions saved before keep their old
+  text). ⚙ Settings → Admin reveals each kind for the current session. The positions are still in the saved `.json`
   and the `.miz`, so this is honor-system. Sinai M01 hides its entire red
   laydown. Checked on screen by the user 2026-09-14. Memory:
   `project-hidden-threats-policy`.

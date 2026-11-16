@@ -2,18 +2,15 @@ import { useState } from 'react';
 import type { FragOrdersData, FragOrdersPlayerGroup, FragOrdersThreat } from '../../types';
 import { getConfidenceClass } from '../../types';
 import { useUiStore } from '../../stores/uiStore';
-import { isHiddenByAuthor, isThreatVisible, probableThreats } from '../../lib/threatVisibility';
+import { importFlagsOf, importThreatView, isHiddenByAuthor } from '../../lib/threatVisibility';
 import { useIsPhone } from '../../hooks/useIsPhone';
 import { formatCallsign } from '../../lib/callsign';
 
 /** A flight is four jets at most: the import keeps the first four of a group (`importFromFragOrders`). */
 const IMPORTED_JETS = 4;
 
-/** The importer's snake_case flags, in the shape the visibility rule reads. */
-const flagsOf = (threat: FragOrdersThreat) => ({
-  hiddenOnPlanner: threat.hidden_on_planner,
-  hiddenOnMap: threat.hidden_on_map,
-});
+/** Only a threat the planner has revealed in ⚙ Settings → Admin is listed while carrying a flag, so only it is tagged. */
+const revealedTag = (threat: FragOrdersThreat) => isHiddenByAuthor(importFlagsOf(threat));
 
 interface FragOrdersPreviewProps {
   data: FragOrdersData;
@@ -27,18 +24,11 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
 
   const selectedGroup = data.player_groups[selectedGroupIndex];
   const reveal = useUiStore((state) => state.revealHidden);
-  // Threats the mission author hid are left out of the list unless revealed in
-  // ⚙ Settings → Admin, and summarised by system instead, with no positions.
-  const shownThreats = data.threats.filter((t) => isThreatVisible(flagsOf(t), reveal));
-  const hiddenCount = data.threats.length - shownThreats.length;
-  const probable = probableThreats(
-    data.threats.flatMap((t) => (t.system_name ? [{ ...flagsOf(t), name: t.system_name }] : [])),
-    reveal,
-    (t) => t.name,
-  );
-  const knownThreats = shownThreats.filter((t) => t.system_id !== null);
-  const shownUnknownCount = shownThreats.length - knownThreats.length;
-  const unknownThreats = data.threats.filter((t) => t.system_id === null);
+  // Threats the mission author hid are left out unless revealed in ⚙ Settings →
+  // Admin: not listed, not counted, not mentioned in any warning or line.
+  const threatView = importThreatView(data, reveal);
+  const shownThreats = threatView.shown;
+  const warningCount = data.warnings.length + (threatView.unidentified > 0 ? 1 : 0);
 
   return (
     <div className="space-y-4">
@@ -58,23 +48,18 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
 
       {/* Anything the importer could not place, plus threats that will be
           dropped for want of a database row. Both used to vanish silently. */}
-      {(data.warnings.length > 0 || unknownThreats.length > 0) && (
+      {warningCount > 0 && (
         <div className="rounded-lg border border-amber-500/60 bg-amber-950/60 px-4 py-3">
           <p className="text-sm font-semibold text-amber-200">
-            {data.warnings.length + (unknownThreats.length > 0 ? 1 : 0)} import
-            {data.warnings.length + (unknownThreats.length > 0 ? 1 : 0) === 1
-              ? ' warning'
-              : ' warnings'}
+            {warningCount} import{warningCount === 1 ? ' warning' : ' warnings'}
           </p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-amber-100/90">
-            {unknownThreats.length > 0 && (
+            {threatView.unidentified > 0 && (
               <li>
-                {unknownThreats.length} threat
-                {unknownThreats.length === 1 ? '' : 's'} could not be matched to a
+                {threatView.unidentified} threat
+                {threatView.unidentified === 1 ? '' : 's'} could not be matched to a
                 database entry and will not be imported:{' '}
-                <span className="font-mono">
-                  {[...new Set(unknownThreats.map((t) => t.unit_type))].join(', ')}
-                </span>
+                <span className="font-mono">{threatView.unmatchedTypes.join(', ')}</span>
               </li>
             )}
             {data.warnings.map((w, i) => (
@@ -141,19 +126,14 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
       <div className="bg-dcs-dark rounded-lg p-4">
         <h3 className="font-medium mb-3">
           Threats ({shownThreats.length})
-          {knownThreats.length > 0 && (
+          {threatView.identified > 0 && (
             <span className="text-green-400 text-sm ml-2">
-              {knownThreats.length} identified
+              {threatView.identified} identified
             </span>
           )}
-          {shownUnknownCount > 0 && (
+          {threatView.unidentified > 0 && (
             <span className="text-yellow-400 text-sm ml-2">
-              {shownUnknownCount} unknown
-            </span>
-          )}
-          {hiddenCount > 0 && (
-            <span className="text-purple-400 text-sm ml-2">
-              {hiddenCount} hidden by the mission author
+              {threatView.unidentified} unknown
             </span>
           )}
         </h3>
@@ -170,7 +150,7 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
                   <span className={`shrink-0 text-sm ${getConfidenceClass(threat.confidence)}`}>{threat.confidence}</span>
                 </div>
                 <p className="font-mono text-xs text-gray-400 break-all">{threat.unit_type}</p>
-                {isHiddenByAuthor(flagsOf(threat)) && <p className="text-purple-400 text-xs">hidden by author</p>}
+                {revealedTag(threat) && <p className="text-purple-400 text-xs">hidden by author</p>}
               </li>
             ))}
             {shownThreats.length > 20 && (
@@ -195,7 +175,7 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
                       {threat.system_name || (
                         <span className="text-gray-500 italic">Unknown</span>
                       )}
-                      {isHiddenByAuthor(flagsOf(threat)) && (
+                      {revealedTag(threat) && (
                         <span className="text-purple-400 text-xs ml-2">hidden by author</span>
                       )}
                     </td>
@@ -214,28 +194,17 @@ export function FragOrdersPreview({ data, onBack, onImport }: FragOrdersPreviewP
               </tbody>
             </table>
           </div>
-        ) : hiddenCount === 0 && data.notices.length === 0 ? (
+        ) : threatView.noneDetected ? (
           <p className="text-gray-400 text-sm">No threats detected in mission.</p>
         ) : null}
 
         {/* Information, not a warning: a public link carries what its
             publisher chose to share. */}
-        {data.notices.map((notice, i) => (
+        {threatView.notices.map((notice, i) => (
           <p key={i} className="text-sky-300 text-sm">
             {notice}
           </p>
         ))}
-
-        {probable.length > 0 && (
-          <div className="mt-3 text-sm">
-            <p className="text-purple-300">
-              Probable threats, location unknown. These import without positions:
-            </p>
-            <p className="text-gray-300 mt-1">
-              {probable.map((p) => `${p.key} ×${p.count}`).join(', ')}
-            </p>
-          </div>
-        )}
       </div>
 
       {/* Trigger Zones */}

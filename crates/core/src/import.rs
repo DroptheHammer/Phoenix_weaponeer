@@ -37,9 +37,11 @@ pub fn import_json(json_str: &str, data: &RefData) -> Result<ProcessedFragOrders
 /// payload goes through, plus what only the manifest can say.
 pub fn import_link(link: LinkPayload, data: &RefData) -> Result<ProcessedFragOrdersData, String> {
     let mut imported = process_tasking_state(&link.bundle_json, data)?;
-    if link.show_groups == Some(false) && imported.threats.is_empty() {
+    if link.show_groups == Some(false) && shows_no_threat(&imported.threats) {
         // Say why, rather than the generic "no air defences" line: the
-        // publisher's choice is the one cause we can actually see.
+        // publisher's choice is the one cause we can actually see. Hidden
+        // threats count as none, as they do for the generic line, so the
+        // notice cannot tell a planner they are there.
         imported.notices = vec![
             "This link doesn't include enemy ground units: the publisher left them \
              out. Add known threats by hand if you have them."
@@ -51,6 +53,13 @@ pub fn import_link(link: LinkPayload, data: &RefData) -> Result<ProcessedFragOrd
         link: link.link,
     });
     Ok(imported)
+}
+
+/// True when no threat came through that the mission author left unhidden:
+/// none at all, or every one hidden by either flag. The link notices use it,
+/// so a link whose threats are all hidden reads exactly like one with none.
+fn shows_no_threat(threats: &[ProcessedThreat]) -> bool {
+    threats.iter().all(|t| t.hidden_on_planner || t.hidden_on_map)
 }
 
 /// The theater's projection, or a plain error for a map we can't place.
@@ -151,17 +160,16 @@ pub fn process_fragorders_json(
                     for unit in &group.units {
                         if let Some(unit_type) = &unit.unit_type {
                             if parsers::is_threat_unit(unit_type) {
-                                if let Some(mut threat) = process_threat_unit(
+                                if let Some(threat) = process_threat_unit(
                                     &group_name,
                                     unit.name.as_deref(),
                                     (unit.x, unit.y),
                                     unit_type,
+                                    (hidden_on_planner, hidden_on_map),
                                     theater_params,
                                     db,
                                     &mut warnings,
                                 ) {
-                                    threat.hidden_on_planner = hidden_on_planner;
-                                    threat.hidden_on_map = hidden_on_map;
                                     threats.push(threat);
                                 }
                             }
@@ -299,17 +307,16 @@ pub fn process_tasking_state(
             if !parsers::is_threat_unit(unit_type) {
                 continue;
             }
-            if let Some(mut threat) = process_threat_unit(
+            if let Some(threat) = process_threat_unit(
                 &group_name,
                 unit.name.as_deref(),
                 (unit.x, unit.y),
                 unit_type,
+                (hidden_on_planner, hidden_on_map),
                 theater_params,
                 db,
                 &mut warnings,
             ) {
-                threat.hidden_on_planner = hidden_on_planner;
-                threat.hidden_on_map = hidden_on_map;
                 threats.push(threat);
             }
         }
@@ -317,7 +324,11 @@ pub fn process_tasking_state(
     let threats = deduplicate_threats(threats);
 
     // Information, not a warning: the link carries what its publisher chose.
-    let notices = if threats.is_empty() {
+    // Threats the mission author hid count as none here, so a link whose every
+    // threat is hidden previews exactly like one with none. The preview shows
+    // the notice only while it lists no threat, so a planner who reveals them
+    // in Settings sees them and no notice, as before.
+    let notices = if shows_no_threat(&threats) {
         vec!["This link shows no enemy air defences. The mission may have none, \
               or its publisher chose not to share them."
             .to_string()]
@@ -475,12 +486,15 @@ fn convert_route(
         .collect()
 }
 
-/// Process a threat unit into output format
+/// Process a threat unit into output format. The hide flags are its group's
+/// (the mission author sets them per group).
+#[allow(clippy::too_many_arguments)]
 fn process_threat_unit(
     group_name: &str,
     unit_name: Option<&str>,
     (x, y): (f64, f64),
     unit_type: &str,
+    (hidden_on_planner, hidden_on_map): (bool, bool),
     params: &parsers::TheaterCoordParams,
     db: &RefData,
     warnings: &mut Vec<String>,
@@ -489,6 +503,9 @@ fn process_threat_unit(
     // threats in the Gulf of Guinea instead of reporting the failure.
     let (lat, lon) = match dcs_to_latlon(x, y, params) {
         Ok(coords) => coords,
+        // A threat the mission author hid is dropped without a word: the
+        // warning would name it, and tell the planner it was there.
+        Err(_) if hidden_on_planner || hidden_on_map => return None,
         Err(e) => {
             warnings.push(format!(
                 "Dropped threat {} in group {:?} ({}): {}",
@@ -527,9 +544,8 @@ fn process_threat_unit(
         system_id,
         system_name,
         confidence,
-        // Set by the caller, from the group's flags.
-        hidden_on_planner: false,
-        hidden_on_map: false,
+        hidden_on_planner,
+        hidden_on_map,
     })
 }
 
@@ -956,7 +972,7 @@ mod tests {
 
     /// Sinai M01's author hid every red ground group, with all three DCS flags
     /// set. Every threat must carry both flags we read, so the planner shows
-    /// the laydown only as probable threats.
+    /// none of the laydown, and says nothing of it, unless it is revealed.
     #[test]
     fn sinai_v7_threats_carry_the_authors_hide_flags() {
         let json = crate::private_fixture!("sinai_m01_v7.json");
@@ -1167,6 +1183,69 @@ mod tests {
         assert_eq!(flags("Hidden SA-6"), (true, true));
         assert_eq!(flags("Map-only SA-6"), (true, false));
         assert_eq!(flags("Visible SA-8"), (false, false));
+        assert!(data.notices.is_empty(), "a visible threat came through: no notice");
+    }
+
+    /// A link whose every threat the author hid carries the same notice as a
+    /// link with none, so the import preview cannot tell a planner that hidden
+    /// threats are there (it shows the notice only while it lists no threat).
+    /// Mutation proof (seen red 2026-11-16): the notice's condition back to
+    /// `threats.is_empty()` fails with
+    ///   panicked at src/import.rs: all hidden reads as none: []
+    #[test]
+    fn a_link_whose_threats_are_all_hidden_reads_like_one_with_none() {
+        let json = r#"{
+            "theater": "NEVADA",
+            "bullseye": {"x": -400000, "y": -20000},
+            "plannedGroups": [],
+            "opforVehicles": [
+                {"name": "Hidden SA-6", "category": "vehicle", "hidden": true, "hiddenOnPlanner": true,
+                 "units": [{"name": "h-1", "type": "Kub 2P25 ln", "x": -300000, "y": -50000}]},
+                {"name": "Map-only SA-6", "category": "vehicle", "hidden": true,
+                 "units": [{"name": "m-1", "type": "Kub 2P25 ln", "x": -320000, "y": -50000}]},
+                {"name": "Planner-only SA-8", "category": "vehicle", "hidden": false, "hiddenOnPlanner": true,
+                 "units": [{"name": "p-1", "type": "Osa 9A33 ln", "x": -340000, "y": -50000}]}
+            ]
+        }"#;
+        let empty = r#"{"theater": "NEVADA", "bullseye": {"x": -400000, "y": -20000}, "plannedGroups": [], "opforVehicles": []}"#;
+        let db = crate::refdata::reference();
+        let hidden = process_tasking_state(json, &db).expect("should import");
+        let none = process_tasking_state(empty, &db).expect("should import");
+        assert_eq!(hidden.threats.len(), 3, "the hidden threats still import, flags and all");
+        assert!(!none.notices.is_empty(), "a link with no threats has its notice");
+        assert!(hidden.notices == none.notices, "all hidden reads as none: {:?}", hidden.notices);
+    }
+
+    /// A threat whose position cannot be converted is dropped with a warning
+    /// that names it, unless the mission author hid it: then it goes without
+    /// a word, so the warning cannot tell a planner it was there.
+    /// Mutation proof (seen red 2026-11-16): the hidden arm of the match
+    /// removed fails with
+    ///   hidden (true, false) drops silently: ["Dropped threat Kub 2P25 ln in group \"SA-6 site\" (u-1): Cannot convert DCS (NaN, 0) on Nevada"]
+    #[test]
+    fn an_unconvertible_hidden_threat_is_dropped_without_a_warning() {
+        let params = get_theater_params("NEVADA").expect("Nevada is known");
+        let db = crate::refdata::reference();
+        let drop = |hidden: (bool, bool)| {
+            let mut warnings = Vec::new();
+            let threat = process_threat_unit(
+                "SA-6 site",
+                Some("u-1"),
+                (f64::NAN, 0.0),
+                "Kub 2P25 ln",
+                hidden,
+                params,
+                db,
+                &mut warnings,
+            );
+            assert!(threat.is_none(), "an unconvertible position is never placed");
+            warnings
+        };
+        assert_eq!(drop((false, false)).len(), 1, "a visible threat's drop is reported");
+        for hidden in [(true, false), (false, true), (true, true)] {
+            let warnings = drop(hidden);
+            assert!(warnings.is_empty(), "hidden {hidden:?} drops silently: {warnings:?}");
+        }
     }
 
     #[test]
@@ -1551,5 +1630,29 @@ mod tests {
 
         let data = import_link(link(Some(true)), crate::refdata::reference()).expect("imports");
         assert!(data.notices[0].contains("no enemy air defences"), "{:?}", data.notices);
+
+        // A link with groups turned off that still carried only hidden ones
+        // gets the same "left them out" line, so it cannot tell a planner
+        // hidden threats are there.
+        // Mutation proof (seen red 2026-11-16): the condition back to
+        // `imported.threats.is_empty()` fails with
+        //   hidden only reads as left out: ["This link shows no enemy air defences. The mission may have none, or its publisher chose not to share them."]
+        let hidden_only = LinkPayload {
+            bundle_json: r#"{
+                "theater": "NEVADA",
+                "bullseye": {"x": -400000, "y": -20000},
+                "plannedGroups": [],
+                "opforVehicles": [
+                    {"name": "Hidden SA-6", "category": "vehicle", "hidden": true, "hiddenOnPlanner": true,
+                     "units": [{"name": "h-1", "type": "Kub 2P25 ln", "x": -300000, "y": -50000}]}
+                ]
+            }"#
+            .into(),
+            ..link(Some(false))
+        };
+        let data = import_link(hidden_only, crate::refdata::reference()).expect("imports");
+        assert_eq!(data.threats.len(), 1, "the hidden threat still imports");
+        let left_out = import_link(link(Some(false)), crate::refdata::reference()).expect("imports");
+        assert!(data.notices == left_out.notices, "hidden only reads as left out: {:?}", data.notices);
     }
 }

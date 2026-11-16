@@ -301,7 +301,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       threats,
       flightMembers,
       attacks: [],
-      notes: importNotes(data, group, threats.length),
+      notes: importNotes(data, group),
       createdAt: now,
       updatedAt: now,
     };

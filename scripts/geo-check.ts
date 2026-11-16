@@ -120,7 +120,7 @@ import { KEPT_FROM_DAY, CONTRAST_FLOOR, VISIONS, ruleFor, nightRule, nvgRule, co
 import { buildKneeboardCard } from '../src/lib/buildKneeboardCard';
 import { groupAttacksByAircraft, aircraftFolderInfo, claimFilename } from '../src/lib/kneeboardExportPlan';
 import { validateMission } from '../src/lib/validateMission';
-import { isThreatVisible, visibleMission, probableThreats, hiddenCounts, type HideFlags } from '../src/lib/threatVisibility';
+import { isThreatVisible, visibleMission, threatListView, importThreatView } from '../src/lib/threatVisibility';
 import { escapeHtml } from '../src/lib/html';
 import { runAttackChecks, hasErrors, noDataNote } from '../src/lib/attackChecks';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -1846,16 +1846,100 @@ ok('visibleMission: keeps only the unhidden mission threat and the planning thre
    hvVisibleIds.threats.map((t) => t.id).join() === 'v1,p1', hvVisibleIds.threats.map((t) => t.id).join());
 ok('visibleMission: returns the same object when nothing is hidden (memo-safe)',
    visibleMission(hvMission as never, revealBoth) === (hvMission as never));
-const hvKeyed = hvThreats as (HideFlags & { systemId: string })[];
-const probableNone = probableThreats(hvKeyed, revealNone, (t) => t.systemId);
-ok('probableThreats: counts hidden threats by system, most numerous first',
-   JSON.stringify(probableNone) === JSON.stringify([{ key: 'sa6', count: 2 }, { key: 'sa8', count: 1 }]), JSON.stringify(probableNone));
-ok('probableThreats: carries no positions, only a key and a count',
-   probableNone.every((p) => Object.keys(p).sort().join() === 'count,key'));
-ok('probableThreats: empty once everything is revealed',
-   probableThreats(hvKeyed, revealBoth, (t) => t.systemId).length === 0);
-ok('hiddenCounts: per flag, and both ways',
-   JSON.stringify(hiddenCounts(hvThreats)) === JSON.stringify({ onPlanner: 2, onMap: 3, both: 2 }), JSON.stringify(hiddenCounts(hvThreats)));
+// With nothing revealed, the planner says nothing about threats the author hid:
+// not that they exist, not how many, not what kind. What the threat list and
+// the import preview compute for display is worked out in two pure functions,
+// checked here against a mission whose threats are all hidden (each flag on its
+// own, and both), with an unmatched unit type among them.
+type HvThreat = { id: string; systemId: string; position: { lat: number; lon: number }; status: string; source: 'mission' | 'planning'; hiddenOnPlanner?: boolean; hiddenOnMap?: boolean };
+const hvAllHidden = hvThreats.filter((t) => t.hiddenOnPlanner || t.hiddenOnMap) as HvThreat[];
+const hvLinkNotice = 'This link shows no enemy air defences. The mission may have none, or its publisher chose not to share them.';
+const hvImport = (unit_type: string, system_id: string | null, hidden_on_planner: boolean, hidden_on_map: boolean) =>
+  ({ unit_type, group_name: `${unit_type} group`, position: { lat: 31, lon: 34 }, system_id, system_name: system_id, confidence: 'High' as const, hidden_on_planner, hidden_on_map });
+const hvImportHidden = [
+  hvImport('Kub 2P25 ln', 'sa6', true, true),
+  hvImport('Osa 9A33 ln', 'sa8', true, false),
+  hvImport('Strela-1 9P31', 'sa9', false, true),
+  hvImport('Mystery launcher', null, false, true),
+];
+const hvImportVisible = [hvImport('ZSU-23-4 Shilka', 'zsu234', false, false), hvImport('Odd truck', null, false, false)];
+// A word that tells a planner something is hidden, in any display string the views carry. The hide
+// flags on a listed row are data, not words (a listed row that carries one was revealed), so they are left out.
+const hvHintWord = /hidden|probable|location unknown|author|withheld/i;
+const hvFlagKeys = new Set(['hiddenOnPlanner', 'hiddenOnMap', 'hidden_on_planner', 'hidden_on_map']);
+const hvSaysNothing = (view: unknown, hiddenMarks: string[]) => {
+  const text = JSON.stringify(view, (key, value) => (hvFlagKeys.has(key) ? undefined : value));
+  return !hvHintWord.test(text) && hiddenMarks.every((mark) => !text.includes(mark));
+};
+
+// (a) All hidden, nothing revealed: the list and the preview read exactly as for
+// a mission with no threats at all, carry no hidden threat, and no hinting word.
+// Mutation proof (seen red 2026-11-16): threatListView's summary counts `threats.length` instead of the shown ones:
+//   FAIL hidden threats (a): with nothing revealed the threat list reads as for no threats at all … "summary":"3 threats (0 from mission, 0 planning)"
+// and importThreatView's `noneDetected` from `data.threats.length === 0` instead of the shown ones:
+//   FAIL hidden threats (a): with nothing revealed the import preview reads as for no threats at all (CLI and link) … "noneDetected":false
+{
+  const list = threatListView(hvAllHidden, revealNone);
+  ok('hidden threats (a): with nothing revealed the threat list reads as for no threats at all, and carries none of them',
+     JSON.stringify(list) === JSON.stringify(threatListView([] as HvThreat[], revealNone)) && list.empty
+       && list.summary === '0 threats (0 from mission, 0 planning)' && hvSaysNothing(list, hvAllHidden.map((t) => t.id)),
+     JSON.stringify(list));
+  const cli = importThreatView({ threats: hvImportHidden, notices: [] }, revealNone);
+  const link = importThreatView({ threats: hvImportHidden, notices: [hvLinkNotice] }, revealNone);
+  const hiddenMarks = hvImportHidden.flatMap((t) => [t.unit_type, t.group_name]);
+  ok('hidden threats (a): with nothing revealed the import preview reads as for no threats at all (CLI and link)',
+     JSON.stringify(cli) === JSON.stringify(importThreatView({ threats: [], notices: [] }, revealNone))
+       && JSON.stringify(link) === JSON.stringify(importThreatView({ threats: [], notices: [hvLinkNotice] }, revealNone))
+       && cli.noneDetected && cli.shown.length === 0 && cli.identified === 0 && cli.unidentified === 0 && cli.unmatchedTypes.length === 0
+       && hvSaysNothing(cli, hiddenMarks) && hvSaysNothing(link, hiddenMarks),
+     `${JSON.stringify(cli)} / ${JSON.stringify(link)}`);
+}
+
+// (b) Each Admin switch shows its own kind fully, as before: listed, counted,
+// identified or not, in the warning if unmatched; a threat hidden both ways
+// needs both switches.
+// Mutation proof (seen red 2026-11-16): importThreatView's filter reads `isThreatVisible(importFlagsOf(threat), { onPlanner: false, onMap: false })`
+// (the reveal ignored):
+//   FAIL hidden threats (b): each switch shows its own kind in the import preview, fully … planner: 0 shown
+// and importThreatView's `notices` always `data.notices` (the notice kept beside revealed threats):
+//   FAIL hidden threats (b): each switch shows its own kind in the import preview, fully … "notices":["This link shows no enemy air defences. …"]
+{
+  const ids = (view: { fromMission: HvThreat[]; planning: HvThreat[] }) => [...view.fromMission, ...view.planning].map((t) => t.id).join();
+  const listPlanner = threatListView(hvAllHidden, revealPlanner);
+  const listMap = threatListView(hvAllHidden, revealMap);
+  const listBoth = threatListView(hvAllHidden, revealBoth);
+  ok('hidden threats (b): each switch shows its own kind in the threat list, fully, and both show all',
+     ids(listPlanner) === '' && ids(listMap) === 'h3' && ids(listBoth) === 'h1,h2,h3'
+       && listMap.summary === '1 threats (1 from mission, 0 planning)' && listBoth.summary === '3 threats (3 from mission, 0 planning)' && !listBoth.empty,
+     `planner: ${ids(listPlanner)}; map: ${ids(listMap)} ${listMap.summary}; both: ${ids(listBoth)} ${listBoth.summary}`);
+  const prev = (reveal: typeof revealNone) => importThreatView({ threats: hvImportHidden, notices: [hvLinkNotice] }, reveal);
+  const pPlanner = prev(revealPlanner);
+  const pMap = prev(revealMap);
+  const pBoth = prev(revealBoth);
+  const types = (v: { shown: { unit_type: string }[] }) => v.shown.map((t) => t.unit_type).join();
+  ok('hidden threats (b): each switch shows its own kind in the import preview, fully, and both show all',
+     types(pPlanner) === 'Osa 9A33 ln' && pPlanner.identified === 1 && pPlanner.unidentified === 0
+       && types(pMap) === 'Strela-1 9P31,Mystery launcher' && pMap.identified === 1 && pMap.unidentified === 1 && pMap.unmatchedTypes.join() === 'Mystery launcher'
+       && pBoth.shown.length === 4 && pBoth.identified === 3 && pBoth.unidentified === 1
+       && [pPlanner, pMap, pBoth].every((v) => v.notices.length === 0 && !v.noneDetected),
+     `planner: ${pPlanner.shown.length} shown ${JSON.stringify(pPlanner)}; map: ${JSON.stringify(pMap)}; both: ${JSON.stringify(pBoth)}`);
+}
+
+// (c) The totals a planner sees count only what he can see: a mission with
+// hidden threats among visible ones.
+// Mutation proof (seen red 2026-11-16): importThreatView's unmatched list from `data.threats` instead of the shown ones:
+//   FAIL hidden threats (c): the import preview's figures and its warning count only the threats shown … "unidentified":2,"unmatchedTypes":["Odd truck","Mystery launcher"]
+// (the threat list's summary mutation in (a) turns this check's first half red too: "5 threats (1 from mission, 1 planning)").
+{
+  const list = threatListView(hvThreats as HvThreat[], revealNone);
+  ok('hidden threats (c): the threat list counts only the threats shown',
+     list.summary === '2 threats (1 from mission, 1 planning)' && hvSaysNothing(list, ['h1', 'h2', 'h3']), JSON.stringify(list));
+  const mixed = importThreatView({ threats: [...hvImportVisible, ...hvImportHidden], notices: [] }, revealNone);
+  ok('hidden threats (c): the import preview\'s figures and its warning count only the threats shown',
+     mixed.shown.length === 2 && mixed.identified === 1 && mixed.unidentified === 1 && mixed.unmatchedTypes.join() === 'Odd truck'
+       && mixed.notices.length === 0 && !mixed.noneDetected && hvSaysNothing(mixed, hvImportHidden.map((t) => t.unit_type)),
+     JSON.stringify(mixed));
+}
 
 // The leak guard: a hidden SAM 2.6 nm east of a target, run-in heading north,
 // sits on the right. Threat-aware geometry must stop seeing it once it reads
@@ -1873,25 +1957,61 @@ ok('validateMission: a non-boolean hide flag is rejected',
    !validateMission({ ...goodMission, threats: [{ ...goodMission.threats[0], hiddenOnMap: 'yes' }] }).ok);
 ok('validateMission: boolean hide flags pass',
    validateMission({ ...goodMission, threats: [{ ...goodMission.threats[0], hiddenOnPlanner: true, hiddenOnMap: false }] }).ok);
+// A rejected file's message numbers threats as the planner's list does, and
+// never by number for one the author hid, so it cannot count them.
+// Mutation seen red: entries() numbering every item (the `unnumbered` test
+// dropped) gives "threats entry 5 is not an object (got 3) | Threat 1: … |
+// Threat 2: … | Threat 4: …".
+{
+  const goodThreat = goodMission.threats[0];
+  const check = validateMission({
+    ...goodMission,
+    threats: [
+      { ...goodThreat, systemId: 7, hiddenOnPlanner: true },
+      { ...goodThreat, systemId: 7, hiddenOnMap: true },
+      goodThreat,
+      { ...goodThreat, systemId: 7 },
+      3,
+    ],
+  });
+  const problems = check.ok ? [] : check.problems;
+  ok('validateMission: a hidden threat is never named by number, and the shown ones number as the list does',
+     problems.join(' | ') === 'threats entry 3 is not an object (got 3) | A threat: systemId must be text (got 7) | A threat: systemId must be text (got 7) | Threat 2: systemId must be text (got 7)',
+     problems.join(' | '));
+}
 
 // ---------------------------------------------------------------------------
 // Import notes: a link import records where it came from; a CLI import reads
 // exactly as it always has.
 // ---------------------------------------------------------------------------
 const notesGroup = { name: 'Barak', callsign: 'Springfield11', aircraft_type: 'F-16C_50', units: [], waypoints: [] };
-const notesData = { threats: [{}, {}, {}], source: null };
+const notesThreat = (system_id: string | null, hidden_on_planner = false, hidden_on_map = false) =>
+  ({ system_id, hidden_on_planner, hidden_on_map });
+const notesData = { threats: [notesThreat('sa6'), notesThreat('zsu23'), notesThreat(null)], source: null };
 ok('importNotes: a CLI import is unchanged',
-   importNotes(notesData as never, notesGroup, 2) === 'Imported from FragOrders\nAircraft: F-16C_50\nThreats detected: 3 (2 identified)',
-   importNotes(notesData as never, notesGroup, 2));
+   importNotes(notesData as never, notesGroup) === 'Imported from FragOrders\nAircraft: F-16C_50\nThreats detected: 3 (2 identified)',
+   importNotes(notesData as never, notesGroup));
 const linkNotes = importNotes(
   { ...notesData, source: { title: 'Sinai M01 V7', link: 'https://fragorders.com/public_frag_order/ExampleLinkId0000004' } } as never,
-  notesGroup, 2);
+  notesGroup);
 ok('importNotes: a link import names the frag order and keeps its link',
    linkNotes.startsWith('Imported from FragOrders link: Sinai M01 V7\nhttps://fragorders.com/public_frag_order/ExampleLinkId0000004\n')
      && linkNotes.endsWith('Aircraft: F-16C_50\nThreats detected: 3 (2 identified)'),
    linkNotes);
 ok('importNotes: an untitled frag order still says so',
-   importNotes({ ...notesData, source: { title: null, link: 'L' } } as never, notesGroup, 0).startsWith('Imported from FragOrders link: untitled mission\nL\n'));
+   importNotes({ ...notesData, source: { title: null, link: 'L' } } as never, notesGroup).startsWith('Imported from FragOrders link: untitled mission\nL\n'));
+// The note is saved and goes into the brief pack, so it must read exactly as
+// it would for the same mission with the hidden threats never there.
+// Mutation seen red: count data.threats instead of the unhidden ones (and the
+// identified count from all threats with a system) gives
+// "Threats detected: 6 (4 identified)".
+const notesWithHidden = {
+  ...notesData,
+  threats: [...notesData.threats, notesThreat('sa10', true), notesThreat('sa11', false, true), notesThreat(null, true, true)],
+};
+ok('importNotes: threats the mission author hid are not counted, either flag',
+   importNotes(notesWithHidden as never, notesGroup) === importNotes(notesData as never, notesGroup),
+   importNotes(notesWithHidden as never, notesGroup));
 
 // ---------------------------------------------------------------------------
 // Moving the IP on a customized attack re-derives its headings. The live

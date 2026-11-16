@@ -227,6 +227,17 @@ waypoint list on 2026-10-03).
 ## Shipped
 
 ### Unreleased (0.4.0 branch)
+- **Hidden threats are not mentioned** (2026-11-16, the user's decision). With
+  nothing switched on in ⚙ Settings → Admin, the planner says nothing about
+  threats the mission author hid: the threat list's "Probable Threats —
+  location unknown" block and the import preview's "probable threats" line
+  and "hidden by the mission author" count are gone, every total counts only
+  what is shown, and the Admin switches no longer say how many the mission
+  holds. A revealed threat shows exactly as before. The note a new import
+  saves ("Threats detected: N"), which goes into the mission file and the
+  brief pack, counts only the threats nobody hid; missions saved before keep
+  their old note. Import warnings and a rejected file's error message no
+  longer name or number a hidden threat either.
 - **The frag warning follows DCS** (2026-11-16, the user's decision of
   2026-11-15). A strike is now warned when another jet is inside a bomb's
   blast radius at the moment it goes off, in 3D, distance only, with a radius

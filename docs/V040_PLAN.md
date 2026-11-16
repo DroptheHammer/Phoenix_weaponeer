@@ -74,8 +74,8 @@ after 0.3.4 was published; every decision in the table below is theirs.
     basemap / tile code in `src/lib/kneeboardBasemap.ts`.
   - **Hidden threats stay hidden** (`src/lib/threatVisibility.ts`).
 - **Mission summary:**
-  - Shows theater, targets, visible threats (plus the "probable threats,
-    location unknown" count), flights and loadouts, and attack readiness.
+  - Shows theater, targets, visible threats (nothing about threats the
+    author hid, not even a count), flights and loadouts, and attack readiness.
   - One button goes to the map.
   - It never edits imported waypoints.
 - Create New Mission and Strike near me (web) stay as secondary actions.
