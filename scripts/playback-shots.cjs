@@ -3825,10 +3825,288 @@ async function checkGoneFromList(browser, base) {
   await context.close();
 }
 
+// ── The frag warning's chrome follows the rule the strike is warned by: blast distance or spacing in time.
+
+/**
+ * What the footer's first line says, as drawn: the all-clear (its text and tooltip), each warning (its text and
+ * tooltip), the "(+n more)" button, and how many swatches of the time bar's stripes open the line.
+ */
+const footerState = (page) => page.evaluate(() => {
+  const dlg = document.querySelector('[role="dialog"]');
+  const ok = dlg.querySelector('[data-footer-ok]');
+  const more = [...dlg.querySelectorAll('button')].find((b) => /^\(\+\d+ more\)$/.test((b.textContent || '').trim()));
+  return {
+    ok: ok ? { text: (ok.textContent || '').trim(), title: ok.getAttribute('title') } : null,
+    warns: [...dlg.querySelectorAll('[data-footer-warning]')].map((w) => ({ text: (w.textContent || '').trim(), title: w.getAttribute('title') })),
+    more: more ? (more.textContent || '').trim() : null,
+    keys: dlg.querySelectorAll('[data-hatch-key]').length,
+  };
+});
+/** The time bar's stripes as drawn: each one's left and right edge, width and background, page pixels. */
+const barStripeBoxes = (page) => page.$$eval('[role="dialog"] [data-conflict]', (els) => els.map((e) => {
+  const b = e.getBoundingClientRect();
+  return { l: b.left, r: b.right, t: b.top, b: b.bottom, w: b.width, bg: getComputedStyle(e).backgroundImage };
+}));
+/** Every lane's stripes as drawn (lanes in seat order): each one's key and box, page pixels. */
+const laneZoneBoxes = (page) => page.$$eval('[role="dialog"] [data-lane]', (lanes) => lanes.map((l) => ({
+  seat: Number(l.getAttribute('data-lane')),
+  zones: [...l.querySelectorAll('[data-zone]')].map((e) => {
+    const b = e.getBoundingClientRect();
+    return { key: e.getAttribute('data-zone'), l: b.left, r: b.right, t: b.top, b: b.bottom, w: b.width };
+  }),
+})));
+/** The tooltip on seat `n`'s diamond. */
+const handleTitleOf = (page, n) => handleOf(page, n).getAttribute('title');
+
+const WANT_OK_BURST = '✓ No blast or cone warnings at these times.';
+const WANT_OK_BURST_TITLE = "Checked: every jet's distance from every other jet's bomb at the moment it goes off (est.). Distance only: hills in the way are not counted.";
+const WANT_KEY_BURST = "Striped: a jet is inside another jet's blast radius when a bomb goes off (est.)";
+const WANT_STRIPES_BURST = "Stripes: times that would put it inside another jet's blast radius, or another jet inside its.";
+const WANT_HANDLE_PLAIN = "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s)";
+
+/**
+ * Check 70 (the four-ship, warned by blast radius): on the four-ship saved with the blast rule (every bomb a Mk-82,
+ * which the harness gives its 250 ft radius), nothing is inside any bomb's radius when it goes off, so the footer is
+ * the blast rule's all-clear word for word, with its tooltip, and there is no warning, no "(+n more)", no stripe on
+ * the time bar and no swatch; with #2's diamond held no lane has a stripe and the diamond's tooltip does not say
+ * what stripes are (it has none to show). The page says it plays by 'burst' and gives no conflict and no zone. (The
+ * chip over the picture does not exist yet, so there is none to look for.)
+ *
+ * Measured green 2026-11-16 at both sizes: the all-clear alone with its tooltip, 0 conflicts, 0 zones, 0 swatches, 0 stripes on
+ * the bar, 0 on any lane while #2's diamond was held at the start of the bar (the Mk-82's 250 ft radius is far from every
+ * other jet at every burst).
+ *
+ * Proven red 2026-11-16 by one temporary edit to src/lib/playback/timing.ts, retime reading the spacing rule whatever
+ * the playback's rule is (`const burst = pb.fragRule === 'burst' ? burstReadout(pb, delays) : undefined;` →
+ * `const burst = pb.fragRule === 'burst' && false ? burstReadout(pb, delays) : undefined;` and `strikeReadout(rj, pb.fragRule)` →
+ * `strikeReadout(rj, 'time')`):
+ *   STEP FAIL 70 the four-ship warned by blast radius is clean: … (1400x900-strike4) — rule burst; 2 conflicts, 0 zones; footer no all-clear (want "✓ No blast or cone warnings at these times."); 1 warnings (want 0), more "(+1 more)", swatches 1 (want 0), 2 stripes on the bar (want 0); #2 held: 0 lane stripes (want 0), diamond "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s)"
+ * (71 goes red with it: "⚠ #2 is over the target 12 s after #1, inside #1's ~35 s of frag (est.)".)
+ */
+async function checkFragBurstFour(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  await shot(page, `${tag}-70-burst`);
+  const rule = await pbEval(page, () => __pb.moments.rule);
+  const conflicts = await pbEval(page, () => __pb.moments.conflicts.length);
+  const zones = await pbEval(page, () => __pb.moments.zones.length);
+  const f = await footerState(page);
+  const bar = (await barStripeBoxes(page)).length;
+  const snap = await pbEval(page, () => __pb.snapshot());
+  // #2's diamond held: its lane has no stripe to show, and its tooltip does not say what stripes are.
+  await dragHandle(page, 2, snap.start, { hold: true, steps: 6 });
+  await settle(page, 300);
+  const held = await laneZoneBoxes(page);
+  const title = await handleTitleOf(page, 2);
+  await page.mouse.up();
+  await settle(page, 300);
+  await page.locator('[role="dialog"] [data-reset]').click();
+  await settle(page);
+  const heldZones = held.reduce((n, l) => n + l.zones.length, 0);
+  const ok = rule === 'burst' && conflicts === 0 && zones === 0 && !!f.ok && f.ok.text === WANT_OK_BURST && f.ok.title === WANT_OK_BURST_TITLE &&
+    f.warns.length === 0 && f.more === null && f.keys === 0 && bar === 0 && heldZones === 0 && title === WANT_HANDLE_PLAIN;
+  step(`70 the four-ship warned by blast radius is clean: the footer is the blast rule's all-clear, no warning, no swatch, no stripe on the bar or the lanes (${tag})`, ok,
+    `rule ${rule}; ${conflicts} conflicts, ${zones} zones; footer ${f.ok ? `${JSON.stringify(f.ok.text)} title ${JSON.stringify(f.ok.title)}` : 'no all-clear'} (want ${JSON.stringify(WANT_OK_BURST)}); ${f.warns.length} warnings (want 0), more ${JSON.stringify(f.more)}, swatches ${f.keys} (want 0), ${bar} stripes on the bar (want 0); #2 held: ${heldZones} lane stripes (want 0), diamond ${JSON.stringify(title)}`);
+}
+
+/**
+ * Check 70b (the four-ship, warned by spacing in time): on the same four-ship saved with the spacing rule the old picture
+ * is there word for word: the footer's warning is "#2 is over the target 10 s after #1, inside #1's ~30 s of frag (est.)"
+ * with "(+1 more)", the time bar carries the two stripes (each as wide as its own span: no narrowest width), the footer opens with
+ * the swatch whose tooltip is the spacing rule's words, and there is no all-clear. This is checks 13 and 34's picture, which
+ * now name the rule they run on.
+ *
+ * Measured green 2026-11-16: the warning and "(+1 more)", two stripes of 153.4 px and 230.0 px at 1400×900 (exactly their spans), one
+ * swatch, the diamond's sentence.
+ *
+ * Proven red 2026-11-16 by one temporary edit to src/lib/playback/timing.ts, retime always reading the blast rule (`const burst =
+ * pb.fragRule === 'burst' ? burstReadout(pb, delays) : undefined;` → `const burst = burstReadout(pb, delays);` and
+ * `strikeReadout(rj, pb.fragRule)` → `strikeReadout(rj, 'burst')`):
+ *   STEP FAIL 70b the four-ship warned by spacing in time keeps its old picture: … (1400x900-strike4) — rule time; footer no warning (want "⚠ #2 is over the target 10 s after #1, inside #1's ~30 s of frag (est.)"), more null, all-clear shown, swatches 0 titled null; 0 stripes  for 0 conflicts (spans ; each within 1.5 px true); #2's diamond "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s) Stripes: times that would put it inside another jet's frag."
+ * (13 goes red with it: "0 stripes for 0 conflicts"; the footer's key arm of 13 then waits out its 120 s limit.)
+ */
+async function checkFragTimeFour(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  const rule = await pbEval(page, () => __pb.moments.rule);
+  const f = await footerState(page);
+  const stripes = await barStripeBoxes(page);
+  const snap = await pbEval(page, () => __pb.snapshot());
+  const conflicts = await pbEval(page, () => __pb.moments.conflicts);
+  const bar = await page.locator('[role="dialog"] input[type="range"]').boundingBox();
+  const perSecond = (bar.width - 16) / (snap.end - snap.start);
+  // Each stripe is its own span exactly (the spacing rule's bands have no narrowest width).
+  const spanOk = stripes.length === conflicts.length && stripes.every((s, i) => Math.abs(s.w - (conflicts[i].t1_s - conflicts[i].t0_s) * perSecond) <= 1.5);
+  const wantWarn = "#2 is over the target 10 s after #1, inside #1's ~30 s of frag (est.)";
+  const wantKey = "Striped: a jet is over the target inside another jet's frag (est.)";
+  const k = await page.locator('[role="dialog"] [data-hatch-key]').first().getAttribute('title').catch(() => null);
+  // #2's lane has stripes to show, so its diamond's tooltip says what they are, in the spacing rule's words.
+  const title = await handleTitleOf(page, 2);
+  const wantTitle = `${WANT_HANDLE_PLAIN} Stripes: times that would put it inside another jet's frag.`;
+  const ok = rule === 'time' && f.ok === null && f.warns.length === 1 && f.warns[0].text === `⚠ ${wantWarn}` && f.warns[0].title === wantWarn &&
+    f.more === '(+1 more)' && f.keys === 1 && k === wantKey && stripes.length >= 1 && spanOk && title === wantTitle;
+  step(`70b the four-ship warned by spacing in time keeps its old picture: the warning and (+1 more), the stripes as wide as their spans, the swatch and the diamond's sentence (${tag})`, ok,
+    `rule ${rule}; footer ${f.warns.length ? JSON.stringify(f.warns[0].text) : 'no warning'} (want ${JSON.stringify(`⚠ ${wantWarn}`)}), more ${JSON.stringify(f.more)}, all-clear ${f.ok ? 'shown' : 'not shown'}, swatches ${f.keys} titled ${JSON.stringify(k)}; ${stripes.length} stripes ${stripes.map((s) => `${s.w.toFixed(1)} px`).join(' / ')} for ${conflicts.length} conflicts (spans ${conflicts.map((c) => `${((c.t1_s - c.t0_s) * perSecond).toFixed(1)} px`).join(' / ')}; each within 1.5 px ${spanOk}); #2's diamond ${JSON.stringify(title)}`);
+}
+
+/** The ridge pair's #2 time over target is typed into its box and the footer, bar and lane are read. */
+async function typeRidgeTime(page, text) {
+  await boxOf(page, 2).click();
+  await boxOf(page, 2).fill(text);
+  await settle(page, 400);
+}
+
+/**
+ * Check 71 (the ridge pair, warned by blast radius): the one place the blast rule warns. #1 dives on a ridge target and
+ * #2 on the flat TGT1, Mk-84s (the harness gives them their 360 ft radius), #2 over its target 11.9 s after #1, so
+ * #2's own track passes about 130 ft from #1's burst.
+ * - Opened: the footer's warning is exactly "⚠ #2 is 130 ft from #1's bomb when it goes off, inside its 360 ft blast
+ *   radius (est.)", with no "(+n more)"; the time bar has one stripe, at least 6 px wide, striped, centred within 2 px
+ *   of the place on the bar of 0.5 s after #1's time over target (the stripe covers the second from the burst) and
+ *   with amber pixels in it; the swatch opens the footer line with the blast rule's tooltip;
+ * - #2's time typed as 11.0 s (before the window): the footer is the all-clear and the bar has no stripe and the line
+ *   no swatch; as 11.46 s (just inside): "350 ft", never "360"; as 12.3 s: "320 ft"; as 12.4 s (just after the window):
+ *   the all-clear again;
+ * - Reset puts the plan's 11.9 s back, and the 130 ft line with it.
+ * The window and the distances are what the rule gives for this plan on the ballistic dive (the library says
+ * 11.4593 to 12.3429 s for #2; 130.4 ft at 11.9 s), measured in the library on the code as it is.
+ *
+ * Measured green 2026-11-16: at 1400×900 the bar's stripe is 9.1 px wide (its own span), centre 0.02 px from the half second, 16 amber
+ * pixels; at 1024×768 it is 6.0 px (its span alone is 5.7: the narrowest width binds), centre 0.01 px, 10 amber pixels. The footer
+ * lines are the words above at 11.9, 11.46 and 12.3 s and the all-clear at 11.0 and 12.4 s, at both sizes; Reset brings the 130 ft line back.
+ * (The bar's threshold is 5.99 px, not 6: the stripe's own span at 1024×768 is 5.7 px, so only a drawn minimum can pass it.)
+ *
+ * Proven red 2026-11-16 by one temporary edit to src/lib/playback/fragWords.ts, the warning's "blast radius" → "frag radius"
+ * (burstSentence):
+ *   STEP FAIL 71 the ridge pair warned by blast radius: … (1400x900-ridge) — rule burst; opened: footer "⚠ #2 is 130 ft from #1's bomb when it goes off, inside its 360 ft frag radius (est.)" (want "⚠ #2 is 130 ft from #1's bomb when it goes off, inside its 360 ft blast radius (est.)"), more null, swatch 1 first true titled "Striped: a jet is inside another jet's blast radius when a bomb goes off (est.)"; 1 stripes for 1 conflicts: 9.1 px wide (want ≥ 6), …
+ * and by bandBox's narrowest width taken out (lanes.ts: `max(${w}%, ${minPx}px)` → `${w}%`; red at 1024×768 only, where the span is shorter than 6 px):
+ *   STEP FAIL 71 the ridge pair warned by blast radius: … (1024x768-ridge) — …; 1 stripes for 1 conflicts: 5.7 px wide (want ≥ 6), centre 0.17 px from 0.5 s after #1's time (want ≤ 2), 10 amber pixels, …
+ */
+async function checkFragRidge(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  const snap = await pbEval(page, () => __pb.snapshot());
+  const input = await page.locator('[role="dialog"] input[type="range"]').boundingBox();
+  const at = (t) => input.x + 8 + (input.width - 16) * ((Math.min(Math.max(t, snap.start), snap.end) - snap.start) / (snap.end - snap.start));
+  const want = await pbEval(page, () => __pb.moments.conflicts);
+  const rule = await pbEval(page, () => __pb.moments.rule);
+  const img = await shot(page, `${tag}-71-ridge`);
+  const f0 = await footerState(page);
+  const s0 = await barStripeBoxes(page);
+  const wantWarn = "#2 is 130 ft from #1's bomb when it goes off, inside its 360 ft blast radius (est.)";
+  const keyTitle = await page.locator('[role="dialog"] [data-hatch-key]').first().getAttribute('title').catch(() => null);
+  const keyFirst = await page.locator('[role="dialog"] [data-hatch-key]').first().evaluate((e) => e.parentElement.firstElementChild === e).catch(() => false);
+  // The stripe: wide enough to see, centred on the half second after the burst, drawn in amber pixels.
+  const st = s0[0];
+  const centre = st ? (st.l + st.r) / 2 : NaN;
+  const dCentre = Math.abs(centre - at((want[0]?.t0_s ?? NaN) + 0.5));
+  let amber = 0;
+  if (st) for (let y = Math.ceil(st.t); y < st.b; y++) for (let x = Math.ceil(st.l); x < st.r; x++) if (img.at(x, y)[0] > 100 && img.at(x, y)[1] > 90 && img.at(x, y)[0] > img.at(x, y)[2] + 40) amber++;
+  const openedOk = rule === 'burst' && f0.ok === null && f0.warns.length === 1 && f0.warns[0].text === `⚠ ${wantWarn}` && f0.warns[0].title === wantWarn && f0.more === null &&
+    f0.keys === 1 && keyFirst && keyTitle === WANT_KEY_BURST && s0.length === 1 && want.length === 1 && st.w >= 5.99 && dCentre <= 2 && /repeating-linear-gradient/.test(st.bg) && amber >= 1;
+  // Moving #2's time through its box: clear before the window, the edges of it, clear after.
+  const read = async (text) => {
+    await typeRidgeTime(page, text);
+    return { f: await footerState(page), bar: (await barStripeBoxes(page)).length };
+  };
+  const a = await read('11');
+  const b = await read('11.46');
+  const c = await read('12.3');
+  const d = await read('12.4');
+  await page.keyboard.press('Enter');
+  const clearOk = (r) => !!r.f.ok && r.f.ok.text === WANT_OK_BURST && r.f.ok.title === WANT_OK_BURST_TITLE && r.f.warns.length === 0 && r.bar === 0 && r.f.keys === 0;
+  const warnOk = (r, ft) => r.f.ok === null && r.f.warns.length === 1 && r.f.warns[0].text === `⚠ #2 is ${ft} ft from #1's bomb when it goes off, inside its 360 ft blast radius (est.)` && r.bar === 1 && r.f.keys === 1;
+  await shot(page, `${tag}-71-ridge-12-3`);
+  await page.locator('[role="dialog"] [data-reset]').click();
+  await settle(page, 400);
+  const back = { f: await footerState(page), tot: await totOf(page, 2) };
+  const movesOk = clearOk(a) && warnOk(b, 350) && warnOk(c, 320) && clearOk(d) && back.tot === 11.9 && back.f.warns.length === 1 && back.f.warns[0].text === `⚠ ${wantWarn}`;
+  const say = (r) => (r.f.ok ? `all-clear ${JSON.stringify(r.f.ok.text)}` : `${JSON.stringify(r.f.warns.map((w) => w.text))}`) + ` / ${r.bar} stripes, ${r.f.keys} swatches`;
+  step(`71 the ridge pair warned by blast radius: "#2 is 130 ft from #1's bomb when it goes off, inside its 360 ft blast radius (est.)", one stripe on the bar at the burst, clear at 11.0 and 12.4 s, 350 ft at 11.46, 320 ft at 12.3 (${tag})`,
+    openedOk && movesOk,
+    `rule ${rule}; opened: footer ${f0.warns.length ? JSON.stringify(f0.warns[0].text) : 'no warning'} (want ${JSON.stringify(`⚠ ${wantWarn}`)}), more ${JSON.stringify(f0.more)}, swatch ${f0.keys} first ${keyFirst} titled ${JSON.stringify(keyTitle)}; ` +
+      `${s0.length} stripes for ${want.length} conflicts: ${st ? `${st.w.toFixed(1)} px wide (want ≥ 6), centre ${dCentre.toFixed(2)} px from 0.5 s after #1's time (want ≤ 2), ${amber} amber pixels, background ${st.bg.slice(0, 40)}…` : 'none'}; ` +
+      `11.0 s: ${say(a)}; 11.46 s: ${say(b)}; 12.3 s: ${say(c)}; 12.4 s: ${say(d)}; Reset: #2 at ${back.tot}, ${back.f.warns.length ? JSON.stringify(back.f.warns[0].text) : 'no warning'}`);
+}
+
+/**
+ * Check 71b (the ridge pair's lane): with #2's diamond held (moved away to 20 s), lane #2 has one stripe, the times over
+ * target at which #2 would be inside #1's blast radius: it is the library's own zone (11.4593 to 12.3429 s on this plan: 0.88 s),
+ * centred on that zone within 1 px, never narrower than 6 px (the zone alone is 5.0 px at 1024×768, so there it is drawn
+ * wider, from its own centre), carries the zone's key ("…:victim:0") and has amber pixels in its pads above and below the
+ * band; lane #1 (held still) has none; let go: none again. The diamond's tooltip has the blast rule's sentence about
+ * what the stripes are, at rest and held, because the lane has stripes to show (the tooltip is where they can be asked
+ * about at rest).
+ *
+ * Measured green 2026-11-16: the library's zone is 11.4593 to 12.3429 s; the stripe is 8.1 px wide at 1400×900 (its own span, 8.1),
+ * centre 0.02 px off the zone's, 30 amber pixels in its pads, and 6.0 px at 1024×768 (its span is 5.0), centre 0.01 px, 25 amber
+ * pixels; none at rest on either lane, none on lane #1, none after the let-go.
+ *
+ * Proven red 2026-11-16 by one temporary edit to src/lib/playbackScene/lanes.ts, zoneBands's `t0_s: z.from_s` → `t0_s: z.to_s`
+ * (a zone that starts where it ends is not drawn):
+ *   STEP FAIL 71b the ridge pair's lane: … (1400x900-ridge) — library zones [{"role":"victim","from":11.4593,"to":12.3429}] (want one victim zone 11.4593 to 12.3429 ±0.005); at rest 0/0 stripes (want 0/0); held: #1 0, #2 0 (none); let go 0/0 (want 0/0); diamond at rest "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s) Stripes: …", held "…"
+ * and by bandBox's narrowest width taken out (red at 1024×768, where the span is 5.0 px):
+ *   STEP FAIL 71b the ridge pair's lane: … (1024x768-ridge) — …; held: #1 0, #2 1 5.0 px wide (true 5.0, want ≥ 6), centre 0.49 px off the zone's (want ≤ 1), key h-ridge-1:victim:0, 22 amber pixels in its pads; …
+ */
+async function checkFragRidgeLane(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  const snap = await pbEval(page, () => __pb.snapshot());
+  const lib = await pbEval(page, () => __pb.moments.zones.filter((z) => z.jet === 1));
+  const rest = await laneZoneBoxes(page);
+  const axis = await laneAxisOf(page, 2);
+  const titleRest = await handleTitleOf(page, 2);
+  await dragHandle(page, 2, 20, { hold: true, steps: 6 });
+  await settle(page, 400);
+  const held = await laneZoneBoxes(page);
+  const titleHeld = await handleTitleOf(page, 2);
+  const img = await shot(page, `${tag}-71b-held`);
+  await page.mouse.up();
+  await settle(page, 400);
+  const letGo = await laneZoneBoxes(page);
+  await page.locator('[role="dialog"] [data-reset]').click();
+  await settle(page);
+  const f = (t) => (t - snap.start) / (snap.end - snap.start);
+  const z = held[1] && held[1].zones[0];
+  const zl = lib[0];
+  const centreWant = zl ? axis.x + axis.width * f((zl.from_s + zl.to_s) / 2) : NaN;
+  const dCentre = z ? Math.abs((z.l + z.r) / 2 - centreWant) : NaN;
+  const trueW = zl ? axis.width * (zl.to_s - zl.from_s) / (snap.end - snap.start) : NaN;
+  let amber = 0;
+  if (z) for (const [y0, y1] of [[z.t, z.t + 3], [z.b - 3, z.b]]) for (let y = Math.ceil(y0); y < y1; y++) for (let x = Math.ceil(z.l); x < z.r; x++) {
+    const p = img.at(x, y);
+    if (p[0] > 100 && p[1] > 90 && p[0] > p[2] + 40) amber++;
+  }
+  const none = (zs) => zs.every((l) => l.zones.length === 0);
+  const libOk = lib.length === 1 && lib[0].role === 'victim' && Math.abs(lib[0].from_s - 11.4593) <= 0.005 && Math.abs(lib[0].to_s - 12.3429) <= 0.005;
+  const ok = libOk && none(rest) && held.length === 2 && held[0].zones.length === 0 && held[1].zones.length === 1 && dCentre <= 1 && z.w >= 5.99 && z.w >= trueW - 1 &&
+    /:victim:0$/.test(z.key) && amber >= 1 && none(letGo) && titleRest === `${WANT_HANDLE_PLAIN} ${WANT_STRIPES_BURST}` && titleHeld === titleRest;
+  step(`71b the ridge pair's lane: #2's stripe is the library's zone (11.46 to 12.34 s), centred within 1 px, at least 6 px wide, only while its diamond is held (${tag})`, ok,
+    `library zones ${JSON.stringify(lib.map((q) => ({ role: q.role, from: +q.from_s.toFixed(4), to: +q.to_s.toFixed(4) })))} (want one victim zone 11.4593 to 12.3429 ±0.005); at rest ${rest.map((l) => l.zones.length).join('/')} stripes (want 0/0); held: #1 ${held[0] ? held[0].zones.length : '?'}, #2 ${held[1] ? held[1].zones.length : '?'} ` +
+      `${z ? `${z.w.toFixed(1)} px wide (true ${trueW.toFixed(1)}, want ≥ 6), centre ${dCentre.toFixed(2)} px off the zone's (want ≤ 1), key ${z.key}, ${amber} amber pixels in its pads` : '(none)'}; let go ${letGo.map((l) => l.zones.length).join('/')} (want 0/0); diamond at rest ${JSON.stringify(titleRest)}, held ${JSON.stringify(titleHeld)}`);
+}
+
+async function runFragChecks(browser, base) {
+  for (const [w, h] of [[1400, 900], [1024, 768]]) {
+    const tag = `${w}x${h}`;
+    const q = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&rule=burst`, w, h);
+    await checkFragBurstFour(q.page, `${tag}-strike4`);
+    step(`8 no page errors, four-ship by blast radius (${tag})`, q.problems.length === 0, q.problems.length ? q.problems.slice(0, 8).join(' | ') : 'none');
+    await q.context.close();
+    const r = await openPage(browser, `${base}?tiles=synthetic&fixture=ridge&rule=burst`, w, h);
+    step(`ready, ridge pair (${tag})`, true, JSON.stringify(await pbEval(r.page, () => __pb.terrain())));
+    await checkFragRidge(r.page, `${tag}-ridge`);
+    await checkFragRidgeLane(r.page, `${tag}-ridge`);
+    step(`8 no page errors, ridge pair (${tag})`, r.problems.length === 0, r.problems.length ? r.problems.slice(0, 8).join(' | ') : 'none');
+    await r.context.close();
+  }
+}
+
 async function runStrikeChecks(browser, base) {
   for (const [w, h] of [[1400, 900], [1024, 768]]) {
     const tag = `${w}x${h}`;
-    const { context, page, problems } = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4`, w, h);
+    // On the spacing rule by name, so these checks (12, 13, 34 and the ones that follow) keep their picture whatever the app's default is.
+    const { context, page, problems } = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&rule=time`, w, h);
     step(`ready, four-ship (${tag})`, true, JSON.stringify(await pbEval(page, () => __pb.terrain())));
     await checkFourArrows(page, `${tag}-strike4`);
     await checkFourLabels(page, `${tag}-strike4`);
@@ -3836,6 +4114,7 @@ async function runStrikeChecks(browser, base) {
     await checkAttackColours(page, `${tag}-strike4`);
     await checkLaneTimeFour(page, `${tag}-strike4`);
     await checkConflictHatch(page, `${tag}-strike4`);
+    await checkFragTimeFour(page, `${tag}-strike4`);
     await checkWatchSeat(page, `${tag}-strike4`);
     if (w === 1400) {
       await checkRetimes(page, `${tag}-strike4`);
@@ -4017,6 +4296,7 @@ async function runLive(browser, base) {
     else {
       await runChecks(browser, base);
       await runStrikeChecks(browser, base);
+      await runFragChecks(browser, base);
     }
   } catch (e) {
     step('run', false, (e && e.stack) || String(e));

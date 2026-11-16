@@ -15,6 +15,12 @@
  * the theater warnings, the credits). Fits a 1024×768 window. The overlay
  * around it has the title bar and the Close button.
  *
+ * The frag warnings follow the rule the strike is warned by: the spacing
+ * rule, or a jet's distance from a bomb's blast radius at the moment it goes
+ * off. The library's readout, bands and danger zones already do; the footer's
+ * all-clear, the swatch's tooltip and what a diamond says its stripes are
+ * take their words from the same rule here.
+ *
  * The time bar (the clock's range) starts 10 s before the earliest first action
  * of the jets flown, not at the start of the whole run-in; Show › Whole run-in
  * widens it. The lanes' axis is the same range. Show › Labels and Show ›
@@ -83,6 +89,7 @@ import { SceneHost } from './SceneHost';
 import { Timeline } from './Timeline';
 import { JetLanes, type LaneInfo } from './JetLanes';
 import { DelayFooter } from './DelayFooter';
+import { fragChromeWords } from './laneText';
 import { ViewToolbar } from './ViewToolbar';
 import { CanvasChips, SoftwareChip } from './CanvasChips';
 import { StatusNotes } from './StatusNotes';
@@ -271,6 +278,9 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   // The time bar has stripes to show when some conflict has a part on its axis (the bar cuts each to it): then
   // the footer's first line carries a swatch of them. A strike of one, or times clear of every frag, have none.
   const barStriped = useMemo(() => conflicts.some((c) => axisFraction(axis, c.t1_s) > axisFraction(axis, c.t0_s)), [conflicts, axis]);
+  // The words that follow the strike's frag rule: the footer's all-clear and the swatch's tooltip, and what a diamond
+  // says its stripes are. Under the blast rule the all-clear also names the weapons that had no radius to check.
+  const fragWords = useMemo(() => fragChromeWords(pb.fragRule, timing.blast?.unchecked), [pb.fragRule, timing.blast]);
 
   const [scene, setScene] = useState<PlaybackScene | null>(null);
   const [terrain, setTerrain] = useState<TerrainStatus>();
@@ -455,9 +465,10 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
       </div>
       <div className="shrink-0 border-t border-gray-700 bg-dcs-navy px-4 py-2 space-y-1">
         {scene ? <Timeline scene={scene} bands={watchedBands} conflicts={conflicts} /> : <div className="h-8" />}
-        <JetLanes scene={scene} axis={axis} lanes={lanes} watched={watched} onWatch={watchSeat} onDelay={setDelay} onDrag={setDrag} />
+        <JetLanes scene={scene} axis={axis} lanes={lanes} watched={watched} onWatch={watchSeat} onDelay={setDelay} onDrag={setDrag} stripesWords={fragWords.stripesHandle} />
         <DelayFooter
           warnings={timing.readout.warnings}
+          words={fragWords}
           stripes={barStriped}
           dirty={isDirty(session)}
           single={pb.members.length < 2}

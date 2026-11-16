@@ -3,7 +3,9 @@
  * planner's own readout gives for them, in amber, with the rest folded under a
  * "(+n more)" button; or, with none, an all-clear. The warnings are the strike
  * readout's own words (the editor's strip prints the same), so a jet that is
- * not flown still warns here exactly as it does there.
+ * not flown still warns here exactly as it does there. The all-clear and the
+ * swatch's tooltip are in the words of the rule the strike is warned by (the
+ * view hands them over); left out, they are the spacing rule's.
  *
  * At the right end: when the times have been moved off the plan's, a note that
  * they have, then Reset, which puts every one back, and Apply, which writes
@@ -23,12 +25,17 @@
  * takes one more.
  */
 import { useState } from 'react';
-import { HATCH_KEY_TITLE } from './laneText';
+import { fragChromeWords, type FragChromeWords } from './laneText';
 import { FOOTER, FOOTER_APPLY, FOOTER_DIRTY, FOOTER_END, FOOTER_KEY, FOOTER_MORE, FOOTER_OK, FOOTER_REST, FOOTER_RESET, FOOTER_STATUS, FOOTER_WARN, HATCH, keepFocus } from './ui';
+
+/** The words that follow the strike's frag rule, when the view does not hand any over: the spacing rule's. */
+const TIME_WORDS = fragChromeWords('time');
 
 interface DelayFooterProps {
   /** The readout's warnings at the times now. */
   warnings: readonly string[];
+  /** The all-clear and the swatch's tooltip, in the words of the strike's frag rule. */
+  words?: Pick<FragChromeWords, 'ok' | 'okTitle' | 'keyTitle'>;
   /** The time bar has stripes showing: the line opens with a swatch of them. */
   stripes?: boolean;
   /** The times are not the plan's. */
@@ -43,17 +50,17 @@ interface DelayFooterProps {
   status?: readonly string[];
 }
 
-export function DelayFooter({ warnings, stripes = false, dirty, single, onReset, apply, status }: DelayFooterProps) {
+export function DelayFooter({ warnings, words = TIME_WORDS, stripes = false, dirty, single, onReset, apply, status }: DelayFooterProps) {
   const [open, setOpen] = useState(false);
   const rest = warnings.slice(1);
   return (
     <div>
       <div className={FOOTER}>
-        {stripes && <span aria-hidden data-hatch-key title={HATCH_KEY_TITLE} className={FOOTER_KEY} style={{ background: HATCH }} />}
+        {stripes && <span aria-hidden data-hatch-key title={words.keyTitle} className={FOOTER_KEY} style={{ background: HATCH }} />}
         {warnings.length > 0 ? (
           <span data-footer-warning className={FOOTER_WARN} title={warnings[0]}>⚠ {warnings[0]}</span>
         ) : (
-          <span data-footer-ok className={FOOTER_OK}>✓ No frag or cone warnings at these times.</span>
+          <span data-footer-ok className={FOOTER_OK} title={words.okTitle}>{words.ok}</span>
         )}
         {rest.length > 0 && (
           <button

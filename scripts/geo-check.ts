@@ -156,9 +156,9 @@ import {
 import {
   initSession, sessionReducer, isDirty, conflictBands, SEAT_TEXT, SEAT_ON_BG, SEAT_ON_TEXT, QUIET_TEXT, WARN_TEXT, type Session, type SessionAction, type ShowAction,
 } from '../src/lib/playbackScene';
-import { laneAxis, zoneBands, laneZonesShown, seatInConflict, seatConflictTitle, handleKeyStep, READOUT_TEXT, BOX_FILL, BOX_EDGE } from '../src/lib/playbackScene';
+import { laneAxis, zoneBands, laneZonesShown, seatInConflict, seatConflictTitle, handleKeyStep, bandBox, READOUT_TEXT, BOX_FILL, BOX_EDGE } from '../src/lib/playbackScene';
 import { editorOffsets, planOffsets, applyShift, cardOrder, renumbered, renumberedText, applyStatusLines, APPLY_WORDS } from '../src/lib/playbackScene';
-import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle, HATCH_KEY_TITLE } from '../src/components/playback/laneText';
+import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle, HATCH_KEY_TITLE, fragChromeWords } from '../src/components/playback/laneText';
 import {
   LANE, LANES, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, LANE_SKIPPED, FOOTER_OK, FOOTER_MORE, FOOTER_WARN, FOOTER_REST,
   READOUT, TIME_BOX, CONFLICT_MARK, FOOTER_DIRTY, FOOTER_RESET, FOOTER_STATUS,
@@ -12042,6 +12042,148 @@ void (async () => {
         timeBands.length === 1 && !('minPx' in timeBands[0]) && timeBands[0].title === '⚠ #2 over the target inside #1\'s frag (est.)';
       ok('playback B3 [BX8b]: the time bar\'s band and the lane\'s stripe of a blast row say so and are never narrower than 6 px; the spacing rule\'s band is as it was',
          good, `${JSON.stringify(bands)}; ${JSON.stringify(zones)}; spacing ${JSON.stringify(timeBands)}`);
+    }
+
+    // ── The playback's chrome follows the rule (the footer, the stripes' key, the diamond's sentence, the drawn width of a stripe).
+
+    // [BX14] No card changes: a strike card says nothing about frag or blast, whichever rule the strike is warned by. The same strikes
+    // saved with each rule give the same card line and the same faint wingmen, and no line has a frag or blast word. (The card pins
+    // `Day card: …`, `themed card: …`, `Night card: …` and `NVG card: …` stand unchanged beside it.)
+    // Mutation proof (seen red 2026-11-16): strike.ts strikeCardInfo's strikeLine gains a frag word (`` `with ${others.join(', ')}` `` →
+    // `` `with ${others.join(', ')} · frag clears in ~30 s` ``):
+    //   FAIL playback B3 [BX14]: a strike card has no frag or blast word, and the same strike saved with either rule gives the same card line and wingmen  two pop-ups 10 s apart (the spacing rule warns): a word on the card line "fx · #1 of 2 · R flank · TOT T+0:00 · push IP T-2:03 (est) · with #2 Viper 1-2 L T+0:10 · frag clears in ~30 s"
+    //   FAIL Day card: F-4E LABS loft, #2 of a two-jet strike is drawn exactly as it always was  1096 draw calls, a96bb7a68622ff81
+    //   (and Day card: F-16 strike #2, level, `loft strike: #2's card strike line, word for word`, and the same two cards' themed, Night and NVG pins: 10 FAILs in all)
+    {
+      const spacing = (rule: 'burst' | 'time', id: string) => fxStrike(flatM, [0, 1].map(() => ({ target: wpTgt.id, weapon: 'mk82', profile: 'f16c.popup.std' })), [0, 10], { fragRule: rule, strikeId: id });
+      const onRidge = (rule: 'burst' | 'time', id: string) => fxStrike(ridge.m, [ridge.seat('fx-tgt2'), ridge.seat(wpTgt.id)], [0, 12], { sharedIp: true, weapons: ridge.weapons, fragRule: rule, strikeId: id });
+      const pairs: [string, ReturnType<typeof fxStrike>, ReturnType<typeof fxStrike>][] = [
+        ['two pop-ups 10 s apart (the spacing rule warns)', spacing('burst', 'fxa'), spacing('time', 'fxb')],
+        ['the ridge pair 12 s apart (the blast rule warns)', onRidge('burst', 'fxc'), onRidge('time', 'fxd')],
+      ];
+      let why = '';
+      const seen: string[] = [];
+      for (const [name, a, b] of pairs) {
+        a.attackIds.forEach((id, i) => {
+          const ia = strikeCardInfo(a.mission, a.mission.attacks.find((x) => x.id === id)!);
+          const ib = strikeCardInfo(b.mission, b.mission.attacks.find((x) => x.id === b.attackIds[i])!);
+          if (!ia || !ib) { why ||= `${name}: no card line for #${i + 1}`; return; }
+          seen.push(ia.strikeLine);
+          if (/frag|blast|radius|danger/i.test(ia.strikeLine) || /frag|blast|radius|danger/i.test(ia.wingmen.map((w) => w.label).join(' '))) why ||= `${name}: a word on the card line "${ia.strikeLine}"`;
+          if (ia.strikeLine !== ib.strikeLine || JSON.stringify(ia.wingmen) !== JSON.stringify(ib.wingmen)) why ||= `${name}: #${i + 1}'s card differs with the rule ("${ia.strikeLine}" against "${ib.strikeLine}")`;
+        });
+      }
+      ok('playback B3 [BX14]: a strike card has no frag or blast word, and the same strike saved with either rule gives the same card line and wingmen',
+         why === '' && seen.length === 4, why || seen.join(' | '));
+    }
+
+    // [BX15] A stripe is never drawn narrower than its narrowest width and grows from its own centre; one with no narrowest width is
+    // drawn as it always was. The CSS is worked out here for an axis of 900 and 1,400 px, the way the browser reads it.
+    // Mutation proof (seen red 2026-11-16): lanes.ts bandBox width `max(${w}%, ${minPx}px)` → `${w}%` (no narrowest width):
+    //   FAIL playback B3 [BX15]: bandBox draws a 0.884 s stripe on a 150 s axis 6 px wide at 900 px and its own 8.25 px at 1,400, centred; …  a 0.884 s zone on 150 s at 900 px: 5.30 px wide (want 6); not centred: 362.304 against 362.652 at 900 px, 564.125 against 564.125 at 1,400; the strings: {"left":"calc(40.294666666666664% - max(0.2946666666666653%, 3px))","width":"0.5893333333333306%"}
+    {
+      const wMax = /^max\(([-\d.e]+)%, ([-\d.e]+)px\)$/, lCalc = /^calc\(([-\d.e]+)% - max\(([-\d.e]+)%, ([-\d.e]+)px\)\)$/;
+      const drawn = (b: { left: string; width: string }, px: number) => {
+        const wm = wMax.exec(b.width), lm = lCalc.exec(b.left);
+        const w = wm ? Math.max(Number(wm[1]) / 100 * px, Number(wm[2])) : parseFloat(b.width) / 100 * px;
+        const l = lm ? Number(lm[1]) / 100 * px - Math.max(Number(lm[2]) / 100 * px, Number(lm[3])) : parseFloat(b.left) / 100 * px;
+        return { w, l, centre: l + w / 2 };
+      };
+      const f0 = 0.4, f1 = f0 + 0.884 / 150, c = (f0 + f1) / 2;
+      const zone = bandBox(f0, f1, 6), long = bandBox(0.2, 0.2 + 40 / 150, 6);
+      const z900 = drawn(zone, 900), z1400 = drawn(zone, 1400), l900 = drawn(long, 900);
+      const plain = [[0.1, 0.3], [0.2, 0.2 + 0.884 / 150], [0, 1], [0.35, 0.5]].map(([a, b]) => ({ got: bandBox(a, b), want: { left: `${a * 100}%`, width: `${(b - a) * 100}%` } }));
+      const bad: string[] = [];
+      if (!(Math.abs(z900.w - 6) < 1e-9)) bad.push(`a 0.884 s zone on 150 s at 900 px: ${z900.w.toFixed(2)} px wide (want 6)`);
+      if (!(Math.abs(z1400.w - 0.884 / 150 * 1400) < 1e-9)) bad.push(`at 1,400 px: ${z1400.w.toFixed(2)} px wide (want ${(0.884 / 150 * 1400).toFixed(2)}, its own span)`);
+      if (!(Math.abs(z900.centre - c * 900) < 1e-9 && Math.abs(z1400.centre - c * 1400) < 1e-9)) bad.push(`not centred: ${z900.centre.toFixed(3)} against ${(c * 900).toFixed(3)} at 900 px, ${z1400.centre.toFixed(3)} against ${(c * 1400).toFixed(3)} at 1,400`);
+      if (!(Math.abs(l900.w - 40 / 150 * 900) < 1e-9 && Math.abs(l900.l - 0.2 * 900) < 1e-9)) bad.push(`a 40 s band on 150 s at 900 px: ${l900.w.toFixed(2)} px wide from ${l900.l.toFixed(2)} (want 240 from 180: the percentage wins)`);
+      if (!/^max\([\d.]+%, 6px\)$/.test(zone.width) || !/^calc\([\d.]+% - max\([\d.]+%, 3px\)\)$/.test(zone.left)) bad.push(`the strings: ${JSON.stringify(zone)}`);
+      for (const p of plain) if (p.got.left !== p.want.left || p.got.width !== p.want.width) bad.push(`with no narrowest width ${JSON.stringify(p.got)} is not ${JSON.stringify(p.want)}`);
+      ok('playback B3 [BX15]: bandBox draws a 0.884 s stripe on a 150 s axis 6 px wide at 900 px and its own 8.25 px at 1,400, centred; a 40 s band keeps its percentage; with no narrowest width the strings are the old ones',
+         bad.length === 0, bad.join('; ') || `${zone.left}, ${zone.width}: 6.00 px at 900, ${z1400.w.toFixed(2)} px at 1,400`);
+    }
+
+    // [BX16] The frag chrome's words follow the rule, written out here, not read from the constants: the footer's all-clear and its
+    // tooltip (and the one that says what was not checked), the swatch's tooltip, and what a diamond says its stripes are.
+    // Mutation proof (seen red 2026-11-16): laneText.ts fragChromeWords `rule === 'burst'` → `rule !== 'burst'`:
+    //   FAIL playback B3 [BX16]: the frag chrome's words follow the rule: …  the spacing rule's all-clear: "✓ No blast or cone warnings at these times." (want "✓ No frag or cone warnings at these times."); the spacing rule's all-clear has no tooltip: "Checked: every jet's distance …" (want undefined); the spacing rule's swatch: "Striped: a jet is inside another jet's blast radius when a bomb goes off (est.)" (want "Striped: a jet is over the target inside another jet's frag (est.)"); …
+    {
+      const plainTitle = 'Drag to change #2\'s time over target (←/→ 1 s, Shift+←/→ 5 s)';
+      const t = fragChromeWords('time'), b = fragChromeWords('burst'), b1 = fragChromeWords('burst', ['GBU-12']), b2 = fragChromeWords('burst', ['GBU-12', 'Mk-82 AIR']);
+      const cases: [string, unknown, unknown][] = [
+        ['the spacing rule\'s all-clear', t.ok, '✓ No frag or cone warnings at these times.'],
+        ['the spacing rule\'s all-clear has no tooltip', t.okTitle, undefined],
+        ['the spacing rule\'s swatch', t.keyTitle, 'Striped: a jet is over the target inside another jet\'s frag (est.)'],
+        ['the spacing rule\'s diamond sentence', handleTitle('#2', true, t.stripesHandle), `${plainTitle} Stripes: times that would put it inside another jet's frag.`],
+        ['the blast rule\'s all-clear', b.ok, '✓ No blast or cone warnings at these times.'],
+        ['the blast rule\'s all-clear tooltip', b.okTitle, 'Checked: every jet\'s distance from every other jet\'s bomb at the moment it goes off (est.). Distance only: hills in the way are not counted.'],
+        ['the blast rule\'s swatch', b.keyTitle, 'Striped: a jet is inside another jet\'s blast radius when a bomb goes off (est.)'],
+        ['the blast rule\'s diamond sentence', handleTitle('#2', true, b.stripesHandle), `${plainTitle} Stripes: times that would put it inside another jet's blast radius, or another jet inside its.`],
+        ['a lane with no stripes says none of it, under either rule', [handleTitle('#2', false, t.stripesHandle), handleTitle('#2', false, b.stripesHandle), handleTitle('#2')].join('|'), [plainTitle, plainTitle, plainTitle].join('|')],
+        ['one weapon not checked', b1.ok, '✓ No cone warnings at these times. Not checked for blast: GBU-12 (no blast radius on file).'],
+        ['two weapons not checked', b2.ok, '✓ No cone warnings at these times. Not checked for blast: GBU-12 and Mk-82 AIR (no blast radius on file).'],
+        ['an all-clear that names what was not checked has no "every distance" tooltip', [b1.okTitle, b2.okTitle].join('|'), '|'],
+        ['the words with nothing handed over are the spacing rule\'s', JSON.stringify(fragChromeWords('time', [])), JSON.stringify(t)],
+        ['an unknown rule reads as the spacing rule', fragChromeWords('whatever' as never).ok, '✓ No frag or cone warnings at these times.'],
+      ];
+      const bad = cases.filter(([, got, want]) => got !== want).map(([what, got, want]) => `${what}: ${JSON.stringify(got)} (want ${JSON.stringify(want)})`);
+      ok('playback B3 [BX16]: the frag chrome\'s words follow the rule: the footer\'s all-clear and its tooltip, what was not checked, the swatch and the diamond\'s sentence, each worded as the rule says',
+         bad.length === 0, bad.join('; ') || `${cases.length} strings`);
+    }
+
+    // [BX17] The harness fixtures the screenshot checks rely on. The ridge pair: #1 dives on a ridge, #2 on TGT1, Mk-84s with the
+    // fixture's own 360 ft radius, #2 over its target 11.9 s after #1; both doors. Worked out on the ballistic dive: the ridge 1.30 nm
+    // from TGT1 and 5,616 ft above it, #2 130 ft from #1's burst, inside for 11.4593 to 12.3429 s (the same plan as the check above).
+    // The rule asked for by name is the rule the strike plays; left out, the strike says nothing; the weapon rows differ from the
+    // data file's in the blast fields only.
+    // Mutation proofs (seen red 2026-11-16): dev/fixture.ts RIDGE_BELOW_PASS_FT 150 → 650 (the ridge sits 500 ft further down):
+    //   FAIL playback B3 [BX17]: the harness ridge pair is the blast rule's one conflict by both doors …  the list door: the ridge is 1.30 nm out at 9116 ft (want 1.30 nm, 9,616 ft)
+    // and the four-ship's `], 10, { rule });` → `], 10);` (the rule asked for never reaches the strike):
+    //   FAIL playback B3 [BX17]: the harness ridge pair is the blast rule's one conflict by both doors …  four-ship asked for 'burst' plays 'time' with 2 conflicts and blast undefined
+    {
+      const fixtureWords = ['#2 is 130 ft from #1\'s bomb when it goes off, inside its 360 ft blast radius (est.)'];
+      let why = '';
+      for (const door of ['list', 'editor'] as const) {
+        try {
+          const launch = harnessFixtureLaunch('ridge', [], undefined, undefined, door, 'burst');
+          const mm = harnessMoments(launch), pb = mm.pb;
+          const jetWeapons = pb.jets.map((j) => burstSpecOf(j.weapon));
+          const z = dangerZones(pb, mm.timing, 1);
+          const d = pb.planDelays_s;
+          if (door === 'list' ? !launch.fromMission || launch.input : !launch.input || launch.fromMission) why ||= `the ${door} door: handed over the wrong way`;
+          if (pb.fragRule !== 'burst' || pb.jets.length !== 2 || pb.jets[0].target.name !== 'TGT2' || pb.jets[1].target.name !== 'TGT1') why ||= `the ${door} door: rule ${pb.fragRule}, ${pb.jets.length} jets on ${pb.jets.map((j) => j.target.name).join(', ')}`;
+          if (!near(calculateDistance(pb.jets[0].target.coordinates, pb.jets[1].target.coordinates), 1.30, 0.02) || !near((pb.jets[0].target.elevation_ft ?? 0) - 4000, 5616, 30)) why ||= `the ${door} door: the ridge is ${calculateDistance(pb.jets[0].target.coordinates, pb.jets[1].target.coordinates).toFixed(2)} nm out at ${pb.jets[0].target.elevation_ft} ft (want 1.30 nm, 9,616 ft)`;
+          if (jetWeapons.some((s) => !s || s.radius_ft !== 360 || s.meaning !== 'destroyed' || s.source !== 'community_measurement')) why ||= `the ${door} door: the Mk-84s' radius is ${JSON.stringify(jetWeapons)}`;
+          if (!near(d[pb.jets[0].id], 0, 1e-9) || !near(d[pb.jets[1].id], 11.9, 1e-9)) why ||= `the ${door} door: the plan times are ${JSON.stringify(d)} (want 0 and 11.9)`;
+          if (mm.timing.conflicts.length !== 1) why ||= `the ${door} door: ${mm.timing.conflicts.length} conflicts (want 1)`;
+          else if (JSON.stringify(mm.timing.readout.warnings) !== JSON.stringify(fixtureWords) || !near((mm.timing.conflicts[0] as TimedBurst).dist_ft, 130.4, 2)) why ||= `the ${door} door: ${JSON.stringify(mm.timing.readout.warnings)} at ${(mm.timing.conflicts[0] as TimedBurst).dist_ft.toFixed(1)} ft`;
+          if (z.length !== 1 || z[0].role !== 'victim' || !near(z[0].from_s, 11.4593, 0.002) || !near(z[0].to_s, 12.3429, 0.002)) why ||= `the ${door} door: #2's zones ${JSON.stringify(z.map((q) => [q.role, +q.from_s.toFixed(4), +q.to_s.toFixed(4)]))} (want one victim zone 11.4593 to 12.3429)`;
+          if (door === 'list') {
+            const at = (x: number) => retime(pb, { [pb.jets[0].id]: 0, [pb.jets[1].id]: x }).readout.warnings.map((w) => w.replace(/ from #1.*/, ''));
+            const edges = [[11.0, ''], [11.46, '#2 is 350 ft'], [12.3, '#2 is 320 ft'], [12.4, '']] as [number, string][];
+            for (const [x, want] of edges) if (at(x).join() !== want) why ||= `the ${door} door: at ${x} s "${at(x).join()}" (want "${want}")`;
+          }
+        } catch (e) {
+          why ||= `the ${door} door: ${(e as Error).message}`;
+        }
+      }
+      // The rule asked for by name; left out, the strike says nothing; the rows are the data file's but for the blast fields.
+      const four = (rule?: 'burst' | 'time') => harnessFixtureLaunch('strike4', [], undefined, undefined, undefined, rule);
+      const fb = harnessMoments(four('burst')), ft = harnessMoments(four('time'));
+      if (fb.pb.fragRule !== 'burst' || fb.timing.conflicts.length !== 0 || fb.timing.readout.warnings.length !== 0 || JSON.stringify(fb.timing.blast) !== JSON.stringify({ notes: [], unchecked: [] }))
+        why ||= `four-ship asked for 'burst' plays '${fb.pb.fragRule}' with ${fb.timing.conflicts.length} conflicts and blast ${JSON.stringify(fb.timing.blast)}`;
+      if (ft.pb.fragRule !== 'time' || ft.timing.conflicts.length !== 2 || ft.timing.blast !== undefined || ft.timing.readout.warnings.length !== 2)
+        why ||= `four-ship asked for 'time' plays '${ft.pb.fragRule}' with ${ft.timing.conflicts.length} conflicts`;
+      if (four().fromMission?.mission.strikes?.[0]?.fragRule !== undefined) why ||= 'four-ship with no rule asked for has a rule saved';
+      const rows = four('burst').fromMission!.weapons;
+      const strip = (w: DbWeapon) => ({ ...w, blast_radius_ft: null, blast_radius_meaning: null, blast_radius_source: null });
+      const real = refWeapons as never as DbWeapon[];
+      if (rows.length !== real.length || rows.some((w, i) => JSON.stringify(strip(w)) !== JSON.stringify(strip(real[i])))) why ||= 'the harness weapon rows differ from the data file\'s by more than the blast fields';
+      if (JSON.stringify(rows.filter((w) => burstSpecOf(w)).map((w) => [w.id, burstSpecOf(w)!.radius_ft])) !== JSON.stringify([['mk82', 250], ['mk84', 360]]))
+        why ||= `the harness gives a radius to ${JSON.stringify(rows.filter((w) => burstSpecOf(w)).map((w) => w.id))} (want mk82 250 and mk84 360 only)`;
+      ok('playback B3 [BX17]: the harness ridge pair is the blast rule\'s one conflict by both doors (ridge 1.30 nm and 5,616 ft up, 130 ft at 11.9 s, zone 11.4593 to 12.3429, clear at 11.0 and 12.4, 350 ft and 320 ft at 11.46 and 12.3), the four-ship plays the rule asked for, and the weapon rows differ from the data file\'s in the blast fields only',
+         why === '', why || 'list and editor doors; four-ship by burst (clear) and by time (2 warnings); rows mk82 250 and mk84 360');
     }
   } catch (e) {
     ok('playback B3 (the blast rule): the section ran without throwing', false, String((e as Error)?.stack ?? e));

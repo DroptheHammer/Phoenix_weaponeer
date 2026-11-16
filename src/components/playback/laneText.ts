@@ -5,7 +5,7 @@
  * runs it. Times are the card's own T+0:30 style.
  */
 import type { LaneBand, LaneMark, SeatMarks } from '../../lib/playbackScene';
-import type { PlaybackPhase } from '../../lib/playback';
+import { BURST_HATCH_KEY_TITLE, BURST_STRIPES_HANDLE_WORDS, FOOTER_OK_BURST_TITLE, footerOkBurst, type FragRule, type PlaybackPhase } from '../../lib/playback';
 import { fmtStrikeTime } from '../../lib/strike';
 
 /** What each stretch of a jet's flight is called on a band's tooltip. */
@@ -32,11 +32,37 @@ export const READOUT_TITLE = "times est., relative to the lead's TOT";
 export const handleLabel = (seatLabel: string) => `${seatLabel} time over target`;
 /** What the stripes on a lane are, said on its diamond: they show only while that jet's time is being set, so the diamond is where they can be asked about at rest. */
 export const STRIPES_HANDLE_WORDS = "Stripes: times that would put it inside another jet's frag.";
-/** The diamond's tooltip; with `zones` (the lane has stripes to show) it ends with what they are. */
-export const handleTitle = (seatLabel: string, zones = false) =>
-  `Drag to change ${seatLabel}'s time over target (←/→ 1 s, Shift+←/→ 5 s)${zones ? ` ${STRIPES_HANDLE_WORDS}` : ''}`;
+/** The diamond's tooltip; with `zones` (the lane has stripes to show) it ends with what they are (`stripes`: the words of the rule the strike is warned by). */
+export const handleTitle = (seatLabel: string, zones = false, stripes = STRIPES_HANDLE_WORDS) =>
+  `Drag to change ${seatLabel}'s time over target (←/→ 1 s, Shift+←/→ 5 s)${zones ? ` ${stripes}` : ''}`;
 /** The swatch that keys the footer's warning to the stripes on the time bar. */
 export const HATCH_KEY_TITLE = "Striped: a jet is over the target inside another jet's frag (est.)";
+/** The footer's line when the spacing rule finds nothing to warn of. */
+export const FOOTER_OK_TIME = '✓ No frag or cone warnings at these times.';
+
+/**
+ * The words of the frag chrome that change with the rule the strike is warned by: the footer's all-clear and
+ * its tooltip, the swatch's tooltip, and the sentence on a diamond that says what the lane's stripes are.
+ * Written once for each rule (the blast rule's in the library with the rest of its sentences, the spacing
+ * rule's here), so the view only asks. `unchecked` is the names of the weapons the blast rule had no radius
+ * for: the all-clear says so rather than claim every distance was checked.
+ */
+export interface FragChromeWords {
+  ok: string;
+  /** The all-clear's tooltip; none when the line is the spacing rule's or says some weapon was not checked. */
+  okTitle: string | undefined;
+  keyTitle: string;
+  stripesHandle: string;
+}
+
+export function fragChromeWords(rule: FragRule, unchecked: readonly string[] = []): FragChromeWords {
+  return rule === 'burst'
+    ? {
+      ok: footerOkBurst(unchecked), okTitle: unchecked.length ? undefined : FOOTER_OK_BURST_TITLE,
+      keyTitle: BURST_HATCH_KEY_TITLE, stripesHandle: BURST_STRIPES_HANDLE_WORDS,
+    }
+    : { ok: FOOTER_OK_TIME, okTitle: undefined, keyTitle: HATCH_KEY_TITLE, stripesHandle: STRIPES_HANDLE_WORDS };
+}
 export const boxLabel = (seatLabel: string) => `${seatLabel} time over target, seconds after T`;
 /** Said beside seat #1's time in a strike of more than one jet: it has no handle and no box. */
 export const heldTitle = (seatLabel: string) => `${seatLabel} is held still: move the other jets`;

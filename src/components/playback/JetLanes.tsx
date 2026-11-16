@@ -13,7 +13,9 @@
  * or focus it and use the arrow keys (a second a press, five with Shift); or
  * type the seconds into the box in the times cell, which a seat that is not
  * flown has too. Amber stripes behind the diamond mark the times that would put
- * the jet inside another's frag, but only while that jet's time is being set
+ * the jet inside another's frag (or inside another jet's blast radius, or
+ * another jet inside its own; a stripe for an instant is drawn at least a few
+ * pixels wide), but only while that jet's time is being set
  * (its diamond held, or focused by the keyboard, or its box focused: at rest a
  * lane is clean, and the diamond's tooltip says what the stripes are), and a
  * warning mark beside its time says it is inside one now. While a handle is held
@@ -37,7 +39,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { LABEL_STYLE, MARKER_COLOR } from '../../lib/attackPicture';
 import {
-  axisFraction, axisTime, BAND_H_PX, BAND_OUTLINE, BAND_TOP_PX, CHIP_DOT_PX, CHIP_H_PX, CHIP_TEXT, chipWidth, DIAMOND_EDGE, DIAMOND_PX, handleKeyStep,
+  axisFraction, axisTime, BAND_H_PX, BAND_OUTLINE, BAND_TOP_PX, bandBox, CHIP_DOT_PX, CHIP_H_PX, CHIP_TEXT, chipWidth, DIAMOND_EDGE, DIAMOND_PX, handleKeyStep,
   HANDLE_PX, IP_TEXT, laneChips, laneZonesShown, PIN_CHIP_BG, PIN_CHIP_TEXT, PIN_GLYPH, PIN_MARK_PX, pinnedGroup, ZONE_PAD_PX,
   type ActionKind, type Axis, type Band, type LaneBand, type LaneMark, type SeatMarks,
 } from '../../lib/playbackScene';
@@ -67,7 +69,7 @@ export interface LaneInfo {
   cardPush_s: number | undefined;
   /** Seat #1: held still, the others are timed against it. It has no handle and no box. */
   locked: boolean;
-  /** Where this jet's time over target would put it inside another's frag: stripes behind its diamond (none for a locked or skipped seat). */
+  /** Where this jet's time over target would start a frag warning (inside another's frag or blast radius, or another jet inside its own): stripes behind its diamond (none for a locked or skipped seat). */
   zones: readonly Band[];
   /** In words, the frag conflicts the seat is in at its time now; undefined when it is in none. */
   conflict: string | undefined;
@@ -88,6 +90,8 @@ interface JetLanesProps {
   onDelay(id: string, value_s: number): void;
   /** A handle was taken hold of (true) or let go (false). */
   onDrag(on: boolean): void;
+  /** What a diamond's tooltip says the stripes are, in the words of the strike's frag rule; left out, the spacing rule's. */
+  stripesWords?: string;
 }
 
 /** The white line at the clock's time. The one part of a lane that listens to the clock (about 12 times a second). */
@@ -320,9 +324,10 @@ interface LaneProps {
   strike: boolean;
   onDelay(id: string, value_s: number): void;
   onDrag(on: boolean): void;
+  stripesWords?: string;
 }
 
-function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike, onDelay, onDrag }: LaneProps) {
+function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike, onDelay, onDrag, stripesWords }: LaneProps) {
   const { marks, bands } = info;
   const pinned = marks.pinnedStart;
   const group = pinnedGroup(marks);
@@ -336,7 +341,7 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike
   const [boxFocus, setBoxFocus] = useState(false);
   const zonesShown = laneZonesShown({ held, keyboardFocus, boxFocus });
   // The diamond's tooltip says what the stripes are whenever the lane has any to show, so it can be asked at rest.
-  const handleWords = handleTitle(info.label, info.zones.length > 0);
+  const handleWords = handleTitle(info.label, info.zones.length > 0, stripesWords);
 
   const impact = [...marks.pinnedStart, ...marks.marks, ...marks.pinnedEnd].find((m) => m.kind === 'impact');
   const extent = bands.length ? { f0: bands[0].f0, f1: bands[bands.length - 1].f1 } : undefined;
@@ -376,7 +381,7 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike
                 aria-hidden
                 data-zone={z.key}
                 className="pointer-events-none absolute"
-                style={{ left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%`, top: BAND_TOP_PX - ZONE_PAD_PX, height: BAND_H_PX + 2 * ZONE_PAD_PX, background: HATCH }}
+                style={{ ...bandBox(f0, f1, z.minPx), top: BAND_TOP_PX - ZONE_PAD_PX, height: BAND_H_PX + 2 * ZONE_PAD_PX, background: HATCH }}
               />
             );
           })}
@@ -489,7 +494,7 @@ function Lane({ info, scene, axis, width, watched, onWatch, readoutTitle, strike
   );
 }
 
-export function JetLanes({ scene, axis, lanes, watched, onWatch, onDelay, onDrag }: JetLanesProps) {
+export function JetLanes({ scene, axis, lanes, watched, onWatch, onDelay, onDrag, stripesWords }: JetLanesProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   // The lanes are all the same width (the grid sees to that), so one observer on the first axis box tells them all.
   const [width, setWidth] = useState(0);
@@ -508,7 +513,7 @@ export function JetLanes({ scene, axis, lanes, watched, onWatch, onDelay, onDrag
   return (
     <div ref={rootRef} role="group" aria-label="Jets: pick the one to watch" className={LANES}>
       {lanes.map((l) => (
-        <Lane key={l.seat} info={l} scene={scene} axis={axis} width={width} watched={l.seat === watched} onWatch={onWatch} readoutTitle={readoutTitle} strike={strike} onDelay={onDelay} onDrag={onDrag} />
+        <Lane key={l.seat} info={l} scene={scene} axis={axis} width={width} watched={l.seat === watched} onWatch={onWatch} readoutTitle={readoutTitle} strike={strike} onDelay={onDelay} onDrag={onDrag} stripesWords={stripesWords} />
       ))}
     </div>
   );

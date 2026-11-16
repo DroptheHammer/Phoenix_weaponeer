@@ -198,6 +198,19 @@ export interface Band {
 }
 
 /**
+ * The CSS `left` and `width` of a stripe over the fractions f0 to f1 of a bar or a lane. A stripe with no
+ * `minPx` is exactly the span it covers: `left: f0%; width: (f1 − f0)%`. One with a `minPx` is never drawn
+ * narrower than that, and a stripe that is widened grows from its own centre, so it still sits on the moment
+ * it marks (an instant on a long axis would otherwise be a hairline nobody can see). The browser works out
+ * the larger of the two widths, because only it knows how many pixels the axis has.
+ */
+export function bandBox(f0: number, f1: number, minPx?: number): { left: string; width: string } {
+  const w = (f1 - f0) * 100;
+  if (minPx === undefined) return { left: `${f0 * 100}%`, width: `${w}%` };
+  return { left: `calc(${((f0 + f1) / 2) * 100}% - max(${w / 2}%, ${minPx / 2}px))`, width: `max(${w}%, ${minPx}px)` };
+}
+
+/**
  * One band per frag conflict the readout warns of, exactly the library's own
  * t0 and t1. Under the spacing rule: from the moment the second jet's bombs
  * land to the moment the first jet's frag has cleared; a jet that is skipped

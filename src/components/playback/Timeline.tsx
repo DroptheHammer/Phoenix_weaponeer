@@ -10,13 +10,15 @@
  * Under the bar runs the watched jet's phase band in the planner's colours,
  * the same band its lane draws below, so the colour code reads on the bar
  * itself (it moves to another jet's when another is watched), and, along the
- * bottom of the same strip, amber stripes over the times a jet would be over
- * the target inside another's frag. The three columns are the lanes' own
- * (ROW_GRID): Play and the clock on the left, the bar in the middle, the
- * speeds on the right.
+ * bottom of the same strip, amber stripes over the strike's frag warnings (a
+ * jet over the target inside another's frag; or, when the strike is warned by
+ * blast radius, the moment a bomb went off with a jet inside its radius, drawn
+ * at least a few pixels wide so an instant is not lost on a long bar). The
+ * three columns are the lanes' own (ROW_GRID): Play and the clock on the
+ * left, the bar in the middle, the speeds on the right.
  */
 import { useSyncExternalStore } from 'react';
-import { axisFraction, SCRUB_BAND_H_PX, SPEEDS, speedLabel, type Band, type LaneBand } from '../../lib/playbackScene';
+import { axisFraction, bandBox, SCRUB_BAND_H_PX, SPEEDS, speedLabel, type Band, type LaneBand } from '../../lib/playbackScene';
 import { fmtStrikeTime } from '../../lib/strike';
 import type { PlaybackScene } from './scene/createScene';
 import { bandBackground, HATCH, keepFocus, ROW_GRID, SEG } from './ui';
@@ -25,7 +27,7 @@ interface TimelineProps {
   scene: PlaybackScene;
   /** The watched jet's stretches on the bar's own axis. */
   bands: readonly LaneBand[];
-  /** Where a jet would be over the target inside another's frag, strike time. */
+  /** The strike's frag warnings on the clock, strike time; a band with a `minPx` is drawn at least that wide. */
   conflicts?: readonly Band[];
 }
 
@@ -88,7 +90,7 @@ export function Timeline({ scene, bands, conflicts = [] }: TimelineProps) {
                   key={c.key}
                   data-conflict={c.key}
                   className="absolute inset-y-0"
-                  style={{ left: `${f0 * 100}%`, width: `${(f1 - f0) * 100}%`, background: HATCH }}
+                  style={{ ...bandBox(f0, f1, c.minPx), background: HATCH }}
                 />
               );
             })}

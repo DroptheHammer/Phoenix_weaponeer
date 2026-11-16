@@ -7,9 +7,14 @@
  * It mounts the real PlaybackView, inside the real PlaybackOverlay and error
  * boundary, on a made-up plan (fixture.ts) chosen by ?fixture=: one (the
  * default, a lone pop-up), strike4 (a four-ship), late (the four-ship with #2
- * at 300 s, watching #2), skip (three jets, #2 skipped) or dive4 (four F-16C
- * 30° dive bombs 5 s apart, to look at the bomb's arc); ?watch=3 opens
- * watching #3. Tiles are chosen by ?tiles=:
+ * at 300 s, watching #2), skip (three jets, #2 skipped), dive4 (four F-16C
+ * 30° dive bombs 5 s apart, to look at the bomb's arc) or ridge (two Mk-84 dive
+ * bombers, #2 flying through #1's burst: the one place the blast rule warns);
+ * ?watch=3 opens watching #3. ?rule=burst or ?rule=time saves the strike with
+ * that frag rule (blast distance when a bomb goes off, or spacing in time); left
+ * out, the strike says nothing and the app's own default applies. The Mk-82 and
+ * Mk-84 rows carry a blast radius here (fixture.ts gives them one). Tiles are
+ * chosen by ?tiles=:
  *   synthetic (default)  a known hill and a two-colour map, offline, the same every run
  *   live                 real OpenStreetMap and elevation tiles, fetched by the browser
  *   none                 flat ground, nothing fetched
@@ -34,6 +39,7 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../index.css';
+import { dangerZones } from '../../../lib/playback';
 import {
   jetColor, newSceneBombPose, newSceneJetPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource, type Session, type SessionAction,
   type ShowState, type Speed, type TileSource,
@@ -50,7 +56,8 @@ import type { PlaybackLaunch } from '../types';
 
 const params = new URLSearchParams(location.search);
 const tilesMode = params.get('tiles') ?? 'synthetic';
-const fixtureName = (['one', 'strike4', 'late', 'skip', 'dive4'] as const).find((f) => f === params.get('fixture')) ?? 'one';
+const fixtureName = (['one', 'strike4', 'late', 'skip', 'dive4', 'ridge'] as const).find((f) => f === params.get('fixture')) ?? 'one';
+const ruleParam = (['burst', 'time'] as const).find((r) => r === params.get('rule'));
 const watchParam = params.get('watch');
 const notes = params.get('notes') === '1'
   ? ["Harness: coordinates unverified. This map's projection has not been checked against a known landmark, so the plan may sit offset over the ground drawn here."]
@@ -58,7 +65,7 @@ const notes = params.get('notes') === '1'
 // What Apply wrote, for each press: to the editor's sliders a list of times (the editor's order), to the plan each attack's time by its id.
 const applied: AppliedTimes[] = [];
 const doorParam = params.get('door');
-const realLaunch = harnessFixtureLaunch(fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined, (times) => applied.push(times), doorParam === 'editor' || doorParam === 'list' ? doorParam : undefined);
+const realLaunch = harnessFixtureLaunch(fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined, (times) => applied.push(times), doorParam === 'editor' || doorParam === 'list' ? doorParam : undefined, ruleParam);
 const launch: PlaybackLaunch = params.get('gone') === '1' && realLaunch.fromMission
   ? { ...realLaunch, fromMission: { ...realLaunch.fromMission, subject: { strikeId: 'no-such-strike' } } }
   : realLaunch;
@@ -225,12 +232,18 @@ interface PbHandle {
    * without and with Show › Whole run-in. firstAction: the lead's first action after the IP.
    * All strike time. markers: the lead's action points as the scene places them (source.markers(0)),
    * each with the planner's own lines and its strike time. conflicts: the plan's frag conflicts, each
-   * from the moment the second jet's bombs land to the moment the first jet's frag has cleared.
+   * from the moment the second jet's bombs land to the moment the first jet's frag has cleared (under
+   * the spacing rule), or the moment a bomb went off with a jet inside its blast radius and one second after
+   * it (under the blast rule). rule: the frag rule the strike plays by. zones: each flown jet's (playback
+   * index) danger zones at the plan's times, in strike time: the other jet's playback index, the role
+   * under the blast rule, and the times over target that would warn.
    */
   readonly moments: {
     t0: number; t1: number; range: { t0_s: number; t1_s: number }; wholeRange: { t0_s: number; t1_s: number }; firstAction: number;
     markers: readonly SceneMarker[];
     conflicts: { first: string; second: string; t0_s: number; t1_s: number }[];
+    rule: string;
+    zones: { jet: number; against: number | undefined; role: string | undefined; from_s: number; to_s: number }[];
     push?: number; pullUp?: number; release?: number; impact?: number; events: { kind: string; label: string; t_s: number }[];
     /** Each flown jet (playback index k): its seat, label, first action, release and impact, strike time. */
     jets: { seat: number; label: string; firstAction: number; release: number; impact: number }[];
@@ -347,6 +360,8 @@ const pb: PbHandle = {
     t0: moments.window.t0_s, t1: moments.window.t1_s, range: moments.range, wholeRange: moments.wholeRange, firstAction: moments.firstAction,
     markers: source.markers(0),
     conflicts: moments.timing.conflicts.map((c) => ({ first: c.first, second: c.second, t0_s: c.t0_s, t1_s: c.t1_s })),
+    rule: moments.pb.fragRule,
+    zones: moments.pb.jets.flatMap((_, k) => dangerZones(moments.pb, moments.timing, k).map((z) => ({ jet: k, against: z.against, role: z.role, from_s: z.from_s, to_s: z.to_s }))),
     push: moments.push, pullUp: moments.pullUp, release: moments.release, impact: moments.impact, events: moments.events,
     jets: moments.jets.map((j, k) => ({ seat: source.seatOf(k), label: j.label, firstAction: j.firstAction, release: j.release, impact: j.impact })),
   },
