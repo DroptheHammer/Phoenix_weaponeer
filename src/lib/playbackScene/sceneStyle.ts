@@ -20,14 +20,15 @@ export const ARROW_PX = 28;
 export const ARROW_LEN_M = 18;
 /**
  * The bomb's length on screen, CSS pixels, and its real length, m: the same rule as the arrow. It is
- * drawn 14 px long so it can be found on its own fall line: a 10 px one, 1.5 px across, read as one more
- * dash of that red line.
+ * drawn 14 px long so that, with its outline, it can be found at the head of its own line and over
+ * the ground.
  */
 export const BOMB_PX = 14;
 export const BOMB_LEN_M = 2.4;
 /**
  * The bomb's shape: a tapered body, the narrow nose and the wide tail's radii, m. At 14 px long the tail
- * is 5 px across, over three times the fall line's width.
+ * is 5 px across, far wider than the 1.5 px line it leaves, so the bomb stands out at the head of its own
+ * line.
  */
 export const BOMB_NOSE_M = 0.12;
 export const BOMB_TAIL_M = 0.43;
@@ -40,9 +41,8 @@ export const BOMB_TAIL_M = 0.43;
 export const BOMB_HULL_M = 0.215;
 /**
  * The outline's colour. White on a jet that wears the planner's colour code, where the bomb is the
- * planner's red: white on the dark casing of its fall line, and the red on white reads. The other jets
- * have no fall line and their seat colours (cyan, lime, amber) are too pale on white, so their outline is
- * the window's dark instead.
+ * planner's red: the red on white reads, and white reads on the window's dark. The other jets' bombs are
+ * their seat colours (cyan, lime, amber), too pale on white, so their outline is the window's dark instead.
  */
 export const BOMB_HULL = '#ffffff';
 export const BOMB_HULL_OTHER = BG;
@@ -51,7 +51,7 @@ export const OTHER_BOMB_SHADE = 0.8;
 /**
  * A ring round each falling bomb on the 2D overlay: an open circle (the bomb and its line show through)
  * of a dark band with a white line on top, the discs' own edge, so it reads on pale land, on dark ground
- * and over the red line. A jet that wears the planner's colour code gets the larger, solid ring; the
+ * and over the bomb's line. A jet that wears the planner's colour code gets the larger, solid ring; the
  * others a smaller, fainter one. Both clear the outline's half-length (8.25 px at its longest, a bomb
  * lying across the picture) by the ring line's half-width, so the bomb never pokes through its ring.
  */
@@ -119,18 +119,16 @@ export const TRAIL_PX = 3.5;
 export const TRAIL_CASING_PX = 6;
 export const TRAIL_OTHER_PX = 2.5;
 export const TRAIL_OTHER_CASING_PX = 4.5;
-/** The bomb's whole fall: thin and dashed in the planner's bomb-line red, on its casing. */
-export const BOMB_LINE_PX = 1.5;
-export const BOMB_LINE_CASING_PX = 3.5;
 /**
- * The bomb's trace: a solid line from the release to where the bomb is now, left in place after it lands, so
- * the path it took to the target can be seen. On a jet that wears the planner's colour code it is the bomb
- * line's red, heavier than the dashed fall line still ahead of it and no heavier than the jet's own trail, on
- * a casing. The other jets' is the colour of their bomb, thinner and uncased, as their paths are.
+ * The line a bomb leaves behind it while it falls (which part of the fall it covers is bombTrace.ts): grey
+ * dashes, 4 px on and 12 px off, 1.5 px wide, with no casing, one look on every jet that draws it (only a jet
+ * in the planner's colour code does). Dim on purpose, the look the user chose: it shows where the bomb has
+ * come from without drawing the eye off the bomb, which carries the colour (and its ring).
  */
-export const BOMB_TRACE_PX = 3;
-export const BOMB_TRACE_CASING_PX = 5;
-export const BOMB_TRACE_OTHER_PX = 1.5;
+export const BOMB_TRACE_PX = 1.5;
+export const BOMB_TRACE_COLOUR = '#6b7280';
+/** The line's dash and gap, CSS px on screen: the card's 4 px dash with its gap doubled. */
+export const BOMB_TRACE_DASH = [4, 12];
 /** How far back the trail reaches behind the jet, s of strike time. */
 export const TRAIL_S = 20;
 

@@ -384,16 +384,16 @@ async function checkArrowUnderside(page, tag) {
 }
 
 /**
- * Check 51: the bomb is found on its own fall line. The 2D overlay hidden (the ring would carry it: this is the 3D's
- * own bomb, in try/finally as checks 2, 5b and 23), the lone pop-up on flat ground, paused.
+ * Check 51: the bomb is found at the head of its own line. The 2D overlay hidden (the ring would carry it: this is the
+ * 3D's own bomb, in try/finally as checks 2, 5b and 23), the lone pop-up on flat ground, paused.
  * - Top-down, 4 s after the release: at least BOMB_WHITE_MIN white-ish pixels (every channel over 200: the bomb's
- *   outline, which the planner's red, the casing and the drape never are) within 12 px of the bomb; and fewer than 3
- *   within 12 px of where the bomb was 3 s earlier (48 px away, on the same dashed line, so the line alone does not
- *   pass).
+ *   outline, which the planner's red, the line's grey and the drape never are) within 12 px of the bomb; and fewer than 3
+ *   within 12 px of where the bomb was 3 s earlier (48 px away, where its grey dashes now lie, so the line alone
+ *   does not pass).
  * - Home (Orbit), the same screen point read 4 s after the release (the bomb is there, seen end-on) has at least
- *   BOMB_WHITE_MIN_HOME; the control is that same screen point 1 s before the release (no bomb yet; the bomb moves
- *   only about 28 px over its whole fall at Home, so no earlier position on the fall is far enough from it) and
- *   has fewer than 3.
+ *   BOMB_WHITE_MIN_HOME; the control is that same screen point 1 s before the release (no bomb and no line of its fall
+ *   yet; the bomb moves only about 28 px over its whole fall at Home, so no earlier position on the fall is far enough
+ *   from it) and has fewer than 3.
  *
  * BOMB_WHITE_MIN and BOMB_WHITE_MIN_HOME: measured 2026-11-15 on the first green run, set at 60% of the smaller count.
  * Top-down 4 s after the release: 50 white px at 1400×900 and 47 at 1024×768 (the control 3 s earlier on the same line: 0 at
@@ -401,10 +401,13 @@ async function checkArrowUnderside(page, tag) {
  * bomb on the four-ship at Home (check 52), so 12 (60% of 21; the white outline's rim round a 5 px tail is all there is to see).
  *
  * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts, `bomb.add(hull)` deleted (the bomb without its outline; geo-check
- * stays green):
- *   STEP FAIL 51 the bomb is found on its own fall line, overlay hidden: Top-down and Home (1400x900) — Top-down 4 s after the release: bomb at 400,484: 0 white px (need 28); 3 s earlier on its line at 424,437: 0 (need under 3); Home: bomb at 932,343: 0 white px (need 12), the same point 1 s before the release: 0 (need under 3)
+ * stays green); run again the same day once the bomb's only line was its trace, with the same readings:
+ *   STEP FAIL 51 the bomb is found at the head of its own trace, overlay hidden: Top-down and Home (1400x900) — Top-down 4 s after the release: bomb at 400,484: 0 white px (need 28); 3 s earlier on its line at 424,437: 0 (need under 3); Home: bomb at 932,343: 0 white px (need 12), the same point 1 s before the release: 0 (need under 3)
  *   STEP FAIL 51 … (1024x768) — Top-down …: bomb at 290,392: 0 white px (need 28); …; Home: bomb at 687,287: 0 white px (need 12), …
  * (check 52 goes red with it by its watched-jet arm: #2's own bomb 0 white px, need 12; geo-check stays green.)
+ * Green with the trace as the only line: Top-down 51 and 48 white px, Home 22 and 22, every control 0.
+ * Green again 2026-11-16 with the line as grey dashes that go when the bomb lands: Top-down 52 and 48 white px, Home 22 and 21,
+ * every control 0.
  */
 const whiteLike = (p) => p[0] > 200 && p[1] > 200 && p[2] > 200;
 const whiteIn = (img, [x, y], r) => patch(img, [Math.round(x), Math.round(y)], r).filter(whiteLike).length;
@@ -444,7 +447,7 @@ async function checkBombSeen(page, tag) {
     await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
   }
   const fmt = (q) => (q ? `${Math.round(q[0])},${Math.round(q[1])}` : 'none');
-  step(`51 the bomb is found on its own fall line, overlay hidden: Top-down and Home (${tag})`,
+  step(`51 the bomb is found at the head of its own trace, overlay hidden: Top-down and Home (${tag})`,
     !!out.top.p && !!out.top.earlier && out.top.n >= BOMB_WHITE_MIN && out.top.control >= 0 && out.top.control < 3 &&
       !!out.home.p && out.home.n >= BOMB_WHITE_MIN_HOME && out.home.control >= 0 && out.home.control < 3,
     `Top-down 4 s after the release: bomb at ${fmt(out.top.p)}: ${out.top.n} white px (need ${BOMB_WHITE_MIN}); 3 s earlier on its line at ${fmt(out.top.earlier)}: ${out.top.control} (need under 3); ` +
@@ -546,21 +549,65 @@ async function checkBombRing(page, tag) {
   step(`51b the ring round the falling bomb on the overlay: found, 11 px, pulsing at the release, gone before and after, switched by the real Impact box (${tag})`, ok, parts.join('; '));
 }
 
-// ── The bomb's trace (checks 63 and 63b). The fall's line on screen is read off the scene's own sampled points
-// (the fall is a curve, and in Top-down a curve on a vertical plane is not quite a chord of its ends), each
-// point through the live camera, and walked a pixel at a time: at each spot the pixel itself and the two a
-// pixel to either side of the line (a 1.5 px line is hardly more than one pixel wide, and the polyline and the
-// drawn line are not the same to the pixel). A solid line then gives red at nearly every spot, the planner's dashed
-// bomb line (4 on, 6 off) at about 40%.
+// ── The bomb's line (checks 63, 63b, 63c and 63d). While a bomb is in the air it leaves grey dashes (#6b7280, 4 px on,
+// 12 off, 1.5 px wide, no casing) from its release point to the bomb; nothing of its fall is drawn before the release,
+// ahead of the bomb or after the impact, in any attack type, on any jet; and only a jet in the planner's colour code (the
+// watched jet, every jet with Show › Attack colours › All jets) shows its line at all.
+//
+// The fall's line on screen is read off the scene's own sampled points (the fall is a curve, and in Top-down a curve on
+// a vertical plane is not quite a chord of its ends), each point through the live camera, and walked a pixel at a time:
+// at each spot the pixel itself and the two a pixel to either side of the line (a 1.5 px line is hardly more than one
+// pixel wide, and the polyline and the drawn line are not the same to the pixel).
+//
+// A spot is grey (the line is there) when one of those pixels lies on the straight way from the ground at that spot
+// toward the line's grey: at least TRACE_GREY_FROM of the way there and at most TRACE_GREY_TO (a little past, for
+// rounding), within TRACE_GREY_OFF levels of that way. The ground is the median of the square TRACE_GROUND_R px round
+// the spot: a line, a post or a ring's rim is a sliver of that square, so the median is the ground, whatever its colour
+// (the harness's three flat colours, or hazed far off). That is what a thin grey line drawn over the ground leaves,
+// however much of a pixel it covers: the dashes' ends and sides are blends, and few pixels are the pure grey, so an
+// exact colour would miss most of them. None of the other things drawn there is on that way: the planner's colours
+// (the red target ring and post, the yellow and orange posts, the path's colours), the window's dark (the casings, the
+// label plates, a ring's band: far past the grey), the white rims and plates (the other way). The grey is told by its
+// colour against the ground rather than by a picture of the same moment with Show › Impact off, because that switch
+// takes the flash and the rings away, never the line (it is the bomb's path, not an effect): the two pictures would
+// differ by the ring round the bomb and not at all by the line. A seek to a moment with no line would not do either:
+// the jet and its trail move between the two pictures.
 const TRACE_STEP_PX = 1;
 const TRACE_CLEAR_PX = 12;
 const TRACE_CLEAR_TARGET_PX = 12;
-const TRACE_SOLID_MIN = 0.9;
-const TRACE_DASH_MIN = 0.2;
-const TRACE_DASH_MAX = 0.7;
+const TRACE_RGB = hex('#6b7280');
+const TRACE_GREY_FROM = 0.3;
+const TRACE_GREY_TO = 1.15;
+const TRACE_GREY_OFF = 12;
+const TRACE_GROUND_R = 6;
+const TRACE_DASH_MIN = 0.11;
+const TRACE_NONE_SPOTS = 3;
 const TRACE_GROUP_MIN = 10;
 /** The release point the page gives lies this close to the fall's own first point, px (the two go through the same camera). */
 const TRACE_RELEASE_PX = 1;
+/** Another bomb in the air, and the line behind it, may lie on this jet's fall: spots this close to either are left out, px. */
+const TRACE_OTHER_LINE_PX = 4;
+const TRACE_OTHER_BOMB_PX = 14;
+/** Whether pixel `p` lies on the way from the ground `g` toward the line's grey (see above). */
+function greyOver(p, g) {
+  const d = [TRACE_RGB[0] - g[0], TRACE_RGB[1] - g[1], TRACE_RGB[2] - g[2]];
+  const dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+  if (dd < 30 * 30) return false; // ground as dark as the grey: nothing can be told there
+  const a = ((p[0] - g[0]) * d[0] + (p[1] - g[1]) * d[1] + (p[2] - g[2]) * d[2]) / dd;
+  if (a < TRACE_GREY_FROM || a > TRACE_GREY_TO) return false;
+  return Math.hypot(p[0] - g[0] - a * d[0], p[1] - g[1] - a * d[1], p[2] - g[2] - a * d[2]) <= TRACE_GREY_OFF;
+}
+/** Distance from point `p` to a polyline of screen points, px. */
+function distToPoly(poly, p) {
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[Math.min(i + 1, poly.length - 1)];
+    const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+    const f = l2 > 0 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
+    best = Math.min(best, Math.hypot(a[0] + f * dx - p[0], a[1] + f * dy - p[1]));
+  }
+  return best;
+}
 /** Spots every `step` px along a polyline of screen points, each with its arc length, its direction and the polyline's arc lengths at its vertices. */
 function alongPolyline(poly, step) {
   const cum = [0];
@@ -590,64 +637,100 @@ function arcOf(poly, cum, p) {
   }
   return arc;
 }
-/** Whether a spot of the line passes `test`: the pixel there, or one a pixel to either side of the line. */
-const spotHas = (img, sp, test) => [-1, 0, 1].some((k) => test(img.at(Math.round(sp.x - k * sp.uy), Math.round(sp.y + k * sp.ux))));
+/** Whether a spot of the line is grey: the pixel there, or one a pixel to either side of the line, over the ground round it. */
+function spotGrey(img, sp) {
+  const g = median(patch(img, [Math.round(sp.x), Math.round(sp.y)], TRACE_GROUND_R));
+  return [-1, 0, 1].some((k) => greyOver(img.at(Math.round(sp.x - k * sp.uy), Math.round(sp.y + k * sp.ux)), g));
+}
 /**
- * The spots of the fall's line that pass `test`, by side of the bomb: `behind` (the release's side), `ahead` (the
- * target's) and, with no bomb in the picture, `all`. A spot within `clear.release` px of the release point, `clear.bomb`
- * of the bomb or `clear.target` of the target (their own red, and the bomb's body) is left out.
+ * The grey spots of the fall's line, by side of the bomb: `behind` (the release's side), `ahead` (the target's) and,
+ * with no bomb in the picture, `all`; each a count of spots read (`n`) and of grey ones (`hit`). A spot off the picture,
+ * within `clear.release` px of the release point, `clear.bomb` of the bomb or `clear.target` of the target (their own
+ * colours, and the bomb's body and ring) is left out, and so is one near another bomb in the air or the line behind it
+ * (`others`, from airLines), which the rule allows there. With `cv` (canvasBox), a spot off the 3D's canvas is left out too.
  */
-function traceSpots(img, poly, bomb, test, clear = { release: TRACE_CLEAR_PX, bomb: TRACE_CLEAR_PX, target: TRACE_CLEAR_TARGET_PX }) {
+function traceSpots(img, poly, bomb, clear = { release: TRACE_CLEAR_PX, bomb: TRACE_CLEAR_PX, target: TRACE_CLEAR_TARGET_PX }, others = [], cv = { l: 0, t: 0, w: img.width, h: img.height }) {
   const { spots, cum } = alongPolyline(poly, TRACE_STEP_PX);
   const rel = poly[0], tgt = poly[poly.length - 1];
   const sBomb = bomb ? arcOf(poly, cum, bomb) : Infinity;
-  const g = { behind: { n: 0, hit: 0 }, ahead: { n: 0, hit: 0 }, all: { n: 0, hit: 0 } };
+  const g = { behind: { n: 0, hit: 0 }, ahead: { n: 0, hit: 0 }, all: { n: 0, hit: 0 }, skipped: 0 };
+  const m = TRACE_GROUND_R + 2;
   for (const sp of spots) {
+    if (sp.x < cv.l + m || sp.y < cv.t + m || sp.x > cv.l + cv.w - m - 1 || sp.y > cv.t + cv.h - m - 1) continue;
     if (Math.hypot(sp.x - rel[0], sp.y - rel[1]) < clear.release || Math.hypot(sp.x - tgt[0], sp.y - tgt[1]) < clear.target) continue;
     if (bomb && Math.hypot(sp.x - bomb[0], sp.y - bomb[1]) < clear.bomb) continue;
+    if (others.some((o) => (o.bomb && Math.hypot(sp.x - o.bomb[0], sp.y - o.bomb[1]) < TRACE_OTHER_BOMB_PX) || distToPoly(o.line, [sp.x, sp.y]) < TRACE_OTHER_LINE_PX)) { g.skipped++; continue; }
     const grp = !bomb ? g.all : sp.s < sBomb ? g.behind : g.ahead;
     grp.n++;
-    if (spotHas(img, sp, test)) grp.hit++;
+    if (spotGrey(img, sp)) grp.hit++;
   }
   return g;
 }
-/** The fall of jet `jet` as the page draws it now: its points on screen, the bomb, and the layer's own count of the trace. */
+/** The fall of jet `jet` as the page draws it now: its points on screen, the bomb, and the layer's own account of its line. */
 const fallOnScreen = (page, jet) => pbEval(page, (k) => {
   const pts = __pb.source().plannedBomb(k);
   const poly = [];
   for (let i = 0; i + 2 < pts.length; i += 3) poly.push(__pb.projectPoint(pts[i], -pts[i + 2], pts[i + 1]));
   return { poly, bomb: __pb.project(k, 'bomb'), release: __pb.project(k, 'release'), trace: __pb.trace(k) };
 }, jet);
+/**
+ * Every other jet's bomb that is in the air at the clock's time, with the line the rule lets it leave behind it, on the
+ * page: only a jet in the planner's colour code (the watched jet, every jet with Show › Attack colours › All jets) draws
+ * one, its fall from the release to the points it has reached, by the source's own count, then the bomb; another jet's
+ * bomb is excused, its line is empty. Worked out from the source, the clock and the Show choice, never from what the
+ * layers drew, so a line drawn where the rule does not allow it is never excused.
+ */
+const airLines = (page, except) => pbEval(page, (skip) => {
+  const s = __pb.source(), t = __pb.snapshot().t, out = [];
+  const all = __pb.show()?.attackColours === 'all', watched = __pb.watched();
+  for (let k = 0; k < s.jetCount; k++) {
+    if (k === skip || !(t >= s.releaseOf(k) && t < s.impactOf(k))) continue;
+    const coded = all || k === watched || s.jetCount === 1;
+    const pts = s.plannedBomb(k), n = coded ? s.bombFlown(k, t) : 0, line = [];
+    for (let i = 0; i < n; i++) line.push(__pb.projectPoint(pts[i * 3], -pts[i * 3 + 2], pts[i * 3 + 1]));
+    const bomb = __pb.project(k, 'bomb');
+    if (bomb && coded) line.push(bomb);
+    out.push({ jet: k, bomb, coded, line: line.filter(Boolean) });
+  }
+  return out;
+}, except);
 /** How far the release point the page gives (`project(jet, 'release')`) is from the fall's own first point, px. */
 const releaseOff = (f) => (f.release && f.poly[0] ? Math.hypot(f.release[0] - f.poly[0][0], f.release[1] - f.poly[0][1]) : NaN);
+/** A group of spots with enough of them read and at least TRACE_DASH_MIN grey (the dashes are there), or at most TRACE_NONE_SPOTS grey (no line). */
+const traceDashed = (x) => !!x && x.n >= TRACE_GROUP_MIN && x.hit / x.n >= TRACE_DASH_MIN;
+const traceNone = (x) => !!x && x.n >= TRACE_GROUP_MIN && x.hit <= TRACE_NONE_SPOTS;
+const tracePct = (x) => (x && x.n ? `${Math.round((100 * x.hit) / x.n)}% of ${x.n}` : 'no spots');
+const traceCount = (x) => (x && x.n ? `${x.hit} of ${x.n} spots grey` : 'no spots');
+const traceSays = (t) => (t ? `${t.drawn} of ${t.points} points, ${t.segments} pieces${t.shown ? '' : ', not shown'}` : 'none');
 
 /**
- * Check 63: the bomb leaves a solid trace behind it and keeps it. The lone pop-up on flat ground, Top-down, the
- * overlay hidden, paused at 1×. The fall's line is walked as described above (a spot is red if the script's
- * own redLike test passes at it); the layer's own count (`__pb.trace(0)`: the fall's points, and how many the
- * trace reaches) is read at the same time.
- * - 60% of the way down the fall: at least 90% of the spots between the release and the bomb are red (the solid
- *   trace) and between 20% and 70% of those between the bomb and the target (the planner's dashed fall line).
- * - 1 s before the release: no trace (`drawn` 0) and the whole line is the dashed one (20% to 70%).
- * - 5 s after the impact: the whole line is solid (at least 90%) and the trace reaches every point (`drawn` is `points`).
- * - Seek back to 1 s before the release: dashed again, `drawn` 0 (the trace is a function of the clock's time).
+ * Check 63: while the bomb falls its line is grey dashes behind it, and nothing else of its fall is drawn. The lone pop-up
+ * on flat ground, Top-down, the overlay hidden, paused at 1×. The fall's line is walked as described above; the layer's own
+ * account (`__pb.trace(0)`: the fall's points, how many the line covers, how many pieces it draws) is read at the same time.
+ * - 60% of the way down the fall: at least TRACE_DASH_MIN of the spots between the release and the bomb are grey (the
+ *   dashes cover a quarter of the line's length, a little more with their blended ends), and at most TRACE_NONE_SPOTS of
+ *   those between the bomb and the target (nothing is drawn ahead of the bomb); the line covers some of the fall's points
+ *   and draws some pieces.
+ * - 1 s before the release, 5 s after the impact, and after a seek back to 1 s before the release: at most
+ *   TRACE_NONE_SPOTS grey spots along the whole fall, the line covers none of its points and draws no piece (it is a
+ *   function of the clock's time, and goes when the bomb lands).
  * A group needs at least TRACE_GROUP_MIN spots to count. The spots are every pixel of the line's length rather than 40
- * of them: the part of the dashed line between the bomb and the target is only 14 to 26 px long once the 12 px round the
+ * of them: the part of the fall between the bomb and the target is only 14 to 26 px long once the 12 px round the
  * bomb and the target are left out, and 40 spots over the whole line would leave a handful there.
  *
- * Measured 2026-11-15 on the first green run: 1400×900, behind the bomb 100% of 65 spots red, ahead of it 58% of 26, the
- * whole line 44% of 115 before the release and again after the seek back, 100% of 115 after the impact; 1024×768, 100% of
- * 42, 57% of 14, 43% of 80, 100% of 80. The thresholds are the ones written above (a solid line is at 100%, the dashed one
- * between 40% and 60%).
+ * Measured 2026-11-16 on the first green run: 1400×900, behind the bomb 25% of 65 spots grey, ahead of it 0 of 26, and 0 of
+ * 115 before the release, after the impact and after the seek back; 1024×768, 26% of 42, 0 of 14 and 0 of 80. The grey
+ * test finds nothing where no line is drawn (the target ring's rim, which a red test used to catch, is not grey), so
+ * TRACE_NONE_SPOTS is 3: the largest count seen in any of 63 to 63d (1) plus 2. TRACE_DASH_MIN is 11%: 60% of the smallest
+ * share seen behind a bomb in any of them (19%, in 63c).
  *
- * Proven red 2026-11-15 by two temporary edits, one run each:
- * (a) scene/jetLayer.ts, the trace's two meshes made invisible when they are made (`traceCasing.visible = traceLine.visible = false`):
- *   STEP FAIL 63 the bomb's trace: … Top-down (1400x900) — 60% down: behind the bomb 43% of 65 red (need 90%), ahead 58% of 26 (need 20-70%), trace 21 of 35 points; 1 s before the release: 44% of 115 (need 20-70%), trace 0 (need 0); 5 s after the impact: 44% of 115 (need 90%), trace 35 of 35; seek back: 44% of 115, trace 0
- *   (the 1024×768 run of this edit timed out on a screenshot, the machine being busy; a later run of it went red there too: 43% of 42 behind the bomb)
- * (b) src/lib/playbackScene/source.ts, bombFlown returning every point at every time:
- *   STEP FAIL 63 the bomb's trace: … Top-down (1400x900) — 60% down: behind the bomb 100% of 65 red (need 90%), ahead 100% of 26 (need 20-70%), trace 35 of 35 points; 1 s before the release: 100% of 115 (need 20-70%), trace 35 (need 0); 5 s after the impact: 100% of 115 (need 90%), trace 35 of 35; seek back: 100% of 115, trace 35
- *   STEP FAIL 63 … (1024x768) — … ahead 100% of 14; 1 s before the release: 100% of 80, trace 35 (need 0); …
- * (geo-check BT1 goes red with (b) too: 0 points before the release is one of its readings.)
+ * Proven red 2026-11-16 by one temporary edit to src/lib/playbackScene/bombTrace.ts, the line kept after the impact as it
+ * was before the user's report (bombTracePoints `return flown < total ? flown : 0;` → `return flown;`):
+ *   STEP FAIL 63 the bomb's line: … Top-down (1400x900) — 60% down: behind the bomb 25% of 65 grey (need 11%), ahead 0 of 26 spots grey (need at most 3), line 21 of 35 points, 21 pieces; 1 s before the release: 0 of 115 spots grey (need at most 3), line 0 of 35 points, 0 pieces (need none); 5 s after the impact: 31 of 115 spots grey (need at most 3), line 35 of 35 points, 34 pieces (need none); seek back: 0 of 115 spots grey …
+ *   STEP FAIL 63 … (1024x768) — …; 5 s after the impact: 20 of 80 spots grey (need at most 3), line 35 of 35 points, 34 pieces (need none); …
+ * and by one temporary edit to scene/jetLayer.ts, the line's mesh never shown (`traceLine.visible = false;` after it is made):
+ *   STEP FAIL 63 the bomb's line: … Top-down (1400x900) — 60% down: behind the bomb 0% of 65 grey (need 11%), ahead 0 of 26 spots grey (need at most 3), line 21 of 35 points, 21 pieces; …
+ *   STEP FAIL 63 … (1024x768) — 60% down: behind the bomb 0% of 42 grey (need 11%), …
  *
  * The check also reads `__pb.project(0, 'release')` at each of the four moments: it must lie within TRACE_RELEASE_PX of the
  * fall's own first point (0.00 px on the green run, both sizes). Proven red 2026-11-15 by one temporary edit to
@@ -676,91 +759,316 @@ async function checkBombTrace(page, tag) {
       const f = await fallOnScreen(page, 0);
       const img = await shot(page, `${tag}-63-trace-${name}`);
       const whole = f.poly.length > 1 && f.poly.every(Boolean);
-      phases[name] = { whole, trace: f.trace, hasBomb: !!f.bomb, relOff: releaseOff(f), g: whole ? traceSpots(img, f.poly, f.bomb, redLike) : null };
+      phases[name] = { whole, trace: f.trace, hasBomb: !!f.bomb, relOff: releaseOff(f), g: whole ? traceSpots(img, f.poly, f.bomb) : null };
     }
   } finally {
     await overlay(page, true);
     await pbEval(page, (w) => { __pb.setRange(w.whole); __pb.setGround(w.ground); __pb.goHome(); }, was);
   }
-  const pct = (x) => (x && x.n ? `${Math.round((100 * x.hit) / x.n)}% of ${x.n}` : 'no spots');
-  const frac = (x) => (x && x.n >= TRACE_GROUP_MIN ? x.hit / x.n : NaN);
-  const solid = (x) => frac(x) >= TRACE_SOLID_MIN;
-  const dashed = (x) => frac(x) >= TRACE_DASH_MIN && frac(x) <= TRACE_DASH_MAX;
   const P = phases;
   const mid = P.mid.g, before = P.before.g, after = P.after.g, back = P.back.g;
-  const okMid = P.mid.whole && P.mid.hasBomb && solid(mid.behind) && dashed(mid.ahead) && P.mid.trace.drawn > 0 && P.mid.trace.drawn < P.mid.trace.points;
-  const okBefore = P.before.whole && !P.before.hasBomb && dashed(before.all) && P.before.trace.drawn === 0;
-  const okAfter = P.after.whole && !P.after.hasBomb && solid(after.all) && P.after.trace.points > 1 && P.after.trace.drawn === P.after.trace.points;
-  const okBack = P.back.whole && dashed(back.all) && P.back.trace.drawn === 0;
+  const okMid = P.mid.whole && P.mid.hasBomb && traceDashed(mid.behind) && traceNone(mid.ahead) && P.mid.trace.drawn > 0 && P.mid.trace.drawn < P.mid.trace.points && P.mid.trace.segments > 0;
+  const gone = (p) => p.whole && !p.hasBomb && traceNone(p.g.all) && p.trace.points > 1 && p.trace.drawn === 0 && p.trace.segments === 0;
   // The release point the page gives is the fall's first point, before, during and after the fall (a NaN fails).
   const relOff = Math.max(...['mid', 'before', 'after', 'back'].map((k) => (P[k].relOff <= TRACE_RELEASE_PX ? P[k].relOff : Infinity)));
-  step(`63 the bomb's trace: solid from the release to the bomb, dashed ahead, none before the release, the whole fall after the impact, gone again on a seek back, Top-down (${tag})`,
-    okMid && okBefore && okAfter && okBack && relOff <= TRACE_RELEASE_PX,
-    `60% down: behind the bomb ${pct(mid && mid.behind)} red (need ${TRACE_SOLID_MIN * 100}%), ahead ${pct(mid && mid.ahead)} (need ${TRACE_DASH_MIN * 100}-${TRACE_DASH_MAX * 100}%), trace ${P.mid.trace.drawn} of ${P.mid.trace.points} points; ` +
-      `1 s before the release: ${pct(before && before.all)} (need ${TRACE_DASH_MIN * 100}-${TRACE_DASH_MAX * 100}%), trace ${P.before.trace.drawn} (need 0); ` +
-      `5 s after the impact: ${pct(after && after.all)} (need ${TRACE_SOLID_MIN * 100}%), trace ${P.after.trace.drawn} of ${P.after.trace.points}; ` +
-      `seek back: ${pct(back && back.all)}, trace ${P.back.trace.drawn}; ` +
+  step(`63 the bomb's line: grey dashes from the release to the bomb, nothing ahead of it, nothing before the release, nothing after the impact, nothing after a seek back, Top-down (${tag})`,
+    okMid && gone(P.before) && gone(P.after) && gone(P.back) && relOff <= TRACE_RELEASE_PX,
+    `60% down: behind the bomb ${tracePct(mid && mid.behind)} grey (need ${TRACE_DASH_MIN * 100}%), ahead ${traceCount(mid && mid.ahead)} (need at most ${TRACE_NONE_SPOTS}), line ${traceSays(P.mid.trace)}; ` +
+      `1 s before the release: ${traceCount(before && before.all)} (need at most ${TRACE_NONE_SPOTS}), line ${traceSays(P.before.trace)} (need none); ` +
+      `5 s after the impact: ${traceCount(after && after.all)} (need at most ${TRACE_NONE_SPOTS}), line ${traceSays(P.after.trace)} (need none); ` +
+      `seek back: ${traceCount(back && back.all)} (need at most ${TRACE_NONE_SPOTS}), line ${traceSays(P.back.trace)}; ` +
       `the release point the page gives is ${Number.isFinite(relOff) ? `${relOff.toFixed(2)} px` : 'more than 1 px, or missing,'} from the fall's first point (need ${TRACE_RELEASE_PX})`);
 }
 
 /**
- * Check 63b: a jet that is not watched leaves a trace in its own bomb shade, and none beyond its bomb. The four-ship
- * opened watching #2, so #1's bomb is one of the others' (as in 52); Top-down, flat ground, the overlay hidden, paused
- * at 1× half way down #1's fall. The fall's line is walked as in 63; a spot has the shade if a pixel there is within 3
- * levels of #1's bomb colour (#1ebfd8, the cyan seat colour shaded 0.8 in linear light, as geo-check BM5 holds; the
- * others' path is 8 levels away in green and is not counted). Between the release and the bomb at least
- * TRACE_OTHER_MIN spots have it; between the bomb and the target at most 2. The bomb's body is kept clear (9 px:
- * the others' bomb is the same shade); the release point and the target, whose own colours are not that shade, only
- * a few px, because the four-ship's fall is short on screen (64 px at 1400×900, 48 at 1024×768).
+ * Check 63b: only a jet in the planner's colour code draws its bomb's line. The four-ship opened watching #2, so #1's
+ * bomb is one of the others' (as in 52); Top-down, flat ground, the overlay hidden, paused at 1×. Each fall is walked as
+ * in 63, leaving out any other bomb in the air and the line the rule lets it draw (airLines: only a coded jet's).
+ * - #1, not watched, half way and 85% of the way down its fall: at most TRACE_OTHER_NONE grey spots between the release
+ *   and the bomb and at most TRACE_OTHER_NONE between the bomb and the target (no line at all, behind or ahead); the
+ *   layer has laid #1's line (it covers some points, some pieces) and does not show it. 85% down is where the stretch
+ *   behind the bomb is long enough on screen to hold a few dashes (12 px of it could fall wholly in one 12 px gap), so a
+ *   line shown there would be seen. (By 85% what is left ahead of the bomb lies inside the target's clear circle, so the
+ *   ahead reading is half way down's.)
+ * - 2 s after #1's impact (#2 is still on its way): at most TRACE_NONE_SPOTS grey spots along #1's whole fall, and its
+ *   line covers none of its points and draws no piece.
+ * - #2, watched, 85% of the way down its own fall: between the release and the bomb at least TRACE_OTHER_MIN grey spots,
+ *   between the bomb and the target at most TRACE_OTHER_NONE; its line is laid and shown.
+ * - Show › Attack colours › All jets, back at 85% of #1's fall: #1 is in the colour code too, and between its release
+ *   and its bomb at least TRACE_OTHER_MIN grey spots, at most TRACE_OTHER_NONE ahead; its line is shown. Then back to
+ *   Watched jet.
+ * A bomb's body is kept clear by 9 px, the release point and the target only by a few, because the four-ship's fall is
+ * short on screen (64 px at 1400×900, 48 at 1024×768).
  *
- * TRACE_OTHER_MIN: measured 2026-11-15 on the first green run: 13 of 20 spots in the shade between the release and the bomb
- * at 1400×900 and 5 of 12 at 1024×768 (a 1.5 px line leaves few pixels that are entirely its own colour), none of 16 and
- * none of 8 between the bomb and the target; set at 60% of the smaller count, 3.
+ * TRACE_OTHER_MIN: measured 2026-11-16 on the first green run of the line on every jet, 85% down: 11 of 41 spots grey behind
+ * #1's bomb at 1400×900 and 7 of 27 at 1024×768; set at 60% of the smaller count, 4. TRACE_OTHER_NONE is the 2 the ahead
+ * reading always had. Measured 2026-11-16 on the first run with only the coded jet's line: #1 not watched 0 grey spots
+ * behind and ahead at both moments and both sizes (of 20 and 16, 41 half way and 85% down at 1400×900; 12 and 8, 27 at
+ * 1024×768); #2 watched, 85% down, 8 of 42 behind (1400×900) and 6 of 28 (1024×768); All jets, #1 85% down, 10 of 41 and 7
+ * of 27; after #1 lands 0 of 54 and 0 of 38.
  *
- * Proven red 2026-11-15 by one temporary edit to scene/jetLayer.ts wear(), the trace left out of the other jets' look
- * (`traceCasing.visible = on;` → `traceCasing.visible = traceLine.visible = on;`, so the line is hidden for a jet that is not watched):
- *   STEP FAIL 63b a jet that is not watched leaves its trace in its own bomb shade, and none beyond its bomb (1400x900-strike4-watch2) — times and colours as the check expects; release to bomb: 0 of 20 spots in #1's bomb shade (need 3), bomb to target: 0 of 16 (need at most 2); trace 17 of 35 points (35 on screen)
- *   STEP FAIL 63b … (1024x768-strike4-watch2) — … release to bomb: 0 of 12 spots in #1's bomb shade (need 3), bomb to target: 0 of 8 (need at most 2); …
+ * Proven red 2026-11-16 by two temporary edits to scene/jetLayer.ts, one strike-only run each:
+ * (a) the line shown on every jet (wear(), `traceLine.visible = on;` → `traceLine.visible = true;`):
+ *   STEP FAIL 63b only a jet in the planner's colour code draws its bomb's line: … (1400x900-strike4-watch2) — times as the check expects, watching #2; #1 half way down: release to bomb 4 of 20 spots grey, bomb to target 0 of 16, line 17 of 35 points, 17 pieces (need at most 2 each, not shown); #1 85% down: release to bomb 11 of 41 spots grey, …, line 29 of 35 points, 29 pieces (need at most 2 each, not shown); …
+ *   STEP FAIL 63b … (1024x768-strike4-watch2) — …; #1 half way down: release to bomb 1 of 12 spots grey, …; #1 85% down: release to bomb 7 of 27 spots grey, …
+ * (b) the line hidden on every jet (the same line → `traceLine.visible = false;`, and `traceLine.visible = false;` where the
+ *   mesh is made, so a jet that is coded from the start loses it too):
+ *   STEP FAIL 63b … (1400x900-strike4-watch2) — …; #2 (watched) 85% down: release to bomb 0 of 42 spots grey, bomb to target 0 of 0, line 29 of 35 points, 29 pieces, not shown (need 4 behind, at most 2 ahead, shown); All jets, #1 85% down: release to bomb 0 of 41 spots grey, …, not shown (need 4 behind, at most 2 ahead, shown)
+ *   STEP FAIL 63b … (1024x768-strike4-watch2) — …; #2 (watched) 85% down: release to bomb 0 of 28 spots grey, …; All jets, #1 85% down: release to bomb 0 of 27 spots grey, …
+ * (63c and every 63d went red with (b) too; geo-check BT2 is red under both.)
  */
 const TRACE_OTHER_CLEAR_BOMB_PX = 9;
 const TRACE_OTHER_CLEAR_RELEASE_PX = 3;
 const TRACE_OTHER_CLEAR_TARGET_PX = 4;
-const TRACE_OTHER_MIN = 3;
+const TRACE_OTHER_MIN = 4;
+const TRACE_OTHER_NONE = 2;
 async function checkBombTraceOthers(page, tag) {
   const m = await pbEval(page, () => __pb.moments.jets.map((j) => ({ release: j.release, impact: j.impact })));
-  const seatColour = await pbEval(page, () => __pb.colours.jets[0]);
-  const T = m[0].release + 0.5 * (m[0].impact - m[0].release);
-  const setup = m[1].release > T && seatColour === '#22d3ee';
-  const shade = hex('#1ebfd8');
+  const along = (k, u) => m[k].release + u * (m[k].impact - m[k].release);
+  const T = along(0, 0.5), TL = along(0, 0.85), T2 = m[0].impact + 2, T2L = along(1, 0.85);
+  const setup = m[1].release > TL && m[1].impact > T2 && (await pbEval(page, () => __pb.watched())) === 1;
+  const clear = { release: TRACE_OTHER_CLEAR_RELEASE_PX, bomb: TRACE_OTHER_CLEAR_BOMB_PX, target: TRACE_OTHER_CLEAR_TARGET_PX };
   await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); });
-  let f, g = null, n = 0;
+  const read = {};
+  const take = async (name, jet, t) => {
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+    const f = await fallOnScreen(page, jet);
+    const others = await airLines(page, jet);
+    const img = await shot(page, `${tag}-63b-trace-${name}`);
+    const whole = f.poly.length > 1 && f.poly.every(Boolean);
+    read[name] = { f, g: whole ? traceSpots(img, f.poly, f.bomb, clear, others) : null, others: others.length };
+  };
+  let allOn = false;
   await overlay(page, false);
   try {
     await page.getByRole('button', { name: 'Top-down', exact: true }).click();
-    await pbEval(page, (t) => __pb.seek(t), T);
-    await settle(page, 300);
-    f = await fallOnScreen(page, 0);
-    const img = await shot(page, `${tag}-63b-trace-other`);
-    if (f.poly.length > 1 && f.poly.every(Boolean) && f.bomb) {
-      g = traceSpots(img, f.poly, f.bomb, (p) => near(p, shade, 3), { release: TRACE_OTHER_CLEAR_RELEASE_PX, bomb: TRACE_OTHER_CLEAR_BOMB_PX, target: TRACE_OTHER_CLEAR_TARGET_PX });
-      n = f.poly.length;
-    }
+    await take('other-falling', 0, T);
+    await take('other-late', 0, TL);
+    await take('other-landed', 0, T2);
+    await take('watched-late', 1, T2L);
+    await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'attackColours', value: 'all' } }));
+    allOn = true;
+    await take('all-jets-late', 0, TL);
+    allOn = (await pbEval(page, () => __pb.show().attackColours)) === 'all';
   } finally {
+    await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'attackColours', value: 'watched' } }));
+    await settle(page, 300);
     await overlay(page, true);
     await pbEval(page, () => __pb.goHome());
   }
-  step(`63b a jet that is not watched leaves its trace in its own bomb shade, and none beyond its bomb (${tag})`,
-    setup && !!g && g.behind.n >= TRACE_GROUP_MIN && g.behind.hit >= TRACE_OTHER_MIN && g.ahead.hit <= 2 && f.trace.drawn > 0 && f.trace.drawn < f.trace.points,
-    `${setup ? 'times and colours as the check expects' : `not as the check expects (seat colour ${seatColour}, #2 released ${m[1].release.toFixed(1)}, check at ${T.toFixed(1)})`}; ` +
-      (g ? `release to bomb: ${g.behind.hit} of ${g.behind.n} spots in #1's bomb shade (need ${TRACE_OTHER_MIN}), bomb to target: ${g.ahead.hit} of ${g.ahead.n} (need at most 2); trace ${f.trace.drawn} of ${f.trace.points} points (${n} on screen)` : 'the fall or the bomb is not on screen'));
+  const a = read['other-falling'], l = read['other-late'], b = read['other-landed'], w = read['watched-late'], al = read['all-jets-late'];
+  // Laid but not shown: the layer has a line for #1 at that moment, so a line shown would be on the picture.
+  // 85% down, what is left ahead of the bomb lies within the target's clear circle (no spots): half way down reads it.
+  const hidden = (x, needBehind, needAhead) => !!x && !!x.g && !!x.f.bomb && x.g.behind.n >= needBehind && x.g.behind.hit <= TRACE_OTHER_NONE && x.g.ahead.n >= needAhead &&
+    x.g.ahead.hit <= TRACE_OTHER_NONE && x.f.trace.drawn > 0 && x.f.trace.segments > 0 && !x.f.trace.shown;
+  const drawnBehind = (x) => !!x && !!x.g && !!x.f.bomb && x.g.behind.n >= TRACE_GROUP_MIN && x.g.behind.hit >= TRACE_OTHER_MIN && x.g.ahead.hit <= TRACE_OTHER_NONE &&
+    x.f.trace.drawn > 0 && x.f.trace.shown;
+  const okLanded = !!b.g && !b.f.bomb && traceNone(b.g.all) && b.f.trace.drawn === 0 && b.f.trace.segments === 0;
+  const says = (x, who) => (x && x.g ? `release to bomb ${x.g.behind.hit} of ${x.g.behind.n} spots grey, bomb to target ${x.g.ahead.hit} of ${x.g.ahead.n}, line ${traceSays(x.f.trace)}` : `${who}'s fall or bomb is not on screen`);
+  step(`63b only a jet in the planner's colour code draws its bomb's line: none behind or ahead of #1's bomb with #2 watched, grey dashes behind #2's, and behind #1's with All jets; none after #1 lands (${tag})`,
+    setup && hidden(a, 1, 1) && hidden(l, TRACE_GROUP_MIN, 0) && okLanded && drawnBehind(w) && allOn && drawnBehind(al),
+    `${setup ? 'times as the check expects, watching #2' : `not as the check expects (#2 released ${m[1].release.toFixed(1)}, lands ${m[1].impact.toFixed(1)}; checks at ${T.toFixed(1)}, ${TL.toFixed(1)} and ${T2.toFixed(1)})`}; ` +
+      `#1 half way down: ${says(a, '#1')} (need at most ${TRACE_OTHER_NONE} each, not shown); ` +
+      `#1 85% down: ${says(l, '#1')} (need at most ${TRACE_OTHER_NONE} each, not shown); ` +
+      (b.g ? `2 s after #1 lands: ${traceCount(b.g.all)} (need at most ${TRACE_NONE_SPOTS}; ${b.others} other bomb(s) in the air left out), line ${traceSays(b.f.trace)} (need none); ` : '2 s after #1 lands: the fall is not on screen; ') +
+      `#2 (watched) 85% down: ${says(w, '#2')} (need ${TRACE_OTHER_MIN} behind, at most ${TRACE_OTHER_NONE} ahead, shown); ` +
+      `All jets${allOn ? '' : ' (not taken)'}, #1 85% down: ${says(al, '#1')} (need ${TRACE_OTHER_MIN} behind, at most ${TRACE_OTHER_NONE} ahead, shown)`);
+}
+
+/**
+ * Check 63c: what the user saw, the dive4 four-ship (four F-16C 30° dive bombs on one target, 5 s apart; #1 and #3 share a
+ * flank, so #3 dives down #1's very path), opened watching #3, Chase #3, flat ground, paused at 1×. At a quarter, half and
+ * three quarters of #3's fall a picture is taken as the user sees it, and another for the reading with the overlay hidden and
+ * Show › Impact off (the overlay's plates and discs, a landing's flash and the rings are not lines, and their soft edges over
+ * the ground can pass for grey; Impact never touches the line). On that one #3's fall from its bomb to the target (fallSplit:
+ * the points the bomb has not reached, by the source's count) is walked with a band TRACE_AHEAD_BAND_PX to either side
+ * (bandSpots), leaving out #3's own line behind its bomb and the body of any other bomb in the air (airLines). No other
+ * bomb's line is left out: with #3 watched no other jet is in the colour code, so none draws a line, and a line of #2's
+ * falling bomb or #1's landed one there is a failure. Between #3's bomb and the target at most TRACE_NONE_SPOTS spots with
+ * grey in their band: only the ground, the target's post and ring and the other bombs still falling are there. Behind the
+ * bomb at least TRACE_DASH_MIN of the spots of #3's own line are grey (fallSplit's `behind`, walked as in 63), and #3's line
+ * covers some of its points and is shown. At 1400×900 and 1024×768.
+ *
+ * Measured 2026-11-16 on the first green run of the line on every jet: ahead of #3's bomb 0 spots with grey at every moment,
+ * of 135, 164 and 86 at 1400×900 and 99, 121 and 60 at 1024×768; behind it 19% to 30% grey. At a quarter and three quarters
+ * #2's bomb is in the air (from the other flank, ahead of #3's and off to the side); its body is left out, and since only a
+ * jet in the colour code draws its line, it now draws none there. The same figures again 2026-11-16 with only the coded
+ * jet's line: 0 spots ahead at every moment, 25% to 30% behind.
+ *
+ * Proven red 2026-11-16, with the line hidden on every jet (scene/jetLayer.ts, `traceLine.visible = false;` in wear() and where
+ * the mesh is made; strike-only run):
+ *   STEP FAIL 63c dive4, Chase #3: … (1400x900-dive4-watch3) — 25% down: bomb to target 0 of 135 spots with grey within 24 px (need at most 3), release to bomb 0% of 604 grey (need 11%), 1 other bomb(s) in the air, line 9 of 36 points, 9 pieces, not shown; 50% down: … 1% of 493 …; 75% down: … 0% of 727 …
+ *   STEP FAIL 63c … (1024x768-dive4-watch3) — 25% down: … 0% of 466 …; 50% down: … 1% of 380 …; 75% down: … 0% of 524 …
+ * With the line shown on every jet (`traceLine.visible = true;` in wear()) 63c stays green: #2's falling bomb, the only other
+ * one in the air while #3's falls, comes from the other flank and its line never lies within 24 px ahead of #3's bomb (0
+ * grey spots at every moment), so dropping the allowance for other bombs' lines changes no reading on this fixture; 63b holds
+ * that rule.
+ *
+ * Proven red 2026-11-16 on the code as it was before the fix, the line kept after the impact (src/lib/playbackScene/bombTrace.ts
+ * bombTracePoints `return flown < total ? flown : 0;` → `return flown;`, the old `Math.min(src.bombFlown(jet, t), total)`):
+ *   STEP FAIL 63c dive4, Chase #3: … (1400x900-dive4-watch3) — 25% down: bomb to target 39 of 135 spots with grey within 24 px (need at most 3) at 734,309 736,309 736,308, …; 50% down: bomb to target 75 of 164 spots with grey within 24 px …; 75% down: bomb to target 35 of 86 spots with grey within 24 px …
+ *   STEP FAIL 63c … (1024x768-dive4-watch3) — 25% down: bomb to target 32 of 99 spots …; 50% down: … 50 of 121 …; 75% down: … 23 of 60 …
+ * (#1's finished line runs 15 to 20 px beside #3's path to the target: walked on the path alone, a pixel to either side, the
+ * same edit gave only 4, 0 and 14 grey spots, which is why the band.)
+ */
+/**
+ * Jet `jet`'s fall split at its bomb, on the page, by the source's own count of the points the bomb has reached (never the
+ * layer's): `ahead`, from the bomb through every point it has not reached to the target (null if any of it is behind the
+ * camera); `behind`, the points it has reached and the bomb, from the first that is in front of the camera on.
+ */
+const fallSplit = (page, jet) => pbEval(page, (k) => {
+  const s = __pb.source(), t = __pb.snapshot().t, pts = s.plannedBomb(k), n = s.bombFlown(k, t);
+  const bomb = __pb.project(k, 'bomb');
+  const at = (i) => __pb.projectPoint(pts[i * 3], -pts[i * 3 + 2], pts[i * 3 + 1]);
+  const ahead = [bomb];
+  for (let i = n; i < pts.length / 3; i++) ahead.push(at(i));
+  const behind = [];
+  for (let i = 0; i < n; i++) {
+    const p = at(i);
+    if (p) behind.push(p);
+    else behind.length = 0;
+  }
+  behind.push(bomb);
+  return { bomb, ahead: bomb && ahead.every(Boolean) ? ahead : null, behind: bomb ? behind : null, trace: __pb.trace(k) };
+}, jet);
+const TRACE_CHASE_CLEAR = { release: 16, bomb: 16, target: 16 };
+/**
+ * The page's own boxes drawn over the 3D's canvas (buttons, notes, readouts), page pixels [left, top, right, bottom]. A canvas
+ * is never one, nor a box as big as a quarter of the canvas (the layers that hold the overlay span it all and draw nothing).
+ */
+const coverBoxes = (page) => page.evaluate(() => {
+  const cv = document.querySelector('[role="dialog"] canvas');
+  const r = cv.getBoundingClientRect(), out = [];
+  for (const el of document.querySelectorAll('[role="dialog"] *')) {
+    if (el.tagName === 'CANVAS' || el.contains(cv)) continue;
+    const b = el.getBoundingClientRect(), s = getComputedStyle(el);
+    if (b.width === 0 || b.height === 0 || b.width * b.height > 0.25 * r.width * r.height || s.visibility === 'hidden' || s.display === 'none') continue;
+    if (b.right <= r.left || b.left >= r.right || b.bottom <= r.top || b.top >= r.bottom) continue;
+    out.push([b.left, b.top, b.right, b.bottom]);
+  }
+  return out;
+});
+/**
+ * Ahead of the bomb in Chase, not only the fall's own path is read but a band TRACE_AHEAD_BAND_PX to either side of it: a
+ * line that runs beside the bomb's path to the target reads as the bomb's own line running ahead just as well (the user's
+ * report was #1's finished line, a few metres off #3's path and so 15 to 20 px off it on screen).
+ */
+const TRACE_AHEAD_BAND_PX = 24;
+/**
+ * The spots of a polyline whose band (TRACE_AHEAD_BAND_PX to either side, a pixel at a time across) holds a grey pixel
+ * over the ground round that pixel, leaving out the polyline's ends (`clear`), and every pixel near a line or a bomb the
+ * rule allows there (`allowed`: the bomb's own line behind it, other bombs in the air and their lines). Only the 3D's own
+ * canvas (`cv`, canvasBox) is read, less the page's own boxes laid over it (`covers`, coverBoxes: the camera buttons, the
+ * notes, the frame-time readout, whose grey letters on a dark plate would otherwise pass for the line).
+ */
+function bandSpots(img, poly, clear, allowed, cv, covers = []) {
+  const { spots } = alongPolyline(poly, TRACE_STEP_PX);
+  const first = poly[0], last = poly[poly.length - 1];
+  const g = { n: 0, hit: 0, at: [] };
+  const m = TRACE_GROUND_R + 2;
+  const inside = (x, y) => x >= cv.l + m && y >= cv.t + m && x <= cv.l + cv.w - m - 1 && y <= cv.t + cv.h - m - 1 &&
+    !covers.some(([l, t, r, b]) => x >= l - m && x <= r + m && y >= t - m && y <= b + m);
+  for (const sp of spots) {
+    if (!inside(sp.x, sp.y) || Math.hypot(sp.x - first[0], sp.y - first[1]) < clear.release || Math.hypot(sp.x - last[0], sp.y - last[1]) < clear.target) continue;
+    g.n++;
+    for (let k = -TRACE_AHEAD_BAND_PX; k <= TRACE_AHEAD_BAND_PX; k++) {
+      const x = Math.round(sp.x - k * sp.uy), y = Math.round(sp.y + k * sp.ux);
+      if (!inside(x, y) || Math.hypot(x - first[0], y - first[1]) < clear.release || Math.hypot(x - last[0], y - last[1]) < clear.target) continue;
+      if (allowed.some((o) => (o.bomb && Math.hypot(x - o.bomb[0], y - o.bomb[1]) < TRACE_OTHER_BOMB_PX) || distToPoly(o.line, [x, y]) < TRACE_OTHER_LINE_PX)) continue;
+      if (greyOver(img.at(x, y), median(patch(img, [x, y], TRACE_GROUND_R)))) {
+        g.hit++;
+        if (g.at.length < 3) g.at.push(`${x},${y}`);
+        break;
+      }
+    }
+  }
+  return g;
+}
+async function checkNothingAhead(page, tag, jet, label, shotName) {
+  const m = await pbEval(page, (k) => ({ rel: __pb.moments.jets[k].release, imp: __pb.moments.jets[k].impact, seat: __pb.moments.jets[k].label }), jet);
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  await page.getByRole('button', { name: `Chase ${m.seat}`, exact: true }).click();
+  const reads = [];
+  for (const u of [0.25, 0.5, 0.75]) {
+    await pbEval(page, (tt) => __pb.seek(tt), m.rel + u * (m.imp - m.rel));
+    await settleIdle(page, 300);
+    const f = await fallSplit(page, jet);
+    const others = await airLines(page, jet);
+    // The picture as the user sees it, then for the reading the 3D alone with Show › Impact off: the overlay's plates and
+    // discs, a landing's flash and the rings are not lines, and their soft edges over the ground can pass for grey.
+    await shot(page, `${tag}-${shotName}-${Math.round(u * 100)}`);
+    await overlay(page, false);
+    await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'impact', on: false } }));
+    let img;
+    try {
+      await settle(page, 300);
+      img = await shot(page, `${tag}-${shotName}-${Math.round(u * 100)}-3d`);
+    } finally {
+      await overlay(page, true);
+      await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'impact', on: true } }));
+    }
+    // Only the other bombs' bodies are left out, never a line: the jet chased is the one in the colour code, so no other
+    // jet draws one.
+    const bodies = others.map((o) => ({ bomb: o.bomb, line: [] }));
+    const allowed = f.behind ? [...bodies, { line: f.behind }] : bodies;
+    const cv = await canvasBox(page);
+    const covers = await coverBoxes(page);
+    reads.push({
+      u, f, others,
+      ahead: f.ahead && f.ahead.length > 1 ? bandSpots(img, f.ahead, TRACE_CHASE_CLEAR, allowed, cv, covers) : null,
+      behind: f.behind && f.behind.length > 1 ? traceSpots(img, f.behind, null, { release: TRACE_CLEAR_PX, bomb: 0, target: 16 }, bodies, cv).all : null,
+    });
+  }
+  await settle(page, 300);
+  await pbEval(page, () => __pb.goHome());
+  const ok = reads.every((r) => r.ahead && traceNone(r.ahead) && traceDashed(r.behind) && r.f.trace.drawn > 0 && r.f.trace.shown);
+  step(`${label} (${tag})`, ok, reads.map((r) => `${Math.round(r.u * 100)}% down: ` + (r.ahead
+    ? `bomb to target ${r.ahead.hit} of ${r.ahead.n} spots with grey within ${TRACE_AHEAD_BAND_PX} px (need at most ${TRACE_NONE_SPOTS})${r.ahead.at.length ? ` at ${r.ahead.at.join(' ')}` : ''}, release to bomb ${tracePct(r.behind)} grey (need ${TRACE_DASH_MIN * 100}%), ${r.others.length} other bomb(s) in the air, line ${traceSays(r.f.trace)}`
+    : `the fall ahead of the bomb is not on screen (bomb ${fmtPt(r.f.bomb)})`)).join('; '));
+}
+const checkDive4Chase3 = (page, tag) => checkNothingAhead(page, `${tag}-dive4-watch3`, 2,
+  '63c dive4, Chase #3: nothing is drawn between #3\'s falling bomb and the target but the ground, the target\'s mark and the other bombs still falling', '63c-dive4-chase3');
+
+/**
+ * Check 63d: the same reading as 63c on one lone attack of every family the harness opens: the pop-up (fixture one), a
+ * dive bomb (dive), a level laydown (level), a loft (loft) and a rocket pass (rocket, whose rockets ride the sight line),
+ * Chase #1, at 1400×900. At a quarter, half and three quarters of the fall: between the bomb and the target at most
+ * TRACE_NONE_SPOTS spots with grey in their band, and behind it at least TRACE_DASH_MIN grey.
+ *
+ * Measured 2026-11-16 on the first green run: ahead of the bomb 0 spots with grey everywhere but the loft three quarters down
+ * (1 of 144); behind it 21% to 33% grey.
+ *
+ * Proven red 2026-11-16 by one temporary edit to src/lib/playbackScene/bombTrace.ts, the line laid 2 s of the fall ahead of the
+ * bomb (bombTracePoints `return flown < total ? flown : 0;` → `return flown < total && flown > 0 ? Math.min(flown + 8, total - 1) : 0;`):
+ *   STEP FAIL 63d pop-up, Chase #1: … (1400x900-one) — 25% down: bomb to target 95 of 223 spots with grey within 24 px (need at most 3) …; 50% down: … 88 of 252 …; 75% down: … 75 of 131 …
+ *   STEP FAIL 63d dive bomb, … (1400x900-dive) — … 73 of 177 …; … 83 of 210 …; … 67 of 106 …
+ *   STEP FAIL 63d level laydown, … (1400x900-level) — … 111 of 263 …; … 131 of 249 …; … 102 of 177 …
+ *   STEP FAIL 63d loft, … (1400x900-loft) — … 102 of 736 …; … 47 of 547 …; … 21 of 144 …
+ *   STEP FAIL 63d rocket pass, … (1400x900-rocket) — … 61 of 148 …; … 49 of 167 …; … 58 of 85 …
+ * (The line kept after the impact cannot show in a lone attack while its bomb falls: 63, 63b and 63c hold that one.)
+ * Red again 2026-11-16 with the line hidden on every jet (scene/jetLayer.ts, `traceLine.visible = false;` in wear() and where the
+ * mesh is made), in all five, behind the bomb and by the layer's own word:
+ *   STEP FAIL 63d pop-up, Chase #1: … (1400x900-one) — 25% down: bomb to target 0 of 223 spots …, release to bomb 1% of 547 grey (need 11%), …, line 9 of 35 points, 9 pieces, not shown; …
+ *   STEP FAIL 63d rocket pass, Chase #1: … (1400x900-rocket) — 25% down: …, release to bomb 0% of 443 grey (need 11%), …, not shown; …
+ */
+const FAMILY_FIXTURES = [['one', 'pop-up'], ['dive', 'dive bomb'], ['level', 'level laydown'], ['loft', 'loft'], ['rocket', 'rocket pass']];
+async function checkFamiliesAhead(browser, base, w, h) {
+  for (const [fixture, name] of FAMILY_FIXTURES) {
+    const tag = `${w}x${h}-${fixture}`;
+    const p = await openPage(browser, `${base}?tiles=synthetic&fixture=${fixture}`, w, h);
+    await checkNothingAhead(p.page, tag, 0, `63d ${name}, Chase #1: nothing is drawn between the falling bomb and the target`, '63d-chase');
+    step(`8 no page errors, ${name} (${tag})`, p.problems.length === 0, p.problems.length ? p.problems.slice(0, 8).join(' | ') : 'none');
+    await p.context.close();
+  }
 }
 
 // ── The flash where a bomb lands (checks 53, 53b, 54, 55, 56 and 59). The flash is read off the 3D's own pixels with the
 // overlay hidden, against a picture of the same moment with Show › Impact off (`act`), so only the effect differs: the
-// bomb's trace, finished at the impact and lying on the target (and in Home its whole fall is within 30 px of it), the
-// jet's trail and the arrow are in both. (A picture from before the release would not do: it has the dashed fall line
-// where the trace now lies, and the two differ by more than these limits.) A pixel differs if one of its channels is more
-// than FLASH_DIFF levels apart.
+// jet's trail and the arrow are in both (the bomb's line is gone from the impact on, in both). (A picture from before the
+// release would not do: the jet is elsewhere, and the two differ by more than these limits.) A pixel differs if one of
+// its channels is more than FLASH_DIFF levels apart.
 const FLASH_DISC_PX = 30;
 const FLASH_DIFF = 40;
 const FLASH_MIN = 1300;
@@ -4783,6 +5091,11 @@ async function runStrikeChecks(browser, base) {
     await checkWordsClear(dv.page, `${tag}-dive4`);
     step(`8 no page errors, four dives (${tag})`, dv.problems.length === 0, dv.problems.length ? dv.problems.slice(0, 8).join(' | ') : 'none');
     await dv.context.close();
+    // 63c on the four dives, watching #3 (what the user saw).
+    const d4 = await openPage(browser, `${base}?tiles=synthetic&fixture=dive4&watch=3`, w, h);
+    await checkDive4Chase3(d4.page, tag);
+    step(`8 no page errors, four dives watching #3 (${tag})`, d4.problems.length === 0, d4.problems.length ? d4.problems.slice(0, 8).join(' | ') : 'none');
+    await d4.context.close();
     // 7b on the four-ship with its theater note: four lanes and the warnings line under the picture, the
     // tightest the rows get (a page of its own: the note takes a row from the pictures the checks above measure).
     const lay = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1`, w, h);
@@ -4825,6 +5138,8 @@ async function runStrikeChecks(browser, base) {
     await checkLoneFromList(lone.page, `${tag}-one-list`, lone.problems);
     await lone.context.close();
     await checkGoneFromList(browser, base);
+    // 63d: a lone attack of every family, each on a page of its own.
+    await checkFamiliesAhead(browser, base, 1400, 900);
   }
 }
 

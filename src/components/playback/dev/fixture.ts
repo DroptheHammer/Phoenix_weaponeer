@@ -30,6 +30,12 @@
  *   the ridge put where #2's own track passes 12 s before its impact, 150 ft
  *   above the ridge, so #2 flies through #1's burst when it is over its target
  *   about 11.9 s after #1. Handed over like dive4.
+ * - dive, level, loft, rocket: one lone attack of each of the other families,
+ *   handed over as the editor hands one jet over, like the pop-up: an F-16C
+ *   30° CCIP dive with a Mk-82, an F-16C level laydown with a Mk-82 AIR, an
+ *   F-16C loft with a Mk-82, and an A-10C rocket pass with Hydra 70s (a fired
+ *   pass, whose rockets ride the sight line). They are there so the bomb's
+ *   line can be looked at in every attack type.
  *
  * The strikes also carry what the door gives a strike: a way to write times
  * back (the checks pass a recorder), and from the editor's what the cards go
@@ -39,6 +45,7 @@
  * out, the strike says nothing and the app's own default applies.
  */
 import f16Profiles from '../../../../src-tauri/resources/profiles/f16c.json';
+import a10Profiles from '../../../../src-tauri/resources/profiles/a10c.json';
 import reference from '../../../../crates/core/data/reference.json';
 import { autoBuildAttack } from '../../../lib/autoBuildAttack';
 import { draftAttackData, resolveDraft, type DraftContext } from '../../../lib/attackDraft';
@@ -72,7 +79,7 @@ const weapons = (reference as unknown as { weapons: DbWeapon[] }).weapons.map((w
 });
 const profiles = f16Profiles as unknown as DeliveryProfile[];
 
-function mission(): Mission {
+function mission(aircraftId = 'f16c'): Mission {
   const target: Waypoint = { id: 'h-tgt', steerpoint: 8, name: 'TGT1', type: 'target', coordinates: TARGET, elevation_ft: TARGET_ELEVATION_FT } as Waypoint;
   const ip: Waypoint = {
     id: 'h-ip', steerpoint: 7, name: 'STPT 7', type: 'nav',
@@ -81,20 +88,32 @@ function mission(): Mission {
   return {
     id: 'harness', name: 'Playback harness (synthetic)', date: '', theater: 'nevada', bullseye: TARGET, notes: '', createdAt: '', updatedAt: '',
     waypoints: [ip, target], threats: [], attacks: [], strikes: [],
-    flightMembers: [{ id: 'h-p1', callsign: 'Viper 1-1', aircraftId: 'f16c', position: 1, role: 'flight_lead', loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 6 }] }],
+    flightMembers: [{ id: 'h-p1', callsign: 'Viper 1-1', aircraftId, position: 1, role: 'flight_lead', loadout: [{ weaponType: 'Mk-82 LDGP', quantity: 6 }] }],
   } as unknown as Mission;
 }
 
-/** The pop-up auto-built for the harness's one pilot, and the plan it is built on. */
-function lonePopup() {
-  const m = mission();
+/** The lone attacks besides the pop-up: which aircraft, profile and weapon row each is auto-built with. */
+export const SOLO_FIXTURES = {
+  dive: { aircraftId: 'f16c', profileId: 'f16c.dive.ccip30', weaponId: 'mk82' },
+  level: { aircraftId: 'f16c', profileId: 'f16c.level.laydown', weaponId: 'mk82air' },
+  loft: { aircraftId: 'f16c', profileId: 'f16c.loft.std', weaponId: 'mk82' },
+  rocket: { aircraftId: 'a10c', profileId: 'a10c.dive.rockets', weaponId: 'hydra70' },
+} as const;
+export type SoloFixture = keyof typeof SOLO_FIXTURES;
+
+/** One attack auto-built for the harness's one pilot, and the plan it is built on. */
+function loneAttack(aircraftId: string, profileId: string, weaponId: string) {
+  const m = mission(aircraftId);
   const b = autoBuildAttack({
-    mission: m, targetWaypointId: 'h-tgt', attackerId: 'h-p1', weapons, profiles, threatSystems: [],
-    overrides: { weaponId: 'mk82', profileId: 'f16c.popup.std' },
+    mission: m, targetWaypointId: 'h-tgt', attackerId: 'h-p1', weapons, profiles: aircraftId === 'a10c' ? (a10Profiles as unknown as DeliveryProfile[]) : profiles, threatSystems: [],
+    overrides: { weaponId, profileId },
   });
-  if (!b.attack) throw new Error(`The harness pop-up did not auto-build: ${b.problems?.join('; ')}`);
+  if (!b.attack) throw new Error(`The harness ${profileId} did not auto-build: ${b.problems?.join('; ')}`);
   return { m, attack: { ...b.attack, id: 'h-attack' } as Attack };
 }
+
+/** The pop-up auto-built for the harness's one pilot, and the plan it is built on. */
+const lonePopup = () => loneAttack('f16c', 'f16c.popup.std', 'mk82');
 
 /**
  * The pop-up as the attack list hands over a lone attack's row: the plan as saved, with the pop-up in it as the
@@ -106,17 +125,28 @@ export function harnessLoneFromList(notes: string[] = []): PlaybackLaunch {
   return { fromMission: { mission: { ...m, attacks: [{ ...attack, sequenceNumber: 3 }] }, subject: { attackId: attack.id }, weapons }, jetId: attack.id, notes };
 }
 
-/** The pop-up as the editor would hand it to playback: one jet, offset 0. */
-export function harnessLaunch(notes: string[] = [], rule?: FragRule): EditorLaunch {
-  const { m, attack } = lonePopup();
+/** A lone attack as the editor would hand it to playback: one jet, offset 0. */
+function editorLone(built: { m: Mission; attack: Attack }, weaponId: string, notes: string[], rule?: FragRule): EditorLaunch {
+  const { m, attack } = built;
   const target = m.waypoints.find((w) => w.id === 'h-tgt')!;
   const input: PlaybackInput = {
     name: 'Viper 1-1',
-    jets: [{ id: attack.id, attack, ipAnchor: attackIpAnchor(m.waypoints, attack), target, weapon: weapons.find((w) => w.id === 'mk82'), totOffset_s: 0, label: '#1', callsign: 'Viper 1-1' }],
+    jets: [{ id: attack.id, attack, ipAnchor: attackIpAnchor(m.waypoints, attack), target, weapon: weapons.find((w) => w.id === weaponId), totOffset_s: 0, label: '#1', callsign: 'Viper 1-1' }],
     ...(rule ? { fragRule: rule } : {}),
   };
   // The title the editor gives a lone attack: the jet's callsign.
   return { input, title: 'Viper 1-1', jetId: attack.id, notes };
+}
+
+/** The pop-up as the editor would hand it to playback: one jet, offset 0. */
+export function harnessLaunch(notes: string[] = [], rule?: FragRule): EditorLaunch {
+  return editorLone(lonePopup(), 'mk82', notes, rule);
+}
+
+/** One of the other families' lone attacks (SOLO_FIXTURES), handed over as the pop-up is. */
+export function harnessSoloLaunch(kind: SoloFixture, notes: string[] = [], rule?: FragRule): EditorLaunch {
+  const f = SOLO_FIXTURES[kind];
+  return editorLone(loneAttack(f.aircraftId, f.profileId, f.weaponId), f.weaponId, notes, rule);
 }
 
 /**
@@ -179,7 +209,7 @@ function ridgeStrike(rule?: FragRule) {
   return savedStrike(m, 'h-ridge', [seat('h-p1', 'h-tgt2', 0), seat('h-p2', 'h-tgt', RIDGE_TOT_S)], 5, { ip, rule });
 }
 
-export type HarnessFixture = 'one' | 'strike4' | 'late' | 'skip' | 'dive4' | 'ridge';
+export type HarnessFixture = 'one' | 'strike4' | 'late' | 'skip' | 'dive4' | 'ridge' | SoloFixture;
 
 /** The id of the strike a fixture saves (the four-ship's two variants share one). */
 const strikeIdOf = (fixture: HarnessFixture) => (fixture === 'dive4' ? 'h-dive4' : fixture === 'ridge' ? 'h-ridge' : 'h-strike4');
@@ -198,6 +228,7 @@ export type AppliedTimes = number[] | Record<string, number>;
  */
 export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = [], watch?: number, record?: (times: AppliedTimes) => void, door?: 'editor' | 'list', rule?: FragRule): PlaybackLaunch {
   if (fixture === 'one') return door === 'list' ? harnessLoneFromList(notes) : harnessLaunch(notes, rule);
+  if (fixture in SOLO_FIXTURES) return harnessSoloLaunch(fixture as SoloFixture, notes, rule);
   const m = strikeMission();
   let input: PlaybackInput | undefined;
   let planned = m;

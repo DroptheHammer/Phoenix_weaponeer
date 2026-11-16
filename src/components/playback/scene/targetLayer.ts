@@ -29,7 +29,7 @@ import type { FrameCtx, Layer } from './layer';
 const RING_LIFT_M = 1;
 /** A ring or a post is re-laid when the size of a screen pixel at the target moves by more than this share. */
 const RELAY_SHARE = 0.03;
-/** Draw order: after the jets' lines and the bomb's fall, before the bomb and the arrow. */
+/** Draw order: after the jets' lines and the bomb's line, before the bomb and the arrow. */
 const ORDER = { post: 35, ring: 40 } as const;
 
 export interface TargetLayer extends Layer {

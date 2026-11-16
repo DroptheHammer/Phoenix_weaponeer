@@ -8,7 +8,8 @@
  * File map: playClock (play, pause, seek, speed), cameraMath (home pose,
  * pixel size, arrow scale, near plane, the four camera modes' limits and
  * poses), sceneStyle (colours and sizes), impactFx (the ring round a falling bomb, its pulse at the
- * release, and when the flash where it lands shows), bombCam (how far Chase turns from the jet to watch its bomb
+ * release, and when the flash where it lands shows), bombTrace (which part of a bomb's fall its line covers at a
+ * moment: only while it is in the air, from the release to the bomb), bombCam (how far Chase turns from the jet to watch its bomb
  * fall and land, and the look that turn gives), arrowShape (the jet arrow's triangles and shades: a fin and
  * raised wings so a roll reads),
  * source (the only file that knows the playback library's sampling names),
@@ -36,6 +37,7 @@ export * from './playClock';
 export * from './cameraMath';
 export * from './sceneStyle';
 export * from './impactFx';
+export * from './bombTrace';
 export * from './bombCam';
 export * from './arrowShape';
 export * from './source';

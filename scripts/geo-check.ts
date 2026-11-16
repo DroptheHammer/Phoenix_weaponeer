@@ -171,11 +171,15 @@ import {
 } from '../src/lib/playbackScene';
 import { arrowFaces, ARROW_HALF_SPAN_M, ARROW_DIHEDRAL_DEG, ARROW_TOP_SHADE, ARROW_FIN_SHADE, ARROW_UNDER_SHADE } from '../src/lib/playbackScene';
 import { arrowGeometry, bombGeometry, bombHullGeometry } from '../src/components/playback/scene/jetGeometry';
+import { Group, PerspectiveCamera } from 'three';
+import { createJetLayer } from '../src/components/playback/scene/jetLayer';
+import { DisposeBag } from '../src/components/playback/scene/disposeBag';
+import type { FrameCtx } from '../src/components/playback/scene/layer';
 import {
-  BOMB_PX, BOMB_LEN_M, BOMB_NOSE_M, BOMB_TAIL_M, BOMB_HULL_M, BOMB_HULL, BOMB_HULL_OTHER, BOMB_LINE_PX, OTHER_BOMB_SHADE, otherBombHex,
+  BOMB_PX, BOMB_LEN_M, BOMB_NOSE_M, BOMB_TAIL_M, BOMB_HULL_M, BOMB_HULL, BOMB_HULL_OTHER, OTHER_BOMB_SHADE, otherBombHex,
   BOMB_RING_R_PX, BOMB_RING_OTHER_R_PX, BOMB_RING_LINE_PX, BOMB_RING_EDGE_PX, OTHER_MARKER_ALPHA, LAND_REF, DISC_RIM, RELEASE_PULSE_WALL_S, RELEASE_PULSE_EXTRA,
   releasePulse, bombRingLook, type BombRingLook,
-  BOMB_TRACE_PX, BOMB_TRACE_CASING_PX, BOMB_TRACE_OTHER_PX, TRAIL_PX,
+  BOMB_TRACE_PX, BOMB_TRACE_COLOUR, BOMB_TRACE_DASH, PATH_OTHER_PX, TRAIL_PX, bombTraceLine, bombTracePoints, TRACE_MIN_PIECE_M,
 } from '../src/lib/playbackScene';
 import {
   impactPhase, newImpactPhase, IMPACT_FLASH_GROW_WALL_S, IMPACT_FLASH_FULL_WALL_S, IMPACT_FLASH_END_WALL_S, IMPACT_RING_GROW_WALL_S,
@@ -183,7 +187,7 @@ import {
   impactInfoOf, ringPixels, ringFade, impactTagLines, IMPACT_RING, IMPACT_RING_PX, IMPACT_RING_CASING_PX, IMPACT_RING_MIN_R_PX, IMPACT_RING_FADE_FROM_PX, IMPACT_RING_SEGS,
 } from '../src/lib/playbackScene';
 import { aimWeight, lookDirection, AIM_IN_WALL_S, AIM_HOLD_WALL_S, AIM_OUT_WALL_S, type Look3 } from '../src/lib/playbackScene';
-import { harnessLaunch, harnessFixtureLaunch, harnessMoments } from '../src/components/playback/dev/fixture';
+import { harnessLaunch, harnessFixtureLaunch, harnessMoments, SOLO_FIXTURES, type SoloFixture } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
 import { editorBurstReadout } from '../src/components/playback/fragEditor';
 import { cardTie } from '../src/components/playback/cardTie';
@@ -11011,23 +11015,24 @@ void (async () => {
       ok('playback B3 [BM2]: a coded jet\'s bomb ring is 11 px and solid, another\'s 10 px and fainter, and both clear the bomb\'s outline by the ring line\'s half-width',
          bm2Bad.length === 0, bm2Bad.join('; ') || `${bm2Coded.r} px / ${bm2Other.r} px at alpha ${bm2Coded.alpha} / ${bm2Other.alpha}; the outline needs ${bm2Clear.toFixed(2)} px`);
 
-      // [BM3] The 3D bomb can be told from its own fall line, by its size: its tail is at least three times the
-      // line's width across (5.0 px against 1.5), and its outline is an even rim, between 1 and 1.5 px on the
-      // sides (1.39 at the nose, 1.12 at the tail, from the two radius lines of the taper) and at the ends (1.25).
+      // [BM3] The 3D bomb stands out at the head of its own line, by its size: its tail is wider across than the
+      // line (5.0 px against 1.5; the line has no casing, so there is nothing else for the bomb to be wider than);
+      // and its outline is an even rim, between 1 and 1.5 px on the sides (1.39 at the nose, 1.12 at the tail,
+      // from the two radius lines of the taper) and at the ends (1.25).
       // Read twice: from the constants, and from the geometries the scene really draws (the radius at each end
       // and the length, off their vertices), which must match the constants.
-      // Mutation proofs (each seen red 2026-11-15):
-      // sceneStyle.ts `BOMB_TAIL_M = 0.43` → `0.18` (a slim tail, 2.1 px across):
-      //   FAIL playback B3 [BM3]: … tail 2.1 px across (want ≥ 4.5); the drawn geometry: nose radius 0.120 / outline 0.335 m, tail 0.180 / 0.395 m, length 2.400 / 2.830 m: tail 2.1 px, …
+      // Mutation proofs (each seen red 2026-11-15, the first again 2026-11-16 once the line was the grey dashes):
+      // sceneStyle.ts `BOMB_TAIL_M = 0.43` → `0.12` (a tail no wider than the nose, 1.4 px across):
+      //   FAIL playback B3 [BM3]: … tail 1.4 px across (want more than the line's 1.5); the drawn geometry: nose radius 0.120 / outline 0.335 m, tail 0.120 / 0.335 m, length 2.400 / 2.830 m: tail 1.4 px, with its outline 3.9 px, side rims 1.25 / 1.25 px, end overhangs 1.25 / 1.25 px (…)
       // sceneStyle.ts `BOMB_HULL_M = 0.215` → `0.03` (an outline of 0.2 px):
-      //   FAIL playback B3 [BM3]: … nose rim 0.20 px, tail rim 0.15 px (want 1.0 to 1.5); end overhang 0.18 px (want 1.0 to 1.5); the drawn geometry: …: tail 5.0 px, side rims 0.20 / 0.15 px, end overhangs 0.17 / 0.17 px (…)
+      //   FAIL playback B3 [BM3]: … nose rim 0.20 px, tail rim 0.15 px (want 1.0 to 1.5); end overhang 0.18 px (want 1.0 to 1.5); the drawn geometry: …: tail 5.0 px, with its outline 5.4 px, side rims 0.20 / 0.15 px, end overhangs 0.17 / 0.17 px (…)
       // jetGeometry.ts bombHullGeometry `BOMB_NOSE_M + BOMB_HULL_M` → `BOMB_NOSE_M` (the drawn outline not grown at the nose; the constants stay right, so only the geometry arm fails):
-      //   FAIL playback B3 [BM3]: … the drawn geometry: nose radius 0.120 / outline 0.120 m, tail 0.430 / 0.645 m, length 2.400 / 2.830 m: tail 5.0 px, side rims 0.23 / 1.02 px, end overhangs 1.25 / 1.25 px (…)
+      //   FAIL playback B3 [BM3]: … the drawn geometry: nose radius 0.120 / outline 0.120 m, tail 0.430 / 0.645 m, length 2.400 / 2.830 m: tail 5.0 px, with its outline 7.5 px, side rims 0.23 / 1.02 px, end overhangs 1.25 / 1.25 px (…)
       // In each run BM3 was the only check red.
       const bm3Bad: string[] = [];
       const bm3Px = BOMB_PX / BOMB_LEN_M;
-      const bm3Tail = 2 * BOMB_TAIL_M * bm3Px;
-      if (!(bm3Tail >= 3 * BOMB_LINE_PX)) bm3Bad.push(`tail ${bm3Tail.toFixed(1)} px across (want ≥ ${3 * BOMB_LINE_PX})`);
+      const bm3Tail = 2 * BOMB_TAIL_M * bm3Px, bm3TailOut = 2 * (BOMB_TAIL_M + BOMB_HULL_M) * bm3Px;
+      if (!(bm3Tail > BOMB_TRACE_PX)) bm3Bad.push(`tail ${bm3Tail.toFixed(1)} px across (want more than the line's ${BOMB_TRACE_PX})`);
       const bm3Rims = (rBody: (z: number) => number, rHull: (z: number) => number, lo: number, hi: number, ppm: number) => [lo, hi].map((z) => (rHull(z) - rBody(z)) * ppm);
       const bm3L = BOMB_LEN_M, bm3D = BOMB_HULL_M, bm3N = BOMB_NOSE_M, bm3T = BOMB_TAIL_M;
       const bm3Side = bm3Rims(
@@ -11060,35 +11065,36 @@ void (async () => {
       const bm3At = (e: { zLo: number; zHi: number; rLo: number; rHi: number }, z: number) => e.rLo + ((e.rHi - e.rLo) * (z - e.zLo)) / (e.zHi - e.zLo);
       const bm3GSide = [bm3Body.zLo, bm3Body.zHi].map((z) => (bm3At(bm3Hull, z) - bm3At(bm3Body, z)) * bm3GPx);
       const bm3GOver = [(bm3Body.zLo - bm3Hull.zLo) * bm3GPx, (bm3Hull.zHi - bm3Body.zHi) * bm3GPx];
-      const bm3GTail = 2 * bm3Body.rHi * bm3GPx;
+      const bm3GTail = 2 * bm3Body.rHi * bm3GPx, bm3GTailOut = 2 * bm3Hull.rHi * bm3GPx;
       const bm3Match = bm3Body.zHi - bm3Body.zLo > 0 && [
         bm3Body.zHi - bm3Body.zLo - BOMB_LEN_M, bm3Body.rLo - BOMB_NOSE_M, bm3Body.rHi - BOMB_TAIL_M,
         bm3Hull.zHi - bm3Hull.zLo - (BOMB_LEN_M + 2 * BOMB_HULL_M), bm3Hull.rLo - (BOMB_NOSE_M + BOMB_HULL_M), bm3Hull.rHi - (BOMB_TAIL_M + BOMB_HULL_M),
       ].every((e) => Math.abs(e) < 1e-5);
-      if (!bm3Match || !(bm3GTail >= 3 * BOMB_LINE_PX) || !bm3GSide.every(bm3In) || !bm3GOver.every(bm3In)) {
+      if (!bm3Match || !(bm3GTail > BOMB_TRACE_PX) || !bm3GSide.every(bm3In) || !bm3GOver.every(bm3In)) {
         bm3Bad.push(`the drawn geometry: nose radius ${bm3Body.rLo.toFixed(3)} / outline ${bm3Hull.rLo.toFixed(3)} m, tail ${bm3Body.rHi.toFixed(3)} / ${bm3Hull.rHi.toFixed(3)} m, length ${(bm3Body.zHi - bm3Body.zLo).toFixed(3)} / ${(bm3Hull.zHi - bm3Hull.zLo).toFixed(3)} m: ` +
-          `tail ${bm3GTail.toFixed(1)} px, side rims ${bm3GSide.map((v) => v.toFixed(2)).join(' / ')} px, end overhangs ${bm3GOver.map((v) => v.toFixed(2)).join(' / ')} px (the constants say ${BOMB_NOSE_M} / ${BOMB_TAIL_M} / ${BOMB_LEN_M} m, outline +${BOMB_HULL_M} m)`);
+          `tail ${bm3GTail.toFixed(1)} px, with its outline ${bm3GTailOut.toFixed(1)} px, side rims ${bm3GSide.map((v) => v.toFixed(2)).join(' / ')} px, end overhangs ${bm3GOver.map((v) => v.toFixed(2)).join(' / ')} px (the constants say ${BOMB_NOSE_M} / ${BOMB_TAIL_M} / ${BOMB_LEN_M} m, outline +${BOMB_HULL_M} m)`);
       }
-      ok('playback B3 [BM3]: the 3D bomb\'s tail is at least three times its fall line\'s width across and its outline is an even rim of 1 to 1.5 px on the sides and at the ends, from the constants and from the geometries drawn',
-         bm3Bad.length === 0, bm3Bad.join('; ') || `tail ${bm3Tail.toFixed(1)} px across; rims ${bm3Side.map((v) => v.toFixed(2)).join(' / ')} px; ends ${bm3Over.toFixed(2)} px; the drawn geometries agree (${bm3GTail.toFixed(1)} px, ${bm3GSide.map((v) => v.toFixed(2)).join(' / ')}, ${bm3GOver.map((v) => v.toFixed(2)).join(' / ')})`);
+      ok('playback B3 [BM3]: the 3D bomb\'s tail is wider than the line it leaves, and its outline is an even rim of 1 to 1.5 px on the sides and at the ends, from the constants and from the geometries drawn',
+         bm3Bad.length === 0, bm3Bad.join('; ') || `tail ${bm3Tail.toFixed(1)} px across (the line ${BOMB_TRACE_PX}), ${bm3TailOut.toFixed(1)} with its outline; rims ${bm3Side.map((v) => v.toFixed(2)).join(' / ')} px; ends ${bm3Over.toFixed(2)} px; the drawn geometries agree (${bm3GTail.toFixed(1)} px, ${bm3GSide.map((v) => v.toFixed(2)).join(' / ')}, ${bm3GOver.map((v) => v.toFixed(2)).join(' / ')})`);
 
       // [BM4] The bomb's colours stand off what they sit on, 3:1 for graphics, to normal eyes and to protans and
-      // deutans: the white outline on the window's dark; the planner's bomb red on the white outline and on the
-      // dark casing of its fall line; the ring's white line on its dark band. (The outline on pale land is
-      // printed, not gated: white on pale land is 1.1:1, which is why the ring and the dark casing carry it.)
-      // Mutation proof (seen red 2026-11-15): sceneStyle.ts `BOMB_HULL = '#ffffff'` → `'#3a3a5e'` (shot 51 also red):
-      //   FAIL playback B3 [BM4]: … the outline on the window's dark 1.57 (want 3); the planner's bomb red on the outline 2.01 (want 3); …; printed, not gated: the outline on pale land 9.15
+      // deutans: the white outline on the window's dark; the planner's bomb red on the white outline; the ring's
+      // white line on its dark band. (The bomb's line has no casing for the bomb to sit on. Printed, not gated:
+      // the outline on pale land, 1.1:1, which is why the ring carries it there; and the line's grey on the
+      // window's dark and on pale land, dim on purpose.)
+      // Mutation proof (seen red 2026-11-15, and again 2026-11-16 with the casing pair gone): sceneStyle.ts `BOMB_HULL = '#ffffff'` → `'#3a3a5e'` (shot 51 also red):
+      //   FAIL playback B3 [BM4]: … the outline on the window's dark 1.57 (want 3); the planner's bomb red on the outline 2.01 (want 3); the ring's white line on its dark band 16.91; printed, not gated: the outline on pale land 9.15; …
       const bm4Pairs: { id: string; fg: string; bg: string }[] = [
         { id: 'the outline on the window\'s dark', fg: BOMB_HULL, bg: BG },
         { id: 'the planner\'s bomb red on the outline', fg: LINE_STYLE.bomb.color, bg: BOMB_HULL },
-        { id: 'the planner\'s bomb red on its fall line\'s casing', fg: LINE_STYLE.bomb.color, bg: LINE_CASING },
         { id: 'the ring\'s white line on its dark band', fg: DISC_RIM, bg: DISC_EDGE },
       ];
-      const bm4 = bm4Pairs.map((p) => ({ ...p, worst: Math.min(...VISIONS.map((v) => ratio(parseColour(p.fg)!, parseColour(p.bg)!, v))) }));
-      const bm4Land = Math.min(...VISIONS.map((v) => ratio(parseColour(BOMB_HULL)!, parseColour(LAND_REF)!, v)));
+      const bm4Worst = (fg: string, bg: string) => Math.min(...VISIONS.map((v) => ratio(parseColour(fg)!, parseColour(bg)!, v)));
+      const bm4 = bm4Pairs.map((p) => ({ ...p, worst: bm4Worst(p.fg, p.bg) }));
       ok('playback B3 [BM4]: the bomb\'s outline, its planner red and the ring\'s white line each stand 3:1 off what they sit on, in all three visions',
          bm4.every((p) => p.worst >= 3) && BOMB_HULL === '#ffffff',
-         bm4.map((p) => `${p.id} ${p.worst.toFixed(2)}${p.worst >= 3 ? '' : ' (want 3)'}`).join('; ') + `; printed, not gated: the outline on pale land ${bm4Land.toFixed(2)}`);
+         bm4.map((p) => `${p.id} ${p.worst.toFixed(2)}${p.worst >= 3 ? '' : ' (want 3)'}`).join('; ') +
+           `; printed, not gated: the outline on pale land ${bm4Worst(BOMB_HULL, LAND_REF).toFixed(2)}; the line's grey on the window's dark ${bm4Worst(BOMB_TRACE_COLOUR, BG).toFixed(2)}, on pale land ${bm4Worst(BOMB_TRACE_COLOUR, LAND_REF).toFixed(2)}`);
 
       // [BM5] The other jets' bombs are the colour the checks think: their seat colour shaded the way three.js
       // shades (in linear light, so cyan #22d3ee gives #1ebfd8; the plain product of the sRGB numbers, #1ba9be,
@@ -11117,10 +11123,12 @@ void (async () => {
       ok('playback B3 (the bomb): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }
 
-    // ─── The bomb's trace (source.ts bombFlown, sceneStyle.ts, scene/jetLayer.ts) ──────────────────────────────
-    // A solid line follows each bomb down from the release and stays after the impact; the dashed fall line
-    // ahead of it is the planned fall. Each check carries its mutation proof (2026-11-15): one temporary edit,
-    // geo-check run, the FAIL line copied (shortened with …), the edit restored.
+    // ─── The bomb's line (source.ts bombFlown, bombTrace.ts, sceneStyle.ts, scene/jetLayer.ts) ─────────────────
+    // While a bomb is in the air, grey dashes run from its release point to the bomb; nothing of its fall is drawn
+    // before the release, ahead of the bomb or after the impact, in any attack type, on any jet; and only a jet in
+    // the planner's colour code shows its line at all. Each check
+    // carries its mutation proof: one temporary edit, geo-check run, the FAIL line copied (shortened with …),
+    // the edit restored.
     try {
       // [BT1] How many of the fall's points the bomb has reached, on the lone pop-up and on every jet of the
       // four-ship (a pop-up falling 8.5 s, a pop-up on another target, a loft falling 28.8 s), from the source a
@@ -11179,27 +11187,206 @@ void (async () => {
          bt1Bad.length === 0 && PATH_STEP_S === 0.25 && bt1Falls === 2 * (1 + s4Src.jetCount),
          bt1Bad.join('; ') || `${bt1Falls} falls (${bt1Points} points), ${bt1Reads} readings`);
 
-      // [BT2] The trace is heavier than the planned fall it follows (at least half as heavy again: the planner's
-      // 1.5 px bomb line) and no heavier than the jet's own trail (3.5 px), on a casing wider than itself; the
-      // other jets' is thinner than the coded one and has no casing, as their paths have none. The layer wears
-      // these very numbers: its source takes the widths from them, the casing in the window's dark.
-      // Mutation proofs (each seen red 2026-11-15): sceneStyle.ts `BOMB_TRACE_PX = 3` → `1.5` (as heavy as the line it follows):
-      //   FAIL playback B3 [BT2]: … the trace is 1.5 px, not at least 2.25 (1.5 × the planned fall's 1.5); the other jets' trace (1.5 px) is no thinner than the coded one (1.5)
-      // scene/jetLayer.ts wear() `on ? BOMB_TRACE_PX : BOMB_TRACE_OTHER_PX` → `on ? BOMB_TRACE_PX : 1.5` (the other jets' width as a number of its own; the constants stay right, so only the source arm fails):
-      //   FAIL playback B3 [BT2]: … scene/jetLayer.ts does not give the other jets' trace BOMB_TRACE_OTHER_PX
-      // (BT2 was the only check red in both.)
+      // [BT2] The look the user chose: grey dashes (#6b7280), 4 px on and 12 px off, 1.5 px wide, no heavier than
+      // the thinnest line a jet draws (another jet's path, 1.5 px), with no casing, one look on every jet that draws
+      // it. The layer wears these very numbers: one material made from them, one mesh on the line's geometry (no
+      // casing under it), nothing that changes the line's look per jet.
+      // And what the layer really lays, read back off real jet layers built on the four-ship (#1 and #2) and
+      // updated through a fall of #1's bomb, 2 s before its release to 2 s after its impact (debugTrace reads the
+      // geometry and the mesh, it does not work the line out again): the pieces laid are the ones bombTraceLine
+      // gives at that moment, and the fall points they run through are bombTracePoints' count, so the rule [BT3]
+      // holds is the rule drawn; and only a jet in the planner's colour code shows its line: #1 watched shows it,
+      // #1 with #2 watched does not, #1 with #2 watched and Attack colours › All jets does.
+      // Mutation proofs (each seen red 2026-11-16, BT2 the only check red in each):
+      // sceneStyle.ts `BOMB_TRACE_COLOUR = '#6b7280'` → `'#ef4444'` (the planner's red again):
+      //   FAIL playback B3 [BT2]: … the line is #ef4444 1.5 px dashed 4/12 (want #6b7280 1.5 px dashed 4/12)
+      // scene/jetLayer.ts wear(), `traceMat.linewidth = on ? BOMB_TRACE_PX : 1;` put back in (a thinner line on the other jets):
+      //   FAIL playback B3 [BT2]: … scene/jetLayer.ts changes the line's look per jet (traceMat.linewidth or .color is set)
+      // scene/jetLayer.ts wear(), `traceLine.visible = on;` → `traceLine.visible = true;` (the line shown for every jet):
+      //   FAIL playback B3 [BT2]: … #2 watched, -2.00 s after #1's release: the layer laid 0 pieces through 0 fall points, shown true (want 0 through 0, shown false)
+      // scene/jetLayer.ts wear(), `traceLine.visible = on;` → `traceLine.visible = false;` (the line hidden for every jet):
+      //   FAIL playback B3 [BT2]: … #2 watched, All jets, -2.00 s after #1's release: the layer laid 0 pieces through 0 fall points, shown false (want 0 through 0, shown true)
+      // scene/jetLayer.ts layTrace(), bombTraceLine called and its count ignored (`bombTraceLine(src, jet, t, bpose, traceXyz); const n = Math.min(src.bombFlown(jet, t), traceRoom);`),
+      // which the search of the source text this arm replaced could not tell from the real call:
+      //   FAIL playback B3 [BT2]: … #1 watched, 0.08 s after #1's release: the layer laid 0 pieces through 0 fall points, shown true (want 1 through 1, shown true); …; the layers were read 3 times with the bomb in the air and laid 0 pieces in all (want more than 30, and some)
       const bt2Bad: string[] = [];
-      if (!(BOMB_TRACE_PX >= 1.5 * BOMB_LINE_PX)) bt2Bad.push(`the trace is ${BOMB_TRACE_PX} px, not at least ${1.5 * BOMB_LINE_PX} (1.5 × the planned fall's ${BOMB_LINE_PX})`);
-      if (!(BOMB_TRACE_PX <= TRAIL_PX)) bt2Bad.push(`the trace is ${BOMB_TRACE_PX} px, heavier than the jet's trail (${TRAIL_PX})`);
-      if (!(BOMB_TRACE_CASING_PX > BOMB_TRACE_PX)) bt2Bad.push(`the casing (${BOMB_TRACE_CASING_PX} px) is no wider than the trace (${BOMB_TRACE_PX})`);
-      if (!(BOMB_TRACE_OTHER_PX < BOMB_TRACE_PX)) bt2Bad.push(`the other jets' trace (${BOMB_TRACE_OTHER_PX} px) is no thinner than the coded one (${BOMB_TRACE_PX})`);
+      if (BOMB_TRACE_COLOUR !== '#6b7280' || BOMB_TRACE_PX !== 1.5 || BOMB_TRACE_DASH.join('/') !== '4/12') {
+        bt2Bad.push(`the line is ${BOMB_TRACE_COLOUR} ${BOMB_TRACE_PX} px dashed ${BOMB_TRACE_DASH.join('/')} (want #6b7280 1.5 px dashed 4/12)`);
+      }
+      if (!(BOMB_TRACE_PX <= PATH_OTHER_PX && BOMB_TRACE_PX <= TRAIL_PX)) bt2Bad.push(`the line is ${BOMB_TRACE_PX} px, heavier than another jet's path (${PATH_OTHER_PX})`);
       const bt2Layer = readFileSync('src/components/playback/scene/jetLayer.ts', 'utf8');
-      if (!/traceMat\s*=\s*bag\.add\(wideLine\(bombRed\.clone\(\), BOMB_TRACE_PX\)\)/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not make the trace BOMB_TRACE_PX wide in the bomb\'s red');
-      if (!/new LineSegments2\(trace\.geom, bag\.add\(wideLine\(new Color\(LINE_CASING\), BOMB_TRACE_CASING_PX\)\)\)/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not cast the trace BOMB_TRACE_CASING_PX wide in LINE_CASING');
-      if (!/traceMat\.linewidth\s*=\s*on \? BOMB_TRACE_PX : BOMB_TRACE_OTHER_PX/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not give the other jets\' trace BOMB_TRACE_OTHER_PX');
-      if (!/traceCasing\.visible\s*=\s*on;/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not take the casing off the other jets\' trace');
-      ok('playback B3 [BT2]: the bomb\'s trace is at least 1.5 times as heavy as its planned fall and no heavier than the jet\'s trail, on a wider casing; the other jets\' is thinner and uncased; the layer takes them from these numbers',
-         bt2Bad.length === 0, bt2Bad.join('; ') || `trace ${BOMB_TRACE_PX} px on ${BOMB_TRACE_CASING_PX} px (planned fall ${BOMB_LINE_PX}, trail ${TRAIL_PX}); the other jets' ${BOMB_TRACE_OTHER_PX} px, no casing`);
+      if (!/const traceMat = bag\.add\(wideLine\(new Color\(BOMB_TRACE_COLOUR\), BOMB_TRACE_PX, \{ dash: BOMB_TRACE_DASH \}\)\);/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts does not make the line from BOMB_TRACE_COLOUR, BOMB_TRACE_PX and BOMB_TRACE_DASH');
+      const bt2Meshes = bt2Layer.match(/new LineSegments2\(trace\.geom,/g)?.length ?? 0;
+      if (bt2Meshes !== 1 || /traceCasing|BOMB_TRACE_CASING/.test(bt2Layer)) bt2Bad.push(`scene/jetLayer.ts draws the line's geometry with ${bt2Meshes} meshes or still has a casing for it (want one mesh, no casing)`);
+      if (/traceMat\.(linewidth|color)\b/.test(bt2Layer)) bt2Bad.push('scene/jetLayer.ts changes the line\'s look per jet (traceMat.linewidth or .color is set)');
+      // The layers as the scene makes them, told the time as the scene tells them (update), with no renderer.
+      const bt2Bag = new DisposeBag();
+      const bt2Parent = new Group();
+      const bt2Layers = [0, 1].map((k) => createJetLayer({ source: s4Src, jet: k, parent: bt2Parent, bag: bt2Bag }));
+      const bt2Ctx = {
+        t: 0, dt: 0, source: s4Src, camera: new PerspectiveCamera(50, 1400 / 900, 1, 1e6), viewW: 1400, viewH: 900, dpr: 1,
+        ground: 'flat', groundVersion: 0, heightAt: () => 0, watched: 0, attackColours: 'watched', focusPxPerM: 1, speed: 1,
+        labels: true, actionPoints: 'coming', impact: true, again: false,
+      } as FrameCtx;
+      const bt2Pose = newSceneBombPose();
+      const bt2Out = new Float32Array((s4Src.bombCapacity(0) + 1) * 3);
+      const bt2Rel = s4Timing.jets[0].release_s, bt2Imp = s4Timing.jets[0].impact_s;
+      const bt2Looks: { name: string; watched: number; colours: 'watched' | 'all'; shown: boolean }[] = [
+        { name: '#1 watched', watched: 0, colours: 'watched', shown: true },
+        { name: '#2 watched', watched: 1, colours: 'watched', shown: false },
+        { name: '#2 watched, All jets', watched: 1, colours: 'all', shown: true },
+      ];
+      let bt2Reads = 0, bt2InAir = 0, bt2Pieces = 0;
+      const bt2Seen: string[] = [];
+      for (const look of bt2Looks) {
+        bt2Ctx.watched = look.watched;
+        bt2Ctx.attackColours = look.colours;
+        let shownSeen = '';
+        for (let i = 0; i <= 60; i++) {
+          const t = bt2Rel - 2 + ((bt2Imp - bt2Rel + 4) * i) / 60;
+          bt2Ctx.t = t;
+          for (const l of bt2Layers) l.update(bt2Ctx);
+          const got = bt2Layers[0].debugTrace();
+          s4Src.bombAt(0, t, bt2Pose);
+          const n = bombTraceLine(s4Src, 0, t, bt2Pose, bt2Out);
+          const wantSegs = Math.max(0, n - 1), wantDrawn = wantSegs > 0 ? bombTracePoints(s4Src, 0, t) : 0;
+          bt2Reads++;
+          if (t >= bt2Rel && t < bt2Imp) bt2InAir++;
+          bt2Pieces += got.segments;
+          shownSeen ||= `${got.shown}`;
+          if (got.segments !== wantSegs || got.drawn !== wantDrawn || got.shown !== look.shown) {
+            bt2Bad.push(`${look.name}, ${(t - bt2Rel).toFixed(2)} s after #1's release: the layer laid ${got.segments} pieces through ${got.drawn} fall points, shown ${got.shown} (want ${wantSegs} through ${wantDrawn}, shown ${look.shown})`);
+            break;
+          }
+        }
+        bt2Seen.push(`${look.name}: shown ${shownSeen}`);
+      }
+      for (const l of bt2Layers) l.dispose();
+      bt2Bag.disposeAll();
+      if (!(bt2InAir > 30 && bt2Pieces > 0)) bt2Bad.push(`the layers were read ${bt2InAir} times with the bomb in the air and laid ${bt2Pieces} pieces in all (want more than 30, and some)`);
+      ok('playback B3 [BT2]: the bomb\'s line is grey dashes, 4 on 12 off, 1.5 px, no casing, one look on every jet that draws it; the layer lays bombTraceLine\'s line, and shows it only on a jet in the planner\'s colour code',
+         bt2Bad.length === 0, bt2Bad.join('; ') || `${BOMB_TRACE_COLOUR}, ${BOMB_TRACE_PX} px dashed ${BOMB_TRACE_DASH.join('/')}, one mesh, no casing (another jet's path ${PATH_OTHER_PX} px, the trail ${TRAIL_PX}); ${bt2Reads} readings of the layers, ${bt2InAir} with the bomb in the air, ${bt2Pieces} pieces laid; ${bt2Seen.join('; ')}`);
+
+      // [BT3] Every attack type: every library profile of the ten aircraft with every weapon class it carries that
+      // has a row here (the census's five, and for the guided classes a GBU-12, a GBU-31 and an AGM-65D), off an IP
+      // 15.3 and 8 nm out, from either flank, auto-built and played as a lone jet. At 48 times spread from 2 s
+      // before the release to 2 s after the impact, and at the release, just after it, mid-step, just before the
+      // impact and at it, the line bombTracePoints and bombTraceLine give is held against the source:
+      // - before the release: nothing;
+      // - in the air: the release point first, then only fall points the bomb has already reached (each one's own
+      //   sample time at or before the moment, never the impact point), and the last point on the bomb (within
+      //   TRACE_MIN_PIECE_M), the bomb being shown;
+      // - from the impact on: nothing.
+      // Mutation proofs (each seen red 2026-11-16):
+      // bombTrace.ts bombTracePoints `return flown < total ? flown : 0;` → `return flown;` (the line kept after the impact, as the code had it before the user's report):
+      //   FAIL playback B3 [BT3]: … a10c.dive.ccip30 mk82 @15.3 left, 9.06 s after the release (fall 9.06 s): the line covers 38 fall points, 38 drawn (want none from the impact on); a10c.dive.ccip30 mk82 @15.3 right, …
+      // bombTrace.ts bombTracePoints `return flown < total ? flown : 0;` → `return flown < total && flown > 0 ? Math.min(flown + 1, total - 1) : 0;` (one fall point ahead of the bomb while it falls):
+      //   FAIL playback B3 [BT3]: … a10c.dive.ccip30 mk82 @15.3 left, 0.00 s after the release (fall 9.06 s): fall point 1 (reached 0.25 s after the release) is drawn ahead of the bomb; the line ends 0.000 m from the bomb; …
+      // (BT3 was the only check red in both.)
+      const bt3Lib = (ac: string) => JSON.parse(readFileSync(`src-tauri/resources/profiles/${ac}.json`, 'utf8')) as { id: string; geometry: string; weaponClasses: string[] }[];
+      const BT3_AIRCRAFT = ['a10c', 'a4ec', 'av8b', 'f14', 'f15e', 'f16c', 'f18c', 'f1', 'f4e', 'f5e'];
+      const BT3_WEAPON: Record<string, string> = { bomb_ld: 'mk82', bomb_hd: 'mk82air', rocket: 'hydra70', gun: 'gau8', cluster: 'cbu87', lgb: 'gbu12', jdam: 'gbu31', agm: 'agm65d' };
+      const bt3Bad: string[] = [];
+      const bt3Add = (s: string) => { if (bt3Bad.length < 6) bt3Bad.push(s); };
+      const bt3Kinds = new Map<string, number>();
+      const bt3NotBuilt = new Map<string, number>();
+      let bt3Builds = 0, bt3Reads = 0, bt3InAir = 0;
+      const bt3Pose = newSceneBombPose();
+      for (const ac of BT3_AIRCRAFT) {
+        const lib = bt3Lib(ac);
+        for (const p of lib) {
+          for (const cls of p.weaponClasses) {
+            const weaponId = BT3_WEAPON[cls];
+            if (!weaponId) { bt3NotBuilt.set(`${cls} (no row)`, (bt3NotBuilt.get(`${cls} (no row)`) ?? 0) + 1); continue; }
+            for (const ipNm of [15.3, 8]) {
+              for (const side of ['left', 'right']) {
+                const m = {
+                  id: 'bt3', name: 'bt3', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '', strikes: [], threats: [], attacks: [],
+                  waypoints: [{ ...wpIp, coordinates: calculateDestination(tgt, 68, ipNm) }, wpTgt],
+                  flightMembers: [{ id: 'p1', callsign: 'Viper 1-1', aircraftId: ac, position: 1, loadout: [] }],
+                } as never as Mission;
+                const built = autoBuildAttack({ mission: m, targetWaypointId: wpTgt.id, attackerId: 'p1', weapons: refWeapons, profiles: lib, threatSystems: [], overrides: { weaponId, profileId: p.id, angleOffSide: side } } as never).attack;
+                const why = `${p.geometry} ${cls}`;
+                if (!built) { bt3NotBuilt.set(`${why} (no auto-build)`, (bt3NotBuilt.get(`${why} (no auto-build)`) ?? 0) + 1); continue; }
+                const attack = { ...built, id: 'bt3-a' } as Attack;
+                const pb = buildStrikePlayback({ name: 'bt3', jets: [{ id: attack.id, attack, ipAnchor: attackIpAnchor(m.waypoints, attack), target: wpTgt as never, weapon: refWeapon(weaponId), totOffset_s: 0, label: '#1' }] });
+                if (pb.jets.length !== 1) { bt3NotBuilt.set(`${why} (not flown: ${pb.skipped[0]?.reason})`, (bt3NotBuilt.get(`${why} (not flown: ${pb.skipped[0]?.reason})`) ?? 0) + 1); continue; }
+                const j = pb.jets[0];
+                const kind = j.family === 'dive' ? (j.bomb.model === 'vacuumOnSightLine' ? `${cls} pass` : `dive ${attack.deliveryMode ?? 'CCIP'}${p.id.includes('lald') ? ' low' : ''}`)
+                  : j.family === 'level' ? `level ${p.id.includes('laydown') ? 'laydown' : attack.deliveryMode ?? 'CCRP'}` : j.family;
+                bt3Kinds.set(kind, (bt3Kinds.get(kind) ?? 0) + 1);
+                bt3Builds++;
+                const timing = retime(pb), src = sceneSourceFrom(pb, timing);
+                const rel = timing.jets[0].release_s, imp = timing.jets[0].impact_s;
+                const fall = src.plannedBomb(0), total = fall.length / 3;
+                const out = new Float32Array((src.bombCapacity(0) + 1) * 3);
+                const who = `${p.id} ${weaponId} @${ipNm} ${side}`;
+                const times: number[] = [rel, rel + 1e-3, rel + 0.5 * PATH_STEP_S, imp - 1e-3, imp];
+                for (let i = 0; i < 48; i++) times.push(rel - 2 + ((imp - rel + 4) * i) / 47);
+                for (const t of times) {
+                  bt3Reads++;
+                  const covered = bombTracePoints(src, 0, t);
+                  src.bombAt(0, t, bt3Pose);
+                  const n = bombTraceLine(src, 0, t, bt3Pose, out);
+                  const at = `${who}, ${(t - rel).toFixed(2)} s after the release (fall ${(imp - rel).toFixed(2)} s)`;
+                  if (t < rel || t >= imp) {
+                    if (covered !== 0 || n !== 0) { bt3Add(`${at}: the line covers ${covered} fall points, ${n} drawn (want none ${t < rel ? 'before the release' : 'from the impact on'})`); break; }
+                    continue;
+                  }
+                  bt3InAir++;
+                  if (!bt3Pose.visible || covered < 1 || covered >= total || n < covered || n > covered + 1) { bt3Add(`${at}: bomb shown ${bt3Pose.visible}, ${covered} of ${total} fall points covered, ${n} drawn`); break; }
+                  let ahead = -1, moved = -1;
+                  for (let i = 0; i < covered; i++) {
+                    if (rel + i * PATH_STEP_S > t + 1e-9 && ahead < 0) ahead = i;
+                    if ((out[i * 3] !== fall[i * 3] || out[i * 3 + 1] !== fall[i * 3 + 1] || out[i * 3 + 2] !== fall[i * 3 + 2]) && moved < 0) moved = i;
+                  }
+                  const e = (n - 1) * 3;
+                  const off = Math.hypot(out[e] - bt3Pose.x, out[e + 1] - bt3Pose.y, out[e + 2] - bt3Pose.z);
+                  if (ahead >= 0 || moved >= 0 || !(off <= TRACE_MIN_PIECE_M)) {
+                    bt3Add(`${at}: ${ahead >= 0 ? `fall point ${ahead} (reached ${(ahead * PATH_STEP_S).toFixed(2)} s after the release) is drawn ahead of the bomb; ` : ''}${moved >= 0 ? `point ${moved} is not the fall's own; ` : ''}the line ends ${off.toFixed(3)} m from the bomb`);
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      const bt3Families = new Set([...bt3Kinds.keys()].map((k) => (k.endsWith(' pass') ? 'pass' : k.split(' ')[0])));
+      ok('playback B3 [BT3]: in every attack type the bomb\'s line covers nothing before the release, only the fall the bomb has passed and ends on the bomb while it falls, and nothing from the impact on',
+         bt3Bad.length === 0 && bt3Builds >= 400 && ['popup', 'dive', 'level', 'loft', 'pass'].every((f) => bt3Families.has(f)) && bt3InAir > bt3Builds * 20,
+         bt3Bad.join('; ') || `${bt3Builds} builds, ${bt3Families.size} families (${[...bt3Kinds].map(([k, v]) => `${k} ${v}`).join(', ')}); ${bt3Reads} readings, ${bt3InAir} in the air; not built: ${[...bt3NotBuilt].map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
+
+      // The four lone-attack harness fixtures (dive, level, loft, rocket) are what they say: one jet each, of that
+      // family, profile and weapon, its bomb falling by that family's model.
+      // Mutation proof (seen red 2026-11-16): dev/fixture.ts SOLO_FIXTURES level `profileId: 'f16c.level.laydown'` → `'f16c.popup.std'`:
+      //   FAIL playback B3: the lone-attack harness fixtures …  level: 1 jet(s), f16c.popup.std mk82air, popup vacuum (want f16c.level.laydown mk82air, level vacuum)
+      {
+        const want: Record<SoloFixture, { profileId: string; weaponId: string; family: string; model: string }> = {
+          dive: { profileId: 'f16c.dive.ccip30', weaponId: 'mk82', family: 'dive', model: 'vacuum' },
+          level: { profileId: 'f16c.level.laydown', weaponId: 'mk82air', family: 'level', model: 'vacuum' },
+          loft: { profileId: 'f16c.loft.std', weaponId: 'mk82', family: 'loft', model: 'loftDrag' },
+          rocket: { profileId: 'a10c.dive.rockets', weaponId: 'hydra70', family: 'dive', model: 'vacuumOnSightLine' },
+        };
+        let why = '';
+        const seen: string[] = [];
+        if (Object.keys(SOLO_FIXTURES).sort().join() !== 'dive,level,loft,rocket') why = `the lone-attack fixtures are ${Object.keys(SOLO_FIXTURES).join(', ')}`;
+        for (const kind of Object.keys(want) as SoloFixture[]) {
+          try {
+            const launch = harnessFixtureLaunch(kind);
+            const mm = harnessMoments(launch);
+            const jet = launch.input?.jets[0];
+            const f = want[kind];
+            const got = `${mm.pb.jets.length} jet(s), ${jet?.attack.sourceProfileId} ${jet?.weapon?.id}, ${mm.pb.jets[0]?.family} ${mm.pb.jets[0]?.bomb.model}`;
+            seen.push(`${kind}: ${got}`);
+            if (mm.pb.jets.length !== 1 || launch.input?.jets.length !== 1 || jet?.attack.sourceProfileId !== f.profileId || jet?.weapon?.id !== f.weaponId
+              || mm.pb.jets[0].family !== f.family || mm.pb.jets[0].bomb.model !== f.model) why ||= `${kind}: ${got} (want ${f.profileId} ${f.weaponId}, ${f.family} ${f.model})`;
+          } catch (e) {
+            why ||= `${kind}: ${(e as Error).message}`;
+          }
+        }
+        ok('playback B3: the lone-attack harness fixtures are an F-16C 30° dive bomb, an F-16C laydown, an F-16C loft and an A-10C rocket pass, one jet each', why === '', why || seen.join('; '));
+      }
     } catch (e) {
       ok('playback B3 (the bomb\'s trace): the section ran without throwing', false, String((e as Error)?.stack ?? e));
     }

@@ -8,9 +8,11 @@
  * boundary, on a made-up plan (fixture.ts) chosen by ?fixture=: one (the
  * default, a lone pop-up), strike4 (a four-ship), late (the four-ship with #2
  * at 300 s, watching #2), skip (three jets, #2 skipped), dive4 (four F-16C
- * 30° dive bombs 5 s apart, to look at the bomb's arc) or ridge (two Mk-84 dive
- * bombers, #2 flying through #1's burst: the one place the blast rule warns);
- * ?watch=3 opens watching #3. ?rule=burst or ?rule=time saves the strike with
+ * 30° dive bombs 5 s apart, to look at the bomb's arc), ridge (two Mk-84 dive
+ * bombers, #2 flying through #1's burst: the one place the blast rule warns),
+ * or one lone attack of another family: dive, level (a laydown), loft or
+ * rocket (an A-10C rocket pass); ?watch=3 opens watching #3. ?rule=burst or
+ * ?rule=time saves the strike with
  * that frag rule (blast distance when a bomb goes off, or spacing in time); left
  * out, the strike says nothing and the app's own default applies. The Mk-82 and
  * Mk-84 rows carry a blast radius here (fixture.ts gives them one). Tiles are
@@ -56,7 +58,7 @@ import type { PlaybackLaunch } from '../types';
 
 const params = new URLSearchParams(location.search);
 const tilesMode = params.get('tiles') ?? 'synthetic';
-const fixtureName = (['one', 'strike4', 'late', 'skip', 'dive4', 'ridge'] as const).find((f) => f === params.get('fixture')) ?? 'one';
+const fixtureName = (['one', 'strike4', 'late', 'skip', 'dive4', 'ridge', 'dive', 'level', 'loft', 'rocket'] as const).find((f) => f === params.get('fixture')) ?? 'one';
 const ruleParam = (['burst', 'time'] as const).find((r) => r === params.get('rule'));
 const watchParam = params.get('watch');
 const notes = params.get('notes') === '1'
@@ -166,11 +168,12 @@ interface PbHandle {
    */
   arrow(jet?: number): (NonNullable<ReturnType<PlaybackScene['debugArrow']>> & { pose_bank_deg: number; load_g: number }) | null;
   /**
-   * Jet `jet`'s (default the lead) bomb's trace as the layer drew it at the clock's time now: `points`, the points of the
-   * bomb's whole fall, and `drawn`, how many of them the trace reaches (0 before the release, all of them from the impact
-   * on). Null before the scene exists or for a jet with no layer.
+   * Jet `jet`'s (default the lead) bomb's line as the layer drew it at the clock's time now: `points`, the points of the
+   * bomb's whole fall; `drawn`, how many of them the line covers (only while the bomb is in the air: 0 before the release
+   * and from the impact on); `segments`, how many pieces of line are laid; `shown`, whether the line is drawn at all
+   * (only on a jet in the planner's colour code). Null before the scene exists or for a jet with no layer.
    */
-  trace(jet?: number): { points: number; drawn: number } | null;
+  trace(jet?: number): ReturnType<PlaybackScene['debugTrace']>;
   /**
    * How far the camera's look was turned from the watched jet toward its bomb on the last frame drawn, at the clock's time
    * now: `weight`, 0…1, as the camera used it (0 in every mode but Chase). Null before the scene exists.

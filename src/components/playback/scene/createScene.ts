@@ -37,7 +37,7 @@ import {
 import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
 import { createImpactLayer, type ImpactDebug, type ImpactLayer } from './impactLayer';
-import { createJetLayer, type ArrowDebug, type JetLayer } from './jetLayer';
+import { createJetLayer, type ArrowDebug, type BombTraceDebug, type JetLayer } from './jetLayer';
 import { createLabelLayer, type LabelDebug, type LabelLayer, type ScreenBox } from './labelLayer';
 import type { FrameCtx, Layer } from './layer';
 import { createTargetLayer, type TargetLayer } from './targetLayer';
@@ -210,12 +210,13 @@ export interface PlaybackScene {
    */
   debugArrow(jet?: number): ArrowDebug | null;
   /**
-   * Jet `jet`'s (a playback index, default 0) bomb's trace as the layer drew it at the clock's current time (a
-   * pending change is drawn first): the fall's points, and how many of them the trace reaches (0 before the
-   * release, all of them from the impact on). Null when the scene is gone or the jet has no layer. For the
-   * screenshot checks.
+   * Jet `jet`'s (a playback index, default 0) bomb's line as the layer drew it at the clock's current time (a
+   * pending change is drawn first): the fall's points, how many of them the line covers (only while the bomb is
+   * in the air: 0 before the release and from the impact on), how many pieces of line are laid, and whether the
+   * line is shown (only on a jet in the planner's colour code). Null when the scene is gone or the jet has no
+   * layer. For the screenshot checks.
    */
-  debugTrace(jet?: number): { points: number; drawn: number } | null;
+  debugTrace(jet?: number): BombTraceDebug | null;
   /**
    * How far the camera's look was turned from the watched jet toward its bomb on the last frame drawn (a pending change is
    * drawn first), 0…1, as the camera used it: 0 in every mode but Chase. Null when the scene is gone. For the screenshot checks.

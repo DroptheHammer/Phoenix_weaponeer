@@ -192,7 +192,7 @@ export interface SceneSource {
    * How many of plannedBomb(jet)'s points jet k's bomb has reached at strike time t: 0 before the release, 1 at
    * it (the first point is the release point), one more every PATH_STEP_S while it falls (never the last point
    * before the impact: that one is the impact), every point from the impact on. A time that is not a number gives 0.
-   * Allocates nothing. The bomb's trace is drawn from this many points.
+   * Allocates nothing. The bomb's line covers this many points while the bomb is in the air (bombTrace.ts).
    */
   bombFlown(jet: number, t_s: number): number;
   /** Jet k's target point on the ground, three.js axes. Its bomb's last position. */
