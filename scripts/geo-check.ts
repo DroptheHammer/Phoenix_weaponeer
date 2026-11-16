@@ -157,6 +157,7 @@ import {
   initSession, sessionReducer, isDirty, conflictBands, SEAT_TEXT, SEAT_ON_BG, SEAT_ON_TEXT, QUIET_TEXT, WARN_TEXT, type Session, type SessionAction, type ShowAction,
 } from '../src/lib/playbackScene';
 import { laneAxis, zoneBands, laneZonesShown, seatInConflict, seatConflictTitle, handleKeyStep, bandBox, READOUT_TEXT, BOX_FILL, BOX_EDGE } from '../src/lib/playbackScene';
+import { activeConflicts, conflictsCrossed, chipConflicts, chipSpan, chipText, chipTitle, CHIP_HOLD_MS, UI_EMIT_MS, type ClockSnapshot } from '../src/lib/playbackScene';
 import { editorOffsets, planOffsets, applyShift, cardOrder, renumbered, renumberedText, applyStatusLines, APPLY_WORDS } from '../src/lib/playbackScene';
 import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle, HATCH_KEY_TITLE, fragChromeWords } from '../src/components/playback/laneText';
 import {
@@ -12594,6 +12595,162 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
         why ||= `the harness gives a radius to ${JSON.stringify(rows.filter((w) => burstSpecOf(w)).map((w) => [w.id, burstSpecOf(w)!.radius_ft]))} (want ${JSON.stringify(wantRadii)}: the data file's own rows and the two overrides, no other row)`;
       ok('playback B3 [BX17]: the harness ridge pair is the blast rule\'s one conflict by both doors (ridge 1.30 nm and 5,616 ft up, 130 ft at 11.9 s, zone 11.4593 to 12.3429, clear at 11.0 and 12.4, 350 ft and 320 ft at 11.46 and 12.3), the four-ship plays the rule asked for, and the weapon rows differ from the data file\'s in the blast fields only',
          why === '', why || 'list and editor doors; four-ship by burst (clear) and by time (2 warnings); rows: the data file\'s eight radii, nothing added');
+    }
+
+    // ── The warning chip over the picture (src/lib/playbackScene/fragChip.ts). It names the frag warning the playhead is on, or
+    // swept past since the screen last looked while playing, over both kinds of row: a blast row's band is the second from the
+    // burst, a spacing-rule row's the stretch the second jet is over the target inside the first's frag. Its rows are the real
+    // ones: the ridge pair's blast row and two pop-ups 10 s apart saved with the spacing rule (#2 inside #1's frag from 10 to 30 s).
+    const chipTime = retime(fxStrike(flatM, [0, 1].map(() => ({ target: wpTgt.id, weapon: 'mk82', profile: 'f16c.popup.std' })), [0, 10], { fragRule: 'time', strikeId: 'fxchip' }).pb);
+    const chipRidge = retime(ridge.pb, ridge.d(11.9));
+    const timeRow = chipTime.conflicts[0], ridgeRow = chipRidge.conflicts[0];
+
+    // [F1] A row's band holds a strike time from its start up to, not at, its end; the chip names the first row it holds, the
+    // second jet then the first, by its rule's words, and "(+n more)" for the rest, in the conflicts' order.
+    // Mutation proof (seen red 2026-11-16): fragChip.ts holds `t_s < c.t1_s` → `t_s <= c.t1_s` (on at the band's end):
+    //   FAIL playback B3 [F1]: the chip's rows are on from their start up to their end … the spacing rule's row 10…30 s: on at 30 (want off); the blast row 0…1 s: on at 1 (want off)
+    //   (and FC4: "on at 1 (want off)")
+    {
+      const out = new Int8Array(4);
+      const bad: string[] = [];
+      const onOff = (name: string, rows: readonly (typeof timeRow)[], t0: number, t1: number) => {
+        for (const [t, want] of [[t0 - 0.001, 0], [t0, 1], [(t0 + t1) / 2, 1], [t1 - 0.001, 1], [t1, 0]] as [number, number][]) {
+          const n = activeConflicts(rows, t, out);
+          if (n !== want) bad.push(`${name} ${t0}…${t1} s: ${n ? 'on' : 'off'} at ${+t.toFixed(3)} (want ${want ? 'on' : 'off'})`);
+        }
+      };
+      if (!timeRow || chipTime.conflicts.length !== 1 || timeRow.t0_s !== 10 || timeRow.t1_s !== 30) bad.push(`the spacing rule's fixture: ${JSON.stringify(chipTime.conflicts.map((c) => [c.t0_s, c.t1_s]))} (want one row 10…30 s)`);
+      else onOff('the spacing rule\'s row', [timeRow], 10, 30);
+      if (!ridgeRow || chipRidge.conflicts.length !== 1) bad.push(`the ridge pair: ${chipRidge.conflicts.length} rows (want 1)`);
+      else onOff('the blast row', [ridgeRow], ridgeRow.t0_s, ridgeRow.t1_s);
+      if (timeRow && ridgeRow) {
+        // Both kinds in one list, overlapping at 20.5 s: the chip names the first in order and counts the other.
+        const both = [timeRow, { ...ridgeRow, t0_s: 20, t1_s: 21 }];
+        const n2 = activeConflicts(both, 20.5, out);
+        const t2 = chipText(both, out, n2);
+        if (n2 !== 2 || out[0] !== 0 || out[1] !== 1 || t2 !== '⚠ #2 over the target inside #1\'s frag (est.) (+1 more)') bad.push(`both rows at 20.5 s: ${n2} on, "${t2}"`);
+        const rev = [both[1], both[0]];
+        const n3 = activeConflicts(rev, 20.5, out);
+        const t3 = chipText(rev, out, n3);
+        if (t3 !== '⚠ #2 inside #1\'s blast radius (est.) (+1 more)') bad.push(`the blast row first: "${t3}"`);
+        if (chipText(both, out, 0) !== undefined) bad.push('no row on still has words');
+      }
+      ok('playback B3 [F1]: the chip\'s rows are on from their start up to their end (never at it), for the spacing rule\'s row and the blast row alike; the chip names the first, second jet then first, and counts the rest',
+         bad.length === 0, bad.join('; ') || `spacing 10…30 s, blast ${ridgeRow?.t0_s}…${ridgeRow?.t1_s} s`);
+    }
+
+    // [F2] A sweep of the playhead (from, to] meets a band [t0, t1) when they share a moment: [10, 11) is met by (9.5, 12] and by
+    // (9, 10], not by (11, 12] nor (8, 9.9]; an empty band never is. What the chip names is the rows held or swept, each once.
+    // Mutation proof (seen red 2026-11-16): fragChip.ts meets `c.t0_s <= to_s && c.t1_s > from_s` → `c.t0_s <= to_s` (only the sweep's end tested):
+    //   FAIL playback B3 [F2]: a sweep meets a band when they share a moment … (11, 12] meets [10, 11) (want no)
+    // and (seen red the same day) chipConflicts naming only the rows held, the sweep ignored (`|| (span !== undefined && meets(…))` dropped):
+    //   FAIL playback B3 [F2]: … swept, not held: 0 rows named (want 1)
+    //   (and FC4's 16× arm: "named on 18 of 20 phases (2 with no look inside its second; …)")
+    {
+      const out = new Int8Array(4);
+      const row = { ...ridgeRow, t0_s: 10, t1_s: 11 }, empty = { ...ridgeRow, t0_s: 10, t1_s: 10 };
+      const bad: string[] = [];
+      for (const [from, to, want] of [[9.5, 12, 1], [9, 10, 1], [10.999, 11.5, 1], [11, 12, 0], [8, 9.9, 0]] as [number, number, number][]) {
+        const n = conflictsCrossed([row], from, to, out);
+        if (n !== want) bad.push(`(${from}, ${to}] ${n ? 'meets' : 'misses'} [10, 11) (want ${want ? 'meets' : 'no'})`);
+      }
+      if (conflictsCrossed([empty], 9, 12, out) !== 0) bad.push('an empty band [10, 10) is met by (9, 12]');
+      const nu = chipConflicts([row, { ...row, t0_s: 30, t1_s: 31 }], 10.5, { from_s: 9.5, to_s: 10.5 }, out);
+      if (nu !== 1 || out[0] !== 0) bad.push(`held and swept at once: ${nu} rows named (want the one, once)`);
+      const ns = chipConflicts([row, { ...row, t0_s: 30, t1_s: 31 }], 12, { from_s: 9.5, to_s: 12 }, out);
+      if (ns !== 1 || out[0] !== 0) bad.push(`swept, not held: ${ns} rows named (want 1)`);
+      if (chipConflicts([row], 12, undefined, out) !== 0) bad.push('no sweep, not held: a row named');
+      ok('playback B3 [F2]: a sweep meets a band when they share a moment ([10, 11) met by (9.5, 12] and (9, 10], not by (11, 12] or (8, 9.9], an empty band never); a row held and swept is named once',
+         bad.length === 0, bad.join('; ') || '5 sweeps, an empty band, 3 unions');
+    }
+
+    // [F3] What the playhead swept between two snapshots: only while it was playing, through a tick (the same version) or the one
+    // change that stops it (a pause or the end: the version up by one, not playing). A seek while playing, a pause and a seek
+    // reaching the screen together, going backwards, or a snapshot after a pause, sweep nothing.
+    // Mutation proof (seen red 2026-11-16): fragChip.ts chipSpan's rule → `snap.playing && snap.t > prev.t` (whatever the versions):
+    //   FAIL playback B3 [F3]: the sweep between two snapshots … a pause: none (want 5…6.05); the end: none (want 5…6.05); a seek while playing: 5…40 (want none); after a pause: 5…6 (want none)
+    {
+      const s = (t: number, playing: boolean, version: number): ClockSnapshot => ({ t, playing, version, speed: 16, start: -60, end: 120 });
+      const p = s(5, true, 3);
+      const cases: [string, ClockSnapshot | undefined, ClockSnapshot, [number, number] | undefined][] = [
+        ['a tick', p, s(6, true, 3), [5, 6]],
+        ['a pause', p, s(6.05, false, 4), [5, 6.05]],
+        ['the end', p, s(6.05, false, 4), [5, 6.05]],
+        ['a seek while playing', p, s(40, true, 4), undefined],
+        ['a pause and a seek together', p, s(40, false, 5), undefined],
+        ['backwards', p, s(4, true, 3), undefined],
+        ['standing still', p, s(5, true, 3), undefined],
+        ['after a pause', s(5, false, 3), s(6, true, 4), undefined],
+        ['paused to paused', s(5, false, 3), s(6, false, 4), undefined],
+        ['nothing before it', undefined, s(6, true, 3), undefined],
+      ];
+      const fmt = (x: { from_s: number; to_s: number } | [number, number] | undefined) => (x ? (Array.isArray(x) ? `${x[0]}…${x[1]}` : `${x.from_s}…${x.to_s}`) : 'none');
+      const bad = cases.flatMap(([name, prev, snap, want]) => {
+        const got = chipSpan(prev, snap);
+        return fmt(got) === fmt(want) ? [] : [`${name}: ${fmt(got)} (want ${fmt(want)})`];
+      });
+      ok('playback B3 [F3]: the sweep between two snapshots is a tick\'s or the stop\'s (a pause, the end) while playing, and nothing for a seek, a pause and a seek together, backwards, standing still or after a pause',
+         bad.length === 0, bad.join('; ') || `${cases.length} cases`);
+    }
+
+    // [FC4] The chip follows the blast rule's band and the readout. On the ridge pair (#2 over its target 11.9 s after #1) the chip
+    // is on at #1's burst and for the second after it ([T, T + 1)), off at T + 1 and just before T; it says "⚠ #2 inside #1's
+    // blast radius (est.)" there, the spacing rule's words on a strike warned by spacing (the same ridge pair saved 'time', and the
+    // two pop-ups); its tooltip is the readout's warning for the same row, word for word. And at 16× it is not lost: a real clock
+    // played through the burst at 16×, emitting to the screen as the scene does (frames of 1/60 s, a look every UI_EMIT_MS), names
+    // the warning on some look from every one of 20 starting phases, also those where no look falls inside its second.
+    // Mutation proof (seen red 2026-11-16): fragChip.ts holds `t_s < c.t1_s` → `t_s < c.t0_s` (the band's end read as its start):
+    //   FAIL playback B3 [FC4]: the chip on the ridge pair … off at 0 (want on); off at 0.5 (want on); off at 0.999 (want on); the blast words: "undefined"; the blast tooltip: "undefined" (want "#2 is 130 ft from #1's bomb …"); the ridge pair by spacing: "undefined", tooltip "undefined"; two pop-ups by spacing: "undefined", tooltip "undefined"
+    //   (and F1 goes red with it). The 16× arm is proven with F2's second mutation. Measured green 2026-11-16: the burst at 0 s,
+    //   named on 20 of 20 phases, 2 of them with no look inside its second.
+    {
+      const out = new Int8Array(4);
+      const bad: string[] = [];
+      const T = ridgeRow?.t0_s ?? NaN;
+      for (const [dt, want] of [[-0.001, false], [0, true], [0.5, true], [0.999, true], [1.0, false]] as [number, boolean][]) {
+        const on = activeConflicts(chipRidge.conflicts, T + dt, out) === 1;
+        if (on !== want) bad.push(`${on ? 'on' : 'off'} at ${+(T + dt).toFixed(3)} (want ${want ? 'on' : 'off'})`);
+      }
+      const n = activeConflicts(chipRidge.conflicts, T + 0.5, out);
+      const text = chipText(chipRidge.conflicts, out, n), title = chipTitle(chipRidge.readout.warnings, out, n);
+      const wantWarn = '#2 is 130 ft from #1\'s bomb when it goes off, inside its 360 ft blast radius (est.)';
+      if (text !== '⚠ #2 inside #1\'s blast radius (est.)' || text !== burstChipText(ridgeRow as TimedBurst)) bad.push(`the blast words: "${text}"`);
+      if (title !== chipRidge.readout.warnings[0] || title !== wantWarn) bad.push(`the blast tooltip: "${title}" (want "${wantWarn}")`);
+      // The same pair saved with the spacing rule, and the two pop-ups: the spacing rule's words and its own readout line.
+      const ridgeTime = retime(fxStrike(ridge.m, [ridge.seat('fx-tgt2'), ridge.seat(wpTgt.id)], [0, 11.9], { sharedIp: true, weapons: ridge.weapons, fragRule: 'time', strikeId: 'fxchipt' }).pb);
+      for (const [name, tm] of [['the ridge pair by spacing', ridgeTime], ['two pop-ups by spacing', chipTime]] as [string, typeof chipTime][]) {
+        const r = tm.conflicts[0];
+        const k = r ? activeConflicts(tm.conflicts, r.t0_s, out) : 0;
+        const tx = chipText(tm.conflicts, out, k), ti = chipTitle(tm.readout.warnings, out, k);
+        if (!r || isBurstRow(r) || tx !== '⚠ #2 over the target inside #1\'s frag (est.)' || ti !== tm.readout.warnings[0] || !/^#2 is over the target \d+ s after #1, inside #1's ~\d+ s of frag \(est\.\)/.test(ti ?? '')) bad.push(`${name}: "${tx}", tooltip "${ti}"`);
+      }
+      // 16×: a clock started 3 s before the burst at 20 phases 0.05 s apart.
+      let named = 0, unseen = 0;
+      for (let ph = 0; ph < 20; ph++) {
+        const clock = new PlayClock(T - 10, T + 30, T - 3 + ph * 0.05);
+        const snaps: ClockSnapshot[] = [];
+        clock.subscribe(() => snaps.push(clock.getSnapshot()));
+        clock.setSpeed(16);
+        clock.play();
+        let wall = 0, lastEmit = 0;
+        while (clock.isPlaying && clock.time < T + 5) {
+          wall += 1000 / 60;
+          const moved = clock.advance(1 / 60);
+          if (moved && clock.isPlaying && wall - lastEmit >= UI_EMIT_MS) { lastEmit = wall; clock.emit(); }
+        }
+        clock.pause();
+        let hit = false, inside = false;
+        for (let i = 1; i < snaps.length; i++) {
+          if (chipConflicts(chipRidge.conflicts, snaps[i].t, chipSpan(snaps[i - 1], snaps[i]), out) > 0) hit = true;
+          if (snaps[i].t >= T && snaps[i].t < T + 1) inside = true;
+        }
+        if (hit) named++;
+        if (!inside) unseen++;
+      }
+      if (named !== 20 || unseen === 0) bad.push(`16×: named on ${named} of 20 phases (${unseen} with no look inside its second; want 20, and at least one such phase so the sweep is what finds it)`);
+      if (CHIP_HOLD_MS !== 1200) bad.push(`the hold is ${CHIP_HOLD_MS} ms (want 1,200)`);
+      ok('playback B3 [FC4]: the chip on the ridge pair is on for the second from #1\'s burst and off at its end and just before it, says "⚠ #2 inside #1\'s blast radius (est.)" with the readout\'s warning as its tooltip, the spacing rule\'s words on a strike warned by spacing, and at 16× it is named from every starting phase',
+         bad.length === 0, bad.join('; ') || `burst at ${T} s; 16×: named on ${named} of 20 phases, ${unseen} of them with no look inside its second`);
     }
   } catch (e) {
     ok('playback B3 (the blast rule): the section ran without throwing', false, String((e as Error)?.stack ?? e));

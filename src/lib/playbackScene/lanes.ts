@@ -14,7 +14,9 @@
  * box to type in). While one is being dragged the axis keeps the scale it had
  * when the drag began, so the lane does not move under the pointer; the stripes
  * of a jet's danger zones show where its time would put it inside another
- * jet's frag, and only while that jet's time is being set.
+ * jet's blast radius when a bomb goes off, or another jet inside its own (on a
+ * strike warned by spacing in time, inside another jet's frag), and only while
+ * that jet's time is being set.
  */
 
 import {
@@ -225,9 +227,12 @@ export function conflictBands(conflicts: readonly ConflictRow[]): Band[] {
     t1_s: c.t1_s,
     ...(isBurstRow(c)
       ? { title: burstBandTitle(c), minPx: BAND_MIN_PX }
-      : { title: `⚠ ${c.second} over the target inside ${c.first}'s frag (est.)` }),
+      : { title: spacingConflictTitle(c) }),
   }));
 }
+
+/** The spacing rule's sentence for one of its conflicts, written once: the time bar's stripe, the seat's warning mark and the chip over the picture say it. */
+export const spacingConflictTitle = (c: { first: string; second: string }) => `⚠ ${c.second} over the target inside ${c.first}'s frag (est.)`;
 
 /**
  * One stripe on a jet's own lane for each other member it would be in a frag conflict with: the times over
@@ -261,8 +266,9 @@ export interface LaneTimeSetting {
 
 /**
  * Do the lane's stripes show? Only while that jet's time is being set: they answer "where would this time
- * put me inside another jet's frag", a question nobody is asking while the lane is at rest (and four lanes
- * striped end to end read as noise).
+ * put me inside another jet's blast radius when a bomb goes off, or another jet inside mine" (on a strike
+ * warned by spacing in time, "inside another jet's frag"), a question nobody is asking while the lane is at
+ * rest (and lanes striped end to end read as noise).
  */
 export function laneZonesShown(s: LaneTimeSetting): boolean {
   return s.held || s.keyboardFocus || s.boxFocus;

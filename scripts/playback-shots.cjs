@@ -3660,6 +3660,82 @@ async function checkNoHatchKeyLone(page, tag) {
     `${keys} swatches (want 0), ${bar} stripes on the time bar (want 0), ${footer} footer line parts`);
 }
 
+// ── The frag warning chip over the picture (CanvasChips.tsx, src/lib/playbackScene/fragChip.ts).
+
+/** How long a chip once shown stays up, wall ms (CHIP_HOLD_MS in fragChip.ts). */
+const CHIP_HOLD_MS = 1200;
+/** The chip over the picture as drawn, or null: its words, tooltip, box (page pixels) and text colour. */
+const chipState = (page) => page.evaluate(() => {
+  const e = document.querySelector('[role="dialog"] [data-frag-chip]');
+  if (!e) return null;
+  const b = e.getBoundingClientRect();
+  return { text: (e.textContent || '').trim(), title: e.getAttribute('title'), l: b.left, r: b.right, t: b.top, b: b.bottom, colour: getComputedStyle(e).color };
+});
+/** Read the chip and the clock every `ms` in the page, from now until stopChipLog. */
+const startChipLog = (page, ms) => page.evaluate((every) => {
+  window.__chipLog = [];
+  const read = () => {
+    const e = document.querySelector('[role="dialog"] [data-frag-chip]');
+    window.__chipLog.push({ w: performance.now(), t: __pb.snapshot().t, chip: e ? (e.textContent || '').trim() : null });
+  };
+  read();
+  window.__chipTimer = setInterval(read, every);
+}, ms);
+const stopChipLog = (page) => page.evaluate(() => {
+  clearInterval(window.__chipTimer);
+  return window.__chipLog;
+});
+/** The stretches of a log in which the chip was up: [first, last] sample indices. */
+const chipRuns = (log) => {
+  const runs = [];
+  log.forEach((s, i) => {
+    if (!s.chip) return;
+    if (runs.length && runs[runs.length - 1][1] === i - 1) runs[runs.length - 1][1] = i;
+    else runs.push([i, i]);
+  });
+  return runs;
+};
+
+/**
+ * Check 13 (the chip's arm): on the four-ship warned by spacing in time, with the playhead paused inside the first frag
+ * warning's band (#2 over the target inside #1's frag, 10 s to 30 s) the chip over the picture says exactly "⚠ #2 over the
+ * target inside #1's frag (est.)", in amber, centred over the picture under its top edge, with the footer's full warning
+ * for its tooltip; paused 2 s before the band, once any chip shown earlier has had its moment, there is none. The playhead
+ * is put back where it was and the chip let go, for the checks after.
+ *
+ * Measured green 2026-11-16 at both sizes: no chip at 8 s; at 20 s the words and tooltip exactly, rgb(252, 211, 77), 0.0 px off
+ * the picture's centre, its top 48 px down.
+ *
+ * Proven red 2026-11-16 by one temporary edit to PlaybackView.tsx, the chip never handed the warnings (`conflicts={timing.conflicts}`
+ * → `conflicts={[]}` on CanvasChips):
+ *   STEP FAIL 13 the chip over the picture names the frag warning the playhead is on, with the footer's warning as its tooltip, and none before it (1400x900-strike4) — #2 inside #1's frag 10…30 s; at 8 s: no chip (want none); at 20 s: no chip
+ *   (and the same at 1024x768)
+ */
+async function checkConflictChip(page, tag) {
+  const was = await pbEval(page, () => __pb.snapshot().t);
+  const c = (await pbEval(page, () => __pb.moments.conflicts))[0];
+  const warnings = await pbEval(page, () => __pb.moments.warnings);
+  const cv = await canvasBox(page);
+  await pbEval(page, (t) => { __pb.pause(); __pb.setSpeed(1); __pb.seek(t); }, c.t0_s - 2);
+  await page.waitForTimeout(CHIP_HOLD_MS + 400);
+  await settle(page, 100);
+  const before = await chipState(page);
+  await pbEval(page, (t) => __pb.seek(t), (c.t0_s + c.t1_s) / 2);
+  await settle(page, 300);
+  const inside = await chipState(page);
+  await shot(page, `${tag}-13-chip`);
+  const wantText = "⚠ #2 over the target inside #1's frag (est.)";
+  const wantTitle = "#2 is over the target 10 s after #1, inside #1's ~30 s of frag (est.)";
+  const dx = inside ? Math.abs((inside.l + inside.r) / 2 - (cv.l + cv.w / 2)) : NaN;
+  const ok = !before && !!inside && inside.text === wantText && inside.title === wantTitle && warnings[0] === wantTitle &&
+    inside.colour === 'rgb(252, 211, 77)' && dx <= 2 && inside.t >= cv.t && inside.b <= cv.t + cv.h / 3;
+  step(`13 the chip over the picture names the frag warning the playhead is on, with the footer's warning as its tooltip, and none before it (${tag})`, ok,
+    `${c.second} inside ${c.first}'s frag ${c.t0_s}…${c.t1_s} s; at ${c.t0_s - 2} s: ${before ? JSON.stringify(before.text) : 'no chip'} (want none); at ${(c.t0_s + c.t1_s) / 2} s: ` +
+      (inside ? `${JSON.stringify(inside.text)} (want ${JSON.stringify(wantText)}), tooltip ${JSON.stringify(inside.title)} (want ${JSON.stringify(wantTitle)}), colour ${inside.colour}, ${dx.toFixed(1)} px off the picture's centre, top ${(inside.t - cv.t).toFixed(0)} px down` : 'no chip'));
+  await pbEval(page, (t) => __pb.seek(t), was);
+  await page.waitForTimeout(CHIP_HOLD_MS + 400);
+}
+
 /**
  * Check 36: the seat buttons move the watch. On the four-ship at Home, paused at the start of the time bar:
  * - opened as it is: #1's button pressed alone, the time bar's own band spanning #1's lane band (3 px), #1's
@@ -4166,12 +4242,13 @@ const WANT_HANDLE_PLAIN = "Drag to change #2's time over target (←/→ 1 s, Sh
  * which the harness gives its 250 ft radius), nothing is inside any bomb's radius when it goes off, so the footer is
  * the blast rule's all-clear word for word, with its tooltip, and there is no warning, no "(+n more)", no stripe on
  * the time bar and no swatch; with #2's diamond held no lane has a stripe and the diamond's tooltip does not say
- * what stripes are (it has none to show). The page says it plays by 'burst' and gives no conflict and no zone. (The
- * chip over the picture does not exist yet, so there is none to look for.)
+ * what stripes are (it has none to show). The page says it plays by 'burst' and gives no conflict and no zone. Paused at
+ * each jet's burst (its time over target) and half a second after it there is no warning chip over the picture.
  *
  * Measured green 2026-11-16 at both sizes: the all-clear alone with its tooltip, 0 conflicts, 0 zones, 0 swatches, 0 stripes on
  * the bar, 0 on any lane while #2's diamond was held at the start of the bar (the Mk-82's 250 ft radius is far from every
- * other jet at every burst).
+ * other jet at every burst). The chip's arm, measured green 2026-11-16 at both sizes: no chip at the bursts at 0, 10, 40 and 40 s
+ * or half a second after any of them.
  *
  * Proven red 2026-11-16 by one temporary edit to src/lib/playback/timing.ts, retime reading the spacing rule whatever
  * the playback's rule is (`const burst = pb.fragRule === 'burst' ? burstReadout(pb, delays) : undefined;` →
@@ -4179,6 +4256,8 @@ const WANT_HANDLE_PLAIN = "Drag to change #2's time over target (←/→ 1 s, Sh
  * `strikeReadout(rj, 'time')`):
  *   STEP FAIL 70 the four-ship warned by blast radius is clean: … (1400x900-strike4) — rule burst; 2 conflicts, 0 zones; footer no all-clear (want "✓ No blast or cone warnings at these times."); 1 warnings (want 0), more "(+1 more)", swatches 1 (want 0), 2 stripes on the bar (want 0); #2 held: 0 lane stripes (want 0), diamond "Drag to change #2's time over target (←/→ 1 s, Shift+←/→ 5 s)"
  * (71 goes red with it: "⚠ #2 is over the target 12 s after #1, inside #1's ~35 s of frag (est.)".)
+ * The same edit, run again 2026-11-16 once the chip's arm was added, turns that arm red too:
+ *   STEP FAIL 70 … no chip at any burst (1400x900-strike4) — rule burst; 2 conflicts, 0 zones; …; chip at the 4 bursts (0.0, 10.0, 40.0, 40.0 s) and 0.5 s after: 10.0 s: "⚠ #2 over the target inside #1's frag (est.)", 10.5 s: "⚠ #2 over the target inside #1's frag (est.)", 40.0 s: "⚠ #4 over the target inside #3's frag (est.)", … (want none)
  */
 async function checkFragBurstFour(page, tag) {
   await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
@@ -4199,11 +4278,24 @@ async function checkFragBurstFour(page, tag) {
   await settle(page, 300);
   await page.locator('[role="dialog"] [data-reset]').click();
   await settle(page);
+  // The chip's arm: paused at each jet's burst (its time over target) and half a second after it, no chip over the picture.
+  const bursts = await pbEval(page, () => __pb.moments.jets.map((j) => j.impact));
+  const chips = [];
+  for (const t of bursts) {
+    for (const at of [t, t + 0.5]) {
+      await pbEval(page, (s) => __pb.seek(s), at);
+      await settle(page, 200);
+      const ch = await chipState(page);
+      if (ch) chips.push(`${at.toFixed(1)} s: ${JSON.stringify(ch.text)}`);
+    }
+  }
+  await pbEval(page, () => __pb.seek(__pb.snapshot().start));
   const heldZones = held.reduce((n, l) => n + l.zones.length, 0);
   const ok = rule === 'burst' && conflicts === 0 && zones === 0 && !!f.ok && f.ok.text === WANT_OK_BURST && f.ok.title === WANT_OK_BURST_TITLE &&
-    f.warns.length === 0 && f.more === null && f.keys === 0 && bar === 0 && heldZones === 0 && title === WANT_HANDLE_PLAIN;
-  step(`70 the four-ship warned by blast radius is clean: the footer is the blast rule's all-clear, no warning, no swatch, no stripe on the bar or the lanes (${tag})`, ok,
-    `rule ${rule}; ${conflicts} conflicts, ${zones} zones; footer ${f.ok ? `${JSON.stringify(f.ok.text)} title ${JSON.stringify(f.ok.title)}` : 'no all-clear'} (want ${JSON.stringify(WANT_OK_BURST)}); ${f.warns.length} warnings (want 0), more ${JSON.stringify(f.more)}, swatches ${f.keys} (want 0), ${bar} stripes on the bar (want 0); #2 held: ${heldZones} lane stripes (want 0), diamond ${JSON.stringify(title)}`);
+    f.warns.length === 0 && f.more === null && f.keys === 0 && bar === 0 && heldZones === 0 && title === WANT_HANDLE_PLAIN && bursts.length === 4 && chips.length === 0;
+  step(`70 the four-ship warned by blast radius is clean: the footer is the blast rule's all-clear, no warning, no swatch, no stripe on the bar or the lanes, no chip at any burst (${tag})`, ok,
+    `rule ${rule}; ${conflicts} conflicts, ${zones} zones; footer ${f.ok ? `${JSON.stringify(f.ok.text)} title ${JSON.stringify(f.ok.title)}` : 'no all-clear'} (want ${JSON.stringify(WANT_OK_BURST)}); ${f.warns.length} warnings (want 0), more ${JSON.stringify(f.more)}, swatches ${f.keys} (want 0), ${bar} stripes on the bar (want 0); #2 held: ${heldZones} lane stripes (want 0), diamond ${JSON.stringify(title)}; ` +
+      `chip at the ${bursts.length} bursts (${bursts.map((t) => t.toFixed(1)).join(', ')} s) and 0.5 s after: ${chips.length ? chips.join(', ') : 'none'} (want none)`);
 }
 
 /**
@@ -4383,6 +4475,77 @@ async function checkFragRidgeLane(page, tag) {
       `${z ? `${z.w.toFixed(1)} px wide (true ${trueW.toFixed(1)}, want ≥ 6), centre ${dCentre.toFixed(2)} px off the zone's (want ≤ 1), key ${z.key}, ${amber} amber pixels in its pads` : '(none)'}; let go ${letGo.map((l) => l.zones.length).join('/')} (want 0/0); diamond at rest ${JSON.stringify(titleRest)}, held ${JSON.stringify(titleHeld)}`);
 }
 
+/**
+ * Check 72 (the ridge pair's chip): the chip over the picture at #1's burst, which has #2 inside its blast radius.
+ * - Paused half a second after the burst: the chip says exactly "⚠ #2 inside #1's blast radius (est.)" and its tooltip is
+ *   the footer's warning, "#2 is 130 ft from #1's bomb when it goes off, inside its 360 ft blast radius (est.)"; paused
+ *   half a second before it (once any chip shown earlier has had its moment): none.
+ * - Played through the burst at 1×, the chip and the clock read every 30 ms in the page: the chip first shows with the clock
+ *   at the burst (from 0.1 s before it, the read lagging a snapshot, to 0.5 s after); it is still up after the clock has
+ *   left the warning's second, for about CHIP_HOLD_MS of wall time (at least 800 ms and at most 1,700 ms, the snapshot that
+ *   last named it falling up to a frame or two before the clock left the second), and gone later.
+ * - Played through the burst at 16× from 3 s before it, read every 10 ms: the chip is up in one stretch of reads, with the same
+ *   words (the clock crosses the warning's second in about 60 ms of wall time, under one look at the clock).
+ *
+ * Measured green 2026-11-16 (the software renderer at about 4 frames a second): the words and tooltip exactly; at 1× the chip first
+ * up with the clock at 0.03 s, one stretch, still up 1,201 ms (1400×900) and 1,230 ms (1024×768) after the clock left the
+ * warning's second, gone at the end; at 16× one stretch of 226 reads with the one sentence (on that run one clock read fell
+ * inside the second; where none does, the sweep names it: geo-check FC4).
+ *
+ * Proven red 2026-11-16 by one temporary edit to src/lib/playbackScene/fragChip.ts, `CHIP_HOLD_MS = 1200` → `0`:
+ *   STEP FAIL 72 the chip at the ridge pair's burst: … (1400x900-ridge) — burst at 0 s; paused 0.5 s before: no chip; 0.5 s after: "⚠ #2 inside #1's blast radius (est.)", tooltip "#2 is 130 ft from #1's bomb when it goes off, inside its 360 ft blast radius (est.)"; 1×: first up at 0.03 s, 1 stretch(es), still up 30 ms after the clock left its second (want 800…1700), up at the end false; 16×: 1 stretch(es) of 229 reads, …
+ *   (and the same at 1024x768)
+ */
+async function checkFragChip(page, tag) {
+  const T = (await pbEval(page, () => __pb.moments.conflicts))[0].t0_s;
+  const wantText = "⚠ #2 inside #1's blast radius (est.)";
+  const wantTitle = "#2 is 130 ft from #1's bomb when it goes off, inside its 360 ft blast radius (est.)";
+  await pbEval(page, (t) => { __pb.pause(); __pb.setSpeed(1); __pb.seek(t); }, T - 0.5);
+  await page.waitForTimeout(CHIP_HOLD_MS + 400);
+  await settle(page, 100);
+  const before = await chipState(page);
+  await pbEval(page, (t) => __pb.seek(t), T + 0.5);
+  await settle(page, 300);
+  const at = await chipState(page);
+  await shot(page, `${tag}-72-chip`);
+  const pausedOk = !before && !!at && at.text === wantText && at.title === wantTitle;
+  // 1×: from a second before the burst until three seconds after the clock has left its second.
+  await pbEval(page, (t) => __pb.seek(t), T - 1);
+  await page.waitForTimeout(CHIP_HOLD_MS + 400);
+  await startChipLog(page, 30);
+  await pbEval(page, () => __pb.play());
+  await page.waitForFunction((t) => __pb.snapshot().t >= t, T + 1, { timeout: 60000, polling: 20 });
+  await page.waitForTimeout(3000);
+  await pbEval(page, () => __pb.pause());
+  const log1 = await stopChipLog(page);
+  const first = log1.find((s) => s.chip);
+  const leave = log1.find((s) => s.t >= T + 1);
+  const goneAt = leave ? log1.find((s) => s.w > leave.w && !s.chip) : undefined;
+  const hold = leave && goneAt ? goneAt.w - leave.w : NaN;
+  const runs1 = chipRuns(log1);
+  const oneOk = !!first && first.chip === wantText && first.t >= T - 0.1 && first.t <= T + 0.5 && runs1.length === 1 && hold >= 800 && hold <= 1700 && !log1[log1.length - 1].chip;
+  // 16×: from three seconds before the burst to five after it.
+  await pbEval(page, (t) => __pb.seek(t), T - 3);
+  await page.waitForTimeout(CHIP_HOLD_MS + 400);
+  await startChipLog(page, 10);
+  await pbEval(page, () => { __pb.setSpeed(16); __pb.play(); });
+  await page.waitForFunction((t) => __pb.snapshot().t >= t, T + 5, { timeout: 60000, polling: 20 });
+  await page.waitForTimeout(CHIP_HOLD_MS + 400);
+  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); });
+  const log16 = await stopChipLog(page);
+  const runs16 = chipRuns(log16);
+  const words16 = [...new Set(log16.filter((s) => s.chip).map((s) => s.chip))];
+  const looksInside = new Set(log16.filter((s) => s.t >= T && s.t < T + 1).map((s) => s.t)).size;
+  const fastOk = runs16.length === 1 && words16.length === 1 && words16[0] === wantText;
+  await pbEval(page, () => __pb.seek(__pb.snapshot().start));
+  await page.waitForTimeout(CHIP_HOLD_MS + 400);
+  step(`72 the chip at the ridge pair's burst: "⚠ #2 inside #1's blast radius (est.)" from the burst, held about ${CHIP_HOLD_MS} ms after its second, gone later, and shown once at 16× (${tag})`,
+    pausedOk && oneOk && fastOk,
+    `burst at ${T} s; paused 0.5 s before: ${before ? JSON.stringify(before.text) : 'no chip'}; 0.5 s after: ${at ? `${JSON.stringify(at.text)}, tooltip ${JSON.stringify(at.title)}` : 'no chip'}; ` +
+      `1×: first up at ${first ? first.t.toFixed(2) : '—'} s, ${runs1.length} stretch(es), still up ${Number.isFinite(hold) ? hold.toFixed(0) : '—'} ms after the clock left its second (want 800…1700), up at the end ${!!log1[log1.length - 1].chip}; ` +
+      `16×: ${runs16.length} stretch(es) of ${log16.length} reads, words ${JSON.stringify(words16)}, ${looksInside} distinct clock reads inside its second`);
+}
+
 async function runFragChecks(browser, base) {
   for (const [w, h] of [[1400, 900], [1024, 768]]) {
     const tag = `${w}x${h}`;
@@ -4396,6 +4559,7 @@ async function runFragChecks(browser, base) {
     await checkFragRidge(r.page, `${tag}-ridge`);
     await checkFragRidgeLane(r.page, `${tag}-ridge`);
     await checkRingRidge(r.page, `${tag}-ridge`, 'burst');
+    await checkFragChip(r.page, `${tag}-ridge`);
     step(`8 no page errors, ridge pair (${tag})`, r.problems.length === 0, r.problems.length ? r.problems.slice(0, 8).join(' | ') : 'none');
     await r.context.close();
     // 73 again on the same pair saved with the spacing rule: the ring does not follow the warning's rule.
@@ -4418,6 +4582,7 @@ async function runStrikeChecks(browser, base) {
     await checkAttackColours(page, `${tag}-strike4`);
     await checkLaneTimeFour(page, `${tag}-strike4`);
     await checkConflictHatch(page, `${tag}-strike4`);
+    await checkConflictChip(page, `${tag}-strike4`);
     await checkFragTimeFour(page, `${tag}-strike4`);
     await checkWatchSeat(page, `${tag}-strike4`);
     if (w === 1400) {

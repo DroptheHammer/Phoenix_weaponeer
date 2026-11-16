@@ -6,14 +6,18 @@
  *
  * Layout: the 3D scene fills the space, with the camera buttons, Home view and
  * Show over its top right; under it, the timeline (play, pause, scrub, speeds)
- * with the amber stripes of any frag conflict along it, one lane for every jet
+ * with the amber stripes of any frag warning along it (the moment a bomb went
+ * off with another jet inside its blast radius; on a strike warned by spacing
+ * in time, a jet over the target inside another's frag), one lane for every jet
  * of the strike (its phase band in the planner's colours with the lettered
  * marks, and its times; its own stripes of where its time would put it inside
- * another's frag show only while that time is being set), a line about the frag
- * and cone warnings (opening with a swatch of the time bar's stripes while it
- * has any), and the small print (what ground is drawn, the Real | Flat switch,
- * the theater warnings, the credits). Fits a 1024×768 window. The overlay
- * around it has the title bar and the Close button.
+ * another jet's blast radius, or another jet inside its own, show only while
+ * that time is being set), a line about the frag and cone warnings (opening
+ * with a swatch of the time bar's stripes while it has any), and the small print
+ * (what ground is drawn, the Real | Flat switch, the theater warnings, the
+ * credits). Fits a 1024×768 window. The overlay around it has the title bar and
+ * the Close button. While the playhead is on a frag warning, a chip over the
+ * picture names it, also at 16×.
  *
  * The frag warnings follow the rule the strike is warned by: the spacing
  * rule, or a jet's distance from a bomb's blast radius at the moment it goes
@@ -253,8 +257,9 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   const camera = useMemo(() => ({ mode: cameraMode, jet: watchedJet }), [cameraMode, watchedJet]);
 
   // One lane for every member, on the time bar's own axis: phase bands and lettered marks, the stripes of the
-  // times that would put a jet inside another's frag, and the warning mark where it is inside one now. Redone
-  // when the times or the axis change (never while it plays).
+  // times that would put a jet inside another jet's blast radius when a bomb goes off, or another jet inside its
+  // own (on a strike warned by spacing in time, inside another's frag), and the warning mark where it is in such
+  // a warning now. Redone when the times or the axis change (never while it plays).
   const moments = useMemo(() => pb.jets.map((j) => markerMoments(j)), [pb]);
   const seatLabels = useMemo(() => pb.members.map((m) => m.label), [pb]);
   const seatCallsigns = useMemo(() => pb.members.map((m) => (m.jet === undefined ? undefined : pb.jets[m.jet].callsign)), [pb]);
@@ -447,7 +452,7 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
         />
         {/* On its own dark plate: behind it can be the navy sky, the pale haze or the map. */}
         <div className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
-        {scene && <CanvasChips scene={scene} source={source} jet={watchedJet} mode={cameraMode} />}
+        {scene && <CanvasChips scene={scene} source={source} jet={watchedJet} mode={cameraMode} conflicts={timing.conflicts} warnings={timing.readout.warnings} />}
         {software && <SoftwareChip />}
         {scene && (
           <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={cameraMode} seat={source.labelOf(watchedJet)} onMode={pickCamera} />
