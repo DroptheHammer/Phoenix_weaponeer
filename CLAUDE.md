@@ -220,6 +220,69 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
+### PAUSED 2026-11-16 15:40 UTC: READ THIS FIRST
+
+The user had to move, so every run was stopped cleanly. **Where this block and
+the older notes below disagree, this block is right.** Both working copies
+were clean at the stop and everything built is pushed.
+
+**`v040-playback-full`, tip `1bd89a1` (pushed).** On top of the notes below:
+- Brought in from the side branches, each reviewed: hidden threats (`b5e7fc1`),
+  the card labels (`a252a60`), the bomb's grey dashed line with the rule that
+  only a jet in the planner's colours draws it (`51f10b9`; 183 screenshot
+  steps). The five side branches and their working copies are deleted.
+- Review fix REV-a (`e152a37`): reviewed and passed. **The director has not
+  read its diff himself yet.**
+- Review fix REV-b (`1bd89a1`): committed with its four gates green, **but the
+  full screenshot run did not finish (it timed out twice on a loaded machine)
+  and its third review was cut off by the pause. Do first: run
+  `scripts/playback-shots.cjs` alone, then an independent review of that one
+  commit.** REV-c (ground below sea level) is not started.
+- Resume: the build script with run id `wf_dc972794-f25` (memory has the path
+  and the arguments). Then build "Playback look 6.app" and show it.
+- geo-check 1,087; start-up JS 634,537 (ceiling 635,049, so 512 bytes of room).
+
+**`v040-shell`, tip `0b780db` (pushed): THE REDESIGN IS BEING BUILT.** A new
+branch in a working copy of its own (`.claude/worktrees/shell` on the main
+Mac, with its own `node_modules` and `src/generated/`), cut from `b5e7fc1`.
+- The three build specs are written, reviewed and ruled on:
+  `Other Items/v040-work/a2/BUILD_SPEC_R2.md` (section A2.8 holds rulings G1
+  to G11 for all three), `a3/BUILD_SPEC_UI.md` (A3.8, at the end of the
+  file), `a4/BUILD_SPEC.md` (A4.8).
+- Built, in order: the front page's data layer, with every count of hidden
+  threats taken out of it (`def0f7e`); the two fonts (`1bad96c`); colours and
+  sizes as named values (`1993e23`); **the new lettering** (`de9a059`); the
+  director's ceiling raise to 640,616 (`4e083b5`); **dark scrollbars,
+  drop-downs and checkboxes, equal-width digits** (`1f0ebf4`); the shared
+  button and icons (`9b2dc5b`); panel, card, chip and tabs (`a2f176b`);
+  **the new dialog look** (`0b780db`).
+- All reviewed and passed except the last: **the dialog look's second review
+  was cut off by the pause: re-run it.** Then bring the ceiling down to the
+  built figure plus 512 (it measured 639,092), move the branch onto the
+  playback branch's tip, run the proof stage (S8) and build the first
+  redesign copy for the user.
+- One point the dialog review raised for the director, not ruled yet: with two
+  dialogs open one Escape closes both, and focus is neither held inside a
+  dialog nor returned to what opened it. It was so before the redesign.
+- Resume: the redesign's build script (memory has the path; it takes a list
+  of stages). The run that was stopped is `wf_caf0fb30-36b`.
+- **Do not run the redesign's browser reviews while the playback's screenshot
+  run is going:** that is what made the screenshot run time out.
+
+**Sight mils: designed and ruled, nothing built.**
+`Other Items/v040-work/b3/BUILD_SPEC_S13_SIGHT_MILS.md`, sections 13.8
+(rulings) and 13.9 (the data). The real F-5E manual's dive tables were read
+from the scanned pages by two automated readers (`F5E_TO_TABLES.md` and
+`.json` beside it); 804 sight settings would ship. **Nothing from the manual
+is committed until the user says yes to the first question in 13.9.7**, which
+tells him of the manual's distribution statement and export-control warning.
+
+**Waiting on the user, in this order, one at a time:** look 6 when it is
+built (with the three calls he can overrule: only the watched jet draws a
+bomb line; the blast ring shows through hills; the old spacing rule kept as a
+choice); the F-5E manual question; the redesign's picture questions at its
+two looks.
+
 
 **Last session:** 2026-11-14/15 UTC (Fable 5.2 directing on the main Mac,
 with Opus and Sonnet agents). **0.4.0 "Polish and Playback" is under way.
