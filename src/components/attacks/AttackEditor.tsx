@@ -12,7 +12,7 @@ import { JetStrip, JET_COLORS } from './JetStrip';
 import { AttackPreviewMap, type PreviewAttack } from '../map/AttackPreviewMap';
 import { FragPanel, PlayStrikeButton, playbackLaunchFromEditor } from '@playback';
 import { draftAttackData, draftFromAttack, draftIpAnchor, resolveDraft, setIp, type DraftContext, type ResolvedDraft } from '../../lib/attackDraft';
-import { newJet, newStrike, jetsOfStrike, respace, sortJets, setStrikeIp, strikeIpOf, syncJetIp, assignFlanks, leadSideOf, withTotOffsets, type Jet } from '../../lib/strikeDraft';
+import { newJet, newStrike, jetsOfStrike, respace, sortJets, setStrikeIp, strikeIpOf, syncJetIp, jetFired, assignFlanks, leadSideOf, withTotOffsets, type Jet } from '../../lib/strikeDraft';
 import { attackSpeedOf, coneGrade, fmtStrikeTime, strikeFlank, strikeFragRule, strikeOf, strikeReadout, type StrikeJet } from '../../lib/strike';
 import { buildAttackPicture } from '../../lib/attackPicture';
 import { resolveEgressHeading } from '../../lib/attackGeometry';
@@ -117,19 +117,19 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
   };
 
   const updateJet = (i: number, draft: Jet['draft']) =>
-    setJets(jets.map((j, k) => (k === i ? { ...j, draft: strike ? syncJetIp(draft, strike.ip, mission) : draft } : j)));
+    setJets(jets.map((j, k) => (k === i ? { ...j, draft: strike ? syncJetIp(draft, strike.ip, mission, jetFired(draft, ctx)) : draft } : j)));
 
   const onStrikeIp = (ip: IpAnchorFields) => {
     if (!strike) return;
     setStrike({ ...strike, ip });
-    setJets(setStrikeIp(jets, ip, mission));
+    setJets(setStrikeIp(jets, ip, mission, ctx));
     setPicking(false);
   };
 
   const placeCustomIp = (point: Coordinates) => {
     setPicking(false);
     if (strike) onStrikeIp({ customIp: point });
-    else updateJet(0, setIp(jets[0].draft, 'custom', mission, undefined, point));
+    else updateJet(0, setIp(jets[0].draft, 'custom', mission, jetFired(jets[0].draft, ctx), undefined, point));
   };
   const customIp = strike ? strike.ip.customIp : jets[0]?.draft.ipMode === 'custom' ? jets[0].draft.customIp : undefined;
 

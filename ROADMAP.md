@@ -271,11 +271,15 @@ waypoint list on 2026-10-03).
   - **For the release notes:** open and save again any dive attack made
     before this version, and re-export its card. A saved A-10C, AV-8B or A-4E
     45° dive made with the old 20° turn loses its offset leg and action point
-    on the map (its card
-    still lists the old action point) until it is opened in the editor and
+    on the map until it is opened in the editor and
     saved; opened, a standard attack is rebuilt with the 10° turn, and a
     customized one keeps its 20° and the editor says it does not close until
     the turn is lowered.
+  - Its card prints what its picture draws (2026-11-16, from the review of
+    the playback branch): no Action Point or Approach HDG row, the roll-in
+    with the turn the map flies there, and one caution line, "⚠ The offset
+    leg no longer reaches the roll-in — open this attack in the editor and
+    save it". Until then the card still listed the old action point.
 
 ### v0.3.4 — 2026-11-14
 - **Loft attacks** (2026-11-14): F-16 Loft 30 and F-4E LABS 45 offered again,

@@ -2,7 +2,7 @@ import type { KneeboardCard, KneeboardThreatItem, KneeboardDiagramData } from '.
 import type { Mission } from '../types/mission.types';
 import type { Attack } from '../types/attack.types';
 import type { DbWeapon, FuzeOption } from '../types/weapon.types';
-import { resolveEgressHeading, type Turn } from './attackGeometry';
+import { calculateBearing, calculatePointAtDistance, normalizeHeading, resolveEgressHeading, turnBetween, type Turn } from './attackGeometry';
 import { popupPlanOf } from './popupPlanning';
 import { loftPullUpTimer_s, resolveLoftEgressHeading } from './loftPlanning';
 import { describeRunIn } from './runIn';
@@ -93,7 +93,12 @@ interface RunInGeo {
   joinRange_nm?: number;
   joinLabel?: string;
   closes?: boolean;
+  /** The offset leg does not close, so the picture leaves it out and flies straight from the IP to the join. */
+  legDropped?: boolean;
 }
+
+/** The smallest turn the picture's join label names ("RIGHT onto 090°"); below it the label gives the heading alone. */
+const PICTURE_TURN_MIN_DEG = 3;
 
 function describeRunInForCard(mission: Mission, attack: Attack, target: Mission['waypoints'][number]): RunInGeo {
   const p = attack.profile;
@@ -106,6 +111,22 @@ function describeRunInForCard(mission: Mission, attack: Attack, target: Mission[
     // A save that predates the action point: the heading is all we know.
     const heading = (p as { ingressHeading_deg?: number }).ingressHeading_deg ?? (p as { runInHeading_deg?: number }).runInHeading_deg;
     return { ...geo, attackHeading: heading };
+  }
+  if (!story.closes && (p.type === 'dive_ccip' || p.type === 'level_ccrp')) {
+    // An offset leg that no longer reaches the ring (a dive saved before its ring shrank) is not drawn: the
+    // picture flies straight from the IP to the join point on the stored heading's reciprocal, and turns there
+    // onto that heading. The card prints that, from the same points, and no action point or approach heading.
+    const joinPoint = calculatePointAtDistance(target.coordinates, normalizeHeading(story.attackHeading + 180), story.joinRange_nm);
+    const turn = turnBetween(calculateBearing(anchor.point, joinPoint), story.attackHeading);
+    return {
+      ...geo,
+      attackHeading: story.attackHeading,
+      turn: turn.deg >= PICTURE_TURN_MIN_DEG ? turn : undefined,
+      joinRange_nm: story.joinRange_nm,
+      joinLabel: story.joinLabel,
+      closes: false,
+      legDropped: true,
+    };
   }
   return {
     ...geo,
@@ -130,9 +151,10 @@ function formatAttackParams(attack: Attack, geo: RunInGeo): Record<string, strin
     params['Approach HDG'] = fmtHeading(geo.approachHeading);
   }
   if (geo.attackHeading != null) params['Attack HDG'] = fmtHeading(geo.attackHeading);
-  if (geo.turn && geo.joinRange_nm != null) {
+  // A run-in that does not close can have no turn to print, as its picture's label has none: the distance alone.
+  if (geo.joinRange_nm != null && (geo.turn || geo.legDropped)) {
     params[geo.joinLabel === 'pull down' ? 'Pull-down' : geo.joinLabel === 'roll in' ? 'Roll-in' : 'Run-in'] =
-      `${geo.joinRange_nm.toFixed(1)} nm · ${geo.turn.direction.toUpperCase()} ${Math.round(geo.turn.deg)}°`;
+      `${geo.joinRange_nm.toFixed(1)} nm${geo.turn ? ` · ${geo.turn.direction.toUpperCase()} ${Math.round(geo.turn.deg)}°` : ''}`;
   }
 
   if (p.type === 'popup_ccip') {
@@ -380,6 +402,11 @@ export function buildKneeboardCard(
   // A loft is not held to a release floor, so the missing one is no caveat there.
   const noData = noDataNote(weapon, attack.profileType);
   if (noData) cautions.push(noData);
+  // The card prints the straight run its picture draws, not the plan that was saved: say so, and how to mend it.
+  // (The strip draws the warning sign itself.)
+  if (runIn.legDropped) {
+    cautions.push(`The offset leg no longer reaches the ${runIn.joinLabel === 'run in' ? 'run-in' : 'roll-in'} — open this attack in the editor and save it`);
+  }
 
   // Sanity checks against the weapon's own limits. On a card these are
   // printed, not hidden — a pilot must see that the numbers disagree. The

@@ -31,18 +31,25 @@ function isFlanked(profile: AttackProfile): profile is FlankedProfile {
  * through `describeRunIn`, the same solve the delivery forms use. If the
  * geometry cannot be described (an incomplete profile), the direction still
  * changes and the heading is left alone rather than set to nonsense.
+ *
+ * `fired` is true for a gun or rocket pass. Its dive rolls in on the sight
+ * line, not on the bomb's aim-off ring, and the picture draws it so; solved
+ * without it, the stored heading is the bomb's, the card prints that and the
+ * straight-in warning reads it. It has no default on purpose: a caller that
+ * forgets it must not compile.
  */
 export function applyFlank(
   profile: AttackProfile,
   side: Side,
   directBearing_deg: number | undefined,
-  targetElevation_ft = 0,
+  targetElevation_ft: number,
+  fired: boolean,
 ): AttackProfile {
   if (!isFlanked(profile)) return profile;
   const next: FlankedProfile = { ...profile, offsetDirection: side };
   if (directBearing_deg == null || !Number.isFinite(directBearing_deg)) return next;
 
-  const heading = describeRunIn(next, directBearing_deg, targetElevation_ft)?.attackHeading;
+  const heading = describeRunIn(next, directBearing_deg, targetElevation_ft, fired)?.attackHeading;
   if (heading == null || !Number.isFinite(heading)) return next;
 
   return next.type === 'popup_ccip'
@@ -62,32 +69,34 @@ export function applyFlank(
  * flank change does. A loft's heading IS the new bearing, and its F-4E pull-up
  * timer counts from the IP, so it also needs `ipToTarget_nm` (without one the
  * timer is cleared rather than left counting from the old IP). Same fallback
- * as `applyFlank`: no usable bearing, no change.
+ * as `applyFlank`: no usable bearing, no change. `fired` as for `applyFlank`.
  */
 export function reanchorProfile(
   profile: AttackProfile,
   directBearing_deg: number | undefined,
-  targetElevation_ft = 0,
+  targetElevation_ft: number,
+  fired: boolean,
   ipToTarget_nm?: number,
 ): AttackProfile {
   if (directBearing_deg == null || !Number.isFinite(directBearing_deg)) return profile;
   if (profile.type === 'loft_ccrp') return applyLoftPlan(profile, directBearing_deg, ipToTarget_nm);
   if (!isFlanked(profile)) return profile;
   if (profile.type === 'popup_ccip') return applyPopupPlan(profile, directBearing_deg);
-  return applyFlank(profile, profile.offsetDirection ?? 'right', directBearing_deg, targetElevation_ft);
+  return applyFlank(profile, profile.offsetDirection ?? 'right', directBearing_deg, targetElevation_ft, fired);
 }
 
 /**
  * Point a customized profile at a new IP — a waypoint, a custom point, or
  * neither (the prior waypoint) — and re-derive its headings from the new
- * IP→target bearing, the same bearing auto-build measures.
+ * IP→target bearing, the same bearing auto-build measures. `fired` as for
+ * `applyFlank`.
  */
-export function moveIp(profile: AttackProfile, ip: IpAnchorFields, waypoints: Waypoint[], target: Waypoint): AttackProfile {
+export function moveIp(profile: AttackProfile, ip: IpAnchorFields, waypoints: Waypoint[], target: Waypoint, fired: boolean): AttackProfile {
   const next = { ...profile, ipWaypointId: ip.ipWaypointId, customIp: ip.customIp } as AttackProfile;
   const anchor = resolveIpAnchor(waypoints, target, ip);
   const bearing = anchor ? calculateBearing(anchor.point, target.coordinates) : undefined;
   const distance = anchor ? calculateDistance(anchor.point, target.coordinates) : undefined;
-  return reanchorProfile(next, bearing, target.elevation_ft ?? 0, distance);
+  return reanchorProfile(next, bearing, target.elevation_ft ?? 0, fired, distance);
 }
 
 /**

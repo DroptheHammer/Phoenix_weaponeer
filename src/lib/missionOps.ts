@@ -7,6 +7,7 @@
 import type { Attack, Coordinates, Mission } from '../types';
 import { moveIp } from './attackFlank';
 import { applyStrikeIp, strikeOf, tidyStrikes } from './strike';
+import { isFired } from './weaponClass';
 
 /** Sequence numbers 1..n in their current order, so a delete never leaves two #2s behind. */
 export function renumberAttacks(attacks: Attack[]): Attack[] {
@@ -31,6 +32,6 @@ export function moveAttackCustomIp(mission: Mission, attackId: string, point: Co
   if (attack && strikeOf(mission, attack.strikeId)) return applyStrikeIp(mission, attack.strikeId!, { customIp: point });
   const target = attack && mission.waypoints.find((wp) => wp.id === attack.targetWaypointId);
   if (!attack || !target) return mission;
-  const profile = moveIp(attack.profile, { customIp: point }, mission.waypoints, target);
+  const profile = moveIp(attack.profile, { customIp: point }, mission.waypoints, target, isFired(attack.weaponClass));
   return { ...mission, attacks: mission.attacks.map((a) => (a.id === attackId ? { ...a, profile } : a)) };
 }

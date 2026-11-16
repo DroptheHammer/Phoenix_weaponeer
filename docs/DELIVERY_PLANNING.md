@@ -204,7 +204,18 @@ prints the egress its own picture draws.
 Three 45° profiles, the **A-10C, AV-8B and A-4E** (1.40 to 1.45 nm roll-in
 rings), now get auto-build's "Check turn reduced 20° → 10°", as the F-16C
 LALD already did: a 20° turn at 4.5 nm passes 1.54 nm abeam the target and
-never reaches the smaller ring.
+never reaches the smaller ring. An attack of those saved before, with the old
+20° turn, is drawn with no offset leg or action point (straight from the IP to
+the roll-in, on its stored heading), and its card prints that same run: no
+Action Point or Approach HDG row, the roll-in with the turn the map flies
+there, and the caution "⚠ The offset leg no longer reaches the roll-in — open
+this attack in the editor and save it" (2026-11-16).
+
+A gun or rocket pass is solved on its own ring, the sight line's, whenever a
+customized pass has its flank flipped, its IP moved or a Group-tab edit
+reaches it, so the heading it stores (which the card prints and the
+straight-in warning reads) is the one its picture draws (2026-11-16; before,
+those three re-solved it on a bomb's aim-off ring).
 
 ## The ground track the tool draws (settled 2026-09-07, late)
 

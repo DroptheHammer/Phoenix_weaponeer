@@ -19,6 +19,7 @@ import {
 import { applyGroupEdit, defaultTotOffset, DEFAULT_SPACING_S, strikeFlank, strikeMembers } from './strike';
 import { flightGroupOf } from './callsign';
 import { calculateDistance } from './coordinates';
+import { isFired } from './weaponClass';
 import type { Side } from './attackGeometry';
 import type { AttackProfile } from '../types';
 
@@ -46,19 +47,25 @@ export function strikeIpOf(draft: AttackDraft): IpAnchorFields {
 /**
  * Keep a jet on the strike's IP. A reset (new weapon, new profile, "reset to
  * profile") puts a draft back on Auto, so every jet change goes through here.
+ * `fired` is whether this jet's weapon is a gun or rockets (see `setIp`).
  */
-export function syncJetIp(draft: AttackDraft, ip: IpAnchorFields, mission: Mission): AttackDraft {
+export function syncJetIp(draft: AttackDraft, ip: IpAnchorFields, mission: Mission, fired: boolean): AttackDraft {
   const want = ipModeOf(ip);
   const same =
     draft.ipMode === want.ipMode &&
     draft.ipWaypointId === want.ipWaypointId &&
     (draft.customIp === want.customIp ||
       (!!draft.customIp && !!want.customIp && draft.customIp.lat === want.customIp.lat && draft.customIp.lon === want.customIp.lon));
-  return same ? draft : setIp(draft, want.ipMode, mission, want.ipWaypointId, want.customIp);
+  return same ? draft : setIp(draft, want.ipMode, mission, fired, want.ipWaypointId, want.customIp);
 }
 
-export function setStrikeIp(jets: Jet[], ip: IpAnchorFields, mission: Mission): Jet[] {
-  return jets.map((j) => ({ ...j, draft: syncJetIp(j.draft, ip, mission) }));
+/** True when the jet's weapon (picked, or auto-build's choice) is a gun or rockets. */
+export function jetFired(draft: AttackDraft, ctx: DraftContext): boolean {
+  return isFired(resolveDraft(draft, ctx).build.weaponClass);
+}
+
+export function setStrikeIp(jets: Jet[], ip: IpAnchorFields, mission: Mission, ctx: DraftContext): Jet[] {
+  return jets.map((j) => ({ ...j, draft: syncJetIp(j.draft, ip, mission, jetFired(j.draft, ctx)) }));
 }
 
 /** Lead first: by flight position. */
@@ -75,7 +82,8 @@ export function newStrike(mission: Mission, leadAttackerId: string | undefined, 
 /** A new jet for this flight member, on the strike's target and IP. */
 export function newJet(mission: Mission, attackerId: string, targetWaypointId: string, ip: IpAnchorFields): Jet {
   const draft = { ...draftFromAttack(undefined, mission), attackerId, targetWaypointId };
-  return { draft: syncJetIp(draft, ip, mission), totOffset_s: 0 };
+  // A fresh draft has no hand-typed profile, so there is no heading to re-solve: the IP fields are all it takes.
+  return { draft: { ...draft, ...ipModeOf(ip) }, totOffset_s: 0 };
 }
 
 /** A saved strike, re-opened. */
@@ -153,7 +161,7 @@ export function groupEdit(jets: Jet[], nextLead: AttackProfile, ctx: DraftContex
     const ipToTarget_nm = r.build.ipAnchor && r.target ? calculateDistance(r.build.ipAnchor.point, r.target.coordinates) : undefined;
     return {
       ...j,
-      draft: editProfile(j.draft, applyGroupEdit(prevLead, nextLead, r.profile, r.build.directBearing, r.target?.elevation_ft ?? 0, ipToTarget_nm)),
+      draft: editProfile(j.draft, applyGroupEdit(prevLead, nextLead, r.profile, r.build.directBearing, r.target?.elevation_ft ?? 0, isFired(r.build.weaponClass), ipToTarget_nm)),
     };
   });
 }

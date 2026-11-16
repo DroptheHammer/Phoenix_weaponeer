@@ -76,8 +76,8 @@ import { visibleArcSpans } from '../src/lib/arcClip';
 import { compareThreatsForCard } from '../src/lib/cardThreats';
 import { applyFlank, applyEgress, reanchorProfile, moveIp } from '../src/lib/attackFlank';
 import { KNOB_RANGES, KNOB_CHOICES, IP_KNOB_RANGES, type KnobRange } from '../src/lib/customizeKnobs';
-import { draftFromAttack, resolveDraft, draftAttackData, chooseEgress, setIp } from '../src/lib/attackDraft';
-import { newJet, assignFlanks, respace, groupEdit, jetsOfStrike, withTotOffsets, type Jet } from '../src/lib/strikeDraft';
+import { draftFromAttack, resolveDraft, draftAttackData, chooseEgress, setIp, chooseIpCustom, setIpRadialDistance } from '../src/lib/attackDraft';
+import { newJet, assignFlanks, respace, groupEdit, jetsOfStrike, withTotOffsets, setStrikeIp, type Jet } from '../src/lib/strikeDraft';
 import {
   applyGroupEdit, applyStrikeIp, saveStrikeTo, strikeMembers, strikeFlank, removeStrikeFrom,
   fragClearTime_s, strikeReadout, coneGrade, strikeCardInfo, rebaseTot, attackSpeedOf, ipToImpact_s,
@@ -530,16 +530,16 @@ ok('loft checks: an unfinished profile (a cleared Customize box) skips the loft 
 const loftFixed = loftF16Profile!;
 const stale = { ...loftFixed, ingressHeading_deg: 5, pullUpTimer_s: 999, customIp: undefined } as never as typeof loftFixed;
 const newIp = calculateDestination(tgt, 300, 9);
-const movedLoft = moveIp(stale, { customIp: newIp }, [loftIpWp, loftTgtWp] as never, loftTgtWp as never) as typeof loftFixed;
+const movedLoft = moveIp(stale, { customIp: newIp }, [loftIpWp, loftTgtWp] as never, loftTgtWp as never, false) as typeof loftFixed;
 ok('moveIp (loft): the heading is the new IP→target bearing and the F-4E timer counts from the new IP distance',
   Math.abs(signedHeadingDelta(movedLoft.ingressHeading_deg, calculateBearing(newIp, tgt))) < 1e-6 && Math.abs(movedLoft.pullUpTimer_s! - (9 * NM - loftPlanF16.pullUpRange_ft) / (520 * 1.68781)) < 0.06 && movedLoft.customIp === newIp,
   `${r(movedLoft.ingressHeading_deg)}° ${movedLoft.pullUpTimer_s} s`);
 ok('moveIp (loft): numbers stay (the loft angle, run-in) and the derived plan is unchanged by the move', movedLoft.pullUpAngle_deg === 30 && movedLoft.pullUpDistance_nm === loftFixed.pullUpDistance_nm && movedLoft.releaseAltitude_ft === loftFixed.releaseAltitude_ft);
-ok('moveIp (loft): an IP inside the pull-up range clears the timer rather than keeping the old one', (moveIp(stale, { customIp: calculateDestination(tgt, 300, 2) }, [loftIpWp, loftTgtWp] as never, loftTgtWp as never) as typeof loftFixed).pullUpTimer_s === undefined);
-const reanchored = reanchorProfile(stale, 77, 4000, 8) as typeof loftFixed;
+ok('moveIp (loft): an IP inside the pull-up range clears the timer rather than keeping the old one', (moveIp(stale, { customIp: calculateDestination(tgt, 300, 2) }, [loftIpWp, loftTgtWp] as never, loftTgtWp as never, false) as typeof loftFixed).pullUpTimer_s === undefined);
+const reanchored = reanchorProfile(stale, 77, 4000, false, 8) as typeof loftFixed;
 ok('reanchorProfile (loft): heading and timer re-derived from the bearing and distance it is given; no bearing → unchanged',
-  reanchored.ingressHeading_deg === 77 && Math.abs(reanchored.pullUpTimer_s! - (8 * NM - loftPlanF16.pullUpRange_ft) / (520 * 1.68781)) < 0.06 && reanchorProfile(stale, undefined, 4000, 8) === stale);
-ok('applyFlank leaves a loft alone (it has no flank)', applyFlank(stale, 'left', 77, 4000) === stale);
+  reanchored.ingressHeading_deg === 77 && Math.abs(reanchored.pullUpTimer_s! - (8 * NM - loftPlanF16.pullUpRange_ft) / (520 * 1.68781)) < 0.06 && reanchorProfile(stale, undefined, 4000, false, 8) === stale);
+ok('applyFlank leaves a loft alone (it has no flank)', applyFlank(stale, 'left', 77, 4000, false) === stale);
 const loftTypedEgress = { ...loftFixed, egressDirection: 'right' as const, egressHeading_deg: 33 };
 const flipped = applyEgress(loftTypedEgress, 'left') as typeof loftFixed;
 ok('applyEgress (loft): sets the egress side and clears a typed egress heading', flipped.egressDirection === 'left' && flipped.egressHeading_deg === undefined && resolveLoftEgressHeading(flipped, 100) === 340);
@@ -1254,8 +1254,8 @@ const customDive = {
   targetElevation_ft: 0,
 };
 
-const onLeft = applyFlank(customDive as never, 'left', directBearing) as typeof customDive;
-const onRight = applyFlank(customDive as never, 'right', directBearing) as typeof customDive;
+const onLeft = applyFlank(customDive as never, 'left', directBearing, 0, false) as typeof customDive;
+const onRight = applyFlank(customDive as never, 'right', directBearing, 0, false) as typeof customDive;
 
 ok('changing flank keeps every hand-typed number',
    onLeft.diveAngle_deg === 37 && onLeft.rollInAltitude_ft === 9200 &&
@@ -2029,8 +2029,8 @@ const bearingSwing = signedHeadingDelta(oldBearing, newBearing);
 const hdgOf = (p: unknown) => (p as { ingressHeading_deg?: number; runInHeading_deg?: number }).ingressHeading_deg ?? (p as { runInHeading_deg: number }).runInHeading_deg;
 
 // Dive: start from a customized profile whose heading matches the old IP.
-const diveOnOldIp = applyFlank(customDive as never, 'right', oldBearing, wpTgt.elevation_ft);
-const diveMoved = moveIp(diveOnOldIp, { customIp: movedIpPoint }, [wpIp, wpTgt] as never, wpTgt as never) as typeof customDive & { customIp?: { lat: number; lon: number } };
+const diveOnOldIp = applyFlank(customDive as never, 'right', oldBearing, wpTgt.elevation_ft, false);
+const diveMoved = moveIp(diveOnOldIp, { customIp: movedIpPoint }, [wpIp, wpTgt] as never, wpTgt as never, false) as typeof customDive & { customIp?: { lat: number; lon: number } };
 ok('moveIp (dive): the attack heading swings with the IP→target bearing',
    Math.abs(signedHeadingDelta(hdgOf(diveOnOldIp), hdgOf(diveMoved)) - bearingSwing) < 0.5 && Math.abs(bearingSwing) > 10,
    `bearing swung ${r(bearingSwing)}°, heading ${r(hdgOf(diveOnOldIp))} → ${r(hdgOf(diveMoved))}`);
@@ -2050,7 +2050,7 @@ ok('moveIp (dive): the stored heading the card prints agrees with the drawn pict
 // Level: back to a waypoint IP.
 const levelOnOldIp = levelBuild.attack!.profile;
 const wpSide = { ...wpIp, id: 'w-side', steerpoint: 3, coordinates: movedIpPoint };
-const levelMoved = moveIp(levelOnOldIp, { ipWaypointId: wpSide.id }, [wpSide, wpIp, wpTgt] as never, wpTgt as never);
+const levelMoved = moveIp(levelOnOldIp, { ipWaypointId: wpSide.id }, [wpSide, wpIp, wpTgt] as never, wpTgt as never, false);
 ok('moveIp (level): moving to another waypoint swings the heading by the bearing change',
    Math.abs(signedHeadingDelta(hdgOf(levelOnOldIp), hdgOf(levelMoved)) - bearingSwing) < 0.5,
    `${r(hdgOf(levelOnOldIp))} → ${r(hdgOf(levelMoved))}, bearing swung ${r(bearingSwing)}`);
@@ -2061,13 +2061,13 @@ ok('moveIp (level): the leg ratio and release numbers are kept',
 // Pop-up: the whole plan is re-run; only the headings depend on the bearing.
 const popupParams = f16cProfiles.find((p: { id: string }) => p.id === 'f16c.popup.std').params;
 const popupOnOldIp = applyPopupPlan({ type: 'popup_ccip', egressDirection: 'left', offsetDirection: 'right', actionRange_nm: 6, ...popupParams } as never, oldBearing);
-const popupMoved = reanchorProfile(popupOnOldIp as never, newBearing);
+const popupMoved = reanchorProfile(popupOnOldIp as never, newBearing, 0, false);
 ok('reanchorProfile (pop-up): run-in and approach headings swing with the bearing',
    Math.abs(signedHeadingDelta(hdgOf(popupOnOldIp), hdgOf(popupMoved)) - bearingSwing) < 0.01 &&
    Math.abs(signedHeadingDelta((popupOnOldIp as { approachHeading_deg: number }).approachHeading_deg, (popupMoved as { approachHeading_deg: number }).approachHeading_deg) - bearingSwing) < 0.01,
    `${r(hdgOf(popupOnOldIp))} → ${r(hdgOf(popupMoved))}`);
 ok('reanchorProfile: no usable bearing leaves the profile alone',
-   reanchorProfile(diveOnOldIp, undefined) === diveOnOldIp && reanchorProfile(diveOnOldIp, NaN) === diveOnOldIp);
+   reanchorProfile(diveOnOldIp, undefined, 0, false) === diveOnOldIp && reanchorProfile(diveOnOldIp, NaN, 0, false) === diveOnOldIp);
 
 // ---------------------------------------------------------------------------
 // Customize slider ranges (lib/customizeKnobs.ts). Every knob stays in
@@ -2264,7 +2264,7 @@ ok('customizeKnobs: the auto-built NTTR level attack opens inside its sliders', 
 
   const farWp = { ...wpIp, id: 'w-far', steerpoint: 6, coordinates: calculateDestination(tgt, 120, 20) };
   const lm2 = loftMission([savedLoft], [farWp, wpIp12, wpTgt]);
-  const moved = setIp(lDraft, 'waypoint', lm2, 'w-far').customProfile as typeof loftBase;
+  const moved = setIp(lDraft, 'waypoint', lm2, false, 'w-far').customProfile as typeof loftBase;
   const farTimer = loftPullUpTimer_s(loftAt(ip), calculateDistance(farWp.coordinates, tgt));
   ok('editor: moving a customized loft to another IP re-aims its heading and re-times its pull-up',
      Math.abs(signedHeadingDelta(calculateBearing(farWp.coordinates, tgt), moved.ingressHeading_deg)) < 0.01 &&
@@ -2281,7 +2281,7 @@ ok('customizeKnobs: the auto-built NTTR level attack opens inside its sliders', 
   const memberIp = calculateDestination(tgt, 300, 9);
   const memberLoft = { ...loftAt(memberIp), egressDirection: 'left', egressHeading_deg: 20 } as typeof loftBase;
   const shallower = loftAt(ip, { pullUpAngle_deg: 30, pullG: 5, ingressSpeed_ktas: 450, ingressAltitude_ft: 300 });
-  const got = applyGroupEdit(leadLoft, shallower, memberLoft, calculateBearing(memberIp, tgt), 0, calculateDistance(memberIp, tgt)) as typeof loftBase;
+  const got = applyGroupEdit(leadLoft, shallower, memberLoft, calculateBearing(memberIp, tgt), 0, false, calculateDistance(memberIp, tgt)) as typeof loftBase;
   const wantMember = applyLoftPlan({ ...memberLoft, pullUpAngle_deg: 30, pullG: 5, ingressSpeed_ktas: 450, ingressAltitude_ft: 300 }, calculateBearing(memberIp, tgt), calculateDistance(memberIp, tgt));
   ok('group edit (loft): the lead\'s altitude, speed, loft angle and G reach the member',
      got.pullUpAngle_deg === 30 && got.pullG === 5 && got.ingressSpeed_ktas === 450 && got.ingressAltitude_ft === 300);
@@ -2292,7 +2292,7 @@ ok('customizeKnobs: the auto-built NTTR level attack opens inside its sliders', 
      JSON.stringify(got) === JSON.stringify(wantMember) && got.pullUpTimer_s !== shallower.pullUpTimer_s,
      `${got.pullUpTimer_s} vs lead ${shallower.pullUpTimer_s}`);
   ok('group edit (loft): a lead change to egress alone leaves the member untouched',
-     applyGroupEdit(leadLoft, { ...leadLoft, egressDirection: 'left', egressHeading_deg: 50 }, memberLoft as never, calculateBearing(memberIp, tgt)) === (memberLoft as never));
+     applyGroupEdit(leadLoft, { ...leadLoft, egressDirection: 'left', egressHeading_deg: 50 }, memberLoft as never, calculateBearing(memberIp, tgt), 0, false) === (memberLoft as never));
 
   // The same edit through the Group tab's own function (strikeDraft.groupEdit), which must hand
   // each member's IP distance down: the member's timer counts from its own IP.
@@ -2390,7 +2390,7 @@ ok('group edit: flipping the lead\'s side in the Group form never drags #3 acros
 ok('group edit: #2 is re-derived on its flank — still the mirror of the lead',
    Math.abs(signedHeadingDelta(pairDirect, (groupedR[0].profile as { ingressHeading_deg: number }).ingressHeading_deg) + signedHeadingDelta(pairDirect, g2.ingressHeading_deg)) < 0.5);
 ok('group edit: a jet flying another delivery is left alone',
-   applyGroupEdit(pairR[0].profile!, raised, customDive as never, pairDirect) === (customDive as never));
+   applyGroupEdit(pairR[0].profile!, raised, customDive as never, pairDirect, 0, false) === (customDive as never));
 
 // Saved: the strike and its members in one step, then the shared IP.
 const sId = 'strike-1';
@@ -13230,5 +13230,154 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
     }
   } catch (e) {
     ok('playback B3 (the blast rule): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
+
+// ─── An offset leg that no longer closes, and the gun pass's own ring ─────────
+// Both on an A-10C with its IP 15.3 nm due west of the target (IP → target 090°).
+{
+  try {
+    const rvTgt = { ...wpTgt };
+    const rvIp = { ...wpIp, coordinates: calculateDestination(tgt, 270, 15.3) };
+    const rvLib = JSON.parse(readFileSync('src-tauri/resources/profiles/a10c.json', 'utf8'));
+    const rvMission = (attacks: Attack[], strikes: object[] = []) => ({
+      id: 'rv', name: 'rv', date: '', theater: 'nevada', bullseye: tgt, notes: '', createdAt: '', updatedAt: '', strikes, threats: [], attacks,
+      waypoints: [rvIp, rvTgt],
+      flightMembers: [{ id: 'p1', callsign: 'Hawg 1-1', aircraftId: 'a10c', position: 1, loadout: [] }, { id: 'p2', callsign: 'Hawg 1-2', aircraftId: 'a10c', position: 2, loadout: [] }],
+    }) as never as Mission;
+    const rvDirect = calculateBearing(rvIp.coordinates, tgt);
+    const rvAttack = (id: string, profile: object, extra: object = {}) => ({
+      id, targetWaypointId: rvTgt.id, attackerId: 'p1', profileType: 'dive_ccip', profile, releaseQuantity: 1, releaseMode: 'single', sequenceNumber: 1,
+      deliveryMode: 'CCIP', estimated: true, procedure: [], ...extra,
+    }) as never as Attack;
+    const rvPicture = (m: Mission, a: Attack) => buildAttackPicture(a, attackIpAnchor(m.waypoints, a), rvTgt as never)!;
+    const fmt3 = (h: number) => `${Math.round(((h % 360) + 360) % 360).toString().padStart(3, '0')}°`;
+
+    // [RV1] A 45° dive saved by v0.3.4 with the default 20° check turn at 4.5 nm. Its heading was solved then on the sight-line
+    // ring (1.65 nm); the ballistic dive's ring is smaller and the leg no longer reaches it, so the picture draws no leg and no
+    // action point. The card prints what the picture draws: no Action Point or Approach HDG row, the roll-in at the ROLL
+    // marker's range with the turn the picture flies there (from the route line's heading onto the attack heading), the
+    // picture's attack heading, and one caution, word for word (the caution strip draws the warning sign in front of it).
+    // The same attack with a 10° check turn closes and prints its Action Point row and no such caution.
+    // Mutation proof (seen red 2026-11-16): buildKneeboardCard.ts `if (!story.closes && (p.type === 'dive_ccip' …` → `if (false && …`
+    // (the rows built as before whatever closes says):
+    //   FAIL offset leg [RV1]: … the old save's card: Action Point "4.5 nm · turn RIGHT 20°", Approach HDG "110°" (want neither); Roll-in "1.4 nm · LEFT 69°", want "1.4 nm · LEFT 53°"; caution missing
+    {
+      const why: string[] = [];
+      const fields = { type: 'dive_ccip', ipWaypointId: rvIp.id, ingressAltitude_ft: 10000, rollInAltitude_ft: 10000, diveAngle_deg: 45, releaseAltitude_ft: 5500, releaseSpeed_ktas: 320, pulloutG: 4, egressDirection: 'right', actionRange_nm: 4.5, offsetDirection: 'right' };
+      const sightRing = diveRanges(fields as never, true).rollIn_nm;
+      const bombRing = diveRanges(fields as never, false).rollIn_nm;
+      const headingOn = (turn: number, ring: number) => attackHeadingFromActionPoint({ directBearing_deg: rvDirect, actionRange_nm: 4.5, offsetTurn_deg: turn, side: 'right' }, ring);
+      const oldSave = { ...fields, offsetAngle_deg: 20, ingressHeading_deg: headingOn(20, sightRing)! };
+      const closing = { ...fields, offsetAngle_deg: 10, ingressHeading_deg: headingOn(10, bombRing)! };
+      if (headingOn(20, bombRing) != null) why.push('the 20° turn still closes on the ballistic ring (the case is not the one meant)');
+      const extra = { weaponId: 'mk82', weaponClass: 'bomb_ld', sourceProfileId: 'a10c.dive.ccip45', sourceProfileName: '45° Dive CCIP' };
+      const caution = 'The offset leg no longer reaches the roll-in — open this attack in the editor and save it';
+      const oldA = rvAttack('a', oldSave, extra), m = rvMission([oldA]);
+      const pic = rvPicture(m, oldA);
+      if (pic.markers.some((k) => k.kind === 'AP') || pic.lines.some((l) => l.style === 'leg')) why.push('the old save\'s picture draws an action point or a leg');
+      const card = buildKneeboardCard(m, 'a', refWeapons as never, new Map(), [])!;
+      const rows = card.attackSection.parameters;
+      if ('Action Point' in rows || 'Approach HDG' in rows) why.push(`the old save's card: Action Point "${rows['Action Point']}", Approach HDG "${rows['Approach HDG']}" (want neither)`);
+      const roll = pic.markers.find((k) => k.kind === 'ROLL')!;
+      const route = pic.lines.find((l) => l.style === 'route')!;
+      const turn = turnBetween(calculateBearing(route.points[0], route.points[route.points.length - 1]), pic.attackHeading);
+      const rollNm = calculateDistance(roll.position, tgt).toFixed(1);
+      const wantRoll = turn.deg >= 3 ? `${rollNm} nm · ${turn.direction.toUpperCase()} ${Math.round(turn.deg)}°` : `${rollNm} nm`;
+      if (rows['Roll-in'] !== wantRoll) why.push(`Roll-in "${rows['Roll-in']}", want "${wantRoll}"`);
+      if (turn.deg >= 3 && !roll.lines[0].includes(`roll in ${turn.direction.toUpperCase()} onto`)) why.push(`the picture's label "${roll.lines[0]}" names no ${turn.direction} turn`);
+      if (rows['Attack HDG'] !== fmt3(pic.attackHeading)) why.push(`Attack HDG "${rows['Attack HDG']}", the picture ${fmt3(pic.attackHeading)}`);
+      if (!(card.header.cautions ?? []).includes(caution)) why.push('caution missing');
+      if ((card.header.cautions ?? []).filter((c) => /offset leg/.test(c)).length > 1) why.push('the caution printed twice');
+      const closeA = rvAttack('a', closing, extra), mc = rvMission([closeA]);
+      const cardC = buildKneeboardCard(mc, 'a', refWeapons as never, new Map(), [])!;
+      const picC = rvPicture(mc, closeA);
+      if (!describeRunIn(closing as never, rvDirect, 4000).closes || !picC.markers.some((k) => k.kind === 'AP')) why.push('the 10° turn does not close');
+      if (cardC.attackSection.parameters['Action Point'] !== '4.5 nm · turn RIGHT 10°') why.push(`the 10° card's Action Point "${cardC.attackSection.parameters['Action Point']}" (want "4.5 nm · turn RIGHT 10°")`);
+      if ((cardC.header.cautions ?? []).some((c) => /offset leg/.test(c))) why.push('the 10° card carries the caution');
+      ok('offset leg [RV1]: an old 45° dive whose leg no longer closes prints what its picture draws (no action point or approach heading, the roll-in and turn the picture flies) and one caution line; the same dive with a 10° turn prints its action point and no caution',
+         why.length === 0, why.join('; ') || `Roll-in "${rows['Roll-in']}", Attack HDG ${rows['Attack HDG']}; rings ${sightRing.toFixed(2)} / ${bombRing.toFixed(2)} nm`);
+    }
+
+    // [RV2] A customized A-10C gun pass on a dive profile (roll-in 3,500 ft, 15°, fire by 1,500 ft, 280 kt, action point 4.5 nm,
+    // 20° check turn). Its roll-in is on the sight line, not on a bomb's aim-off ring, and the picture draws it so. After each
+    // change that re-solves the stored heading, through the app's own functions (the flank flipped in the editor; the IP moved
+    // in the editor by the custom-point button and by its radial and distance; the IP dragged on the main map; the strike's IP
+    // set, in the strike editor and on a saved strike; a Group-tab edit reaching a second jet), the stored heading is the
+    // heading the picture draws (0.05°). With action point 3 nm and a 10° turn the flipped pass runs within 5° of the IP line,
+    // and the editor and the card both warn of a straight-in run. A bomb on the same numbers is solved as before (exactly).
+    // Mutation proofs (seen red 2026-11-16; one caller passes false, each run alone and restored):
+    // - strike.ts applyStrikeIp `isFired(a.weaponClass)` → `false`:
+    //     FAIL gun pass ring [RV2]: … the saved strike's IP set: stored 31.54°, picture 49.12°
+    // - attackDraft.ts chooseIngress `isFired(resolved.build.weaponClass)` → `false`:
+    //     FAIL gun pass ring [RV2]: … flipped in the editor: stored 133.11°, picture 115.53°; the 3 nm, 10° pass flipped: stored 97.41°, picture 93.83°; the straight-in warning is missing (editor false, card false)
+    // - strikeDraft.ts groupEdit `isFired(r.build.weaponClass)` → `false`:
+    //     FAIL gun pass ring [RV2]: … a Group-tab edit on the second jet: stored 50.19°, picture 65.70°
+    // - missionOps.ts, strikeDraft.ts setStrikeIp and attackDraft.ts setIpRadialDistance passing `false` (one run):
+    //     FAIL gun pass ring [RV2]: … the IP moved by radial and distance in the editor: stored 113.16°, picture 95.58°; the IP dragged on the main map: stored 16.58°, picture 34.16°; the strike's IP set in the strike editor: stored 36.52°, picture 54.11°
+    {
+      const why: string[] = [];
+      const gunFields = (actionRange_nm: number, offsetAngle_deg: number) => ({
+        type: 'dive_ccip', ipWaypointId: rvIp.id, ingressHeading_deg: 200, ingressAltitude_ft: 4000, rollInAltitude_ft: 3500, diveAngle_deg: 15,
+        releaseAltitude_ft: 1500, releaseSpeed_ktas: 280, pulloutG: 3, egressDirection: 'right', actionRange_nm, offsetAngle_deg, offsetDirection: 'right',
+      }) as never as DiveCCIPProfile;
+      const gunExtra = { weaponId: 'gau8', weaponClass: 'gun', sourceProfileId: 'a10c.dive.strafe', sourceProfileName: 'Gun 15°', customized: true };
+      const bombExtra = { ...gunExtra, weaponId: 'mk82', weaponClass: 'bomb_ld' };
+      const ctxOf = (m: Mission) => ({ mission: m, weapons: refWeapons, profiles: rvLib, threatSystems: [] }) as never as Parameters<typeof resolveDraft>[1];
+      const hdgOf = (p: unknown) => (p as DiveCCIPProfile).ingressHeading_deg;
+      const agree = (what: string, m: Mission, profile: unknown, weaponClass = 'gun') => {
+        const a = rvAttack('x', profile as object, { weaponClass });
+        const drawn = rvPicture(m, a).attackHeading;
+        const d = Math.abs(signedHeadingDelta(hdgOf(profile), drawn));
+        if (!(d <= 0.05)) why.push(`${what}: stored ${hdgOf(profile).toFixed(2)}°, picture ${drawn.toFixed(2)}°`);
+        return d;
+      };
+      let worst = 0;
+      const note = (d: number) => { worst = Math.max(worst, d); };
+
+      const gunA = rvAttack('g', gunFields(4.5, 20), gunExtra), m = rvMission([gunA]), ctx = ctxOf(m);
+      const draft = draftFromAttack(gunA, m);
+      const flipped = chooseIngress(draft, 'left', resolveDraft(draft, ctx));
+      note(agree('flipped in the editor', m, flipped.customProfile));
+      const custom = chooseIpCustom(flipped, resolveDraft(flipped, ctx), m);
+      note(agree('the IP moved to a custom point in the editor', m, custom.customProfile));
+      const swung = setIpRadialDistance(custom, resolveDraft(custom, ctx), m, { radial: 250, distance: 12 });
+      if (!(swung.customProfile as { customIp?: unknown }).customIp) why.push('the radial and distance did not move the IP');
+      note(agree('the IP moved by radial and distance in the editor', m, swung.customProfile));
+      const dragged = moveAttackCustomIp(m, 'g', calculateDestination(tgt, 240, 11));
+      note(agree('the IP dragged on the main map', m, dragged.attacks[0].profile));
+      const sm = rvMission([{ ...gunA, strikeId: 's' } as Attack], [{ id: 's', name: 'Hawg strike', ip: {}, spacing_s: 30 }]);
+      note(agree('the saved strike\'s IP set', sm, applyStrikeIp(sm, 's', { customIp: calculateDestination(tgt, 255, 13) }).attacks[0].profile));
+      const jets = setStrikeIp([{ draft, totOffset_s: 0 }], { customIp: calculateDestination(tgt, 260, 14) }, m, ctx);
+      note(agree('the strike\'s IP set in the strike editor', m, jets[0].draft.customProfile));
+      const wing = draftFromAttack(rvAttack('w', gunFields(4.5, 20), { ...gunExtra, attackerId: 'p2' }), m);
+      const lead = resolveDraft(draft, ctx).profile as DiveCCIPProfile;
+      const grouped = groupEdit([{ draft, totOffset_s: 0 }, { draft: wing, totOffset_s: 30 }], { ...lead, rollInAltitude_ft: 3600 }, ctx);
+      if (hdgOf(grouped[1].draft.customProfile) === 200) why.push('the Group-tab edit did not reach the second jet');
+      note(agree('a Group-tab edit on the second jet', m, grouped[1].draft.customProfile));
+
+      // The straight-in warning reads the stored heading: solved on the bomb's ring this pass sits about 7.4° off the line (outside
+      // the 5° the warning allows), on its own ring about 3.8° (measured 2026-11-16: 97.41° and 93.83° against 090°).
+      const nearA = rvAttack('g', gunFields(3, 10), gunExtra), mn = rvMission([nearA]), ctxN = ctxOf(mn);
+      const nearDraft = draftFromAttack(nearA, mn);
+      const nearFlip = chooseIngress(nearDraft, 'left', resolveDraft(nearDraft, ctxN));
+      note(agree('the 3 nm, 10° pass flipped', mn, nearFlip.customProfile));
+      const straight = (texts: string[]) => texts.some((t) => /^Predictable straight-in attack/.test(t));
+      const inEditor = straight(resolveDraft(nearFlip, ctxN).checks.map((c) => c.text));
+      const savedNear = rvAttack('g', nearFlip.customProfile as object, gunExtra);
+      const inCard = straight(buildKneeboardCard(rvMission([savedNear]), 'g', refWeapons as never, new Map(), [])!.weaponSection.warnings ?? []);
+      if (!inEditor || !inCard) why.push(`the straight-in warning is missing (editor ${inEditor}, card ${inCard})`);
+
+      // A bomb: what was stored before the gun pass had its own ring (fired left out) is what is stored now.
+      const bombA = rvAttack('b', gunFields(4.5, 20), bombExtra), mb = rvMission([bombA]), ctxB = ctxOf(mb);
+      const bombDraft = draftFromAttack(bombA, mb);
+      const bombFlip = chooseIngress(bombDraft, 'left', resolveDraft(bombDraft, ctxB));
+      const before = describeRunIn({ ...(bombA.profile as object), offsetDirection: 'left' } as never, rvDirect, 4000)!.attackHeading;
+      if (hdgOf(bombFlip.customProfile) !== before) why.push(`the bomb's stored heading ${hdgOf(bombFlip.customProfile)}° moved from ${before}°`);
+      ok('gun pass ring [RV2]: a customized gun pass stores the heading its picture draws after every flip, IP move, strike IP and Group edit, and warns of a straight-in run on its own ring; a bomb is solved as before',
+         why.length === 0, why.join('; ') || `8 changes, worst ${worst.toFixed(3)}°; straight-in warned in the editor and on the card`);
+    }
+  } catch (e) {
+    ok('offset leg and gun pass ring: the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }

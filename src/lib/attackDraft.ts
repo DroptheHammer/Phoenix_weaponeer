@@ -268,7 +268,7 @@ export function editProfile(draft: AttackDraft, profile: AttackProfile): AttackD
 export function chooseIngress(draft: AttackDraft, side: Side, resolved: ResolvedDraft): AttackDraft {
   const next = { ...draft, angleOffSide: side };
   if (draft.customized && draft.customProfile) {
-    next.customProfile = applyFlank(draft.customProfile, side, resolved.build.directBearing, resolved.target?.elevation_ft ?? 0);
+    next.customProfile = applyFlank(draft.customProfile, side, resolved.build.directBearing, resolved.target?.elevation_ft ?? 0, isFired(resolved.build.weaponClass));
   }
   return next;
 }
@@ -289,8 +289,12 @@ export function chooseEgress(draft: AttackDraft, side: 'left' | 'right'): Attack
  * today's resolved one — rather than leaving it undefined: customizing means
  * freezing the numbers, the same way a hand-picked flank or egress side
  * survives further route edits instead of continuing to auto-track.
+ *
+ * `fired` is whether the draft's weapon is a gun or rockets
+ * (`isFired(resolveDraft(…).build.weaponClass)`): the draft holds only a
+ * weapon id, and a gun pass's heading is solved on another ring than a bomb's.
  */
-export function setIp(draft: AttackDraft, mode: IpChoiceMode, mission: Mission, waypointId?: string, point?: Coordinates): AttackDraft {
+export function setIp(draft: AttackDraft, mode: IpChoiceMode, mission: Mission, fired: boolean, waypointId?: string, point?: Coordinates): AttackDraft {
   const next: AttackDraft = {
     ...draft,
     ipMode: mode,
@@ -300,13 +304,13 @@ export function setIp(draft: AttackDraft, mode: IpChoiceMode, mission: Mission, 
   const target = mission.waypoints.find((wp) => wp.id === draft.targetWaypointId);
   if (!draft.customized || !draft.customProfile || !target) return next;
   const resolvedWaypointId = mode === 'custom' ? undefined : mode === 'waypoint' ? next.ipWaypointId : resolveIp(mission, target, undefined)?.id;
-  return { ...next, customProfile: moveIp(draft.customProfile, { ipWaypointId: resolvedWaypointId, customIp: next.customIp }, mission.waypoints, target) };
+  return { ...next, customProfile: moveIp(draft.customProfile, { ipWaypointId: resolvedWaypointId, customIp: next.customIp }, mission.waypoints, target, fired) };
 }
 
 /** "Custom point": seeds the marker where the run-in starts now, else 10 nm north of the target. */
 export function chooseIpCustom(draft: AttackDraft, resolved: ResolvedDraft, mission: Mission): AttackDraft {
   const seeded = draft.customIp ?? (resolved.target ? seedCustomIp(resolved.target, resolved.build.ipAnchor) : undefined);
-  return setIp(draft, 'custom', mission, undefined, seeded);
+  return setIp(draft, 'custom', mission, isFired(resolved.build.weaponClass), undefined, seeded);
 }
 
 /** The custom IP as radial / distance off the target, for the sliders. */
@@ -327,5 +331,5 @@ export function setIpRadialDistance(
     change.radial != null ? String(change.radial) : fields.radial,
     change.distance != null ? String(change.distance) : fields.distance,
   );
-  return point ? setIp(draft, 'custom', mission, undefined, point) : draft;
+  return point ? setIp(draft, 'custom', mission, isFired(resolved.build.weaponClass), undefined, point) : draft;
 }

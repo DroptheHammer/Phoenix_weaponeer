@@ -326,8 +326,8 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
                 autoIpWaypoint={resolved.autoIpWaypoint}
                 ipWaypoints={ipWaypoints}
                 picking={picking}
-                onAuto={() => onChange(setIp(draft, 'auto', mission))}
-                onWaypoint={(id) => onChange(setIp(draft, 'waypoint', mission, id))}
+                onAuto={() => onChange(setIp(draft, 'auto', mission, isFired(resolved.build.weaponClass)))}
+                onWaypoint={(id) => onChange(setIp(draft, 'waypoint', mission, isFired(resolved.build.weaponClass), id))}
                 onCustom={() => onChange(chooseIpCustom(draft, resolved, mission))}
                 onPlace={onArmPick}
                 onRadialDistance={(change) => onChange(setIpRadialDistance(draft, resolved, mission, change))}

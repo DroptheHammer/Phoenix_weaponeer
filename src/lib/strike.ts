@@ -21,6 +21,7 @@ import { calculateDistance } from './coordinates';
 import { buildAttackPicture } from './attackPicture';
 import { attackIpAnchor } from './ipAnchor';
 import { opposite, signedHeadingDelta, type Side } from './attackGeometry';
+import { isFired } from './weaponClass';
 
 /** A new strike's spacing before the weapons are known. */
 export const DEFAULT_SPACING_S = 30;
@@ -84,7 +85,7 @@ export function applyStrikeIp(mission: Mission, strikeId: string, ip: IpAnchorFi
     attacks: mission.attacks.map((a) => {
       if (a.strikeId !== strikeId) return a;
       const target = mission.waypoints.find((wp) => wp.id === a.targetWaypointId);
-      return target ? { ...a, profile: moveIp(a.profile, shared, mission.waypoints, target) } : a;
+      return target ? { ...a, profile: moveIp(a.profile, shared, mission.waypoints, target, isFired(a.weaponClass)) } : a;
     }),
   };
 }
@@ -208,13 +209,16 @@ const PER_JET_FIELDS = new Set([
  * A loft has no flank: it takes the lead's inputs (run-in altitude and speed,
  * loft angle, G), never its egress or IP, and re-derives everything else from
  * its own IP bearing and distance (`memberIpToTarget_nm`, for the timer).
+ * `memberFired` is whether the member's weapon is a gun or rockets: its dive
+ * heading is solved on the sight line, as its picture draws it.
  */
 export function applyGroupEdit(
   prevLead: AttackProfile,
   nextLead: AttackProfile,
   member: AttackProfile,
   memberBearing: number | undefined,
-  memberTargetElevation_ft = 0,
+  memberTargetElevation_ft: number,
+  memberFired: boolean,
   memberIpToTarget_nm?: number,
 ): AttackProfile {
   if (member.type !== nextLead.type) return member;
@@ -230,7 +234,7 @@ export function applyGroupEdit(
   if (merged.type === 'popup_ccip') return applyPopupPlan(merged, memberBearing);
   if (merged.type === 'loft_ccrp') return applyLoftPlan(merged, memberBearing, memberIpToTarget_nm);
   if (merged.type === 'dive_ccip' || merged.type === 'level_ccrp') {
-    return applyFlank(merged, merged.offsetDirection ?? 'right', memberBearing, memberTargetElevation_ft);
+    return applyFlank(merged, merged.offsetDirection ?? 'right', memberBearing, memberTargetElevation_ft, memberFired);
   }
   return merged;
 }
