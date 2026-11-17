@@ -56,6 +56,10 @@ it is not named in code, docs, notes or commit messages.
 
 - **Fine:** the game's own files, the modules' own manuals, published guides
   (Chuck's Guides), and physics the planner works out itself.
+- **A figure that such a manual holds may still be used when DCS's own
+  documentation or a published guide prints it too** (the user, 2026-11-17,
+  the more so for an aircraft 30 or more years old). Take it from the DCS
+  document or the guide, check it there, and cite that.
 - **Before using any other real-world document, look at its title page.** If
   its status is not known, treat it as restricted and ask the user.
 - Anything read from such a document stays out of everything git tracks, and
