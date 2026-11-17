@@ -47,7 +47,7 @@
 //                  one pixel may differ. The frame-time readout, which changes from run to run, is
 //                  pinned to one text first.
 //
-// --pictures <dir> also writes the pictures shown to the owner: the playback's lettering kept and
+// --pictures <dir> also writes pictures for a person to judge by eye: the playback's lettering kept and
 // let go (the overlay's legacy-ui class taken off in the page), and the gallery's main button
 // ready, greyed and at half strength (a copy of the ready one made in the page).
 //
@@ -494,6 +494,8 @@ async function runApp(browser) {
       // HS4: nothing too wide; on the desktop the frame of the screen keeps its size.
       // Red when: DialogFrame's phone title gets `min-w-[600px]`.
       // Seen: STEP FAIL HS4 no overflow, no shift: nothing wider than the window or its dialog (390x844) — after import-preview: the dialog's content 270 px wider than the dialog
+      // Red when (the desktop half, the frame keeps its size): DialogFrame's default heightClass becomes `max-h-[80vh]`.
+      // Seen: STEP FAIL HS4 no overflow, no shift: … (1400x900) — no overflow; import dialog [252,45,1148,855] → [252,90,1148,810]
       const wide = [];
       for (const [copy, run] of [['before', b], ['after', a]]) {
         for (const [screen, w] of Object.entries(run.m.widths)) {
@@ -580,7 +582,8 @@ async function runCards(browser) {
   try {
     const b = await cardsRun(browser, before.url, path.join(out, 'cards', 'before'));
     const a = await cardsRun(browser, after.url, path.join(out, 'cards', 'after'));
-    // HS7: the cards byte for byte.
+    // HS7: the cards byte for byte. (A card prints today's date and the two copies are made a few seconds
+    // apart: a run that crosses midnight goes red here with no real change. Run it again.)
     // Red when: one Day colour in cardTheme.ts changes (DAY_THEME textPrimary '#0F0F0F' becomes '#0F0F10').
     // Seen: STEP FAIL HS7 the kneeboard cards are byte for byte the same (…) — Viper_1-1_TGT1.png 2304x3072 b5349bc2a786… after 9bfafff012c7…;
     //       Viper_1-1_TGT1_2.png 2304x3072 b5349bc2a786… after 9bfafff012c7…; Viper_1-2_TGT1.png 2304x3072 59451db86bf0… after ec9e2f1dec24…

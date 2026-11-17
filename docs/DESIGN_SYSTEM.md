@@ -2,8 +2,9 @@
 
 How the app's look is built: the named values, the fonts, the base rules, the
 shared building blocks, the dialog, and what each is held to. Written for
-whoever builds the front page and the app shell on top of it. Every rule here
-has a check in `npm run geo-check` or in a build step, named beside it.
+whoever builds the front page and the app shell on top of it. A rule here has
+a check in `npm run geo-check` or in a build step, named beside it; the two
+that have none yet are listed as open at the end of "Dialogs".
 
 ## Where things live
 
@@ -169,8 +170,9 @@ The contract every block keeps:
   `cx` only joins class names; it does not resolve conflicts.
 - **`className` is for layout only**: width, margin, position, flex and grid
   placement. Never colour, padding or radius.
-- Interactive blocks forward a ref, default to `type="button"`, and put `aria-*`
-  and `title` on the element itself. A control with no text cannot be built
+- `Button`, `IconButton` and `Panel` forward a ref (`Card` does not, even as a
+  button or a link). Buttons default to `type="button"` and put `aria-*` and
+  `title` on the element itself. A control with no text cannot be built
   without a name (`IconButton`'s `label` is required).
 - **States**: a disabled `primary` button turns grey (`tint-2` fill, `ink-3`
   text) so it never looks half-ready; every other disabled control fades to
