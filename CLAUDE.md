@@ -46,6 +46,21 @@ is readable by anyone, forever. Before every commit, check that it carries
 - **When in doubt, leave it out and ask.** A leak can only be fixed by
   rewriting history and replacing the repo.
 
+## Sources (IMPORTANT — this repo is public)
+
+The user's decision, 2026-11-17: **a real-world military document that
+carries a distribution restriction, an export-control notice or a
+classification marking is never a source here**, however public a scan of it
+is. No number, no table, no figure worked out from one, no test fixture; and
+it is not named in code, docs, notes or commit messages.
+
+- **Fine:** the game's own files, the modules' own manuals, published guides
+  (Chuck's Guides), and physics the planner works out itself.
+- **Before using any other real-world document, look at its title page.** If
+  its status is not known, treat it as restricted and ask the user.
+- Anything read from such a document stays out of everything git tracks, and
+  nothing is ever copied into the repo from working papers that hold it.
+
 ## Project Overview
 
 A cross-platform desktop application for planning F-16 (and other aircraft) attack runs against defended targets in DCS World. The tool helps squadron members plan tactical attacks, weaponeer targets, and generate pilot briefing cards (kneeboards).
@@ -269,19 +284,20 @@ Mac, with its own `node_modules` and `src/generated/`), cut from `b5e7fc1`.
 - **Do not run the redesign's browser reviews while the playback's screenshot
   run is going:** that is what made the screenshot run time out.
 
-**Sight mils: designed and ruled, nothing built.**
-`Other Items/v040-work/b3/BUILD_SPEC_S13_SIGHT_MILS.md`, sections 13.8
-(rulings) and 13.9 (the data). The real F-5E manual's dive tables were read
-from the scanned pages by two automated readers (`F5E_TO_TABLES.md` and
-`.json` beside it); 804 sight settings would ship. **Nothing from the manual
-is committed until the user says yes to the first question in 13.9.7**, which
-tells him of the manual's distribution statement and export-control warning.
+**Sight mils: nothing built, and the data source is re-opened.** The user
+decided on 2026-11-17 that a real-world military manual which carries a
+distribution restriction or an export-control notice is never a source for
+this public project: no number, no table, no figure worked from one, and it
+is not named. The design in
+`Other Items/v040-work/b3/BUILD_SPEC_S13_SIGHT_MILS.md` was written round
+such a manual and is being redone on the game's own public documents (the
+module's manual, a published guide) and the planner's own calculation.
 
 **Waiting on the user, in this order, one at a time:** look 6 when it is
 built (with the three calls he can overrule: only the watched jet draws a
 bomb line; the blast ring shows through hills; the old spacing rule kept as a
-choice); the F-5E manual question; the redesign's picture questions at its
-two looks.
+choice); what the check of every other real-world source in the project
+finds; the redesign's picture questions at its two looks.
 
 
 **Last session:** 2026-11-14/15 UTC (Fable 5.2 directing on the main Mac,
@@ -615,27 +631,28 @@ on the main Mac (`Other Items/`):
      up or estimated based on the master operating tables for that jet."
      **The research is finished** (`SIGHT_MILS_DATA.md` in the same
      folder, sections 0 to 7). What it found: **none of the eight sight
-     numbers on file traces to a table.** Whether the DCS F-5E drops like the real jet is not known (a few bombs dropped in the game would settle it). The Mirage F1 module manual covers only 10° and 20° dives with
-     the SAMP-250. Nothing for the F-4E (its module has a bombing
-     calculator in the game) or the A-4E-C's dives.  The
-     paper's suggested order: first stop printing the fixed number once
-     the attack is customized and give a box for the pilot's own figure;
-     then a real lookup for the F-5E Mk-82; flagged estimates elsewhere.
+     numbers on file traces to a table.** Whether the DCS F-5E drops like
+     the real jet is not known (a few bombs dropped in the game would
+     settle it). The Mirage F1 module manual covers only 10° and 20°
+     dives with the SAMP-250. Nothing for the F-4E (its module has a
+     bombing calculator in the game) or the A-4E-C's dives. The paper's
+     suggested order: first stop printing the fixed number once the
+     attack is customized and give a box for the pilot's own figure; then
+     a real lookup for the F-5E Mk-82; flagged estimates elsewhere.
      **He answered (2026-11-16): the squadron has no tables of its own;
-     use public sources.** Three papers now exist in the working folder,
-     and **the director has not ruled on the design yet (its section
-     13.8)**: `BUILD_SPEC_S13_SIGHT_MILS.md` (the design, reviewed and
-     revised: the figure is the planner's own bomb range corrected by the
-     manual's table, worked out when shown and never stored; the pilot
-     can type his own; nine stages; eleven questions for the user, one at
-     a time); a working paper of readings that stays out of the repository; `DCS_BOMB_BALLISTICS.md` (what the
-     game's own files say about each bomb's drag: the rule is not public;
-     a reading of it fits recorded drops; slick bombs are within about 4%
-     of our vacuum range, **retarded bombs are 32 to 46% shorter than our
-     vacuum range**, which also affects today's laydown and low-angle
-     high-drag attacks). **Before any number from the F-5E manual is
-     committed, ask him:** its title page carries a distribution statement and an export-control warning; the repo is public, so it is his decision. Both this and the old-saves repair are open items in
-     `ROADMAP.md` on the playback branch.
+     use public sources.** Papers in the working folder:
+     `BUILD_SPEC_S13_SIGHT_MILS.md` (the design: the figure is worked out
+     when shown and never stored; the pilot can type his own) and
+     `DCS_BOMB_BALLISTICS.md` (what the game's own files say about each
+     bomb's drag: the rule is not public; a reading of it fits recorded
+     drops; slick bombs are within about 4% of our vacuum range,
+     **retarded bombs are 32 to 46% shorter than our vacuum range**,
+     which also affects today's laydown and low-angle high-drag
+     attacks). **On 2026-11-17 he ruled out the real jet's weapons
+     manual as a source** (the block at the head of these notes says
+     why), so the design's data is being redone. Both this and the
+     old-saves repair are open items in `ROADMAP.md` on the playback
+     branch.
    - **The frag stages, from his decision above.** Two more papers in the
      same folder: `BUILD_SPEC_S12_FRAG.md`, **written, reviewed, revised
      to his decision and ruled on by the director (its section 12.8)**,
@@ -828,10 +845,9 @@ on the main Mac (`Other Items/`):
   could not follow two of three questions sent together.
 - **Nothing blocks the builds.** In the order to raise them:
 - **Look 6**, when it is built, with the three calls he can veto (above).
-- **Whether numbers from the real F-5E manual may go into the public
-  app**, given its distribution statement and export-control warning
-  (above). Then, one at a time, the sight (mils) questions of the design
-  paper's section 13.5: a short test in the DCS F-5E to learn how the module's bombs fall; whether the profiles' 450 kt is true or
+- **The sight (mils) questions**, one at a time, once the design is
+  redone on game-side sources: a short test in the DCS F-5E to learn how
+  the module's bombs fall; whether the profiles' 450 kt is true or
   indicated; what the Mirage F1 manual in his install prints; readings
   off the F-4E's bombing calculator; what the A-4E-C and F-4E should
   show.
