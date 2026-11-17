@@ -131,7 +131,8 @@ import {
   terrainBoxOf, terrainGridOf, tileSpan, planDrape, planElevation, planTerrain, tilesOf, tilesNearestFirst, tileErrorOf,
   seaClamp, terrainTileValid, heightMosaic, sampleBilinear, gridLatLon, gridIndices, drapeUvs, buildTerrainMesh, onTriangles,
   heightAt, shadeFromSlope, hillshade, TERRAIN_CREDITS, creditsFor, BOX_MARGIN_M, BOX_MIN_HALF_M, BOX_MAX_HALF_M, BOX_STEP_M,
-  MAX_SEGMENTS, MIN_SPACING_M, TERRAIN_TILE_PX,
+  MAX_SEGMENTS, MIN_SPACING_M, TERRAIN_TILE_PX, groundFloor, vertexHeights, hasTiles, boxBeyondTiles, MAX_TILE_LAT, MAX_ELEVATION_TILES, MIN_ELEVATION_ZOOM, MAX_ELEVATION_ZOOM,
+  inDryDepression, DRY_DEPRESSIONS, mosaicHeightAt,
   type TerrainBox, type TerrainGrid, type TerrainMesh, type TileRange, type Vec3, type Pose,
 } from '../src/lib/playbackScene';
 import {
@@ -7524,27 +7525,35 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     };
     const synthMosaic = (r: TileRange, fill: (gx: number, gy: number, z: number) => number) => heightMosaic(r, tilesOf(r).map((k) => synthTile(k.z, k.x, k.y, fill)));
 
-    // [T3] Sea clamp and broken tiles: −256 m (Terrarium 127,0,0) shows at 0; a decoded value outside
-    // −11,000…9,000 m, a NaN, a short tile or a missing one leaves the whole mosaic undefined (flat
-    // ground, never a hole with cliffs round it). A rejection reads 'missing' only when it says so.
-    // Mutation proofs: terrain.ts seaClamp `h < 0 ? 0 : h` → `h`:
-    //   FAIL playback scene [T3]: … clamp -256/12.5, mosaic pixel -256, too high true, too low true, NaN true, short true, missing true, 8,999 kept true; errors missing,missing,offline,offline
+    // [T3] Sea level and broken tiles: the mosaic keeps a −256 m pixel (Terrarium 127,0,0) as decoded, and the
+    // sampler shows it at 0, its default floor, with a 50 m neighbour unchanged; a lower floor (a target in a
+    // depression) lets it through down to that floor; a decoded value outside −11,000…9,000 m, a NaN, a short
+    // tile, a missing one or a block with no tiles in it leaves the whole mosaic undefined (flat ground, never a
+    // hole with cliffs round it). A rejection reads 'missing' only when it says so.
+    // Mutation proofs: terrain.ts seaClamp `h < floor_m ? floor_m : h` → `h`:
+    //   FAIL playback scene [T3]: … clamp -256/12.5, floor -300: -256/-400, mosaic pixel -256, read at sea level -256/50 …
     // terrainTileValid `!(h >= HEIGHT_VALID_MIN_M && h <= HEIGHT_VALID_MAX_M)` → `!(h === h)` (NaN only):
-    //   FAIL playback scene [T3]: … clamp 0/12.5, mosaic pixel 0, too high false, too low false, NaN true, …
+    //   FAIL playback scene [T3]: … too high false, too low false, NaN true, …
     // tileErrorOf `word === 'missing' ? 'missing' : 'offline'` → `word === word ? …` (always 'missing'):
     //   FAIL playback scene [T3]: … errors missing,missing,missing,missing
+    // heightMosaic `!hasTiles(range) ||` removed (an empty block is built as a 0 × 0 grid):
+    //   FAIL playback scene [T3]: … no tiles false
     const r1x1: TileRange = { z: 10, x0: 0, y0: 0, nx: 1, ny: 1 };
     const sea = new Float32Array(TERRAIN_TILE_PX ** 2).fill(50);
     sea[7] = -256;
     const seaM = heightMosaic(r1x1, [sea]);
+    const readAt = (px: number, floor?: number) => (seaM ? sampleBilinear(seaM.data, seaM.w, seaM.h, px, 0.5, floor) : NaN);
+    const noTiles = heightMosaic({ z: 10, x0: 0, y0: 0, nx: 0, ny: 0 }, []);
     const withVal = (v: number) => { const t = new Float32Array(TERRAIN_TILE_PX ** 2); t[100] = v; return t; };
     const tooHigh = heightMosaic(r1x1, [withVal(9500)]), tooLow = heightMosaic(r1x1, [withVal(-11500)]), nanT = heightMosaic(r1x1, [withVal(NaN)]);
     const shortT = heightMosaic(r1x1, [new Float32Array(100)]), missingT = heightMosaic(r1x1, [undefined]), edgeOk = heightMosaic(r1x1, [withVal(8999)]);
     const errs = [tileErrorOf('missing'), tileErrorOf(new Error('missing')), tileErrorOf('offline'), tileErrorOf(new TypeError('Failed to fetch'))];
-    ok('playback scene [T3]: decoded heights are clamped at sea level, a broken or missing tile leaves no mosaic, and errors read as missing or offline',
-       seaClamp(-256) === 0 && seaClamp(12.5) === 12.5 && seaM?.data[7] === 0 && seaM?.data[8] === 50 && tooHigh === undefined && tooLow === undefined && nanT === undefined &&
+    ok('playback scene [T3]: heights are shown at sea level at the lowest unless a floor says lower, the mosaic keeps what was decoded, a broken or missing tile or an empty block leaves no mosaic, and errors read as missing or offline',
+       seaClamp(-256) === 0 && seaClamp(12.5) === 12.5 && seaClamp(-256, -300) === -256 && seaClamp(-400, -300) === -300 && seaM?.data[7] === -256 && seaM?.data[8] === 50 &&
+       readAt(7.5, 0) === 0 && readAt(8.5, 0) === 50 && readAt(7.5) === -256 && readAt(7.5, -300) === -256 &&
+       tooHigh === undefined && tooLow === undefined && nanT === undefined && noTiles === undefined &&
        shortT === undefined && missingT === undefined && edgeOk !== undefined && terrainTileValid(sea) && errs.join(',') === 'missing,missing,offline,offline',
-       `clamp ${seaClamp(-256)}/${seaClamp(12.5)}, mosaic pixel ${seaM?.data[7]}, too high ${tooHigh === undefined}, too low ${tooLow === undefined}, NaN ${nanT === undefined}, short ${shortT === undefined}, missing ${missingT === undefined}, 8,999 kept ${edgeOk !== undefined}; errors ${errs.join(',')}`);
+       `clamp ${seaClamp(-256)}/${seaClamp(12.5)}, floor -300: ${seaClamp(-256, -300)}/${seaClamp(-400, -300)}, mosaic pixel ${seaM?.data[7]}, read at sea level ${readAt(7.5, 0)}/${readAt(8.5, 0)}, unlevelled ${readAt(7.5)}, floor -300 ${readAt(7.5, -300)}, too high ${tooHigh === undefined}, too low ${tooLow === undefined}, NaN ${nanT === undefined}, no tiles ${noTiles === undefined}, short ${shortT === undefined}, missing ${missingT === undefined}, 8,999 kept ${edgeOk !== undefined}; errors ${errs.join(',')}`);
 
     // [T4] [T5] Bilinear sampling with each pixel's value at its CENTRE: grid [[0,10],[20,30]] gives 0
     // at (0.5,0.5), 10 at (1.5,0.5), 15 at (1,1) and 5 at (1.0,0.5); far outside it gives the edge value, never NaN.
@@ -7877,6 +7886,153 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
        ELEVATION_SOURCES.length === 12 && Object.values(has23).every(Boolean) && !/https?:/.test(src23) && /Elevation sources/.test(creditsFor({ map: false, elevation: true })),
        `${ELEVATION_SOURCES.length} lines; ${Object.entries(has23).map(([k, v]) => `${k} ${v}`).join(', ')}; links ${/https?:/.test(src23)}; line: ${creditsFor({ map: false, elevation: true })}`);
 
+    // [RV9] Land below sea level keeps its shape: the level the heights are flattened at is the lowest of 0
+    // and the height as decoded at each target that stands on known dry land below sea level, not always 0. A
+    // made-up ground at the Jordan valley's latitude: a valley floor at −200 m, a ridge strip at +300 m east of
+    // it, sea bed at −2,000 m west of it, and a pocket at −500 m four kilometres north. With the target in the
+    // valley the drawn relief is 500 m (the floor at 0 gave 300) and the sea bed is drawn flat at the valley's
+    // level; with the target on the ridge the valley is drawn at 0 as before (300 m); a target at sea level, or
+    // above it, gives exactly the heights the old per-pixel clamp at 0 did, to the bit; and a second target in
+    // the pocket lowers the floor to it. The plan carries the extra targets. (RV9b: the same heights under a
+    // target at sea, or anywhere outside the known stretches of dry land, leave the level at 0.)
+    // Mutation proofs: terrain.ts buildTerrainMesh `const floor_m = mosaic ? groundFloor(mosaic, plan.frame, plan.targets) : 0;` → `const floor_m = 0;` (the level left at 0):
+    //   FAIL playback scene [RV9]: … valley target: floor 0.000 m (want -200), relief 300.000 m (want 500; the old level gave 300.000), lowest 0.000 m, …; a second target in the pocket: floor 0.000 m (want -500), lowest 0.000 m; …
+    // groundFloor `for (const t of targets) {` → `for (const t of []) {` (only the lead's target read):
+    //   FAIL playback scene [RV9]: … a second target in the pocket: floor -200.000 m (want -500), lowest 0.000 m; the ridge frame with a valley target: floor 0.000 m; …
+    // seaClamp `h < floor_m ? floor_m : h` → `h` (nothing levelled at all; T3 goes red with it):
+    //   FAIL playback scene [RV9]: … valley target: floor -200.000 m (want -200), relief 2300.000 m (want 500; …), lowest -1800.000 m, …; sea level target: floor 0, as the old clamp false; …
+    const rvP0 = { lat: 31.8, lon: 35.5 };
+    const rvFill = (valley_m: number) => (gx: number, gy: number, z: number) => {
+      const o = lonLatToTile(rvP0.lat, rvP0.lon, z), mpp = metresPerTilePixel(rvP0.lat, z);
+      const e = (gx - o.x * TERRAIN_TILE_PX) * mpp, n = -(gy - o.y * TERRAIN_TILE_PX) * mpp;
+      return e < -3000 ? -2000 : e >= 3000 && e <= 6000 ? 300 : Math.hypot(e, n - 4000) < 1200 ? -500 : valley_m;
+    };
+    const rvBuildWith = (frame: ReturnType<typeof frameAt>, fill: (gx: number, gy: number, z: number) => number, targets?: { e_m: number; n_m: number }[]) => {
+      const grid = terrainGridOf(sqBox(12.5)), elevation = planElevation(grid, frame);
+      const mosaic = synthMosaic(elevation, fill)!;
+      const plan = { frame, grid, elevation, drape: undefined, targets };
+      return { grid, mosaic, mesh: buildTerrainMesh(plan, mosaic) };
+    };
+    const rvBuild = (frame: ReturnType<typeof frameAt>, valley_m: number, targets?: { e_m: number; n_m: number }[]) => rvBuildWith(frame, rvFill(valley_m), targets);
+    const spread = (a: ArrayLike<number>) => {
+      let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < a.length; i++) { lo = Math.min(lo, a[i]); hi = Math.max(hi, a[i]); }
+      return { lo, hi, relief: hi - lo };
+    };
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+    const sameBits = (a: ArrayLike<number>, b: ArrayLike<number>) => a.length === b.length && Array.from(a).every((v, i) => Object.is(v, b[i]));
+    const fValley = frameAt(rvP0.lat, rvP0.lon);
+    const ridgeAt = fromLocal(fValley, 4500, 0), fRidge = frameAt(ridgeAt.lat, ridgeAt.lon);
+    const pocket = { e_m: 0, n_m: 4000 };
+    const rvA = rvBuild(fValley, -200), sA = spread(rvA.mesh.up!);
+    const todayA = spread(vertexHeights(gridLatLon(rvA.grid, fValley), fValley, rvA.mosaic, 0).up); // the floor at 0, as it was
+    // The old rule, written out: clamp every pixel at 0 first, then sample with no floor.
+    const wasUp = (b: ReturnType<typeof rvBuild>, frame: typeof fValley) =>
+      vertexHeights(gridLatLon(b.grid, frame), frame, { ...b.mosaic, data: b.mosaic.data.map((h) => (h < 0 ? 0 : h)) }, -Infinity).up;
+    const rvB = rvBuild(fRidge, -200), sB = spread(rvB.mesh.up!), todayB = wasUp(rvB, fRidge);
+    const rvC0 = rvBuild(fValley, 0), rvC50 = rvBuild(fValley, 50);
+    const rvD = rvBuild(fValley, -200, [pocket]), sD = spread(rvD.mesh.up!);
+    const targetDrawn = Math.abs(heightAt(rvA.mesh, 0, 0, 'real'));
+    const flo = {
+      valley: groundFloor(rvA.mosaic, fValley), pocket: groundFloor(rvA.mosaic, fValley, [pocket]),
+      ridge: groundFloor(rvB.mosaic, fRidge), ridgeAndValley: groundFloor(rvB.mosaic, fRidge, [{ e_m: -4500, n_m: 0 }]),
+    };
+    const planned = planTerrain(src.bounds, src.frame, undefined, [{ e_m: 5, n_m: 6 }]), plainPlan = planTerrain(src.bounds, src.frame);
+    ok('playback scene [RV9]: the ground is flattened at the lowest of sea level and the strike\'s targets: a valley target keeps the ridge at its real height above it (500 m, not 300), a ridge or sea-level target is as before to the bit, a second target in a deeper pocket lowers the level',
+       near(flo.valley, -200) && near(rvA.mesh.floor_m, -200) && near(sA.relief, 500) && near(sA.lo, 0) && near(sA.hi, 500) && near(todayA.relief, 300) && targetDrawn < 1e-9 &&
+       rvB.mesh.floor_m === 0 && flo.ridge === 0 && near(sB.relief, 300) && near(sB.hi, 0) && near(sB.lo, -300) && sameBits(rvB.mesh.up!, todayB) &&
+       rvC0.mesh.floor_m === 0 && rvC50.mesh.floor_m === 0 && sameBits(rvC0.mesh.up!, wasUp(rvC0, fValley)) && sameBits(rvC50.mesh.up!, wasUp(rvC50, fValley)) &&
+       near(flo.pocket, -500) && near(rvD.mesh.floor_m, -500) && near(sD.lo, -300) && near(sD.hi, 500) && near(flo.ridgeAndValley, -200) &&
+       plainPlan.targets?.length === 0 && planned.targets?.length === 1 && planned.targets[0].e_m === 5,
+       `valley target: floor ${rvA.mesh.floor_m.toFixed(3)} m (want -200), relief ${sA.relief.toFixed(3)} m (want 500; the old level gave ${todayA.relief.toFixed(3)}), lowest ${sA.lo.toFixed(3)} m, the target drawn ${targetDrawn.toExponential(1)} m up; ` +
+       `ridge target: floor ${rvB.mesh.floor_m}, ridge ${sB.hi.toFixed(3)} to valley ${sB.lo.toFixed(3)} m, as before ${sameBits(rvB.mesh.up!, todayB)}; ` +
+       `sea level target: floor ${rvC0.mesh.floor_m}, as the old clamp ${sameBits(rvC0.mesh.up!, wasUp(rvC0, fValley))}; 50 m target: floor ${rvC50.mesh.floor_m}, as the old clamp ${sameBits(rvC50.mesh.up!, wasUp(rvC50, fValley))}; ` +
+       `a second target in the pocket: floor ${rvD.mesh.floor_m.toFixed(3)} m (want -500), lowest ${sD.lo.toFixed(3)} m; the ridge frame with a valley target: floor ${flo.ridgeAndValley.toFixed(3)} m; ` +
+       `plan targets ${plainPlan.targets?.length}/${planned.targets?.length}`);
+
+    // [RV9b] The level drops only for a target on known dry land below sea level. A ship over a sea bed at −30,
+    // −1,000 or −2,000 m, and a target on a steep shore whose read height blends in sea-bed pixels, leave it at
+    // 0 and draw exactly what the old per-pixel clamp at 0 did, to the bit: the land 200 m above the target, not
+    // 200 m plus the depth. The known stretches are the Jordan rift (with the Dead Sea) and Death Valley: points
+    // inside them are in; the sea off Haifa, the Mediterranean off Tel Aviv, the head of the Gulf of Aqaba, the
+    // Black Sea, the Persian Gulf and the Pacific are out. The ground under each ship is read as negative first,
+    // so a pass cannot come from a ground that never reached below the level.
+    // Mutation proof: terrain.ts groundFloor `if (!inDryDepression(lat, lon)) return;` removed (every target's
+    // height counted, whatever it stands on):
+    //   FAIL playback scene [RV9b]: … ship over -1000 m (the ground reads -999.9): floor -999.898 m (want 0), the land 1199.898 m above it (want 200), as the old clamp false; …
+    // inDryDepression `for (const d of DRY_DEPRESSIONS) {` → `for (const d of [] as typeof DRY_DEPRESSIONS) {` (no target ever counts, a valley target too; RV9 goes red as well, its valley arms at floor 0):
+    //   FAIL playback scene [RV9b]: … 2 dry depressions; wrongly placed: the Dead Sea, the Sea of Galilee, Jericho, Badwater, Furnace Creek
+    //   FAIL playback scene [RV9]: … valley target: floor 0.000 m (want -200), relief 300.000 m (want 500; the old level gave 300.000), …
+    // the rift box widened to `south_deg: 29.0, … west_deg: 34.5` (over the sea and the Gulf of Aqaba):
+    //   FAIL playback scene [RV9b]: … wrongly placed: the sea off Haifa, the sea off Tel Aviv, the head of the Gulf of Aqaba
+    const rvSea = { lat: 43.5, lon: 38.0 };
+    const rvSeaFill = (depth_m: number, steep: boolean) => (gx: number, gy: number, z: number) => {
+      const o = lonLatToTile(rvSea.lat, rvSea.lon, z), mpp = metresPerTilePixel(rvSea.lat, z);
+      const e = (gx - o.x * TERRAIN_TILE_PX) * mpp;
+      return e >= 6000 ? 200 : steep || e <= 0 ? depth_m : depth_m * (1 - e / 6000);
+    };
+    const fSea = frameAt(rvSea.lat, rvSea.lon);
+    const rvShips = [-30, -1000, -2000].map((depth) => {
+      const b = rvBuildWith(fSea, rvSeaFill(depth, false)), s = spread(b.mesh.up!);
+      return { depth, floor: b.mesh.floor_m, hi: s.hi, lo: s.lo, same: sameBits(b.mesh.up!, wasUp(b, fSea)), read: mosaicHeightAt(b.mosaic, fSea.origin.lat, fSea.origin.lon, -Infinity) };
+    });
+    const shoreAt = fromLocal(fSea, 5990, 0), fShore = frameAt(shoreAt.lat, shoreAt.lon);
+    const rvShore = rvBuildWith(fShore, rvSeaFill(-1000, true)), sShore = spread(rvShore.mesh.up!);
+    const shoreRead = mosaicHeightAt(rvShore.mosaic, fShore.origin.lat, fShore.origin.lon, -Infinity);
+    const dryIn: [string, number, number][] = [['the Dead Sea', 31.5, 35.5], ['the Sea of Galilee', 32.8, 35.6], ['Jericho', 31.87, 35.45], ['Badwater', 36.23, -116.77], ['Furnace Creek', 36.46, -116.87]];
+    const dryOut: [string, number, number][] = [['the sea off Haifa', 32.85, 34.8], ['Acre bay', 32.92, 35.05], ['the sea off Tel Aviv', 32.1, 34.7], ['the head of the Gulf of Aqaba', 29.55, 34.95],
+      ['the Black Sea', 43.5, 38.0], ['the Persian Gulf', 26.0, 52.0], ['off Guam', 13.4, 144.7], ['the Pacific off California', 34.0, -120.0]];
+    const dryWrong = [...dryIn.filter(([, la, lo]) => !inDryDepression(la, lo)), ...dryOut.filter(([, la, lo]) => inDryDepression(la, lo))].map(([n]) => n);
+    ok('playback scene [RV9b]: a ship over a sea bed, or a target on a steep shore, leaves the level at sea level and draws what the old clamp did; only the known dry depressions lower it',
+       rvShips.every((r) => r.read < 0 && r.floor === 0 && r.same && near(r.hi, 200) && near(r.lo, 0)) &&
+       shoreRead < 0 && rvShore.mesh.floor_m === 0 && sameBits(rvShore.mesh.up!, wasUp(rvShore, fShore)) &&
+       dryWrong.length === 0 && DRY_DEPRESSIONS.length === 2,
+       `${rvShips.map((r) => `ship over ${r.depth} m (the ground reads ${r.read.toFixed(1)}): floor ${r.floor.toFixed(3)} m (want 0), the land ${(r.hi - r.lo).toFixed(3)} m above it (want 200), as the old clamp ${r.same}`).join('; ')}; ` +
+       `a target on a steep shore (the ground reads ${shoreRead.toFixed(1)}): floor ${rvShore.mesh.floor_m.toFixed(3)} m (want 0), as the old clamp ${sameBits(rvShore.mesh.up!, wasUp(rvShore, fShore))}, the land ${sShore.hi.toFixed(1)} m above the target at most; ` +
+       `${DRY_DEPRESSIONS.length} dry depressions; wrongly placed: ${dryWrong.join(', ') || 'none'}`);
+
+    // [RV10] No elevation where the tile count cannot be capped: a box whose edge reaches poleward of the
+    // tiles (85.0511 degrees: the top and bottom rows of Web Mercator), or whose block is still over the
+    // 64-tile cap at zoom 8, asks for no tiles (the plan's block is empty, so the scene stays flat); every
+    // other box asks for exactly what the old rule gave (written out here). The old rule asked for 230
+    // tiles at 89.9 N, 90 at 80 N with a 60 nm half-width.
+    // Mutation proofs (the two guards, each alone, then both):
+    // terrain.ts planElevation `if (boxBeyondTiles(grid.box, frame)) return NO_ELEVATION;` removed (the cap still catches 89.9 N):
+    //   FAIL playback scene [RV10]: … 85 N ±12.5 nm (its north edge is past the tiles): 15 tiles (want 0)
+    // `return s.nx * s.ny > MAX_ELEVATION_TILES ? NO_ELEVATION : s;` → `return s;`:
+    //   FAIL playback scene [RV10]: … 80 N ±60 nm (over the cap at zoom 8): 90 tiles (want 0)
+    // both at once:
+    //   FAIL playback scene [RV10]: … 89.9 N ±45 nm: 230 tiles (want 0)   (and [RV10b]: block 230×1 … 230 tiles asked)
+    const oldElevation = (grid: TerrainGrid, frame: ReturnType<typeof frameAt>) => {
+      let z = Math.min(MAX_ELEVATION_ZOOM, Math.max(MIN_ELEVATION_ZOOM, chooseZoom(NMm / grid.dx_m, frame.origin.lat)));
+      let s = tileSpan(grid.box, frame, z);
+      while (s.nx * s.ny > MAX_ELEVATION_TILES && z > MIN_ELEVATION_ZOOM) s = tileSpan(grid.box, frame, --z);
+      return s;
+    };
+    const rv10: [string, number, number, TileRange | 'none' | 'asks'][] = [
+      ['89.9 N ±45 nm', 89.9, 45, 'none'], ['89.9 S ±12.5 nm', -89.9, 12.5, 'none'], ['85 N ±12.5 nm (its north edge is past the tiles)', 85, 12.5, 'none'],
+      ['80 N ±60 nm (over the cap at zoom 8)', 80, 60, 'none'], ['84 N ±30 nm (over the cap at zoom 8)', 84, 30, 'none'],
+      ['42 N ±45 nm', 42, 45, { z: 9, x0: 301, y0: 188, nx: 4, ny: 4 }], ['69 N ±45 nm', 69, 45, { z: 8, x0: 149, y0: 57, nx: 5, ny: 4 }],
+      ['69 N ±60 nm', 69, 60, { z: 8, x0: 149, y0: 57, nx: 5, ny: 5 }], ['75 N ±60 nm (49 tiles, under the cap)', 75, 60, { z: 8, x0: 148, y0: 42, nx: 7, ny: 7 }],
+      ['84.5 N ±12.5 nm (just inside the tiles)', 84.5, 12.5, 'asks'],
+    ];
+    let rvBad = '';
+    const rvLines: string[] = [];
+    for (const [name, lat, half, want] of rv10) {
+      const fr = frameAt(lat, 33), grid = terrainGridOf(sqBox(half)), got = planElevation(grid, fr), was = oldElevation(grid, fr);
+      const gotText = hasTiles(got) ? `z${got.z} ${got.nx}×${got.ny}` : '0 tiles';
+      const good = want === 'none' ? !hasTiles(got) && got.nx * got.ny === 0 && tilesOf(got).length === 0
+        : hasTiles(got) && JSON.stringify(got) === JSON.stringify(was) && (want === 'asks' || JSON.stringify(got) === JSON.stringify(want));
+      rvLines.push(`${name}: ${gotText}${want === 'none' ? ` (the old rule: ${was.nx * was.ny})` : ''}`);
+      if (!good) rvBad ||= `${name}: ${hasTiles(got) ? `${got.nx * got.ny} tiles` : '0 tiles'} (want ${want === 'none' ? 0 : want === 'asks' ? `${was.nx * was.ny}` : `${want.nx * want.ny}`})`;
+    }
+    const polarPlan = planTerrain({ min_e_m: -1000, max_e_m: 1000, min_n_m: -1000, max_n_m: 1000, min_up_m: 0, max_up_m: 100 }, frameAt(89.9, 33));
+    const latEdgeOk = Math.abs(tileNwCorner(0, 0, 8).lat - MAX_TILE_LAT) < 1e-9 && boxBeyondTiles(sqBox(12.5), frameAt(85, 33)) && !boxBeyondTiles(sqBox(12.5), frameAt(84.5, 33)) &&
+      boxBeyondTiles({ west_m: NaN, east_m: 1, south_m: 0, north_m: 1 }, frameAt(42, 33));
+    ok('playback scene [RV10]: a box poleward of the tiles, or over the 64-tile cap even at zoom 8, asks for no elevation; every other box asks for what it asked before',
+       rvBad === '' && latEdgeOk && !hasTiles(polarPlan.elevation),
+       rvBad || `${rvLines.join('; ')}; the plan at 89.9 N asks for ${polarPlan.elevation.nx * polarPlan.elevation.ny} tiles; the tiles end at ${MAX_TILE_LAT}°, as the map's top row does: ${latEdgeOk}`);
+
     // [C1] The near plane never cuts off what must be seen: over a high-altitude delivery (camera
     // 3,170 m above the ground) at full zoom-in (150 m from the point it orbits) it sits at most 75 m
     // out, not 159 m; with the arrow 20 m away, at 10 m; never below 1 m; and with nothing close,
@@ -8045,6 +8201,17 @@ void (async () => {
     ok('playback loader [L4]: heights are all or nothing: missing, offline, broken, timeout and aborted each give flat ground with the right reason',
        why(m4) === 'missing' && miss4.calls.length < 12 && why(off4) === 'offline' && why(brk4) === 'broken' && why(tmo4) === 'timeout' && t4took < 1000 && why(abt4) === 'aborted',
        `missing → ${why(m4)} (${miss4.calls.length} of 12 asked), 500 → ${why(off4)}, short tile → ${why(brk4)}, stuck → ${why(tmo4)} after ${t4took} ms, closed → ${why(abt4)}`);
+
+    // [RV10b] What a plan that asks for no elevation does to the loader: the empty block it is given
+    // asks the tile source for nothing and answers flat ground (not heights), straight away.
+    // Mutation proof: terrain.ts heightMosaic `!hasTiles(range) ||` removed (an empty block built as a 0 × 0 grid):
+    //   FAIL playback loader [RV10b]: … block 0×0; answer ok (want flat ground), 0 tiles asked   (T3's "no tiles" arm goes red with it)
+    const polar10 = planElevation(terrainGridOf({ west_m: -45 * 1852, east_m: 45 * 1852, south_m: -45 * 1852, north_m: 45 * 1852 }), makeLocalFrame({ lat: 89.9, lon: 33 }, 0));
+    const none10 = source3();
+    const out10 = await loadHeights(none10, polar10, f3, new AbortController().signal);
+    ok('playback loader [RV10b]: a plan with no elevation block asks the tile source for nothing and gets flat ground',
+       !hasTiles(polar10) && none10.calls.length === 0 && !out10.ok,
+       `block ${polar10.nx}×${polar10.ny}; answer ${out10.ok ? 'ok (want flat ground)' : `flat ground (${out10.reason})`}, ${none10.calls.length} tiles asked`);
 
     // [L5] The drape's upload pace: the first tile after a quiet second goes at once; tiles inside the
     // second are held and go together when it is up (or at the end); never two sends within a second.

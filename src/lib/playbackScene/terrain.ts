@@ -13,9 +13,12 @@
  * planner puts it.
  *
  * Heights use the library's datum, not sea level: shown height = real height
- * − real height at the lead's target, with every decoded pixel first clamped
- * at sea level (0 m). So the ground at the target is at 0, where the bomb
- * lands, and the sea is flat instead of a trench.
+ * − real height at the lead's target, with every decoded pixel first levelled
+ * at sea level (0 m), or lower where a target stands in one of the few known
+ * stretches of dry land below sea level (`DRY_DEPRESSIONS`). So the ground at
+ * the target is at 0, where the bomb lands, the sea is flat instead of a
+ * trench, and a target in such a depression keeps the ridges round it at
+ * their real height above it.
  *
  * Map tiles: the planner's own OpenStreetMap tiles, in colour. Elevation:
  * Terrarium tiles (Terrain Tiles on AWS Open Data). Both are Web Mercator,
@@ -104,7 +107,10 @@ export function terrainGridOf(box: TerrainBox): TerrainGrid {
 
 // ─── Tiles ────────────────────────────────────────────────────────────────────
 
-/** A block of tiles at one zoom: x0…x0+nx−1 by y0…y0+ny−1. */
+/**
+ * A block of tiles at one zoom: x0…x0+nx−1 by y0…y0+ny−1. A block with no
+ * tiles in it (nx or ny of 0) is how a plan says "none": nothing to ask for.
+ */
 export interface TileRange {
   z: number;
   x0: number;
@@ -113,29 +119,27 @@ export interface TileRange {
   ny: number;
 }
 
+/** Whether a block holds any tiles at all. */
+export const hasTiles = (r: TileRange): boolean => r.nx > 0 && r.ny > 0;
+
 /** Points per box edge run through the projection when finding the tiles. */
 export const PERIMETER_POINTS = 33;
 /** Pixels of padding round the box, so bilinear sampling at the edge always has neighbours. */
 export const TILE_PAD_PX = 2;
 
 /**
- * The tiles under the box at zoom z. The box's edges are sampled along their
- * length, not only at the corners: a straight edge in local metres bulges
- * poleward in latitude at its middle (1.35 km at ±45 nm near 68 N, a whole
- * row of tiles), and the corners alone would miss it. Padded by two pixels,
- * floored to whole tiles. Interior points land inside the perimeter's span,
- * because the projection is continuous.
+ * Calls `visit` with the latitude and longitude of points along the box's four
+ * edges. The edges are sampled along their length, not only at the corners: a
+ * straight edge in local metres bulges poleward in latitude at its middle
+ * (1.35 km at ±45 nm near 68 N, a whole row of tiles), and the corners alone
+ * would miss it. Interior points land inside the perimeter's span, because the
+ * projection is continuous.
  */
-export function tileSpan(box: TerrainBox, frame: LocalFrame, z: number): TileRange {
+function forEachPerimeterPoint(box: TerrainBox, frame: LocalFrame, visit: (lat: number, lon: number) => void): void {
   const ll = { lat: 0, lon: 0 };
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   const add = (e: number, n: number) => {
     fromLocalInto(frame, e, n, ll);
-    const f = lonLatToTile(ll.lat, ll.lon, z);
-    if (f.x < minX) minX = f.x;
-    if (f.x > maxX) maxX = f.x;
-    if (f.y < minY) minY = f.y;
-    if (f.y > maxY) maxY = f.y;
+    visit(ll.lat, ll.lon);
   };
   const last = PERIMETER_POINTS - 1;
   for (let k = 0; k <= last; k++) {
@@ -147,6 +151,31 @@ export function tileSpan(box: TerrainBox, frame: LocalFrame, z: number): TileRan
     add(box.west_m, n);
     add(box.east_m, n);
   }
+}
+
+/** Web Mercator tiles end here: the top and bottom rows stop at this latitude, and the poles are not on the map. */
+export const MAX_TILE_LAT = 85.0511287798;
+
+/** Whether any point of the box's edges lies poleward of the tiles (or has no latitude at all, which a broken plan can give). */
+export function boxBeyondTiles(box: TerrainBox, frame: LocalFrame): boolean {
+  let beyond = false;
+  forEachPerimeterPoint(box, frame, (lat) => { if (!(Math.abs(lat) <= MAX_TILE_LAT)) beyond = true; });
+  return beyond;
+}
+
+/**
+ * The tiles under the box at zoom z, its edges sampled by `forEachPerimeterPoint`.
+ * Padded by two pixels, floored to whole tiles.
+ */
+export function tileSpan(box: TerrainBox, frame: LocalFrame, z: number): TileRange {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  forEachPerimeterPoint(box, frame, (lat, lon) => {
+    const f = lonLatToTile(lat, lon, z);
+    if (f.x < minX) minX = f.x;
+    if (f.x > maxX) maxX = f.x;
+    if (f.y < minY) minY = f.y;
+    if (f.y > maxY) maxY = f.y;
+  });
   const pad = TILE_PAD_PX / TILE_SIZE;
   const maxIndex = 2 ** z - 1;
   const clampT = (v: number) => Math.min(maxIndex, Math.max(0, v));
@@ -182,31 +211,55 @@ export const MAX_ELEVATION_ZOOM = 12;
 /** A sanity cap on the height mosaic (16 MB per 64 tiles); normal boxes need 9-25. */
 export const MAX_ELEVATION_TILES = 64;
 
+/** What a plan asks for when no elevation can be had: a block with no tiles in it. */
+const NO_ELEVATION: TileRange = { z: MIN_ELEVATION_ZOOM, x0: 0, y0: 0, nx: 0, ny: 0 };
+
 /**
  * The elevation zoom: the lowest whose pixels are no larger than the mesh
  * spacing at the target's latitude (the kneeboard's own `chooseZoom` rule,
  * with cos(lat) in it, so Kola does not fetch four times the tiles), kept to
  * zoom 8-12 and stepped down if the block would be absurdly large.
+ *
+ * Where the count cannot be brought under the cap even at zoom 8, or the box
+ * reaches poleward of the tiles' own latitude, the answer is no tiles at all
+ * (`hasTiles` is false) and the scene stays flat: past the cap the mosaic
+ * would cost tens of megabytes of memory, and past the tiles' edge the rows
+ * clamp to the map's top or bottom row, so the heights fetched would belong to
+ * other ground. No DCS map goes near either; a damaged shared file can.
  */
 export function planElevation(grid: TerrainGrid, frame: LocalFrame): TileRange {
+  if (boxBeyondTiles(grid.box, frame)) return NO_ELEVATION;
   let z = Math.min(MAX_ELEVATION_ZOOM, Math.max(MIN_ELEVATION_ZOOM, chooseZoom(NM_TO_M / grid.dx_m, frame.origin.lat)));
   let s = tileSpan(grid.box, frame, z);
   while (s.nx * s.ny > MAX_ELEVATION_TILES && z > MIN_ELEVATION_ZOOM) s = tileSpan(grid.box, frame, --z);
-  return s;
+  return s.nx * s.ny > MAX_ELEVATION_TILES ? NO_ELEVATION : s;
+}
+
+/** A point on the ground in the playback's local metres: east (e) and north (n) of the lead's target. */
+export interface GroundPoint {
+  e_m: number;
+  n_m: number;
 }
 
 export interface TerrainPlan {
   frame: LocalFrame;
   grid: TerrainGrid;
+  /** A block with no tiles (`hasTiles` false) when no elevation can be had: the ground then stays flat. */
   elevation: TileRange;
   /** Undefined when no drape fits (then the ground is plain land colour). */
   drape: TileRange | undefined;
+  /**
+   * The strike's targets besides the lead's, which stands at the frame's origin and is always counted.
+   * Where the heights are levelled, the ground at each of them is read (see `groundFloor`). Left out,
+   * the lead's target alone sets the level.
+   */
+  targets?: readonly GroundPoint[];
 }
 
 /** Everything about the terrain that follows from the playback's bounds alone: box, grid, and both tile blocks. */
-export function planTerrain(bounds: EnuBox, frame: LocalFrame, maxTextureSize = MAX_DRAPE_PX): TerrainPlan {
+export function planTerrain(bounds: EnuBox, frame: LocalFrame, maxTextureSize = MAX_DRAPE_PX, targets: readonly GroundPoint[] = []): TerrainPlan {
   const grid = terrainGridOf(terrainBoxOf(bounds));
-  return { frame, grid, elevation: planElevation(grid, frame), drape: planDrape(grid.box, frame, maxTextureSize) };
+  return { frame, grid, elevation: planElevation(grid, frame), drape: planDrape(grid.box, frame, maxTextureSize), targets };
 }
 
 /** A block's tiles in mosaic order (row by row from the north-west): the order `heightMosaic` expects them in. */
@@ -256,9 +309,19 @@ export function tileErrorOf(e: unknown): TileError {
 
 // ─── Heights ──────────────────────────────────────────────────────────────────
 
-/** Terrarium carries sea-bed depths, not "no data": clamp at sea level so a coast runs down to the water and stops. */
-export function seaClamp(h: number): number {
-  return h < 0 ? 0 : h;
+/**
+ * Heights below `floor_m` are drawn at it. Terrarium carries sea-bed depths,
+ * not "no data", so the floor is sea level (0 by default): a coast runs down
+ * to the water and the water is flat. The floor goes lower only where a
+ * target stands on one of the known stretches of dry land below sea level
+ * (`groundFloor`), because there is no way to tell a depression on land from
+ * the sea bed per pixel: the tiles carry no land mask, only heights, and both
+ * are simply negative numbers. A mask from another source would be one more
+ * download, one more credit and one more thing that can disagree with the
+ * heights, for ground that matters only where a target stands.
+ */
+export function seaClamp(h: number, floor_m = 0): number {
+  return h < floor_m ? floor_m : h;
 }
 
 /** Decoded heights outside this range mean a broken tile: treat it as missing. */
@@ -274,7 +337,11 @@ export function terrainTileValid(t: Float32Array): boolean {
   return true;
 }
 
-/** One height grid over a whole tile block, sea-clamped: w × h pixels, row by row from the north-west. */
+/**
+ * One height grid over a whole tile block, as decoded (not levelled: the level
+ * depends on the strike's targets, which the loader does not know): w × h
+ * pixels, row by row from the north-west.
+ */
 export interface HeightMosaic {
   range: TileRange;
   w: number;
@@ -288,10 +355,11 @@ export interface HeightMosaic {
  * is no seam to stitch. All or nothing: a missing or broken tile gives
  * undefined (the scene stays flat), because patching one hole would draw
  * false cliffs round it, and a false cliff is worse than flat ground.
- * `tiles` in `tilesOf` order; a missing one as undefined.
+ * `tiles` in `tilesOf` order; a missing one as undefined. A block with no
+ * tiles in it (`hasTiles` false) gives undefined too: there is nothing to draw.
  */
 export function heightMosaic(range: TileRange, tiles: readonly (Float32Array | undefined)[]): HeightMosaic | undefined {
-  if (tiles.length !== range.nx * range.ny) return undefined;
+  if (!hasTiles(range) || tiles.length !== range.nx * range.ny) return undefined;
   const P = TERRAIN_TILE_PX, w = range.nx * P, h = range.ny * P;
   const data = new Float32Array(w * h);
   for (let ty = 0; ty < range.ny; ty++) {
@@ -300,7 +368,7 @@ export function heightMosaic(range: TileRange, tiles: readonly (Float32Array | u
       if (!t || !terrainTileValid(t)) return undefined;
       for (let j = 0; j < P; j++) {
         const row = (ty * P + j) * w + tx * P;
-        for (let i = 0; i < P; i++) data[row + i] = seaClamp(t[j * P + i]);
+        for (let i = 0; i < P; i++) data[row + i] = t[j * P + i];
       }
     }
   }
@@ -310,22 +378,86 @@ export function heightMosaic(range: TileRange, tiles: readonly (Float32Array | u
 /**
  * Bilinear sampling with pixel (i, j) holding the height at its CENTRE,
  * (i + 0.5, j + 0.5). Getting that wrong shifts the terrain half a pixel
- * (60 m at zoom 10). Clamped at the edges: never NaN.
+ * (60 m at zoom 10). Clamped at the edges: never NaN. Each of the four pixels
+ * is first levelled at `floor_m` (none by default), before the blend, so a
+ * coast does not blend land into a trench.
  */
-export function sampleBilinear(grid: ArrayLike<number>, w: number, h: number, px: number, py: number): number {
+export function sampleBilinear(grid: ArrayLike<number>, w: number, h: number, px: number, py: number, floor_m = -Infinity): number {
   const u = Math.min(w - 1, Math.max(0, px - 0.5));
   const v = Math.min(h - 1, Math.max(0, py - 0.5));
   const i = Math.min(w - 2, Math.floor(u)), j = Math.min(h - 2, Math.floor(v));
   const fx = u - i, fy = v - j;
-  const a = grid[j * w + i], b = grid[j * w + i + 1];
-  const c = grid[(j + 1) * w + i], d = grid[(j + 1) * w + i + 1];
+  const a = seaClamp(grid[j * w + i], floor_m), b = seaClamp(grid[j * w + i + 1], floor_m);
+  const c = seaClamp(grid[(j + 1) * w + i], floor_m), d = seaClamp(grid[(j + 1) * w + i + 1], floor_m);
   return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }
 
-/** The mosaic's height at a lat/lon (sea-clamped, real metres, not yet shifted). */
-export function mosaicHeightAt(m: HeightMosaic, lat: number, lon: number): number {
+/** The mosaic's height at a lat/lon: real metres, nothing below `floor_m` (pass -Infinity for the height as decoded), not yet shifted. */
+export function mosaicHeightAt(m: HeightMosaic, lat: number, lon: number, floor_m: number): number {
   const f = lonLatToTile(lat, lon, m.range.z);
-  return sampleBilinear(m.data, m.w, m.h, (f.x - m.range.x0) * TERRAIN_TILE_PX, (f.y - m.range.y0) * TERRAIN_TILE_PX);
+  return sampleBilinear(m.data, m.w, m.h, (f.x - m.range.x0) * TERRAIN_TILE_PX, (f.y - m.range.y0) * TERRAIN_TILE_PX, floor_m);
+}
+
+/** A block of latitude and longitude, degrees. */
+export interface GeoBox {
+  south_deg: number;
+  north_deg: number;
+  west_deg: number;
+  east_deg: number;
+}
+
+/**
+ * Stretches of DRY land below sea level that a DCS map holds. Each box has no
+ * sea and no coast inside it: the Mediterranean shore by the rift is west of
+ * 35.1°E, and the Gulf of Aqaba is south of 29.6°N. The tiles cannot say land
+ * from sea bed (see `seaClamp`), so a target is taken to stand in a
+ * depression only if it is inside one of these. Without that, a ship over a
+ * deep sea bed, or a target on a steep shore whose read height blends in
+ * sea-bed pixels, would lower the level to the sea's depth and draw the land
+ * beside it a whole depth too high. A depression missing from this list costs
+ * only its relief (the ground is drawn flat at sea level, as before): it can
+ * never draw a wrong picture.
+ */
+export const DRY_DEPRESSIONS: readonly (GeoBox & { name: string })[] = [
+  // The Sea of Galilee (about 210 m below sea level), the Jordan valley, the Dead Sea (about 430 m) and the Arabah south of it.
+  { name: 'Jordan rift and the Dead Sea', south_deg: 30.5, north_deg: 32.9, west_deg: 35.15, east_deg: 36.0 },
+  // Badwater, the Furnace Creek basin and the salt flats south of it (the lowest point is about 86 m below sea level).
+  { name: 'Death Valley', south_deg: 35.5, north_deg: 37.0, west_deg: -117.3, east_deg: -116.3 },
+];
+
+/** Whether a point lies in one of the known stretches of dry land below sea level. */
+export function inDryDepression(lat: number, lon: number): boolean {
+  for (const d of DRY_DEPRESSIONS) {
+    if (lat >= d.south_deg && lat <= d.north_deg && lon >= d.west_deg && lon <= d.east_deg) return true;
+  }
+  return false;
+}
+
+/**
+ * The level the ground is drawn flat at, real metres: 0 (sea level), or lower
+ * where the lead's target (at the frame's origin) or any of the others stands
+ * in a known stretch of dry land below sea level (`DRY_DEPRESSIONS`): then the
+ * lowest height as decoded at such a target. That target sits at its real
+ * height with the ridges round it at theirs, and sea bed or valley floor
+ * deeper than it is still drawn flat. Every other target, whatever its height
+ * reads (a ship over a deep sea bed, a shore), leaves the level at 0, as
+ * before. A target whose height cannot be read is not counted.
+ */
+export function groundFloor(mosaic: HeightMosaic, frame: LocalFrame, targets: readonly GroundPoint[] = []): number {
+  const asDecoded = -Infinity;
+  let floor = 0;
+  const count = (lat: number, lon: number) => {
+    if (!inDryDepression(lat, lon)) return;
+    const h = mosaicHeightAt(mosaic, lat, lon, asDecoded);
+    if (h < floor) floor = h; // a NaN is never lower
+  };
+  count(frame.origin.lat, frame.origin.lon);
+  const ll = { lat: 0, lon: 0 };
+  for (const t of targets) {
+    fromLocalInto(frame, t.e_m, t.n_m, ll);
+    count(ll.lat, ll.lon);
+  }
+  return floor;
 }
 
 // ─── The mesh ─────────────────────────────────────────────────────────────────
@@ -401,15 +533,16 @@ export function drapeUvs(latlon: Float64Array, drape: TileRange): Float32Array {
 
 /**
  * The shown height at every vertex, m, on the playback's datum: the
- * mosaic's (sea-clamped) height there minus its height at the lead's target,
- * so the target is at 0. `shift_m` is that constant (minus the real height
- * at the target). Float64, for `heightAt`; the GPU gets float32 copies.
+ * mosaic's height there, nothing below `floor_m` (see `groundFloor`), minus
+ * that levelled height at the lead's target, so the target is at 0. `shift_m`
+ * is that constant (minus the levelled real height at the target). Float64,
+ * for `heightAt`; the GPU gets float32 copies.
  */
-export function vertexHeights(latlon: Float64Array, frame: LocalFrame, mosaic: HeightMosaic): { up: Float64Array; shift_m: number } {
-  const shift_m = -mosaicHeightAt(mosaic, frame.origin.lat, frame.origin.lon);
+export function vertexHeights(latlon: Float64Array, frame: LocalFrame, mosaic: HeightMosaic, floor_m: number): { up: Float64Array; shift_m: number } {
+  const shift_m = -mosaicHeightAt(mosaic, frame.origin.lat, frame.origin.lon, floor_m);
   const nv = latlon.length / 2;
   const up = new Float64Array(nv);
-  for (let v = 0; v < nv; v++) up[v] = mosaicHeightAt(mosaic, latlon[2 * v], latlon[2 * v + 1]) + shift_m;
+  for (let v = 0; v < nv; v++) up[v] = mosaicHeightAt(mosaic, latlon[2 * v], latlon[2 * v + 1], floor_m) + shift_m;
   return { up, shift_m };
 }
 
@@ -473,8 +606,10 @@ export interface TerrainMesh {
   colorsReal: Float32Array | undefined;
   /** The shown height per vertex (float64, what `heightAt` reads). */
   up: Float64Array | undefined;
-  /** Minus the real height at the target, m (0 without heights). */
+  /** Minus the levelled real height at the lead's target, m (0 without heights). */
   shift_m: number;
+  /** The real height the ground is drawn flat below, m: 0, or lower for a strike with a target in a depression (0 without heights). */
+  floor_m: number;
   /** Undefined without a drape plan. */
   uvs: Float32Array | undefined;
 }
@@ -487,7 +622,8 @@ export interface TerrainMesh {
 export function buildTerrainMesh(plan: TerrainPlan, mosaic: HeightMosaic | undefined, latlon = gridLatLon(plan.grid, plan.frame)): TerrainMesh {
   const { grid } = plan;
   const nv = vertexCount(grid);
-  const heights = mosaic ? vertexHeights(latlon, plan.frame, mosaic) : undefined;
+  const floor_m = mosaic ? groundFloor(mosaic, plan.frame, plan.targets) : 0;
+  const heights = mosaic ? vertexHeights(latlon, plan.frame, mosaic, floor_m) : undefined;
   return {
     grid,
     index: gridIndices(grid.segX, grid.segY),
@@ -497,6 +633,7 @@ export function buildTerrainMesh(plan: TerrainPlan, mosaic: HeightMosaic | undef
     colorsReal: heights ? shadeColors(hillshade(heights.up, grid)) : undefined,
     up: heights?.up,
     shift_m: heights?.shift_m ?? 0,
+    floor_m,
     uvs: plan.drape ? drapeUvs(latlon, plan.drape) : undefined,
   };
 }
