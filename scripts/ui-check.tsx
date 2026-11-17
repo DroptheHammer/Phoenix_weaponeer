@@ -16,6 +16,7 @@ import { Card } from '../src/components/ui/Card';
 import { Chip, type ChipTone, type ChipSize } from '../src/components/ui/Chip';
 import { Tabs, nextSelection, type TabsVariant } from '../src/components/ui/Tabs';
 import { DialogFrame } from '../src/components/ui/DialogFrame';
+import { isTopDialog, tabStop, type DialogNode } from '../src/components/ui/dialogKeys';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -190,9 +191,72 @@ const audit = (label: string, markup: string) => {
   //       (each of the two changes)
   ok('DS18 DialogFrame: a fixed-height dialog with a body that does not scroll, for two columns that scroll apart; an ordinary dialog still scrolls its body',
      /h-\[min\(700px,90vh\)\]/.test(cols) && !/max-h-\[90vh\]/.test(cols) && !/overflow-y-auto/.test(cols) && /overflow-hidden px-6/.test(cols) && /max-h-\[90vh\]/.test(plain) && /overflow-y-auto px-6/.test(plain), cols.slice(0, 240));
+  // The dialog element must be focusable by script (Modal moves focus into it when it opens) and never by Tab.
+  const dialogTag = (markup: string) => markup.match(/<[^>]*role="dialog"[^>]*>/)?.[0] ?? '';
+  // Red when: `tabIndex={-1}` is removed from the Panel in DialogFrame's desktop form; or from the phone form's outer div.
+  // Seen: FAIL DS18 DialogFrame: the role="dialog" element carries tabindex="-1", desktop and phone  desktop: <div role="dialog" aria-modal="true" aria-label="Preview Import" class="flex flex-col overflow-hidden … // phone: <div tabindex="-1" class="fixed inset-0 z-[2000] …
+  //       FAIL DS18 DialogFrame: the role="dialog" element carries tabindex="-1", desktop and phone  desktop: <div tabindex="-1" role="dialog" aria-modal="true" … // phone: <div class="fixed inset-0 z-[2000] flex flex-col bg-surface-navy …
+  ok('DS18 DialogFrame: the role="dialog" element carries tabindex="-1", desktop and phone',
+     /tabindex="-1"/.test(dialogTag(dlg)) && /tabindex="-1"/.test(dialogTag(dlgPhone)), `desktop: ${dialogTag(dlg)} // phone: ${dialogTag(dlgPhone)}`);
   audit('DialogFrame', html(createElement(DialogFrame, { title: 't', onClose: noop, phone: false, eyebrow: 'e', description: 'd', footer: 'f' }, 'b')) + html(createElement(DialogFrame, { title: 't', onClose: noop, phone: true, footer: 'f' }, 'b')));
   audit('DialogFrame columns', cols);
   audit('DialogFrame fill', html(createElement(DialogFrame, { title: 't', onClose: noop, phone: false, fill: true }, 'b')) + html(createElement(DialogFrame, { title: 't', onClose: noop, phone: true, fill: true }, 'b')));
+}
+
+// ─── Dialogs and the keyboard: who is on top, and where Tab goes ─────────────────
+{
+  // Stand-ins for elements: a name, a parent, and contains() walking up the parents, which is all the helpers use.
+  interface Stand extends DialogNode { name: string; parent: Stand | null }
+  const el = (name: string, parent: Stand | null = null): Stand => {
+    const self: Stand = { name, parent, contains: (other) => { for (let p = other as Stand | null; p; p = p.parent) if (p === self) return true; return false; } };
+    return self;
+  };
+  // A document whose [role="dialog"] elements are these, in page order.
+  const doc = (...dialogs: Stand[]) => ({ querySelectorAll: () => dialogs });
+  const name = (n: Stand | undefined) => n?.name ?? 'undefined';
+
+  const lower = el('lower');
+  const upper = el('upper');
+  const outer = el('outer');
+  const legend = el('legend', el('map', outer));
+  const lone = el('lone');
+  const elsewhere = el('elsewhere');
+  const cases: [string, boolean, boolean][] = [
+    ['of two, the later is on top', isTopDialog(upper, doc(lower, upper)), true],
+    ['of two, the earlier is not', isTopDialog(lower, doc(lower, upper)), false],
+    ['a dialog with a dialog inside it is on top', isTopDialog(outer, doc(outer, legend)), true],
+    ['a dialog is not on top when the last dialog is elsewhere', isTopDialog(lone, doc(lone, elsewhere)), false],
+    ['no dialog element, not on top', isTopDialog(null, doc(lower)), false],
+  ];
+  const wrong = cases.filter(([, got, want]) => got !== want).map(([what]) => what);
+  // Red when: isTopDialog begins with `return true;` (every dialog answers every key, as before: one Escape closed both).
+  // Seen: FAIL DS23 dialog on top: …  wrong: of two, the earlier is not; a dialog is not on top when the last dialog is elsewhere; no dialog element, not on top
+  ok('DS23 dialog on top: of two dialogs only the later answers the keyboard; a dialog inside a dialog does not take it from the one round it', wrong.length === 0, `wrong: ${wrong.join('; ')}`);
+
+  const root = el('dialog');
+  const first = el('first', root);
+  const middle = el('middle', root);
+  const last = el('last', root);
+  const behind = el('behind');
+  const stops = [first, middle, last];
+  const moves: [string, Stand | undefined, Stand | undefined][] = [
+    ['Tab on the last goes to the first', tabStop(stops, last, false, root), first],
+    ['Shift+Tab on the first goes to the last', tabStop(stops, first, true, root), last],
+    ['Tab from the dialog itself goes to the first', tabStop(stops, root, false, root), first],
+    ['Shift+Tab from the dialog itself goes to the last', tabStop(stops, root, true, root), last],
+    ['Tab from behind the dialog goes to the first', tabStop(stops, behind, false, root), first],
+    ['Shift+Tab from behind the dialog goes to the last', tabStop(stops, behind, true, root), last],
+    ['Tab with nothing focused goes to the first', tabStop(stops, null, false, root), first],
+    ['Tab from a middle control is the browser\'s own', tabStop(stops, middle, false, root), undefined],
+    ['Shift+Tab from a middle control is the browser\'s own', tabStop(stops, middle, true, root), undefined],
+    ['Shift+Tab on the last is the browser\'s own', tabStop(stops, last, true, root), undefined],
+    ['no controls: Tab keeps focus on the dialog', tabStop([], root, false, root), root],
+    ['no controls: Shift+Tab from behind comes to the dialog', tabStop([], behind, true, root), root],
+  ];
+  const off = moves.filter(([, got, want]) => got !== want).map(([what, got, want]) => `${what} (got ${name(got)}, want ${name(want)})`);
+  // Red when: tabStop's `if (!back && active === last) return first;` is taken out (Tab walks out of the dialog after its last control).
+  // Seen: FAIL DS24 Tab stays inside: …  Tab on the last goes to the first (got undefined, want first)
+  ok('DS24 Tab stays inside: it wraps last to first and first to last, comes in from the dialog or from behind it, and leaves the browser\'s own move in between', off.length === 0, off.join('; '));
 }
 
 // ─── The gallery's dialogs get their sizes from classes the gallery defines ──────

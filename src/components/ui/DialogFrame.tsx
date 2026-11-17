@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, Ref } from 'react';
 import { cx } from './cx';
 import { IconButton } from './IconButton';
 import { Panel } from './Panel';
@@ -32,6 +32,8 @@ export interface DialogFrameProps {
    * scrolling areas (two columns that scroll apart, with the header and footer staying put).
    */
   scrollBody?: boolean;
+  /** The element with role="dialog", desktop and phone, so Modal can move focus into it and keep Tab inside it. */
+  dialogRef?: Ref<HTMLDivElement>;
 }
 
 const SAFE_AREA: CSSProperties = {
@@ -49,13 +51,17 @@ const SAFE_AREA: CSSProperties = {
  * role="dialog" carries aria-label={title}, and the stack position is z-[2000]. App.tsx blocks
  * Undo while any [role="dialog"] exists, and the 3D playback overlay decides who is on top by
  * the last one in the page.
+ *
+ * The dialog element takes focus (tabIndex -1: by script, never by Tab) so a dialog that opens
+ * owns the keyboard at once. Its outline is left alone: a keyboard user sees the ring round the
+ * dialog, a mouse user sees none.
  */
 export function DialogFrame({
-  title, onClose, children, phone, widthClass = 'w-[440px]', fill = false, eyebrow, description, footer, heightClass = 'max-h-[90vh]', scrollBody = true,
+  title, onClose, children, phone, widthClass = 'w-[440px]', fill = false, eyebrow, description, footer, heightClass = 'max-h-[90vh]', scrollBody = true, dialogRef,
 }: DialogFrameProps) {
   if (phone) {
     return (
-      <div className="fixed inset-0 z-[2000] flex flex-col bg-surface-navy text-ink" style={SAFE_AREA} role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[2000] flex flex-col bg-surface-navy text-ink" style={SAFE_AREA} role="dialog" aria-modal="true" aria-label={title}>
         <div className="flex shrink-0 items-center justify-between border-b border-line pl-4 pr-1">
           <h2 className="truncate py-3 text-ui-lead font-bold">{title}</h2>
           <IconButton icon="close" label="Close" onClick={onClose} />
@@ -69,6 +75,8 @@ export function DialogFrame({
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-scrim">
       <Panel
+        ref={dialogRef as Ref<HTMLElement> | undefined}
+        tabIndex={-1}
         tone="dialog"
         role="dialog"
         aria-modal="true"

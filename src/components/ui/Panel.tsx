@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from 'react';
+import { forwardRef, type HTMLAttributes, type ReactNode, type Ref } from 'react';
 import { cx } from './cx';
 
 /**
@@ -29,14 +29,17 @@ const TONE: Record<PanelTone, string> = {
 };
 const GROUP_NESTED = 'relative overflow-hidden rounded-ui-lg border border-line bg-tint-1';
 
-export function Panel({ tone = 'group', nested = false, divided = true, as: Tag = 'div', className, children, ...rest }: PanelProps) {
+// The ref reaches the element itself, so a dialog drawn on a panel can be given focus.
+export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel({ tone = 'group', nested = false, divided = true, as = 'div', className, children, ...rest }, ref) {
   const base = tone === 'group' && nested ? GROUP_NESTED : TONE[tone];
+  // Typed as one tag so the ref has one element type; the element drawn is still the one asked for.
+  const Tag = as as 'div';
   return (
-    <Tag {...rest} className={cx(base, tone === 'group' && divided && 'divide-y divide-line', className)}>
+    <Tag {...rest} ref={ref as Ref<HTMLDivElement>} className={cx(base, tone === 'group' && divided && 'divide-y divide-line', className)}>
       {children}
     </Tag>
   );
-}
+});
 
 export interface GroupLabelProps {
   children: ReactNode;
