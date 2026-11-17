@@ -6,10 +6,10 @@
  * the checks can run them in Node with plain stand-in objects.
  *
  * The 3D playback has its own copy of the Tab rule (trapTab in
- * src/components/playback/PlaybackOverlay.tsx). That code loads only when a
- * playback is opened, and this file loads at start-up with every dialog, so
- * sharing one helper would pull one into the other's bundle; the playback is
- * also left exactly as it was reviewed.
+ * src/components/playback/PlaybackOverlay.tsx) and its own on-top test. They
+ * are kept apart on purpose: the playback does more with the same keys (its
+ * Escape first closes an open menu, then lets go of a box a time is typed in,
+ * and only then closes), and it takes them before any dialog does.
  */
 
 /** What the helpers need of an element: enough for a stand-in object in a check. */
