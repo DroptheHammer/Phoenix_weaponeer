@@ -10,19 +10,13 @@ question "isn't this in the docs?" — it was not. It is now.
    2005**, §5.14 "Pop-Up Deliveries" (pp. 5-78 … 5-82), §5.16.4 repositioning
    (5-91 … 5-92), **§5.17 "Pop-Up Formulas"** with a worked example (5-92 …
    5-97), §5.6 computed visual bombing, §5.8 tactical considerations (dive
-   bomb, HADB, LAT). Unclassified. A direct derivative of the USAF
-   **MCH 11-F16 Volume 5, "F-16 Combat Aircraft Fundamentals"**.
+   bomb, HADB, LAT). Unclassified.
    http://falcon.blu3wolf.com/Docs/Basic-Employment-Manual-F-16C-RoKAF.pdf
    (11 MB; text-searchable. Page numbers below are PDF pages; printed pages
    are 5-nn.)
-2. **MCH 11-F16 Vol 5** itself, mirrored by FAS:
-   https://man.fas.org/dod-101/sys/ac/docs/16v5.pdf — the diagram the user
-   pasted ("PUP · pop-to-pull-down distance · angle off · pull-down point ·
-   apex · track point · release · AOD · MAP") is its Figure. The mirror sits
-   behind a bot check; the BEM above carries the same text and formulas.
-3. **"Pop-up Attack Manual" v4.7, Cars "Falcas" Burgers** (Falcon BMS
-   community; cites MCH 11-F16 Vol 5 as its reference). Image-only PDF, but a
-   clean worked example and the Type I / Type II distinction below.
+2. **"Pop-up Attack Manual" v4.7, Cars "Falcas" Burgers** (Falcon BMS
+   community). Image-only PDF, but a clean worked example and the Type I /
+   Type II distinction below.
    https://www.e-haf.org/PublicFTP/BIBLIO8HKH/POPUP/PopupAttack_4_745.6/Pop-up%20Attack%204_72%20Manual.pdf
 
 ## Definitions (BEM §5.14.2–5.14.3, p. 395–397)
@@ -362,8 +356,7 @@ cards still carry the "no data on file" caution.
   Delivery Manual, Non-Nuclear*, Sec VI Safe Escape, Fig 6-14 sheet 2, p.6-43,
   "Level delivery, low drag", straight-and-level constant-speed escape, worst
   row (360 KTAS). Contact burst. A public scan is on archive.org
-  (`f4cdennwdmanual`). It agrees with T.O. 1A-7K-34-1-1 Fig 6-15. It is a
-  **level-release** figure.
+  (`f4cdennwdmanual`). It is a **level-release** figure.
 - **Considered and rejected: a floor for the Mk-20 Rockeye and CBU-99.**
   USAF T.O. 1-1M-34, Fig 6-1, p.6-9, gives 1,380 ft as the maximum fragment
   altitude of an intact Mk 20 Rockeye cluster at sea level ("MK 20 ROCKEYE

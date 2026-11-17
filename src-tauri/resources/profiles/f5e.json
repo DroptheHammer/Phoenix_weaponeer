@@ -9,7 +9,7 @@
     "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
     "defaultFor": ["bomb_ld", "bomb_hd", "rocket"],
     "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4500, "releaseSpeed_ktas": 450, "pulloutG": 4 },
-    "sight": { "depression_mils": 110, "notes": "Mk-82 LD, 30° / 450 KIAS / 4,500 ft — check the F-5E manual depression tables for the actual load" },
+    "sight": { "depression_mils": 110, "notes": "Mk-82 LD, 30° / 450 KIAS / 4,500 ft — check the DCS F-5E module manual's bombing table for the actual load" },
     "procedure": [
       "Sight mode MSL (manual), depression set, station selected",
       "Roll in, establish 30° and 450 kt — hold them",

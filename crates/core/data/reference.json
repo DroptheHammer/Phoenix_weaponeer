@@ -2499,7 +2499,7 @@
       "min_release_alt_ft": null,
       "min_release_speed_ktas": null,
       "name": "Mk-83 LDGP",
-      "notes": "Low-drag general-purpose bomb. Weight: 454 kg in DCS (pydcs weapons_data.py 5ddcc63). Frag min-safe 1,300 ft: USAF T.O. 1F-4C-34-1-1 (F-4C/D/E Aircrew Weapons Delivery Manual, Non-Nuclear) Sec VI, Fig 6-14 sheet 2, p.6-43, level delivery low drag, straight-and-level constant-speed escape, worst row (360 KTAS), contact burst (public scan: archive.org/details/f4cdennwdmanual); agrees with T.O. 1A-7K-34-1-1 Fig 6-15. It is a level-release figure. Blast radius 250 ft (any damage): from a community test, \"Anatomy of explosions\" (flyandwire.com, 2026-07-11), which saw limited damage at 240 ft and none at 250 ft. The test used a helicopter, judged by eye, DCS version not stated, not a game figure.",
+      "notes": "Low-drag general-purpose bomb. Weight: 454 kg in DCS (pydcs weapons_data.py 5ddcc63). Frag min-safe 1,300 ft: USAF T.O. 1F-4C-34-1-1 (F-4C/D/E Aircrew Weapons Delivery Manual, Non-Nuclear) Sec VI, Fig 6-14 sheet 2, p.6-43, level delivery low drag, straight-and-level constant-speed escape, worst row (360 KTAS), contact burst (public scan: archive.org/details/f4cdennwdmanual). It is a level-release figure. Blast radius 250 ft (any damage): from a community test, \"Anatomy of explosions\" (flyandwire.com, 2026-07-11), which saw limited damage at 240 ft and none at 250 ft. The test used a helicopter, judged by eye, DCS version not stated, not a game figure.",
       "weight_lbs": 1001.0
     },
     {

@@ -2,9 +2,8 @@
  * Pop-up attack planning — the F-16 handbook's rules of thumb.
  *
  * Source: Korean AF Basic Employment Manual Vol 5 (1 Oct 2005) §5.14 and
- * §5.17, a derivative of USAF MCH 11-F16 Vol 5 "F-16 Combat Aircraft
- * Fundamentals". Transcribed and checked against the manual's own worked
- * example in docs/DELIVERY_PLANNING.md. All altitudes are ft AGL, speeds KTAS.
+ * §5.17. Transcribed and checked against the manual's own worked example in
+ * docs/DELIVERY_PLANNING.md. All altitudes are ft AGL, speeds KTAS.
  *
  * The pilot states the dive angle and the release altitude (a floor). With
  * speed, tracking time and G from the profile, the vertical picture follows:

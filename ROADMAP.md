@@ -119,11 +119,16 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       pilot changes the speed, the release height, the dive angle or the bomb.
       It should be looked up from the aircraft's own depression tables, or
       estimated and flagged. What a search of public sources found
-      (2026-11-15): none of the eight numbers on file traces to a table. Whether the DCS F-5E drops like the real jet is not known. The Mirage F1 module manual covers only 10° and 20°
+      (2026-11-15): none of the eight numbers on file traces to a table. For
+      the F-5E, the user has ruled the real jet's weapons manual out as a
+      source (it carries a distribution restriction), and the DCS module's own
+      manual prints two bomb sight settings, neither near the planner's two
+      F-5E profiles. The Mirage F1 module manual covers only 10° and 20°
       dives with the SAMP-250. Nothing was found for the F-4E (its module has
-      a bombing calculator in the game) or for the A-4E-C's dives. A fixed number is wrong after any one change. Suggested first
-      step, not yet decided: stop printing the fixed number once the attack is
-      customized, and give a box for the pilot's own figure.
+      a bombing calculator in the game) or for the A-4E-C's dives. So the
+      F-5E's figure will be the planner's own calculation from the bomb's
+      fall, marked as an estimate, with a box for the pilot's own number, and
+      a short test flight in the game is the way to check it.
 - [x] **Loadout from a CLI/.miz import** (2026-11-13, Session 3,
       released in v0.3.4). The CLI writes pylons as DCS CLSIDs; a generated table
       (`scripts/gen-clsids.mjs` → `crates/core/src/parsers/clsid_data.rs`, from
