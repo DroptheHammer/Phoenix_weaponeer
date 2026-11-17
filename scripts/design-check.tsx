@@ -164,12 +164,13 @@ const KNOWN: Record<string, Partial<Record<Vision | 'normal', number>>> = {
 
 // ─── The data colours are copies of the map's own ────────────────────────────────
 {
-  const map = read('src/components/map/MapView.tsx');
+  // The map's markers and rings are written in mapMarkers.ts (MapView and the Flight overview both draw through it).
+  const map = read('src/components/map/mapMarkers.ts');
   const colors = nodeRequire('tailwindcss/resolveConfig')({ content: [], theme: {} }).theme.colors;
   const markers: Record<string, [string, string]> = { target: ['red', '500'], ip: ['yellow', '500'], nav: ['blue', '500'], bullseye: ['orange', '500'], departure: ['slate', '500'] };
   const wrong: string[] = [];
   for (const [kind, [hue, shade]] of Object.entries(markers)) {
-    if (!new RegExp(`${kind}: 'bg-${hue}-${shade}'`).test(map)) wrong.push(`MapView no longer draws ${kind} as bg-${hue}-${shade}`);
+    if (!new RegExp(`${kind}: 'bg-${hue}-${shade}'`).test(map)) wrong.push(`the map's markers no longer draw ${kind} as bg-${hue}-${shade}`);
     if ((tokens[`--d-${kind}`] ?? '').toLowerCase() !== String(colors[hue][shade]).toLowerCase()) wrong.push(`--d-${kind} ${tokens[`--d-${kind}`]} vs ${hue}-${shade} ${colors[hue][shade]}`);
   }
   for (const [kind, key] of [['sam', 'SAM'], ['aaa', 'AAA'], ['manpads', 'MANPADS'], ['shorad', 'SHORAD'], ['ewr', 'EWR']]) {
@@ -178,9 +179,10 @@ const KNOWN: Record<string, Partial<Record<Vision | 'normal', number>>> = {
   }
   const ring = /threat\.status === 'active' \? '(#[0-9A-Fa-f]{6})'/.exec(map);
   if (!ring || ring[1].toLowerCase() !== (tokens['--d-ring'] ?? '').toLowerCase()) wrong.push(`--d-ring vs map ${ring?.[1]}`);
-  // Red when: tokens.css --d-sam becomes #dc2627.
-  // Seen: FAIL DS6 data colours: each --d-* token equals what MapView draws  --d-sam #dc2627 vs map #DC2626
-  ok('DS6 data colours: each --d-* token equals what MapView draws', wrong.length === 0, wrong.join('; '));
+  // Red when: tokens.css --d-sam becomes #dc2627; or mapMarkers.ts draws the target waypoint as 'bg-red-600'.
+  // Seen: FAIL DS6 data colours: each --d-* token equals what the map's markers draw  --d-sam #dc2627 vs map #DC2626
+  //       FAIL DS6 data colours: each --d-* token equals what the map's markers draw  the map's markers no longer draw target as bg-red-500   (mapMarkers.ts: 'bg-red-600')
+  ok('DS6 data colours: each --d-* token equals what the map\'s markers draw', wrong.length === 0, wrong.join('; '));
 }
 
 // ─── The files that hold the protected colours take no token and no bundled font ─

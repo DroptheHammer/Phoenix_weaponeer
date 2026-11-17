@@ -82,7 +82,7 @@
   --c-track: rgb(var(--rgb-track));
 
   /* ---- The planner's data colours. PROTECTED: copies of what the map draws
-          (MapView.tsx: waypoint markers, threat icons, rings; Tailwind's red, yellow,
+          (mapMarkers.ts: waypoint markers, threat icons, rings; Tailwind's red, yellow,
           blue, orange and slate 500). design-check proves they still match.
           Never change one here without changing the map. ---- */
   --d-target: #ef4444;

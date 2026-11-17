@@ -49,8 +49,11 @@ against them reads `var(--c-navy)` wherever it is.
   file there, and one shared stores-table component is better than several
   entries.
 - **Data colours** (`--d-target`, `--d-sam`, ...) are copies of what the map
-  draws, for a dot or a key beside the map. DS6 proves each equals
-  `MapView.tsx`. They never restyle the map: change the map, then the copy.
+  draws, for a dot or a key beside the map. DS6 proves each equals what
+  `src/components/map/mapMarkers.ts` draws (the planner map's markers, rings
+  and route line, kept in one file so any other map can draw the same; X4 in
+  `scripts/landing-ui-check.tsx` pins that file's code). They never restyle the
+  map: change the map, then the copy.
 - **Spacing is Tailwind's own 4 px scale**; `--sp-*` mirror it (DS4), so a
   utility and a variable always agree.
 - **Phone values are tokens, not components.** One block at the end of
