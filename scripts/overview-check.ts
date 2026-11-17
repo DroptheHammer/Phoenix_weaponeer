@@ -1,7 +1,8 @@
 /**
  * Checks for the Flight overview's pure parts (src/lib/landing/nearThreats.ts,
  * overviewFrame.ts, overviewModel.ts, flightChoices.ts, jetCards.ts,
- * editedWhen.ts). Run by geo-check as an import after landing-check.
+ * editedWhen.ts), and the load box's road for a file known by its path
+ * (sourceFromPath in loadRouter.ts). Run by geo-check as an import after landing-check.
  *
  * Beside each check, "Red when" is the one-line change to the real module that
  * turns it red, and "Seen" is the line it printed when that change was made.
@@ -26,6 +27,8 @@ import { buildOverview } from '../src/lib/landing/overviewModel';
 import { filterChoices, flightChoices, flightLabelOf, flightMatches } from '../src/lib/landing/flightChoices';
 import { jetCardsFromGroup, jetCardsFromMission, readinessOf } from '../src/lib/landing/jetCards';
 import { editedWhen, editedWhenCapital } from '../src/lib/landing/editedWhen';
+import { routeLoad, sourceFromPath, type LoadSource } from '../src/lib/landing/loadRouter';
+import { MIZ_ADVICE, REFUSAL_MESSAGES } from '../src/lib/landing/loadSniff';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -370,6 +373,85 @@ ok('E1 today, yesterday, this year, another year, nothing',
   JSON.stringify(words) === JSON.stringify(['today, 14:20', 'yesterday, 21:05', '9 Nov', '9 Nov 2025', null]) && editedWhenCapital(at(2026, 10, 16, 14, 20), now) === 'Today, 14:20' &&
     editedWhen(at(2026, 0, 1, 0, 5), new Date(2026, 0, 1, 23, 0)) === 'today, 00:05' && editedWhen(at(2025, 11, 31, 23, 0), new Date(2026, 0, 1, 9, 0)) === 'yesterday, 23:00',
   JSON.stringify(words));
+
+// ─── P: a file known by its path (the desktop's Choose file and drop) ─────────
+{
+  const exportText = JSON.stringify({ theatre: 'Nevada', coalition: {} });
+  // What Windows PowerShell's `>` writes: a byte-order mark, then UTF-16LE.
+  const utf16 = new Uint8Array([0xff, 0xfe, ...[...exportText].flatMap((c) => [c.charCodeAt(0) & 0xff, c.charCodeAt(0) >> 8])]);
+  // A file's bytes, or the words the desktop's read command rejects with (it rejects with a plain string).
+  const files: Record<string, Uint8Array | string> = {
+    '/Missions/Test Strike.json': new TextEncoder().encode(JSON.stringify(cardMission)),
+    'C:\\Missions\\export.json': new TextEncoder().encode(exportText),
+    '/Missions/export-utf16.json': utf16,
+    '/Missions/STRIKE.JSON': new TextEncoder().encode(exportText),
+    '/Missions/huge.json': 'too-large',
+    '/Missions/folder.json': 'not-a-file',
+    '/Missions/locked.json': 'Permission denied (os error 13)',
+  };
+  const readCalls: string[] = [];
+  const read = async (p: string): Promise<Uint8Array> => {
+    readCalls.push(p);
+    const f = files[p];
+    if (f instanceof Uint8Array) return f;
+    throw f;
+  };
+  const parsed: string[] = [];
+  const deps = {
+    fetchLink: async () => { throw new Error('no network here'); },
+    parseFragOrders: async (json: string) => { parsed.push(json); return ({ player_groups: [] }) as never; },
+  };
+  // The browser's road for the same file, built as platformBindings' sourceFromFile builds it (that module
+  // reaches the platform, which plain node cannot load).
+  const webFile = new File([utf16], 'export-utf16.json');
+  const fromWeb: LoadSource = { kind: 'file', name: webFile.name, size: webFile.size, bytes: async () => new Uint8Array(await webFile.arrayBuffer()), path: webFile.name };
+  const byPath = (p: string) => routeLoad(sourceFromPath(p, read), deps);
+  void (async () => {
+    const [saved, frag] = await Promise.all([byPath('/Missions/Test Strike.json'), byPath('C:\\Missions\\export.json')]);
+    // Red when (loadRouter sourceFromPath): the source's `path` becomes `path: null`.
+    // Seen: FAIL P1 a saved mission chosen through the desktop dialog keeps its path (Save writes back, Recent missions lists it); a FragOrders export by path still opens the chooser  {"saved":null,"frag":"fragorders"}
+    ok('P1 a saved mission chosen through the desktop dialog keeps its path (Save writes back, Recent missions lists it); a FragOrders export by path still opens the chooser',
+      saved.kind === 'saved-mission' && saved.path === '/Missions/Test Strike.json' && sourceFromPath('C:\\Missions\\export.json', read).name === 'export.json' && frag.kind === 'fragorders' && frag.via === 'cli-export',
+      JSON.stringify({ saved: saved.kind === 'saved-mission' ? saved.path : saved, frag: frag.kind }));
+
+    parsed.length = 0;
+    const desktop16 = await byPath('/Missions/export-utf16.json');
+    const desktopText = parsed[0];
+    const web16 = await routeLoad(fromWeb, deps);
+    const webText = parsed[1];
+    // Red when (loadRouter sourceFromPath): the bytes go through text on the way, `return new TextEncoder().encode(new TextDecoder().decode(await readBytes(path)));`.
+    // Seen: FAIL P1 a UTF-16 export with a byte-order mark loads by path exactly as the browser loads the same file  {"desktop":{"kind":"error","message":"That file isn't text, so it can't be a mission.","reason":"binary"},"web":"fragorders"}
+    ok('P1 a UTF-16 export with a byte-order mark loads by path exactly as the browser loads the same file',
+      desktop16.kind === 'fragorders' && desktop16.via === 'cli-export' && web16.kind === 'fragorders' && desktopText === exportText && webText === exportText,
+      JSON.stringify({ desktop: desktop16.kind === 'fragorders' ? desktop16.via : desktop16, web: web16.kind }));
+
+    const miz = await byPath('C:\\Missions\\Op.miz');
+    // Red when (loadRouter routeLoad): the line `if (/\.miz$/i.test(source.name)) return refused('miz');` is deleted.
+    // Seen: FAIL P1 a .miz by path gets the advice to run the FragOrders tool, and is never read  {"miz":{"kind":"error","message":"That isn't a .json file, so it can't be a mission or a FragOrders export.","reason":"not-a-mission-file"},"read":false}
+    ok('P1 a .miz by path gets the advice to run the FragOrders tool, and is never read',
+      miz.kind === 'error' && miz.reason === 'miz' && miz.message === MIZ_ADVICE && !readCalls.includes('C:\\Missions\\Op.miz'),
+      JSON.stringify({ miz, read: readCalls.includes('C:\\Missions\\Op.miz') }));
+
+    const [png, upper] = await Promise.all([byPath('/Missions/card.png'), byPath('/Missions/STRIKE.JSON')]);
+    // Red when (loadRouter sourceFromPath): the name test `if (!/\.json$/i.test(name)) throw new ReadRefused('not-a-mission-file');` is deleted.
+    // Seen: FAIL P1 any other name is refused unread in the load box's own words; .JSON in capitals is still read  {"png":{"kind":"error","message":"Couldn't read that file — undefined"},"read":true}
+    ok('P1 any other name is refused unread in the load box\'s own words; .JSON in capitals is still read',
+      png.kind === 'error' && png.reason === 'not-a-mission-file' && png.message === REFUSAL_MESSAGES['not-a-mission-file'] &&
+        !readCalls.includes('/Missions/card.png') && readCalls.includes('/Missions/STRIKE.JSON') && upper.kind === 'fragorders',
+      JSON.stringify({ png, read: readCalls.includes('/Missions/card.png') }));
+
+    const [huge, folder, locked] = await Promise.all([byPath('/Missions/huge.json'), byPath('/Missions/folder.json'), byPath('/Missions/locked.json')]);
+    // Red when (loadRouter READ_REFUSALS): the `['too-large', 'too-large']` entry is deleted.
+    // Seen: FAIL P1 the read command's refusals reach the planner in the load box's own words, never as its codes; any other failure keeps its own words  {"huge":{"kind":"error","message":"Couldn't read that file — too-large"},...
+    // Red when (loadRouter READ_REFUSALS): the `['not-a-file', 'not-a-mission-file']` entry is deleted.
+    // Seen: FAIL P1 the read command's refusals reach the planner in the load box's own words, never as its codes; any other failure keeps its own words  {"huge":{...,"reason":"too-large"},"folder":{"kind":"error","message":"Couldn't read that file — not-a-file"},...
+    ok('P1 the read command\'s refusals reach the planner in the load box\'s own words, never as its codes; any other failure keeps its own words',
+      huge.kind === 'error' && huge.reason === 'too-large' && huge.message === REFUSAL_MESSAGES['too-large'] &&
+        folder.kind === 'error' && folder.reason === 'not-a-mission-file' && folder.message === REFUSAL_MESSAGES['not-a-mission-file'] &&
+        locked.kind === 'error' && locked.message === "Couldn't read that file — Permission denied (os error 13)",
+      JSON.stringify({ huge, folder, locked }));
+  })().catch((e) => ok('P1 the file-by-path checks ran without throwing', false, String((e as Error)?.stack ?? e)));
+}
 
 // ─── X: one copy of the profile names ─────────────────────────────────────────
 // Red when (AttackList.tsx): the PROFILE_LABELS map is pasted back in (a `level_ccrp:` line) and the import of lib/profileLabels dropped.

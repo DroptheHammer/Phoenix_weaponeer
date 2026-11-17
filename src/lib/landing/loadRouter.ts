@@ -24,6 +24,52 @@ export type LoadSource =
       path: string | null;
     };
 
+/** A file turned away before any of it was read: the load box shows its own words for the reason. */
+class ReadRefused {
+  constructor(readonly reason: RefusalReason) {}
+}
+
+/**
+ * What the desktop's read command (`read_load_file` in src-tauri/src/commands/mod.rs) answers when it
+ * refuses a file unread, and the load box's own reason for each. A Rust test keeps these exact words
+ * the same on both sides, so the planner never sees the command's codes.
+ */
+const READ_REFUSALS = new Map<string, RefusalReason>([
+  ['not-json', 'not-a-mission-file'],
+  ['not-a-file', 'not-a-mission-file'],
+  ['too-large', 'too-large'],
+]);
+
+/**
+ * A file known by its path: the desktop's own Choose file dialog, or a file dropped on the desktop window.
+ * Its bytes are read through `readBytes` only when routeLoad wants them, and handed on untouched, so the
+ * one decoder serves the desktop as it serves a browser's File (a UTF-16 export written by Windows
+ * PowerShell included). The path stays with it, so a saved mission loaded this way saves back to its file
+ * and joins Recent missions, exactly as Open does. The size is not known before reading (0 here): the
+ * desktop's read command refuses anything over LOAD_MAX_BYTES itself.
+ */
+export type FileLoadSource = Extract<LoadSource, { kind: 'file' }>;
+export function sourceFromPath(path: string, readBytes: (path: string) => Promise<Uint8Array>): FileLoadSource {
+  const name = path.split(/[\\/]/).pop() || path;
+  return {
+    kind: 'file',
+    name,
+    size: 0,
+    bytes: async () => {
+      // The desktop reads nothing but .json; saying so here spares a trip to the backend for a picture or a
+      // brief pack dropped by mistake. (A .miz never gets this far: routeLoad gives its own advice first.)
+      if (!/\.json$/i.test(name)) throw new ReadRefused('not-a-mission-file');
+      try {
+        return await readBytes(path);
+      } catch (e) {
+        const reason = READ_REFUSALS.get(String(e));
+        throw reason ? new ReadRefused(reason) : e;
+      }
+    },
+    path,
+  };
+}
+
 export interface LoadDeps {
   fetchLink(url: string): Promise<FragOrdersData>;
   parseFragOrders(jsonStr: string): Promise<FragOrdersData>;
@@ -52,6 +98,7 @@ export async function routeLoad(input: LoadSource | LoadSource[], deps: LoadDeps
       try {
         bytes = await source.bytes();
       } catch (e) {
+        if (e instanceof ReadRefused) return refused(e.reason);
         return { kind: 'error', message: `Couldn't read that file — ${String(e)}` };
       }
       const decoded = decodeLoadBytes(bytes, source.name);

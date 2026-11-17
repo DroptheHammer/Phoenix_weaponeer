@@ -34,7 +34,8 @@ export type RefusalReason =
   | 'unrecognised-json'
   | 'not-a-link'
   | 'several-links'
-  | 'several-files';
+  | 'several-files'
+  | 'not-a-mission-file';
 
 export type LoadKind =
   | { kind: 'link'; url: string }
@@ -59,6 +60,9 @@ export const REFUSAL_MESSAGES: Record<RefusalReason, string> = {
   'not-a-link': 'Paste a FragOrders link (fragorders.com/public_frag_order/…), or drop a .json file.',
   'several-links': 'That holds more than one FragOrders link. Paste one at a time.',
   'several-files': 'Drop or pick one file at a time.',
+  // The desktop app reads a picked or dropped file only if it is named .json (a folder never), so
+  // anything else is turned away by its name before a byte of it is read.
+  'not-a-mission-file': "That isn't a .json file, so it can't be a mission or a FragOrders export.",
 };
 
 const refuse = (reason: RefusalReason): Refusal => ({ ok: false, reason, message: REFUSAL_MESSAGES[reason] });

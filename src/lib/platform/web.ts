@@ -184,6 +184,11 @@ export const platform: Platform = {
     pickedFiles.delete(path);
     return JSON.parse(core.load_mission(json));
   },
+  // The browser has no paths: the load box reads a picked or dropped File itself.
+  readLoadFile: async () => {
+    throw 'Choose the file again to load it.';
+  },
+  onFileDrop: async () => () => {},
 
   chooseCardSavePath: async (defaultName) => defaultName,
   chooseFolder: async () => 'Downloads',

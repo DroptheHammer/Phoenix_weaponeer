@@ -24,6 +24,7 @@ pub fn run() {
             // Mission commands
             commands::save_mission,
             commands::load_mission,
+            commands::read_load_file,
             // Theater commands
             commands::list_theaters,
             // Delivery profile library

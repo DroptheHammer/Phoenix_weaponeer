@@ -62,6 +62,58 @@ pub fn load_mission(path: String) -> Result<Mission, String> {
     parse_saved_mission(&json)
 }
 
+/// The load box's size limit: the same number as the link download's, which
+/// `LOAD_MAX_BYTES` in src/lib/landing/loadSniff.ts is checked to equal.
+const LOAD_MAX_BYTES: u64 = weaponeer_core::fragorders_link::MAX_BODY_BYTES;
+
+/// What `read_load_file` answers when it turns a file away unread. The load
+/// box matches these exact words (`READ_REFUSALS` in
+/// src/lib/landing/loadRouter.ts) and shows its own sentence for each, so
+/// they are codes, not prose; a test keeps the two sides the same.
+pub const LOAD_NOT_JSON: &str = "not-json";
+pub const LOAD_NOT_A_FILE: &str = "not-a-file";
+pub const LOAD_TOO_LARGE: &str = "too-large";
+
+/// The bytes of a file for the load box, after every refusal that needs no
+/// reading: the name must end in `.json`, the path must be a regular file (a
+/// folder, a device or a pipe named `x.json` is never opened: opening a pipe
+/// would wait for a writer for ever), and it must fit the size limit.
+fn read_load_bytes(path: &str) -> Result<Vec<u8>, String> {
+    let is_json = Path::new(path)
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("json"))
+        .unwrap_or(false);
+    if !is_json {
+        return Err(LOAD_NOT_JSON.to_string());
+    }
+    let meta = std::fs::metadata(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => MISSION_FILE_GONE.to_string(),
+        _ => e.to_string(),
+    })?;
+    if !meta.is_file() {
+        return Err(LOAD_NOT_A_FILE.to_string());
+    }
+    if meta.len() > LOAD_MAX_BYTES {
+        return Err(LOAD_TOO_LARGE.to_string());
+    }
+    std::fs::read(path).map_err(|e| e.to_string())
+}
+
+/// A `.json` file the planner picked in the front page's Choose file dialog or
+/// dropped on the window, whatever it holds: the load box tells a saved mission
+/// from a FragOrders export, and a saved mission keeps its path (Save writes
+/// back to it). Raw bytes, as the tile commands send them, not text: a
+/// FragOrders export written by Windows PowerShell's `>` is UTF-16, and the
+/// load box's one decoder reads it on both platforms. Reads only; nothing is
+/// written. Off the main thread, so a slow disk never stalls the window.
+#[tauri::command]
+pub async fn read_load_file(path: String) -> Result<Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || read_load_bytes(&path))
+        .await
+        .map_err(|e| format!("Reading the file stopped unexpectedly: {e}"))??;
+    Ok(Response::new(bytes))
+}
+
 // ============================================================================
 // Delivery Profile Commands
 // ============================================================================
@@ -504,6 +556,69 @@ mod tests {
             frontend.contains(&format!("MISSION_FILE_GONE = '{MISSION_FILE_GONE}'")),
             "src/lib/missionFile.ts must carry the same text"
         );
+    }
+
+    fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
+        read_load_bytes(&path.to_string_lossy())
+    }
+
+    // Red when: `if !is_json {` becomes `if false {`.
+    // Seen: called `Result::unwrap_err()` on an `Ok` value: [101, 99, 104, 111]
+    #[test]
+    fn the_load_box_reads_a_json_file_and_nothing_else() {
+        let dir = scratch_dir("read_load_file");
+        let json = dir.join("Strike.JSON");
+        std::fs::write(&json, "{\"a\":1}").unwrap();
+        assert_eq!(read_bytes(&json).unwrap(), b"{\"a\":1}");
+        let bat = dir.join("run.bat");
+        std::fs::write(&bat, "echo").unwrap();
+        assert_eq!(read_bytes(&bat).unwrap_err(), LOAD_NOT_JSON, "a .bat must be refused unread");
+        assert_eq!(read_bytes(&dir.join("gone.json")).unwrap_err(), MISSION_FILE_GONE);
+    }
+
+    // Red when: the read becomes `std::fs::read_to_string(path).map(String::into_bytes)`.
+    // Seen: called `Result::unwrap()` on an `Err` value: "stream did not contain valid UTF-8"
+    #[test]
+    fn the_load_box_gets_the_bytes_unchanged_even_utf16() {
+        // What Windows PowerShell's `>` writes: a byte-order mark, then UTF-16LE.
+        let mut utf16 = vec![0xFF, 0xFE];
+        utf16.extend("{\"theatre\":\"Caucasus\",\"coalition\":{}}".encode_utf16().flat_map(u16::to_le_bytes));
+        let path = scratch_dir("read_load_utf16").join("export.json");
+        std::fs::write(&path, &utf16).unwrap();
+        assert_eq!(read_bytes(&path).unwrap(), utf16);
+    }
+
+    // Red when: the `if !meta.is_file() {` refusal is deleted.
+    // Seen: assertion `left == right` failed  left: "Is a directory (os error 21)"  right: "not-a-file"
+    #[test]
+    fn the_load_box_never_opens_a_folder_named_like_a_file() {
+        let folder = scratch_dir("read_load_folder").join("x.json");
+        std::fs::create_dir_all(&folder).unwrap();
+        assert_eq!(read_bytes(&folder).unwrap_err(), LOAD_NOT_A_FILE);
+    }
+
+    // Red when: the `if meta.len() > LOAD_MAX_BYTES {` refusal is deleted.
+    // Seen: assertion `left == right` failed: the whole file was read  left: None  right: Some("too-large")
+    #[test]
+    fn the_load_box_refuses_a_file_over_the_limit_unread() {
+        let path = scratch_dir("read_load_large").join("huge.json");
+        // Sparse, so the test writes almost nothing to disk.
+        std::fs::File::create(&path).unwrap().set_len(LOAD_MAX_BYTES + 1).unwrap();
+        let result = read_bytes(&path);
+        assert_eq!(result.as_ref().err().map(String::as_str), Some(LOAD_TOO_LARGE), "the whole file was read");
+        let at_limit = scratch_dir("read_load_limit").join("full.json");
+        std::fs::File::create(&at_limit).unwrap().set_len(LOAD_MAX_BYTES).unwrap();
+        assert_eq!(read_bytes(&at_limit).unwrap().len() as u64, LOAD_MAX_BYTES);
+    }
+
+    // Red when: a code here and its key in loadRouter.ts's READ_REFUSALS differ (`'too-large'` there spelt `'too-big'`).
+    // Seen: panicked: src/lib/landing/loadRouter.ts must know the refusal too-large
+    #[test]
+    fn the_load_box_knows_every_refusal_the_read_command_gives() {
+        let frontend = include_str!("../../../src/lib/landing/loadRouter.ts");
+        for code in [LOAD_NOT_JSON, LOAD_NOT_A_FILE, LOAD_TOO_LARGE] {
+            assert!(frontend.contains(&format!("['{code}', ")), "src/lib/landing/loadRouter.ts must know the refusal {code}");
+        }
     }
 
     /// The squadron folder is read in full: every `.json`, readable or not,

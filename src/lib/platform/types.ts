@@ -57,6 +57,17 @@ export interface Platform {
   chooseMissionToOpen(): Promise<string | null>;
   /** The mission at a path, unchecked (the caller validates it). */
   readMission(path: string): Promise<unknown>;
+  /**
+   * The bytes of a `.json` file the planner picked or dropped on the front page's load box, whatever it holds
+   * (a saved mission or a FragOrders export: the load box tells them apart and decodes them). Bytes, not
+   * text, so a UTF-16 export reaches the same decoder the browser uses. Desktop only; rejects on the web.
+   */
+  readLoadFile(path: string): Promise<Uint8Array>;
+  /**
+   * Files dragged onto the window, with their paths (desktop). Resolves to the unsubscribe. The web resolves
+   * to a no-op: the page's own drop events serve it.
+   */
+  onFileDrop(handler: (e: { type: 'over' } | { type: 'leave' } | { type: 'drop'; paths: string[] }) => void): Promise<() => void>;
 
   // ---- Kneeboard cards ----
   /** Where to save one card; `null` when the user cancels. */

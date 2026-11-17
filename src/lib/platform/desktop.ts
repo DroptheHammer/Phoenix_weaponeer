@@ -62,6 +62,19 @@ export const platform: Platform = {
     return Array.isArray(picked) ? picked[0] : picked;
   },
   readMission: (path) => invoke<unknown>('load_mission', { path }),
+  async readLoadFile(path) {
+    // The command sends raw binary, as the tile commands do, which arrives as an ArrayBuffer.
+    const raw = await invoke<ArrayBuffer | number[]>('read_load_file', { path });
+    return raw instanceof ArrayBuffer ? new Uint8Array(raw) : Uint8Array.from(raw);
+  },
+  // Tauri takes file drops itself (the window's dragDropEnabled, on by default) and hands over the paths.
+  onFileDrop: (handler) =>
+    getCurrentWindow().onDragDropEvent((event) => {
+      const p = event.payload;
+      if (p.type === 'drop') handler({ type: 'drop', paths: p.paths });
+      else if (p.type === 'leave') handler({ type: 'leave' });
+      else handler({ type: 'over' });
+    }),
 
   chooseCardSavePath: (defaultName) =>
     save({ defaultPath: defaultName, filters: [{ name: 'PNG Image', extensions: ['png'] }], title: 'Save Kneeboard Card' }),

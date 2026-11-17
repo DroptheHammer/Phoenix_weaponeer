@@ -5,7 +5,7 @@ import type { Mission } from '../../types/mission.types';
 import type { Coordinates } from '../../types/waypoint.types';
 import { loadLocalMission } from '../localMissions';
 import { adoptCheckedMission } from '../missionFile';
-import type { LoadDeps, LoadSource } from './loadRouter';
+import { sourceFromPath, type FileLoadSource, type LoadDeps, type LoadSource } from './loadRouter';
 import type { PeekDeps } from './recentCards';
 
 /**
@@ -40,6 +40,27 @@ export function sourceFromFile(file: File): LoadSource {
     bytes: async () => new Uint8Array(await file.arrayBuffer()),
     path: platform.isWeb ? file.name : null,
   };
+}
+
+/**
+ * Desktop: the load box's Choose file, through the system's own dialog (the one Open uses), so the file's path
+ * comes with it. Null when the planner cancels. Not used on the web, which has no paths.
+ */
+export async function chooseFileToLoad(): Promise<FileLoadSource | null> {
+  const path = await platform.chooseMissionToOpen();
+  return path ? sourceFromPath(path, (p) => platform.readLoadFile(p)) : null;
+}
+
+export type FileDropEvent = { type: 'over' } | { type: 'leave' } | { type: 'drop'; sources: FileLoadSource[] };
+
+/**
+ * Desktop: files dragged onto the window, with their paths. Resolves to the unsubscribe. In the browser it
+ * resolves to a no-op and the page's own drop events serve the load box.
+ */
+export function subscribeFileDrop(handler: (e: FileDropEvent) => void): Promise<() => void> {
+  return platform.onFileDrop((e) =>
+    handler(e.type === 'drop' ? { type: 'drop', sources: e.paths.map((p) => sourceFromPath(p, (q) => platform.readLoadFile(q))) } : e),
+  );
 }
 
 /** Commit a saved mission the load box has already checked: exactly what Open does. */
