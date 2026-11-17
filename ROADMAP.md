@@ -232,6 +232,16 @@ waypoint list on 2026-10-03).
 ## Shipped
 
 ### Unreleased (0.4.0 branch)
+- **New lettering and dialogs** (2026-11-17, the first part of the 0.4.0
+  redesign). The app's text is set in Figtree and its monospace text in
+  JetBrains Mono, both bundled, so they work offline. Scrollbars, drop-downs
+  and checkboxes are dark, digits line up, and a sky ring shows on keyboard
+  focus. Every dialog has a dark backdrop, a rounded frame and a header that
+  stays put with an icon close button; Escape closes only the dialog on top,
+  Tab stays inside it, and focus goes back to what opened it. The map, its
+  legend and labels, the kneeboard cards and the 3D playback look as before,
+  proven by before-and-after screenshots. The shared building blocks the next
+  screens use are described in `docs/DESIGN_SYSTEM.md`.
 - **Hidden threats are not mentioned** (2026-11-16, the user's decision). With
   nothing switched on in ⚙ Settings → Admin, the planner says nothing about
   threats the mission author hid: the threat list's "Probable Threats —
