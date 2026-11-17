@@ -513,8 +513,9 @@ export interface StrikeTiming {
   planWindow: StrikeWindow;
   /**
    * strikeReadout of every member (`StrikePlayback.members`) at these delays,
-   * under the playback's rule. Under 'burst' its warnings are the blast lines
-   * (one per conflict, in the same order) followed by the cone warnings.
+   * under the playback's rule, without the strip's fire-control cone lines.
+   * Its warnings are the blast lines under 'burst' and the spacing rule's frag
+   * lines under 'time', one per conflict in the same order either way.
    */
   readout: StrikeReadout;
   /** Under 'time' every row is a `TimedConflict`, under 'burst' a `TimedBurst`. */

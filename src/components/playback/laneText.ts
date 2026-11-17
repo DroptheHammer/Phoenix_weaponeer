@@ -38,7 +38,7 @@ export const handleTitle = (seatLabel: string, zones = false, stripes = STRIPES_
 /** The swatch that keys the footer's warning to the stripes on the time bar. */
 export const HATCH_KEY_TITLE = "Striped: a jet is over the target inside another jet's frag (est.)";
 /** The footer's line when the spacing rule finds nothing to warn of. */
-export const FOOTER_OK_TIME = '✓ No frag or cone warnings at these times.';
+export const FOOTER_OK_TIME = '✓ No frag warnings at these times.';
 
 /**
  * The words of the frag chrome that change with the rule the strike is warned by: the footer's all-clear and

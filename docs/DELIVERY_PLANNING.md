@@ -279,6 +279,8 @@ estimates.
 - **Grading the split.** The split is measured as the angle between two jets'
   attack axes at the target. A fire-control radar has roughly a **40° cone**:
   ≥ 55° is shown green, 40–55° amber, and under 40° red ("inside one cone").
+  The strike strip warns of a pair inside one cone; the 3D playback's footer
+  does not, because no time set there changes how far apart the axes are.
 - **Timing.** Each jet has a time-over-target offset from the lead. The
   default is `(n − 1) × spacing`, with spacing starting at 30 s. There are no
   clock times, only offsets.

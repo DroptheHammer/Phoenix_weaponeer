@@ -119,7 +119,7 @@ export const CHIP_LETTERS = 'font-mono text-[10px] leading-3 font-bold';
 /** The amber stripes over the times that would start a frag warning (a jet inside a blast radius, or the spacing rule's frag). */
 export { HATCH } from '../../lib/playbackScene';
 /**
- * The line of small print under the lanes: the first blast (or spacing-rule frag) or cone warning in amber (WARN_TEXT), or an
+ * The line of small print under the lanes: the first blast (or spacing-rule frag) warning in amber (WARN_TEXT), or an
  * all-clear in grey (QUIET_TEXT); the rest of the warnings fold under a text button that adds no height.
  */
 export const FOOTER = 'flex items-center gap-3 text-xs';

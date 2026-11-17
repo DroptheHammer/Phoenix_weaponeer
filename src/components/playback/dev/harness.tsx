@@ -58,7 +58,7 @@ import type { PlaybackLaunch } from '../types';
 
 const params = new URLSearchParams(location.search);
 const tilesMode = params.get('tiles') ?? 'synthetic';
-const fixtureName = (['one', 'strike4', 'late', 'skip', 'dive4', 'ridge', 'dive', 'level', 'loft', 'rocket'] as const).find((f) => f === params.get('fixture')) ?? 'one';
+const fixtureName = (['one', 'strike4', 'late', 'skip', 'dive4', 'ridge', 'trail', 'dive', 'level', 'loft', 'rocket'] as const).find((f) => f === params.get('fixture')) ?? 'one';
 const ruleParam = (['burst', 'time'] as const).find((r) => r === params.get('rule'));
 const watchParam = params.get('watch');
 const notes = params.get('notes') === '1'
@@ -252,13 +252,16 @@ interface PbHandle {
    * it (under the blast rule). warnings: the readout's warnings at the plan's times, one per conflict first and
    * in their order (what the footer and the chip's tooltip say). rule: the frag rule the strike plays by. zones:
    * each flown jet's (playback index) danger zones at the plan's times, in strike time: the other jet's playback
-   * index, the role under the blast rule, and the times over target that would warn.
+   * index, the role under the blast rule, and the times over target that would warn. splits: how far apart in
+   * azimuth consecutive jets' attack axes are and their cone grade, as the strike editor grades them (the
+   * playback prints none of it).
    */
   readonly moments: {
     t0: number; t1: number; range: { t0_s: number; t1_s: number }; wholeRange: { t0_s: number; t1_s: number }; firstAction: number;
     markers: readonly SceneMarker[];
     conflicts: { first: string; second: string; t0_s: number; t1_s: number }[];
     warnings: readonly string[];
+    splits: { a: string; b: string; deg: number; grade: string }[];
     rule: string;
     zones: { jet: number; against: number | undefined; role: string | undefined; from_s: number; to_s: number }[];
     push?: number; pullUp?: number; release?: number; impact?: number; events: { kind: string; label: string; t_s: number }[];
@@ -379,6 +382,7 @@ const pb: PbHandle = {
     markers: source.markers(0),
     conflicts: moments.timing.conflicts.map((c) => ({ first: c.first, second: c.second, t0_s: c.t0_s, t1_s: c.t1_s })),
     warnings: moments.timing.readout.warnings,
+    splits: moments.timing.readout.splits.map((s) => ({ a: s.a, b: s.b, deg: s.deg, grade: s.grade })),
     rule: moments.pb.fragRule,
     zones: moments.pb.jets.flatMap((_, k) => dangerZones(moments.pb, moments.timing, k).map((z) => ({ jet: k, against: z.against, role: z.role, from_s: z.from_s, to_s: z.to_s }))),
     push: moments.push, pullUp: moments.pullUp, release: moments.release, impact: moments.impact, events: moments.events,

@@ -12,8 +12,9 @@
  * of the strike (its phase band in the planner's colours with the lettered
  * marks, and its times; its own stripes of where its time would put it inside
  * another jet's blast radius, or another jet inside its own, show only while
- * that time is being set), a line about the frag and cone warnings (opening
- * with a swatch of the time bar's stripes while it has any), and the small print
+ * that time is being set), a line about the frag warnings (opening with a
+ * swatch of the time bar's stripes while it has any; nothing about fire-control
+ * cones, which no time set here can change), and the small print
  * (what ground is drawn, the Real | Flat switch, the theater warnings, the
  * credits). Fits a 1024×768 window. The overlay around it has the title bar and
  * the Close button. While the playhead is on a frag warning, a chip over the

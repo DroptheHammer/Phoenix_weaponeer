@@ -1,9 +1,11 @@
 /**
- * One line under the lanes about the times: the first frag or cone warning the
+ * One line under the lanes about the times: the first frag warning the
  * planner's own readout gives for them, in amber, with the rest folded under a
  * "(+n more)" button; or, with none, an all-clear. The warnings are the strike
  * readout's own words (the editor's strip prints the same), so a jet that is
- * not flown still warns here exactly as it does there. The all-clear and the
+ * not flown still warns here exactly as it does there. The strip's
+ * fire-control cone warnings are not among them: no time set here moves an
+ * attack axis, so they belong to the strike editor alone. The all-clear and the
  * swatch's tooltip are in the words of the rule the strike is warned by (the
  * view hands them over); left out, they are the spacing rule's.
  *

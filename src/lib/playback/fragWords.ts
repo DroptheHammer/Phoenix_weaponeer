@@ -82,8 +82,8 @@ export const notFlownNote = (seatLabel: string) => `${seatLabel} isn't flown in 
 /** The footer's all-clear: names what was not checked, or says every distance was. */
 export function footerOkBurst(unchecked: readonly string[]): string {
   return unchecked.length
-    ? `✓ No cone warnings at these times. Not checked for blast: ${seatList(unchecked)} (no blast radius on file).`
-    : '✓ No blast or cone warnings at these times.';
+    ? `✓ No blast warnings at these times. Not checked for blast: ${seatList(unchecked)} (no blast radius on file).`
+    : '✓ No blast warnings at these times.';
 }
 
 /** The footer all-clear's tooltip when every weapon was checked. */

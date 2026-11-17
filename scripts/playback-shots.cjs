@@ -4769,7 +4769,9 @@ const laneZoneBoxes = (page) => page.$$eval('[role="dialog"] [data-lane]', (lane
 /** The tooltip on seat `n`'s diamond. */
 const handleTitleOf = (page, n) => handleOf(page, n).getAttribute('title');
 
-const WANT_OK_BURST = '✓ No blast or cone warnings at these times.';
+// The playback says nothing about fire-control cones (the strike editor does), so neither all-clear names them.
+const WANT_OK_BURST = '✓ No blast warnings at these times.';
+const WANT_OK_TIME = '✓ No frag warnings at these times.';
 const WANT_OK_BURST_TITLE = "Checked: every jet's distance from every other jet's bomb at the moment it goes off (est.). Distance only: hills in the way are not counted.";
 const WANT_KEY_BURST = "Striped: a jet is inside another jet's blast radius when a bomb goes off (est.)";
 const WANT_STRIPES_BURST = "Stripes: times that would put it inside another jet's blast radius, or another jet inside its.";
@@ -4796,6 +4798,8 @@ const WANT_HANDLE_PLAIN = "Drag to change #2's time over target (←/→ 1 s, Sh
  * (71 goes red with it: "⚠ #2 is over the target 12 s after #1, inside #1's ~35 s of frag (est.)".)
  * The same edit, run again 2026-11-16 once the chip's arm was added, turns that arm red too:
  *   STEP FAIL 70 … no chip at any burst (1400x900-strike4) — rule burst; 2 conflicts, 0 zones; …; chip at the 4 bursts (0.0, 10.0, 40.0, 40.0 s) and 0.5 s after: 10.0 s: "⚠ #2 over the target inside #1's frag (est.)", 10.5 s: "⚠ #2 over the target inside #1's frag (est.)", 40.0 s: "⚠ #4 over the target inside #3's frag (est.)", … (want none)
+ * (The all-clear then read "✓ No blast or cone warnings at these times."; since the playback stopped warning of
+ * fire-control cones it reads WANT_OK_BURST.)
  */
 async function checkFragBurstFour(page, tag) {
   await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.seek(__pb.snapshot().start); });
@@ -5084,6 +5088,45 @@ async function checkFragChip(page, tag) {
       `16×: ${runs16.length} stretch(es) of ${log16.length} reads, words ${JSON.stringify(words16)}, ${looksInside} distinct clock reads inside its second`);
 }
 
+/**
+ * Check 75 (two jets on one attack axis): the trail pair (two pop-ups on TGT1, both on the lead's side, 60 s apart) is a
+ * strike the strike editor warns of, "#1 and #2 are only 0° apart — inside one 40° fire-control cone", and that nothing
+ * else warns of. The playback is for setting times, and no time moves an axis, so it says nothing about cones: the page
+ * says its two jets are inside one cone by the editor's grade (moments.splits: under 1° apart, graded inside) and gives
+ * no warning, the footer is the rule's all-clear word for word, with no warning and no "(+n more)", and nowhere on the
+ * page (its text, every tooltip and every accessible name) is there a fire-control cone or the word "cone". On the
+ * strike's own rule (blast distance) and again saved with the spacing rule, at 1400×900.
+ *
+ * Proven red 2026-11-17 by one temporary edit to src/lib/playback/timing.ts, retime asking for the cone lines again
+ * (`strikeReadout(rj, pb.fragRule, false)` → `strikeReadout(rj, pb.fragRule)`; a run of this page alone):
+ *   STEP FAIL 75 two jets on one attack axis: … (1400x900-trail, burst) — rule burst; splits ["#1-#2 0.0° inside"] (want one, under 1°, inside); page warnings ["#1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want none); footer no all-clear, ["⚠ #1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want "✓ No blast warnings at these times."), more null; "fire-control cone" 2 times, "cone" 2 times on the page (want 0): "⚠ #1 and #2 are only 0° apart — inside one 40° fire-control cone"
+ *   STEP FAIL 75 … (1400x900-trail, time) — rule time; …; footer no all-clear, ["⚠ #1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want "✓ No frag warnings at these times."), …
+ * Measured green 2026-11-17: under both rules the splits read "#1-#2 0.0° inside", no warning, the all-clear, "cone" 0 times.
+ */
+async function checkNoCone(page, tag, rule) {
+  await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  await shot(page, `${tag}-75-trail-${rule}`);
+  const m = await pbEval(page, () => ({ rule: __pb.moments.rule, warnings: __pb.moments.warnings, splits: __pb.moments.splits }));
+  const f = await footerState(page);
+  const said = await page.evaluate(() => {
+    const words = [document.body.innerText];
+    for (const e of document.querySelectorAll('[title], [aria-label], [aria-description]')) {
+      for (const a of ['title', 'aria-label', 'aria-description']) if (e.hasAttribute(a)) words.push(e.getAttribute(a));
+    }
+    const all = words.join('\n');
+    return { fireControl: (all.match(/fire-control cone/gi) || []).length, cone: (all.match(/\bcones?\b/gi) || []).length, sample: (all.match(/.{0,60}\bcones?\b.{0,20}/i) || [''])[0] };
+  });
+  const want = rule === 'time' ? WANT_OK_TIME : WANT_OK_BURST;
+  const oneAxis = m.splits.length === 1 && m.splits[0].deg < 1 && m.splits[0].grade === 'inside';
+  const ok = m.rule === rule && oneAxis && m.warnings.length === 0 && !!f.ok && f.ok.text === want && f.warns.length === 0 && f.more === null &&
+    said.fireControl === 0 && said.cone === 0;
+  step(`75 two jets on one attack axis: the playback says nothing about a fire-control cone, the footer is the all-clear (${tag}, ${rule})`, ok,
+    `rule ${m.rule}; splits ${JSON.stringify(m.splits.map((s) => `${s.a}-${s.b} ${s.deg.toFixed(1)}° ${s.grade}`))} (want one, under 1°, inside); page warnings ${JSON.stringify(m.warnings)} (want none); ` +
+      `footer ${f.ok ? JSON.stringify(f.ok.text) : `no all-clear, ${JSON.stringify(f.warns.map((w) => w.text))}`} (want ${JSON.stringify(want)}), more ${JSON.stringify(f.more)}; ` +
+      `"fire-control cone" ${said.fireControl} times, "cone" ${said.cone} times on the page (want 0)${said.sample ? `: ${JSON.stringify(said.sample)}` : ''}`);
+}
+
 async function runFragChecks(browser, base) {
   for (const [w, h] of [[1400, 900], [1024, 768]]) {
     const tag = `${w}x${h}`;
@@ -5105,6 +5148,13 @@ async function runFragChecks(browser, base) {
     await checkRingRidge(rt.page, `${tag}-ridge-time`, 'time');
     step(`8 no page errors, ridge pair by spacing in time (${tag})`, rt.problems.length === 0, rt.problems.length ? rt.problems.slice(0, 8).join(' | ') : 'none');
     await rt.context.close();
+  }
+  // 75 on the trail pair, on the default rule and saved with the spacing rule.
+  for (const rule of ['burst', 'time']) {
+    const tg = await openPage(browser, `${base}?tiles=synthetic&fixture=trail${rule === 'time' ? '&rule=time' : ''}`, 1400, 900);
+    await checkNoCone(tg.page, '1400x900-trail', rule);
+    step(`8 no page errors, trail pair (1400x900, ${rule})`, tg.problems.length === 0, tg.problems.length ? tg.problems.slice(0, 8).join(' | ') : 'none');
+    await tg.context.close();
   }
 }
 

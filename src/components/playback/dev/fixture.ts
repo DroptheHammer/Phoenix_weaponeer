@@ -30,6 +30,11 @@
  *   the ridge put where #2's own track passes 12 s before its impact, 150 ft
  *   above the ridge, so #2 flies through #1's burst when it is over its target
  *   about 11.9 s after #1. Handed over like dive4.
+ * - trail: two F-16C pop-ups with Mk-82s on TGT1, both flown on the lead's
+ *   side, so they share one attack axis (the strike editor warns that they
+ *   are inside one fire-control cone), 60 s apart, so neither the blast rule
+ *   nor the spacing rule warns. Handed over like dive4. It is there to show
+ *   that the playback says nothing about cones.
  * - dive, level, loft, rocket: one lone attack of each of the other families,
  *   handed over as the editor hands one jet over, like the pop-up: an F-16C
  *   30° CCIP dive with a Mk-82, an F-16C level laydown with a Mk-82 AIR, an
@@ -48,7 +53,7 @@ import f16Profiles from '../../../../src-tauri/resources/profiles/f16c.json';
 import a10Profiles from '../../../../src-tauri/resources/profiles/a10c.json';
 import reference from '../../../../crates/core/data/reference.json';
 import { autoBuildAttack } from '../../../lib/autoBuildAttack';
-import { draftAttackData, resolveDraft, type DraftContext } from '../../../lib/attackDraft';
+import { chooseIngress, draftAttackData, resolveDraft, type DraftContext } from '../../../lib/attackDraft';
 import { attackIpAnchor } from '../../../lib/ipAnchor';
 import { calculateDestination } from '../../../lib/coordinates';
 import { saveStrikeTo } from '../../../lib/strike';
@@ -167,15 +172,20 @@ function strikeMission(tgt2: { coordinates: { lat: number; lon: number }; elevat
 }
 
 type Seat = { who: string; target: string; profile: string; tot: number; weapon?: string };
-type StrikeOptions = { ip?: Strike['ip']; rule?: FragRule };
+/** `trail`: every jet flown on the lead's side (the planner's own per-jet choice), so jets on one target share an axis. */
+type StrikeOptions = { ip?: Strike['ip']; rule?: FragRule; trail?: boolean };
 
 /** A strike drafted the editor's way, flanks assigned, and saved: the mission and the new attack ids. */
-function savedStrike(m: Mission, strikeId: string, seats: Seat[], spacing_s = 10, { ip = {}, rule }: StrikeOptions = {}) {
+function savedStrike(m: Mission, strikeId: string, seats: Seat[], spacing_s = 10, { ip = {}, rule, trail }: StrikeOptions = {}) {
   const ctx: DraftContext = { mission: m, weapons, profiles: profiles.filter((p) => p.id === 'f16c.popup.std' || p.id === 'f16c.loft.std' || p.id === 'f16c.dive.ccip30'), threatSystems: [] };
-  const jets = assignFlanks(seats.map((s) => {
+  let jets = assignFlanks(seats.map((s) => {
     const j = newJet(m, s.who, s.target, ip);
     return { ...j, draft: { ...j.draft, weaponId: s.weapon ?? 'mk82', profileId: s.profile }, totOffset_s: s.tot };
   }), ctx);
+  if (trail && jets.length) {
+    const side = resolveDraft(jets[0].draft, ctx).runIn?.offsetTurn.direction ?? 'right';
+    jets = jets.map((j) => ({ ...j, draft: chooseIngress(j.draft, side, resolveDraft(j.draft, ctx)) }));
+  }
   let seq = 0;
   return saveStrikeTo(m, { id: strikeId, name: `${seats.length}-ship`, ip, spacing_s, ...(rule ? { fragRule: rule } : {}) },
     jets.map((j, i) => ({ data: draftAttackData(j.draft, resolveDraft(j.draft, ctx), undefined, 1 + i)!, totOffset_s: j.totOffset_s })),
@@ -209,10 +219,10 @@ function ridgeStrike(rule?: FragRule) {
   return savedStrike(m, 'h-ridge', [seat('h-p1', 'h-tgt2', 0), seat('h-p2', 'h-tgt', RIDGE_TOT_S)], 5, { ip, rule });
 }
 
-export type HarnessFixture = 'one' | 'strike4' | 'late' | 'skip' | 'dive4' | 'ridge' | SoloFixture;
+export type HarnessFixture = 'one' | 'strike4' | 'late' | 'skip' | 'dive4' | 'ridge' | 'trail' | SoloFixture;
 
 /** The id of the strike a fixture saves (the four-ship's two variants share one). */
-const strikeIdOf = (fixture: HarnessFixture) => (fixture === 'dive4' ? 'h-dive4' : fixture === 'ridge' ? 'h-ridge' : 'h-strike4');
+const strikeIdOf = (fixture: HarnessFixture) => (fixture === 'dive4' ? 'h-dive4' : fixture === 'ridge' ? 'h-ridge' : fixture === 'trail' ? 'h-trail' : 'h-strike4');
 
 /** What Apply wrote: to the editor, a list of times in the editor's order; to the plan, each attack's time by its id. */
 export type AppliedTimes = number[] | Record<string, number>;
@@ -242,6 +252,8 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
       ? ridgeStrike(rule)
       : fixture === 'dive4'
         ? savedStrike(m, 'h-dive4', [0, 5, 10, 15].map((tot, i) => ({ who: `h-p${i + 1}`, target: 'h-tgt', profile: 'f16c.dive.ccip30', tot })), 5, { rule })
+        : fixture === 'trail'
+        ? savedStrike(m, 'h-trail', [0, 60].map((tot, i) => ({ who: `h-p${i + 1}`, target: 'h-tgt', profile: 'f16c.popup.std', tot })), 60, { rule, trail: true })
         : savedStrike(m, 'h-strike4', [
           { who: 'h-p1', target: 'h-tgt', profile: 'f16c.popup.std', tot: 0 },
           { who: 'h-p2', target: 'h-tgt', profile: 'f16c.popup.std', tot: 10 },
@@ -256,7 +268,7 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
   // Every member in seat order, skipped ones included, so a seat number names the same member as the card.
   const ids = [...input.jets.map((j) => ({ id: j.id, label: j.label })), ...(input.skipped ?? []).map((j) => ({ id: j.id, label: j.label }))];
   const seat = watch ?? (fixture === 'late' ? 2 : 1);
-  if ((fixture === 'strike4' || fixture === 'dive4' || fixture === 'ridge') && door !== 'editor') {
+  if ((fixture === 'strike4' || fixture === 'dive4' || fixture === 'ridge' || fixture === 'trail') && door !== 'editor') {
     return {
       fromMission: { mission: planned, subject: { strikeId: strikeIdOf(fixture) }, weapons }, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes,
       apply: record && { to: 'mission', write: record },

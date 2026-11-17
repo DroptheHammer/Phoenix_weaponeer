@@ -38,8 +38,13 @@ function windowOf(pb: StrikePlayback, jets: TimingJet[]): StrikeWindow {
  *
  * The frag warning follows the playback's rule. Under 'time' it is the
  * spacing rule exactly as the editor's strip prints it. Under 'burst' the
- * blast lines come first, then the strip's cone warnings, and `blast` says
- * what could not be checked; there is no `blast` key under 'time'.
+ * warnings are the blast lines alone, and `blast` says what could not be
+ * checked; there is no `blast` key under 'time'.
+ *
+ * The strip's fire-control cone warnings are left out under either rule: the
+ * playback is where times are set, and no time changes how far apart the
+ * attack axes are, so a cone line here could not be acted on. The strip
+ * keeps them, and the splits are still in the readout.
  */
 export function retime(pb: StrikePlayback, delays_s?: Record<string, number>): StrikeTiming {
   const delays: Record<string, number> = Object.fromEntries(pb.members.map((m) => [m.id, tot(pb, delays_s, m.id)]));
@@ -47,7 +52,7 @@ export function retime(pb: StrikePlayback, delays_s?: Record<string, number>): S
   const planJets = pb.jets.map((j) => timingJet(j, pb.planDelays_s[j.id]));
   const rj = strikeJetsAt(pb, delays);
   const burst = pb.fragRule === 'burst' ? burstReadout(pb, delays) : undefined;
-  const base = strikeReadout(rj, pb.fragRule);
+  const base = strikeReadout(rj, pb.fragRule, false);
   return {
     delays_s: delays,
     jets,

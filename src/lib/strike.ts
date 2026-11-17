@@ -370,8 +370,13 @@ export function strikeFragRule(strike: { fragRule?: string } | undefined): FragR
  * warnings are the spacing rule's, as they always were; under 'burst' they are
  * left out, because the blast distance needs the jets' flight paths and comes
  * from the playback library, which adds its own lines.
+ *
+ * `cone`: the strip warns of jets inside one fire-control cone, so it leaves
+ * this on. The 3D playback passes false: it is for setting times, and no time
+ * moves an attack axis, so a cone line there is a warning nobody can act on.
+ * The splits and their grades are returned either way.
  */
-export function strikeReadout(jets: StrikeJet[], rule: FragRule = 'time'): StrikeReadout {
+export function strikeReadout(jets: StrikeJet[], rule: FragRule = 'time', cone = true): StrikeReadout {
   const splits: StrikeReadout['splits'] = [];
   const warnings: string[] = [];
   for (let i = 1; i < jets.length; i++) {
@@ -386,7 +391,7 @@ export function strikeReadout(jets: StrikeJet[], rule: FragRule = 'time'): Strik
         (c.sameAxis ? ' — and on the same axis' : ''),
     );
   }
-  for (const s of splits) {
+  if (cone) for (const s of splits) {
     if (s.grade === 'inside') warnings.push(`${s.a} and ${s.b} are only ${Math.round(s.deg)}° apart — inside one ${FIRE_CONTROL_CONE_DEG}° fire-control cone`);
   }
   const pushes = jets.map((j) => {

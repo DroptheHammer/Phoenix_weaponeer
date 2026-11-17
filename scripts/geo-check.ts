@@ -4743,6 +4743,34 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
        readoutFixtures.length >= 20 && withFrag >= 10 && timeDiffers === 0 && burstWrong === 0,
        `${readoutFixtures.length} fixtures, ${withFrag} with a frag line; 'time' differs on ${timeDiffers} of ${readoutFixtures.length}; 'burst' keeps a frag line or moves a split or push on ${burstWrong} of ${readoutFixtures.length}`);
   }
+
+  // [L6-2] The strike strip is untouched by the playback dropping its cone lines: on every jet list pinned above,
+  // strikeReadout(jets) and strikeReadout(jets, 'burst') (the two ways the strip calls it) give what they gave before the
+  // playback stopped asking for cone lines: the same splits, pushes and warnings, held by one digest of both (numbers rounded
+  // to 1e-6) and by the count of cone lines in them (8 each: the 11°, 10°, 20° and 0° cases, each list pinned twice above).
+  // And asked without cone lines, the readout is the same with exactly those lines gone, splits and grades kept.
+  // Measured 2026-11-17 with strike.ts as it was before the argument existed: digest a94a847223f2833d, 8 and 8 cone lines.
+  // Mutation proof (seen red 2026-11-17): strike.ts strikeReadout's new argument defaulting to false (`cone = true` → `cone = false`):
+  //   FAIL playback look [L6-2]: the strike strip still gives the same splits, pushes and warnings, cone lines included, …  29 jet lists; digest 8434e069b413897e (want a94a847223f2833d); cone lines 0 by default, 0 under 'burst' (want 8 and 8); 0 readouts differ by more than their cone lines without them
+  //   (with the four cone-line pins above red beside it, and L6-1's strip arms: "the strip says [] (want the cone line alone)")
+  {
+    const WANT_STRIP = 'a94a847223f2833d';
+    const isCone = (w: string) => w.includes('fire-control cone');
+    const both = readoutFixtures.map((jets) => [strikeReadout(jets), strikeReadout(jets, 'burst')]);
+    const digest = createHash('sha256').update(JSON.stringify(both, (_k, v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 1e6) / 1e6 : v))).digest('hex').slice(0, 16);
+    const cones = both.map(([plain, blast]) => [plain.warnings.filter(isCone).length, blast.warnings.filter(isCone).length]);
+    const conePlain = cones.reduce((n, c) => n + c[0], 0), coneBlast = cones.reduce((n, c) => n + c[1], 0);
+    let without = 0;
+    readoutFixtures.forEach((jets, k) => {
+      for (const [rule, full] of [['time', both[k][0]], ['burst', both[k][1]]] as const) {
+        const lean = strikeReadout(jets, rule, false);
+        if (JSON.stringify(lean) !== JSON.stringify({ ...full, warnings: full.warnings.filter((w) => !isCone(w)) })) without++;
+      }
+    });
+    ok('playback look [L6-2]: the strike strip still gives the same splits, pushes and warnings, cone lines included, under its default and under \'burst\'; asked without cone lines, only those lines go',
+       digest === WANT_STRIP && conePlain === 8 && coneBlast === 8 && without === 0,
+       `${readoutFixtures.length} jet lists; digest ${digest} (want ${WANT_STRIP}); cone lines ${conePlain} by default, ${coneBlast} under 'burst' (want 8 and 8); ${without} readouts differ by more than their cone lines without them`);
+  }
 }
 
 // ─── 0.4.0 playback prerequisites in the shipped modules ──────────────────────
@@ -13032,7 +13060,7 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
       }
       for (const x of [11.0, 12.4]) {
         const t = retime(ridge.pb, ridge.d(x));
-        if (t.conflicts.length || t.readout.warnings.some((w) => w.includes('blast')) || footerOkBurst(t.blast!.unchecked) !== '✓ No blast or cone warnings at these times.') why.push(`at ${x}: ${JSON.stringify(t.readout.warnings)}`);
+        if (t.conflicts.length || t.readout.warnings.some((w) => w.includes('blast')) || footerOkBurst(t.blast!.unchecked) !== '✓ No blast warnings at these times.') why.push(`at ${x}: ${JSON.stringify(t.readout.warnings)}`);
       }
       const at82 = burstConflicts(ridge82.pb, ridge82.d(11.9))[0];
       const c84 = burstConflicts(ridge.pb, ridge.d(11.9))[0];
@@ -13052,10 +13080,10 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
         ['one missile', noRadiusNote('AGM-65D Maverick', ['#2'], 'missile'), 'No blast radius on file for AGM-65D Maverick (#2): its missile isn\'t checked against the other jets'],
         ['two missiles', noRadiusNote('AGM-65D Maverick', ['#2', '#4'], 'missile'), 'No blast radius on file for AGM-65D Maverick (#2 and #4): their missiles aren\'t checked against the other jets'],
         ['not flown', notFlownNote('#3'), '#3 isn\'t flown in 3D, so neither its jet nor its bomb is checked for blast'],
-        ['the footer, all checked', footerOkBurst([]), '✓ No blast or cone warnings at these times.'],
-        ['the footer, one not', footerOkBurst(['GBU-12']), '✓ No cone warnings at these times. Not checked for blast: GBU-12 (no blast radius on file).'],
-        ['the footer, two not', footerOkBurst(['GBU-12', 'Mk-82 AIR']), '✓ No cone warnings at these times. Not checked for blast: GBU-12 and Mk-82 AIR (no blast radius on file).'],
-        ['the footer, three not', footerOkBurst(['GBU-12', 'Mk-82 AIR', 'CBU-87 CEM']), '✓ No cone warnings at these times. Not checked for blast: GBU-12, Mk-82 AIR and CBU-87 CEM (no blast radius on file).'],
+        ['the footer, all checked', footerOkBurst([]), '✓ No blast warnings at these times.'],
+        ['the footer, one not', footerOkBurst(['GBU-12']), '✓ No blast warnings at these times. Not checked for blast: GBU-12 (no blast radius on file).'],
+        ['the footer, two not', footerOkBurst(['GBU-12', 'Mk-82 AIR']), '✓ No blast warnings at these times. Not checked for blast: GBU-12 and Mk-82 AIR (no blast radius on file).'],
+        ['the footer, three not', footerOkBurst(['GBU-12', 'Mk-82 AIR', 'CBU-87 CEM']), '✓ No blast warnings at these times. Not checked for blast: GBU-12, Mk-82 AIR and CBU-87 CEM (no blast radius on file).'],
         ['the footer\'s title', FOOTER_OK_BURST_TITLE, 'Checked: every jet\'s distance from every other jet\'s bomb at the moment it goes off (est.). Distance only: hills in the way are not counted.'],
         ['the swatch', BURST_HATCH_KEY_TITLE, 'Striped: a jet is inside another jet\'s blast radius when a bomb goes off (est.)'],
         ['the diamond', BURST_STRIPES_HANDLE_WORDS, 'Stripes: times that would put it inside another jet\'s blast radius, or another jet inside its.'],
@@ -13127,7 +13155,7 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
         if (hits) why.push(`${name}: ${hits} warnings over 0 to 40 s`);
         if (JSON.stringify(r.notes) !== JSON.stringify(['No blast radius on file for Mk-84 LDGP (#1): its bomb isn\'t checked against the other jets']) || JSON.stringify(r.unchecked) !== '["Mk-84 LDGP"]')
           why.push(`${name}: notes ${JSON.stringify(r.notes)}, unchecked ${JSON.stringify(r.unchecked)}`);
-        if (footerOkBurst(r.unchecked) !== '✓ No cone warnings at these times. Not checked for blast: Mk-84 LDGP (no blast radius on file).') why.push(`${name}: footer ${footerOkBurst(r.unchecked)}`);
+        if (footerOkBurst(r.unchecked) !== '✓ No blast warnings at these times. Not checked for blast: Mk-84 LDGP (no blast radius on file).') why.push(`${name}: footer ${footerOkBurst(r.unchecked)}`);
       }
       const swapped = burstReadout(arm(ridge.pb, [undefined, noRadius]), ridge.d(11.9));
       if (!(swapped.conflicts.length === 1 && swapped.conflicts[0].second === '#2' && swapped.conflicts[0].first === '#1') || !swapped.notes[0]?.includes('(#2)'))
@@ -13303,6 +13331,45 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
          why.length === 0, why.join('; ') || `pair: ${pair.blast?.notes.join(' | ')}`);
     }
 
+    // [L6-1] The 3D playback says nothing about fire-control cones; the strike editor's strip still does. Two pop-ups in trail (both
+    // on the lead's side, so on one attack axis, 0° apart), 60 s apart: no blast conflict and none by the spacing rule. Under both
+    // rules the playback's warnings are empty and the footer reads the rule's all-clear, while the strip's readout for the same
+    // jets (strikeReadout(jets, rule), as the strip calls it, on the list it hands over) holds the cone line word for word, and
+    // the splits are still in the playback's readout. With the times closed up to 2 s the playback's warnings are the rule's own
+    // lines only: under 'burst' one blast line per conflict (the Mk-82 given a 3 nm radius here, so the trail jet is inside the
+    // lead's burst), under 'time' the spacing rule's one line; never the cone line.
+    // Mutation proof (seen red 2026-11-17): timing.ts retime asking for the cone lines again (`strikeReadout(rj, pb.fragRule, false)`
+    // → `strikeReadout(rj, pb.fragRule)`):
+    //   FAIL playback look [L6-1]: the 3D playback gives no fire-control cone line under either rule …  burst, 60 s apart: the playback warns ["#1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want nothing); burst, 2 s apart: 2 conflicts, warnings ["#2 is 5,550 ft from #1's bomb when it goes off, inside its 18,228 ft blast radius (est.)","#1 is 7,090 ft from #2's bomb when it goes off, inside its 18,228 ft blast radius (est.)","#1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want the rule's own lines only); time, 60 s apart: …; time, 2 s apart: 1 conflicts, warnings ["#2 is over the target 2 s after #1, inside #1's ~30 s of frag (est.) — and on the same axis","#1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want the rule's own lines only)
+    // and, run with strike.ts as it was before the argument existed, the same arms red (the playback then asked for every line).
+    {
+      const why: string[] = [];
+      const coneLine = '#1 and #2 are only 0° apart — inside one 40° fire-control cone';
+      const okWords = { burst: '✓ No blast warnings at these times.', time: '✓ No frag warnings at these times.' } as const;
+      const pair = [0, 1].map(() => ({ target: wpTgt.id, weapon: 'mk82', profile: 'f16c.popup.std' }));
+      const wide = withBlast(fxRows, { mk82: [18228, 'destroyed'] });
+      const seen: string[] = [];
+      for (const rule of ['burst', 'time'] as const) {
+        const apart = fxStrike(flatM, pair, [0, 60], { trail: true, fragRule: rule, strikeId: `l6-${rule}` }).pb;
+        const t = retime(apart);
+        const strip = strikeReadout(strikeJetsAt(apart, t.delays_s), rule);
+        const footer = fragChromeWords(rule, t.blast?.unchecked ?? []).ok;
+        if (apart.fragRule !== rule) why.push(`${rule}: plays '${apart.fragRule}'`);
+        if (t.readout.warnings.length || t.conflicts.length) why.push(`${rule}, 60 s apart: the playback warns ${JSON.stringify(t.readout.warnings)} (want nothing)`);
+        if (footer !== okWords[rule]) why.push(`${rule}: the footer reads ${JSON.stringify(footer)} (want ${JSON.stringify(okWords[rule])})`);
+        if (JSON.stringify(strip.warnings) !== JSON.stringify([coneLine])) why.push(`${rule}: the strip says ${JSON.stringify(strip.warnings)} (want the cone line alone)`);
+        if (JSON.stringify(t.readout.splits) !== JSON.stringify(strip.splits) || t.readout.splits[0]?.grade !== 'inside') why.push(`${rule}: the playback's splits ${JSON.stringify(t.readout.splits)} against the strip's ${JSON.stringify(strip.splits)}`);
+        const close = fxStrike(flatM, pair, [0, 2], { trail: true, fragRule: rule, strikeId: `l6c-${rule}`, weapons: wide }).pb;
+        const tc = retime(close);
+        const own = rule === 'burst' ? tc.conflicts.filter(isBurstRow).map((c) => burstSentence(c)) : fragConflicts(strikeJetsAt(close, tc.delays_s)).map(() => 'frag');
+        const allOwn = rule === 'burst' ? JSON.stringify(tc.readout.warnings) === JSON.stringify(own) : tc.readout.warnings.length === own.length && tc.readout.warnings.every((w) => w.includes('s of frag (est.)'));
+        if (!tc.conflicts.length || !allOwn || tc.readout.warnings.some((w) => w.includes('fire-control cone'))) why.push(`${rule}, 2 s apart: ${tc.conflicts.length} conflicts, warnings ${JSON.stringify(tc.readout.warnings)} (want the rule's own lines only)`);
+        seen.push(`${rule}: strip ${JSON.stringify(strip.warnings)}, playback ${JSON.stringify(t.readout.warnings)}, footer ${JSON.stringify(footer)}; closed up ${JSON.stringify(tc.readout.warnings)}`);
+      }
+      ok('playback look [L6-1]: the 3D playback gives no fire-control cone line under either rule (two jets on one axis: empty warnings and the all-clear; closed up: the rule\'s own lines only), while the strike strip still prints the cone line',
+         why.length === 0, why.join('; ') || seen.join(' | '));
+    }
+
     // [BX13] The dropper's own guard is untouched by the frag rule: a Mk-82 dive released at 2,999 ft AGL is still an error inside
     // the frag envelope (min-safe 3,000 ft) and at 3,000 ft it is not; auto-build's floor for the Mk-82 is still 3,000 ft; the loft's
     // 0.5 nm frag standoff still warns with the jet 0.4 nm from the target at impact. (The rest of the guard is the stage's diff:
@@ -13402,24 +13469,25 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
     // tooltip (and the one that says what was not checked), the swatch's tooltip, and what a diamond says its stripes are.
     // Mutation proof (seen red 2026-11-16): laneText.ts fragChromeWords `rule === 'burst'` → `rule !== 'burst'`:
     //   FAIL playback B3 [BX16]: the frag chrome's words follow the rule: …  the spacing rule's all-clear: "✓ No blast or cone warnings at these times." (want "✓ No frag or cone warnings at these times."); the spacing rule's all-clear has no tooltip: "Checked: every jet's distance …" (want undefined); the spacing rule's swatch: "Striped: a jet is inside another jet's blast radius when a bomb goes off (est.)" (want "Striped: a jet is over the target inside another jet's frag (est.)"); …
+    // (The all-clears said "or cone" then; since the playback stopped warning of fire-control cones they say only frag or blast.)
     {
       const plainTitle = 'Drag to change #2\'s time over target (←/→ 1 s, Shift+←/→ 5 s)';
       const t = fragChromeWords('time'), b = fragChromeWords('burst'), b1 = fragChromeWords('burst', ['GBU-12']), b2 = fragChromeWords('burst', ['GBU-12', 'Mk-82 AIR']);
       const cases: [string, unknown, unknown][] = [
-        ['the spacing rule\'s all-clear', t.ok, '✓ No frag or cone warnings at these times.'],
+        ['the spacing rule\'s all-clear', t.ok, '✓ No frag warnings at these times.'],
         ['the spacing rule\'s all-clear has no tooltip', t.okTitle, undefined],
         ['the spacing rule\'s swatch', t.keyTitle, 'Striped: a jet is over the target inside another jet\'s frag (est.)'],
         ['the spacing rule\'s diamond sentence', handleTitle('#2', true, t.stripesHandle), `${plainTitle} Stripes: times that would put it inside another jet's frag.`],
-        ['the blast rule\'s all-clear', b.ok, '✓ No blast or cone warnings at these times.'],
+        ['the blast rule\'s all-clear', b.ok, '✓ No blast warnings at these times.'],
         ['the blast rule\'s all-clear tooltip', b.okTitle, 'Checked: every jet\'s distance from every other jet\'s bomb at the moment it goes off (est.). Distance only: hills in the way are not counted.'],
         ['the blast rule\'s swatch', b.keyTitle, 'Striped: a jet is inside another jet\'s blast radius when a bomb goes off (est.)'],
         ['the blast rule\'s diamond sentence', handleTitle('#2', true, b.stripesHandle), `${plainTitle} Stripes: times that would put it inside another jet's blast radius, or another jet inside its.`],
         ['a lane with no stripes says none of it, under either rule', [handleTitle('#2', false, t.stripesHandle), handleTitle('#2', false, b.stripesHandle), handleTitle('#2')].join('|'), [plainTitle, plainTitle, plainTitle].join('|')],
-        ['one weapon not checked', b1.ok, '✓ No cone warnings at these times. Not checked for blast: GBU-12 (no blast radius on file).'],
-        ['two weapons not checked', b2.ok, '✓ No cone warnings at these times. Not checked for blast: GBU-12 and Mk-82 AIR (no blast radius on file).'],
+        ['one weapon not checked', b1.ok, '✓ No blast warnings at these times. Not checked for blast: GBU-12 (no blast radius on file).'],
+        ['two weapons not checked', b2.ok, '✓ No blast warnings at these times. Not checked for blast: GBU-12 and Mk-82 AIR (no blast radius on file).'],
         ['an all-clear that names what was not checked has no "every distance" tooltip', [b1.okTitle, b2.okTitle].join('|'), '|'],
         ['the words with nothing handed over are the spacing rule\'s', JSON.stringify(fragChromeWords('time', [])), JSON.stringify(t)],
-        ['an unknown rule reads as the spacing rule', fragChromeWords('whatever' as never).ok, '✓ No frag or cone warnings at these times.'],
+        ['an unknown rule reads as the spacing rule', fragChromeWords('whatever' as never).ok, '✓ No frag warnings at these times.'],
       ];
       const bad = cases.filter(([, got, want]) => got !== want).map(([what, got, want]) => `${what}: ${JSON.stringify(got)} (want ${JSON.stringify(want)})`);
       ok('playback B3 [BX16]: the frag chrome\'s words follow the rule: the footer\'s all-clear and its tooltip, what was not checked, the swatch and the diamond\'s sentence, each worded as the rule says',

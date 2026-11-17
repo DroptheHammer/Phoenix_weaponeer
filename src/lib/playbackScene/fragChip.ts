@@ -82,8 +82,8 @@ export function chipText(conflicts: readonly ConflictRow[], idx: Int8Array, n: n
 }
 
 /**
- * The chip's tooltip: the readout's warning for each warning it names, joined. The readout writes one warning per
- * conflict first, in the conflicts' order (cone warnings after them), so conflict i is warning i.
+ * The chip's tooltip: the readout's warning for each warning it names, joined. The playback's readout writes one
+ * warning per conflict, in the conflicts' order, and nothing else, so conflict i is warning i.
  */
 export function chipTitle(warnings: readonly string[], idx: Int8Array, n: number): string | undefined {
   if (n < 1) return undefined;
