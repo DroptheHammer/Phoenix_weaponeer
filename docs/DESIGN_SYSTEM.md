@@ -77,7 +77,7 @@ colour needs a contrast pair in DS5 and a Tailwind key in `tailwind.config.js`.
 
 ## Tailwind
 
-Everything in `tailwind.config.js` is `theme.extend`. The map's markers and the
+Everything in the theme of `tailwind.config.js` is `theme.extend`. The map's markers and the
 existing forms use Tailwind's own `red`, `yellow`, `blue`, `orange`, `slate`
 and `gray`, so a new key must never replace a Tailwind key or palette (DS3
 proves the defaults still build). The design system's keys are names Tailwind
@@ -92,6 +92,17 @@ The app's old names (`dcs-dark`, `dcs-darker`, `dcs-navy`, `dcs-blue`,
 `dcs-accent`) still build, with opacity, from the same tokens. Forms that use
 Tailwind's greys keep working; moving them to the tokens is done screen by
 screen, never all at once.
+
+**Window-height rules** are two variants, `tall:` (`min-height: 860px`) and
+`short:` (`max-height: 819px`), added by a plugin at the end of
+`tailwind.config.js`. Tailwind's own `max-[819px]:` is a width query, so a
+height rule cannot be written with it. They are variants and never entries in
+`theme.screens`: one screen given as an object (`{ raw: '...' }`) makes
+Tailwind 3.4 drop every `max-*` and `min-*` variant in the app, the editors'
+`max-md:` included. X9 in `landing-ui-check.tsx` proves both are height
+queries and the width variants still build, using `scripts/tailwind-probe.mjs`,
+which prints a rule inside an at-rule with it first
+(`@media (max-height: 819px) margin-top:0.25rem`).
 
 ## Fonts
 
@@ -296,6 +307,7 @@ before it is kept.
 | DS14, DS15, DS18 | the blocks' markup and states; `nextSelection`; the dialog's contract, heights and `tabindex` |
 | DS19, DS20, DS22 | no blanket motion rule; the phone block; the quantity colour |
 | DS23, DS24 | the dialog on top; Tab staying inside |
+| X4, X9 (`landing-ui-check.tsx`) | the map's marker code is pinned; `tall:` and `short:` are height queries and the width variants still build |
 
 **The built app**: `npm run build` and `npm run build:web` end with
 `bundle-check.mjs` and `style-check.mjs`. Style-check fails on a font host, a

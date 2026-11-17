@@ -5,6 +5,7 @@
  * Beside each check, "Red when" is the one-line change that turns it red, and "Seen" is the FAIL line it
  * printed.
  */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
@@ -31,3 +32,19 @@ const markersHash = createHash('sha256').update(codeOf(src('src/components/map/m
 ok('X4 the planner map draws its markers, rings and route only through mapMarkers.ts, and that code is unchanged',
   /from '\.\/mapMarkers'/.test(mv) && !/const create(Waypoint|Threat)Icon|'#EF4444'|"#3B82F6"|fillOpacity/.test(mv) && markersHash === MARKERS_CODE_SHA256,
   markersHash);
+
+// ─── The height variants ─────────────────────────────────────────────────────
+// The height variants are variants, not screens: one object-valued screen switches every max-* and min-* variant
+// off (Tailwind 3.4 warns "complex-screen-config" and generates nothing), the editors' `max-md:` with them.
+// Tailwind's own `max-[…]:` is a WIDTH query, so a window-height rule can only be written with these two. The
+// probe runs in a child process: it reads tailwind.config.js, and Tailwind's plugin is async.
+// Red when (tailwind.config.js): `screens: { tall: { raw: '(min-height: 860px)' } }` is added to theme.extend.
+// Seen: FAIL X9 tall: and short: are height queries, and the width variants still work  {"tall:min-h-11":"@media (min-height: 860px) min-height:2.75rem","short:mt-1":"@media (max-height: 819px) margin-top:0.25rem","max-md:hidden":null,"max-[1279px]:block":null}
+//         (Tailwind also printed: warn - The `min-*` and `max-*` variants are not supported with a `screens` configuration containing objects.)
+// Red when (tailwind-probe.mjs): the `at +` is taken out of `const body = at + rule.nodes…` (the probe stops printing the @media, so a width query cannot be told from a height one).
+// Seen: FAIL X9 tall: and short: are height queries, and the width variants still work  {"tall:min-h-11":"min-height:2.75rem","short:mt-1":"margin-top:0.25rem","max-md:hidden":"display:none","max-[1279px]:block":"display:block"}
+const probe = JSON.parse(execFileSync(process.execPath, ['scripts/tailwind-probe.mjs', 'tall:min-h-11', 'short:mt-1', 'max-md:hidden', 'max-[1279px]:block'], { encoding: 'utf8' })) as Record<string, string | null>;
+ok('X9 tall: and short: are height queries, and the width variants still work',
+  probe['tall:min-h-11']?.startsWith('@media (min-height: 860px)') === true && probe['short:mt-1']?.startsWith('@media (max-height: 819px)') === true &&
+    probe['max-md:hidden'] !== null && probe['max-[1279px]:block']?.startsWith('@media (max-width: 1279px)') === true,
+  JSON.stringify(probe));

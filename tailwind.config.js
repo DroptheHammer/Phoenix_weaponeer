@@ -1,5 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 
+// '.js' spelled out: Tailwind 3.4 has no package exports map, so Node's own ESM loader (scripts/tailwind-probe.mjs) needs it.
+import plugin from 'tailwindcss/plugin.js';
+
 // An opaque palette colour that still takes an opacity (bg-surface-navy/80),
 // read from the channels in src/styles/tokens.css.
 const channel = (name) => `rgb(var(--rgb-${name}) / <alpha-value>)`;
@@ -135,5 +138,13 @@ export default {
       transitionTimingFunction: { ui: 'var(--ease)' },
     },
   },
-  plugins: [],
+  plugins: [
+    // Height variants for the front page and the Flight overview (tall:min-h-11, short:mt-1). Variants, not
+    // `screens`: one object-valued screen switches off every max-* and min-* variant in the app (Tailwind 3.4),
+    // the editors' `max-md:` included.
+    plugin(({ addVariant }) => {
+      addVariant('tall', '@media (min-height: 860px)');
+      addVariant('short', '@media (max-height: 819px)');
+    }),
+  ],
 }
