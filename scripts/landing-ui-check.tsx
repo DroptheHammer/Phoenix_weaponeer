@@ -7,13 +7,60 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { JetCard } from '../src/components/landing/JetCard';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
   if (!cond) process.exitCode = 1;
 };
 const src = (f: string) => readFileSync(f, 'utf8');
+
+// ─── The jet card ────────────────────────────────────────────────────────────
+// One planned jet with a known store and an unknown one, and ESTIMATED on its attack.
+const card = renderToStaticMarkup(createElement(JetCard, {
+  jet: {
+    key: 'm1', position: 1, callsign: 'Testcall 1-1', role: 'Flight Lead',
+    stores: [{ quantity: 2, name: 'Mk-84 LDGP', known: true }, { quantity: 1, name: 'AGM-45B Shrike ARM', known: false }],
+    foot: { state: 'planned', lead: '#1 · T+0s', profile: 'Maverick 8k level', estimated: true, more: 0 },
+  },
+}));
+// Red when (JetCard): the quantity cell's `flagged ? 'text-warn' : 'text-qty'` becomes `'text-ink'`; or the ESTIMATED chip's `tone="estimated"` becomes `tone="warn"`.
+// Seen: FAIL UI1 quantities in their own colour, an unknown store amber with its words, ESTIMATED a tag of its own  <td class="… font-mono font-medium pr-3 text-ink"> <td class="… font-mono font-medium pr-3 text-ink">
+//         (the quantity cell as 'text-ink')
+//       FAIL UI1 quantities in their own colour, an unknown store amber with its words, ESTIMATED a tag of its own  <td class="… text-qty"> <td class="… text-warn">
+//         (the chip as tone="warn": the quantities were right, the ESTIMATED half failed)
+const qtyCells = card.match(/<td class="[^"]*font-mono[^"]*">/g) ?? [];
+ok('UI1 quantities in their own colour, an unknown store amber with its words, ESTIMATED a tag of its own',
+  qtyCells.length === 2 && qtyCells[0].includes('text-qty') && qtyCells[1].includes('text-warn') && card.includes('Not in the weapon table') &&
+    /border-control[^>]*>(<svg[\s\S]*?<\/svg>)?ESTIMATED</.test(card) && !/text-warn[^>]*>[^<]*ESTIMATED/.test(card),
+  qtyCells.join(' '));
+
+// ─── What the front page's own files may write ───────────────────────────────
+// The flight chooser's file (src/components/import/FragOrdersPreview.tsx) is still the old picker, written in Tailwind's
+// own palette; it joins this list when it is rewritten on the tokens.
+const files = readdirSync('src/components/landing').map((f) => `src/components/landing/${f}`);
+// Colour comes from the tokens (text-ink, bg-surface-navy, text-qty, ...), never a hex, a colour function or a Tailwind
+// palette class, so the screens follow the design system if it changes.
+// Red when: `text-gray-400` (or any hex) is written in a landing file, say in the jet card.
+// Seen: FAIL X3 no raw colour in the landing components (tokens only)  src/components/landing/JetCard.tsx:26
+//         (the role line as `text-gray-400`)
+//       FAIL X3 no raw colour in the landing components (tokens only)  src/components/landing/words.ts:80
+//         (a `// #86efac` comment after the Qty word)
+const PALETTE = /\b(?:bg|text|border|ring|outline|fill|stroke|from|via|to|divide|placeholder|caret|accent|decoration|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d{2,3})?(?:\/\d{1,3})?\b/;
+const raw = files.flatMap((f) => src(f).split('\n').map((l, i) => [f, i + 1, l] as const)).filter(([, , l]) => /#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(l) || PALETTE.test(l)).map(([f, n]) => `${f}:${n}`);
+ok('X3 no raw colour in the landing components (tokens only)', raw.length === 0, raw.join(', '));
+// A comment in a committed file must make sense to someone who has only the repo: none may point at a git-ignored
+// file a reader cannot open, and no width query may stand in for a height one (Tailwind's max-[…] is max-WIDTH).
+// Red when: a comment in JetCard.tsx points at such a file by name and line, say "efb2.html .jet (:574-609)" (or a landing file gets `max-[819px]:mt-4`).
+// Seen: FAIL X8 no landing file points at a git-ignored file, and none writes a height rule as a width query  src/components/landing/JetCard.tsx
+//         (a `// efb2.html .jet (:574-609)` comment; the same with `max-[819px]:min-h-11` on the header row)
+//       FAIL X8 no landing file points at a git-ignored file, and none writes a height rule as a width query  scripts/overview-check.ts
+//         (one of those words added to that file's header comment)
+const pointers = [...files, 'scripts/overview-check.ts'].filter((f) => /efb2|critique|BRIEF-V2|v2-facts|mockup|Other Items|max-\[819px\]:/i.test(src(f)));
+ok('X8 no landing file points at a git-ignored file, and none writes a height rule as a width query', pointers.length === 0, pointers.join(', '));
 
 // ─── The planner map's markers, rings and route ──────────────────────────────
 // mapMarkers.ts is pinned whole: its code with comments and spacing taken out, hashed. The two icon functions are

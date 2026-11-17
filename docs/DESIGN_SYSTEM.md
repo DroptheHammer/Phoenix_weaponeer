@@ -44,10 +44,11 @@ against them reads `var(--c-navy)` wherever it is.
   icon and a word.
 - **The quantity colour** (`--c-qty`, mint) marks the numbers of a loadout list
   and nothing else, so a pilot reads "how many" apart from "what". DS22 allows
-  it only in the files listed in `QTY_USERS` in `design-check.tsx`. The list is
-  empty today. The change that first draws a loadout's quantity column adds its
-  file there, and one shared stores-table component is better than several
-  entries.
+  it only in the files listed in `QTY_USERS` in `design-check.tsx`. The list has
+  one entry, the jet card (`src/components/landing/JetCard.tsx`), which every
+  screen that lists a jet's stores shares. A screen that draws a quantity column
+  of its own adds its file there, but one shared component is better than
+  several entries.
 - **Data colours** (`--d-target`, `--d-sam`, ...) are copies of what the map
   draws, for a dot or a key beside the map. DS6 proves each equals what
   `src/components/map/mapMarkers.ts` draws (the planner map's markers, rings
@@ -308,6 +309,7 @@ before it is kept.
 | DS19, DS20, DS22 | no blanket motion rule; the phone block; the quantity colour |
 | DS23, DS24 | the dialog on top; Tab staying inside |
 | X4, X9 (`landing-ui-check.tsx`) | the map's marker code is pinned; `tall:` and `short:` are height queries and the width variants still build |
+| UI1, X3, X8 (`landing-ui-check.tsx`) | the jet card's quantity colour, amber unknown stores and ESTIMATED tag; no raw colour in `src/components/landing/`; no comment there points at a git-ignored file, and no width query stands in for a height rule |
 
 **The built app**: `npm run build` and `npm run build:web` end with
 `bundle-check.mjs` and `style-check.mjs`. Style-check fails on a font host, a

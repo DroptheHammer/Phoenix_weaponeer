@@ -394,13 +394,16 @@ const KNOWN: Record<string, Partial<Record<Vision | 'normal', number>>> = {
 
 // ─── The quantity colour marks a loadout's numbers and nothing else ──────────────
 {
-  // The files that may use it: none yet. A screen that draws a loadout's quantity column adds its file here
-  // (one shared stores-table component is preferred, so one entry).
-  const QTY_USERS = new Set<string>([]);
+  // The files that may use it: the one that draws a loadout's quantity column. The jet card is shared by every screen
+  // that lists a jet's stores (the flight chooser, the Flight overview, the phone), so it is the one entry; a screen
+  // that draws a quantity column of its own would add its file here, but one shared component is better.
+  const QTY_USERS = new Set<string>(['src/components/landing/JetCard.tsx']);
   const QTY = /\b(?:text|bg|border|fill|stroke|ring|outline|decoration|divide|from|via|to|shadow|accent|caret|placeholder)-qty\b|--(?:c|rgb)-qty\b/;
   const users = walk('src').filter((f) => /\.(tsx?|css)$/.test(f) && f !== 'src/styles/tokens.css' && QTY.test(read(f)));
   const stray = users.filter((f) => !QTY_USERS.has(f));
-  // Red when: `text-qty` is put on a word anywhere in src (say a chip's colour); or `--c-qty` is used in index.css.
-  // Seen: FAIL DS22 quantity colour: …  used in: src/components/map/MapLegend.tsx; not listed: src/components/map/MapLegend.tsx   (and the same with src/index.css)
+  // Red when: `text-qty` is put on a word anywhere in src (say a chip's colour); or `--c-qty` is used in index.css;
+  // or the jet card's entry is taken out of the list above.
+  // Seen: FAIL DS22 quantity colour: …  used in: src/components/landing/JetCard.tsx, src/components/map/MapLegend.tsx; not listed: src/components/map/MapLegend.tsx   (and the same with src/index.css)
+  //       FAIL DS22 quantity colour: …  used in: src/components/landing/JetCard.tsx; not listed: src/components/landing/JetCard.tsx   (the list empty again)
   ok('DS22 quantity colour: only the files listed may use --c-qty / text-qty (the numbers of a loadout list, nothing else)', stray.length === 0, `used in: ${users.join(', ') || 'nothing'}; not listed: ${stray.join(', ')}`);
 }
