@@ -35,7 +35,7 @@ export function compareThreatsForCard(a: KneeboardThreatItem, b: KneeboardThreat
  * like an engagement envelope would put it top of every card and cost one of
  * the four rows a pilot actually gets.
  */
-function canShoot(t: KneeboardThreatItem): boolean {
+export function canShoot(t: KneeboardThreatItem): boolean {
   if (t.threatType === 'EWR') return false;
   return t.maxRange_nm > 0 && t.distance_nm <= t.maxRange_nm;
 }

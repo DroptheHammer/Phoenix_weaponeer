@@ -11,17 +11,8 @@ import { copyAttackTo } from '../../lib/copyAttack';
 import { InfoButton } from '../common/InfoButton';
 import { PlayStrikeButton } from '@playback';
 import type { PlaybackSystemRow } from '../playback/types';
-import type { AttackProfileType, DbWeapon, FuzeOption, Attack, Strike } from '../../types';
-
-const PROFILE_LABELS: Record<AttackProfileType, string> = {
-  level_ccrp: 'Level CCRP',
-  dive_ccip: 'Dive CCIP',
-  popup_ccip: 'Popup CCIP',
-  loft_ccrp: 'Loft CCRP',
-  low_angle_low_drag: 'LALD',
-  high_angle_strafe: 'Strafe',
-  standoff: 'Standoff',
-};
+import { PROFILE_LABELS } from '../../lib/profileLabels';
+import type { DbWeapon, FuzeOption, Attack, Strike } from '../../types';
 
 // What the desktop says in tooltips, written out on a phone (no hover there).
 const STRIKE_HINT = 'Plan the flight together: shared IP, mirrored split, spacing over the target';

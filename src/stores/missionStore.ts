@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { normalizeImportedCallsign } from '../lib/callsign';
+import { importedMemberCallsign } from '../lib/callsign';
 import { importNotes } from '../lib/importNotes';
 import { removeAttackFrom, moveAttackCustomIp } from '../lib/missionOps';
 import { saveStrikeTo, removeStrikeFrom, setStrikeOffsets as setStrikeOffsetsIn } from '../lib/strike';
@@ -26,7 +26,7 @@ import type {
  * The ids must match the `aircraft` in `crates/core/data/reference.json` and the
  * `aircraftId` in each profile file under `src-tauri/resources/profiles/`.
  */
-function normalizeAircraftType(dcsType: string): string {
+export function normalizeAircraftType(dcsType: string): string {
   const typeMap: Record<string, string> = {
     'F-16C_50': 'f16c',
     'F-16C': 'f16c',
@@ -267,16 +267,12 @@ export const useMissionStore = create<MissionState>((set, get) => ({
         ...(t.hidden_on_map ? { hiddenOnMap: true } : {}),
       }));
 
-    // Create flight members from units (position is 1-4)
-    // Extract callsign name + flight number from group callsign (e.g. "Viper 1-1" → name="Viper", flight="1")
-    // so per-unit fallback generates "Viper 1-1", "Viper 1-2", etc. instead of "Viper 1-1-2"
-    const csMatch = group.callsign.match(/^([A-Za-z]+)\s*(\d)/);
-    const csName = csMatch?.[1] ?? group.callsign;
-    const csFlight = csMatch?.[2] ?? '1';
-
+    // Create flight members from units (position is 1-4). An empty unit callsign
+    // falls back to "Viper 1-2" from the group's (lib/callsign.ts), the same
+    // function the "Choose your flight" step names the jets with.
     const flightMembers: FlightMember[] = group.units.slice(0, 4).map((unit, idx) => ({
       id: uuidv4(),
-      callsign: normalizeImportedCallsign(unit.callsign) || `${csName} ${csFlight}-${idx + 1}`,
+      callsign: importedMemberCallsign(group.callsign, unit.callsign, idx),
       position: (idx + 1) as 1 | 2 | 3 | 4,
       role: idx === 0 ? 'flight_lead' as const : 'wingman' as const,
       aircraftId: normalizeAircraftType(group.aircraft_type),

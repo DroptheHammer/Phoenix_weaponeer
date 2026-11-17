@@ -34,6 +34,21 @@ export function normalizeImportedCallsign(raw: string): string {
 }
 
 /**
+ * A jet's callsign as an import stores it: the unit's own, normalized, or, when
+ * the mission left it empty, "{name} {flight}-{n}" from the group's callsign
+ * (group "Viper 1-1": the second jet is "Viper 1-2", not "Viper 1-1-2"). One
+ * function, so the "Choose your flight" step and the imported mission can
+ * never name the same jet two ways.
+ */
+export function importedMemberCallsign(groupCallsign: string, unitCallsign: string, index: number): string {
+  const own = normalizeImportedCallsign(unitCallsign ?? '');
+  if (own) return own;
+  const group = groupCallsign ?? '';
+  const match = group.match(/^([A-Za-z]+)\s*(\d)/);
+  return `${match?.[1] ?? group} ${match?.[2] ?? '1'}-${index + 1}`;
+}
+
+/**
  * The flight group a member callsign belongs to.
  *
  * Stored callsigns are already normalized to "Viper 1-1" form by
