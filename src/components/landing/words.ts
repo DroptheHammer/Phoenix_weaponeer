@@ -75,7 +75,9 @@ export const W = {
   backToList: 'Back to the list of flights',
   importFlight: (label: string) => `Import ${label}`,
   importNone: 'Import a flight',
-  chooserFailed: 'The flight list could not be opened. Go back and press Load again.',
+  // A failed load of the chooser is remembered until the app is reloaded, so "press Load again" alone would
+  // show these same words again.
+  chooserFailed: 'The flight list could not be opened. Reload the app, then press Load again.',
 
   // ── Jet card ──
   qty: 'Qty',

@@ -11,8 +11,14 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { FragOrdersData } from '../src/types/fragorders.types';
+import type { Mission } from '../src/types/mission.types';
 import { JetCard } from '../src/components/landing/JetCard';
-import { FragOrdersPreview } from '../src/components/import/FragOrdersPreview';
+import { RecentCardItem, RecentMissions } from '../src/components/landing/RecentMissions';
+import { W } from '../src/components/landing/words';
+import { FlightRow, FragOrdersPreview } from '../src/components/import/FragOrdersPreview';
+import { recentCardFrom, type RecentCard, type RecentKey, type ThumbnailInput } from '../src/lib/landing/recentCards';
+import { CARD_PICTURE } from '../src/lib/landing/thumbnailPlan';
+import { useLocalMissionStore } from '../src/stores/localMissionStore';
 import { useUiStore } from '../src/stores/uiStore';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -93,6 +99,175 @@ ok('UI3b with every threat hidden the step reads as for a mission with none, the
   allHidden === noneAtAll && allHidden.includes(NO_THREATS_NOTICE) && !allHidden.includes('import warning') && !allHidden.includes('FAKE-HIDDEN') &&
     !revealed.includes(NO_THREATS_NOTICE) && revealedBoth.includes('FAKE-HIDDEN-UNKNOWN') && !revealedBoth.includes(NO_THREATS_NOTICE),
   `same as none ${allHidden === noneAtAll}, notice ${allHidden.includes(NO_THREATS_NOTICE)}, warning ${allHidden.includes('import warning')}, hidden names ${allHidden.includes('FAKE-HIDDEN')}, notice when revealed ${revealed.includes(NO_THREATS_NOTICE)}, both switches name the unmatched one ${revealedBoth.includes('FAKE-HIDDEN-UNKNOWN')}`);
+
+// ─── The chooser's phone sheet and its rows ──────────────────────────────────
+// A sticky bar stands at the very top of its scroller, so any padding above it is a strip where the rows scrolling by
+// show. The sheet's scroll body therefore has no top padding, and the gap above the filter is the bar's own.
+// Red when (FragOrdersPreview): `px-4 pb-4 [scroll-padding-top:80px]` on the sheet's scroll body gets its `pt-1` back.
+// Seen: FAIL UI9 nothing peeks above the phone sheet's filter: the scroll body has no top padding, and the filter bar carries the gap  scroll body "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4 pt-1 [scroll-padding-top:80px]"; bar "sticky top-0 z-[2] -mx-4 bg-surface-navy px-4 pb-2 pt-3 shadow-[0_1px_0_var(--c-line)]"
+//         (and with the bar's `pt-3` taken back to `py-2` while the scroll body is right: the bar then read "… px-4 py-2 shadow-…", and the filter sat 4 px higher than before)
+const scrollBody = /class="([^"]*overscroll-contain[^"]*)"/.exec(step)?.[1] ?? '';
+const filterBar = /class="([^"]*sticky top-0[^"]*)"/.exec(step)?.[1] ?? '';
+ok('UI9 nothing peeks above the phone sheet\'s filter: the scroll body has no top padding, and the filter bar carries the gap',
+  scrollBody.includes('overflow-y-auto') && !/(^|\s)(p|py|pt)-/.test(scrollBody) && /(^|\s)pt-3(\s|$)/.test(filterBar) && /(^|\s)sticky(\s|$)/.test(filterBar),
+  `scroll body "${scrollBody}"; bar "${filterBar}"`);
+
+// The chosen flight keeps its fill under the mouse: both fills set the background, and the hover one would win, so the
+// hover fill is only on the rows that are not chosen. (The desktop's dialog is a portal that plain markup cannot show,
+// so the row is drawn on its own.)
+// Red when (FlightRow): `!phone && !chosen && 'hover:bg-tint-2'` becomes `!phone && 'hover:bg-tint-2'`.
+// Seen: FAIL UI11 the chosen flight keeps its fill under the mouse; the rows that are not chosen still show hover  chosen "flex cursor-pointer … min-h-tap px-3 hover:bg-tint-2 bg-accent-soft"; other "flex cursor-pointer … min-h-tap px-3 hover:bg-tint-2"; phone chosen "flex cursor-pointer … min-h-12 px-4 py-1 bg-accent-soft"
+const flightRow = (chosen: boolean, phone: boolean) => {
+  const html = renderToStaticMarkup(createElement(FlightRow, {
+    flight: { index: 0, label: 'Venom 1', jets: 4, aircraftId: 'f16c', aircraftName: 'F-16C Viper', hasProfiles: true }, chosen, phone, onChoose: () => {}, onOpen: () => {},
+  }));
+  return /<label class="([^"]*)"/.exec(html)?.[1] ?? '';
+};
+const deskChosen = flightRow(true, false);
+const deskOther = flightRow(false, false);
+const phoneChosen = flightRow(true, true);
+ok('UI11 the chosen flight keeps its fill under the mouse; the rows that are not chosen still show hover',
+  /(^|\s)bg-accent-soft(\s|$)/.test(deskChosen) && !/hover:/.test(deskChosen) && /(^|\s)hover:bg-tint-2(\s|$)/.test(deskOther) && !/bg-accent-soft/.test(deskOther)
+    && /(^|\s)bg-accent-soft(\s|$)/.test(phoneChosen) && !/hover:/.test(phoneChosen),
+  `chosen "${deskChosen}"; other "${deskOther}"; phone chosen "${phoneChosen}"`);
+
+// When the flight list's code cannot be fetched, App says so and offers the way back. That failure is remembered until
+// the app is reloaded, so "press Load again" alone would show the same words again.
+// Red when (words.ts): `chooserFailed` goes back to 'The flight list could not be opened. Go back and press Load again.'
+// Seen: FAIL UI8 the words when the flight list cannot open say to reload the app first  The flight list could not be opened. Go back and press Load again.
+ok('UI8 the words when the flight list cannot open say to reload the app first',
+  W.chooserFailed === 'The flight list could not be opened. Reload the app, then press Load again.', W.chooserFailed);
+
+// ─── Recent missions ─────────────────────────────────────────────────────────
+// A saved mission to put on cards: a flight of one with a target, nothing a hidden threat could hide in.
+const savedMission = {
+  id: 'ui-m1', name: 'Test Mission', date: '2026-01-01', theater: 'nevada', bullseye: { lat: 36.2, lon: -115.0 },
+  notes: '', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+  waypoints: [{ id: 'w1', steerpoint: 1, name: 'WP1', type: 'target', coordinates: { lat: 36.5, lon: -115.2 }, elevation_ft: 2000 }],
+  threats: [], flightMembers: [{ id: 'f1', callsign: 'Testcall 1-1', position: 1, role: 'flight_lead', aircraftId: 'f16c', loadout: [] }], attacks: [],
+} as unknown as Mission;
+const recentsMarkup = (storageError: string | null) => {
+  // As for the chooser above: a server render reads the store's initial state, which is where the failure is set, and put back.
+  const initial = useLocalMissionStore.getInitialState();
+  const before = initial.error;
+  initial.error = storageError;
+  try {
+    return renderToStaticMarkup(createElement(RecentMissions, {
+      openMission: savedMission, onContinue: () => {}, onOpenFile: () => {}, onOpenLocal: () => {},
+      aircraft: [{ id: 'f16c', name: 'F-16C Viper' }], typeOf: new Map<string, string>(), phone: false, web: true,
+    }));
+  } finally {
+    initial.error = before;
+  }
+};
+// With the amber line saying the plan was NOT saved, the grey line saying it is saved automatically would contradict it.
+// Red when (RecentMissions): `{web && !shownError && <p …>{W.recentWebFine}</p>}` loses its `!shownError &&`.
+// Seen: FAIL UI6 the amber autosave failure and the grey "saved automatically" line are never shown together  failed: amber true, grey true; fine: amber false, grey true
+const AUTOSAVE_FAILED = 'Autosave failed — use Export .json to keep this plan: QuotaExceededError';
+const failedRecents = recentsMarkup(AUTOSAVE_FAILED);
+const fineRecents = recentsMarkup(null);
+ok('UI6 the amber autosave failure and the grey "saved automatically" line are never shown together',
+  failedRecents.includes(AUTOSAVE_FAILED) && !failedRecents.includes(W.recentWebFine) && !fineRecents.includes('Autosave failed') && fineRecents.includes(W.recentWebFine),
+  `failed: amber ${failedRecents.includes(AUTOSAVE_FAILED)}, grey ${failedRecents.includes(W.recentWebFine)}; fine: amber ${fineRecents.includes('Autosave failed')}, grey ${fineRecents.includes(W.recentWebFine)}`);
+
+// A card for a saved file is told from another copy of the same mission by its file name (the small grey line under the
+// mission's name; the folder is not printed), and the card's tooltip is the full path. A browser-stored mission has no file.
+const cardMarkup = (card: RecentCard) =>
+  renderToStaticMarkup(createElement(RecentCardItem, {
+    card, isLive: false, now: new Date('2026-06-01T00:00:00Z'),
+    theaterName: (id) => id, aircraftName: (id) => id, typeOf: new Map<string, string>(),
+    asking: false, onOpen: () => {}, onForget: () => {}, onAsk: () => {}, onCancelAsk: () => {}, onDelete: () => {},
+  }));
+const aCard = (key: Parameters<typeof recentCardFrom>[1]) => cardMarkup(recentCardFrom(savedMission, key, () => null));
+const FILE_PATH = 'C:\\dcs\\plans\\Strike Two.json';
+const fileCard = aCard({ source: 'file', path: FILE_PATH });
+const browserCard = aCard({ source: 'browser', id: 'ui-m1', name: 'Test Mission', savedAt: '2026-01-01T00:00:00Z' });
+const textOf = (markup: string) => markup.replace(/<[^>]*>/g, '');
+// Red when (RecentCardItem): the file name line `{fileName && <span …>{fileName}</span>}` is deleted, or the card button loses `title={filePath ?? undefined}`.
+// Seen: FAIL UI7 a saved-file card names its file under the mission's name and gives the full path as its tooltip; a browser card has neither  name line false, path tooltip true, folder printed false, browser card line false, tooltip false
+//         (the name line deleted)
+//       FAIL UI7 a saved-file card names its file under the mission's name and gives the full path as its tooltip; a browser card has neither  name line true, path tooltip false, folder printed false, browser card line false, tooltip false
+//         (the tooltip deleted)
+const nameLine = />Strike Two\.json<\/span>/.test(fileCard);
+const pathTooltip = fileCard.includes(`<button type="button" title="${FILE_PATH}"`);
+ok('UI7 a saved-file card names its file under the mission\'s name and gives the full path as its tooltip; a browser card has neither',
+  nameLine && pathTooltip && !textOf(fileCard).includes('dcs') && !/>[^<]*\.json<\/span>/.test(browserCard) && !/<button type="button" title=/.test(browserCard),
+  `name line ${nameLine}, path tooltip ${pathTooltip}, folder printed ${textOf(fileCard).includes('dcs')}, browser card line ${/>[^<]*\.json<\/span>/.test(browserCard)}, tooltip ${/<button type="button" title=/.test(browserCard)}`);
+// The × on a file card says the file is not deleted (its tooltip), and its spoken name is still the mission's.
+// Red when (RecentCardItem): the file card's `label={W.recentForgetTitle}` becomes `label={W.recentForget(title)}` (the tooltip loses the words), or the `aria-labelledby` is taken out (the name loses the mission's).
+// Seen: FAIL UI7b the × on a saved-file card says the file is not deleted and is still named for its mission; a browser card's says Delete  tooltip "Remove Test Mission from recent missions", name "Remove Test Mission from recent missions"; browser card name "Delete Test Mission"
+//         (the tooltip as `W.recentForget(title)`: the tooltip lost the words)
+//       FAIL UI7b the × on a saved-file card says the file is not deleted and is still named for its mission; a browser card's says Delete  tooltip "Remove from this list (the file is not deleted)", name "Remove from this list (the file is not deleted)"; browser card name "Delete Test Mission"
+//         (`aria-labelledby` taken out: the spoken name became the tooltip's words, with no mission in it)
+const lastButtonOf = (markup: string) => (markup.match(/<button[^>]*>/g) ?? []).slice(-1)[0] ?? '';
+// What a screen reader speaks for a button: the text its aria-labelledby points at, else its aria-label.
+const spokenName = (markup: string) => {
+  const tag = lastButtonOf(markup);
+  const pointsAt = /aria-labelledby="([^"]*)"/.exec(tag)?.[1];
+  const target = pointsAt ? new RegExp(`id="${pointsAt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>([^<]*)<`).exec(markup)?.[1] : undefined;
+  return target ?? /aria-label="([^"]*)"/.exec(tag)?.[1] ?? '(none)';
+};
+const tooltipOf = (markup: string) => /title="([^"]*)"/.exec(lastButtonOf(markup))?.[1] ?? '(none)';
+ok('UI7b the × on a saved-file card says the file is not deleted and is still named for its mission; a browser card\'s says Delete',
+  tooltipOf(fileCard) === W.recentForgetTitle && spokenName(fileCard) === W.recentForget('Test Mission') && spokenName(browserCard) === W.recentDelete('Test Mission') && !browserCard.includes('not deleted'),
+  `tooltip "${tooltipOf(fileCard)}", name "${spokenName(fileCard)}"; browser card name "${spokenName(browserCard)}"`);
+
+// A card's route picture is planned 16:9, and a short window shows it 2:1 with `slice`, which crops (height - width / 2) / 2
+// off the top and the bottom. A dot on the frame's edge must still be whole, outline and all. The circles are read out of
+// the card's own markup (centre, radius, outline), so this holds the card to its picture's margin, not just the number
+// the margin is written as: landing-check (T6) holds the number. Two routes that reach the frame: a waypoint on the
+// south edge with a threat (the widest dot) on the north edge, and a waypoint on each.
+// Red when (RecentCardItem's picture): `planThumbnail(card.thumbnail, CARD_PICTURE, { paddingPx: CARD_PICTURE.marginPx })` loses its third argument, so the planner's own 12 px margin is used.
+// Seen: FAIL UI12 every dot the card draws lies whole inside the part of its picture that a short window keeps, for a route that reaches the frame's edge  south waypoint, north threat: 3 dots, cut y 12.00, y 168.00, y 12.00 to 168.00 of 180, cropped to 2:1 true; waypoint on each edge: 3 dots, cut y 168.00, y 12.00, y 12.00 to 168.00 of 180, cropped to 2:1 true
+//         (with the card's margin gone, landing-check's T6 stayed green: it plans a picture of its own and never looks at the card)
+const edgeKey: RecentKey = { source: 'file', path: '/plans/edge.json' };
+const pictureOf = (thumbnail: ThumbnailInput) =>
+  cardMarkup({ status: 'ok', key: edgeKey, name: 'Edge', theaterId: 'nevada', lastEdited: null, flights: [], attackCount: 0, thumbnail });
+const wp = (lat: number, steerpoint: number) => ({ lat, lon: -116.0, steerpoint });
+const edgePictures: Array<[string, ThumbnailInput]> = [
+  ['south waypoint, north threat', { waypoints: [wp(36.0, 1), wp(36.4, 2)], threats: [{ lat: 37.0, lon: -116.0, systemId: 'sa2' }], fallbackCenter: null, realWorld: false }],
+  ['waypoint on each edge', { waypoints: [wp(36.0, 1), wp(36.2, 2), wp(36.5, 3)], threats: [], fallbackCenter: null, realWorld: false }],
+];
+const pictureReport = edgePictures.map(([name, thumbnail]) => {
+  const markup = pictureOf(thumbnail);
+  const svg = /<svg [^>]*>/.exec(markup)?.[0] ?? '';
+  const [, w, h] = /viewBox="0 0 (\d+) (\d+)"/.exec(svg)?.map(Number) ?? [0, 0, 0];
+  const keptTop = (h - w / 2) / 2;
+  const number = (tag: string, attribute: string) => Number(new RegExp(`\\s${attribute}="([^"]*)"`).exec(tag)?.[1]);
+  const dots = (markup.match(/<circle [^>]*>/g) ?? []).map((tag) => {
+    const [cx, cy, r, outline] = [number(tag, 'cx'), number(tag, 'cy'), number(tag, 'r'), number(tag, 'stroke-width')];
+    const reach = r + outline / 2;
+    return { cy, cut: !(cy - reach >= keptTop - 1e-9 && cy + reach <= h - keptTop + 1e-9 && cx - reach >= -1e-9 && cx + reach <= w + 1e-9) };
+  });
+  const ys = dots.map((d) => d.cy);
+  const reachesEdge = dots.length > 0 && Math.abs(Math.min(...ys) - CARD_PICTURE.marginPx) < 0.5 && Math.abs(Math.max(...ys) - (h - CARD_PICTURE.marginPx)) < 0.5;
+  const cropped = /preserveAspectRatio="xMidYMid slice"/.test(svg) && /short:aspect-\[2\/1\]/.test(svg);
+  return { name, ok: cropped && reachesEdge && dots.every((d) => !d.cut) && dots.length === (thumbnail.waypoints.length + thumbnail.threats.length), text: `${name}: ${dots.length} dots, cut ${dots.filter((d) => d.cut).map((d) => `y ${d.cy.toFixed(2)}`).join(', ') || 'none'}, y ${Math.min(...ys).toFixed(2)} to ${Math.max(...ys).toFixed(2)} of ${h}, cropped to 2:1 ${cropped}` };
+});
+ok('UI12 every dot the card draws lies whole inside the part of its picture that a short window keeps, for a route that reaches the frame\'s edge',
+  pictureReport.every((r) => r.ok), pictureReport.map((r) => r.text).join('; '));
+
+// ─── The front page's pieces are wired to what they are checked for ──────────
+// LoadBox closes its load gate when it leaves the screen (and opens it again on a second mount), and sends every load
+// through runLoad, which checks the gate before it hands an answer over: a link still being fetched when the planner
+// goes to the map answers nothing. The gate itself is proved by landing-check (L14); this is the box's use of it.
+// Red when (LoadBox): the effect's `return () => gate.close();` is deleted (the box then never closes the gate).
+// Seen: FAIL UI5 the load box closes its load gate when it leaves the screen, and every load goes through runLoad  closes on leaving false, runLoad true
+//         (the effect left as `gate.open();` alone)
+const loadBox = src('src/components/landing/LoadBox.tsx');
+const closesGate = /useEffect\(\(\) => \{\s*gate\.open\(\);\s*return \(\) => gate\.close\(\);\s*\}, \[gate\]\);/.test(loadBox);
+const viaRunLoad = /await runLoad\(gate, source, platformLoadDeps,/.test(loadBox) && !/\bgate\.isLatest\b/.test(loadBox);
+ok('UI5 the load box closes its load gate when it leaves the screen, and every load goes through runLoad',
+  closesGate && viaRunLoad, `closes on leaving ${closesGate}, runLoad ${viaRunLoad}`);
+// On the phone the front page's header is the app's name, so App takes its title and its unsaved dot from phoneHeader
+// (proved by landing-check, H1), not from the open mission directly.
+// Red when (App): `dirty={header.dirty}` on PhoneShell becomes `dirty={Boolean(mission && isDirty)}`.
+// Seen: FAIL UI10 the phone shell takes its title and its unsaved dot from phoneHeader  title true, dirty false
+const app = src('src/App.tsx');
+const titleFromHeader = /<PhoneShell<PanelType>\s+title=\{header\.title\}/.test(app);
+const dotFromHeader = /<PhoneShell<PanelType>[^>]*?\sdirty=\{header\.dirty\}/.test(app);
+ok('UI10 the phone shell takes its title and its unsaved dot from phoneHeader',
+  /const header = phoneHeader\(/.test(app) && titleFromHeader && dotFromHeader, `title ${titleFromHeader}, dirty ${dotFromHeader}`);
 
 // ─── What the front page's and the chooser's own files may write ─────────────
 // The chooser is held to the same rules as the landing components.

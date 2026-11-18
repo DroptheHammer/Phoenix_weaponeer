@@ -66,8 +66,10 @@ export interface PeekDeps {
 export const recentKeyId = (key: RecentKey): string => (key.source === 'file' ? `file:${key.path}` : `browser:${key.id}`);
 
 /** A file's name without its folders, whichever way the folders are written. */
-const labelOf = (key: RecentKey): string =>
-  key.source === 'file' ? (key.path.split(/[\\/]/).filter(Boolean).pop() ?? key.path) : key.name;
+export const fileNameOf = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+
+/** What a card is called when its file cannot be read: the file's name, or the name the browser kept it under. */
+const labelOf = (key: RecentKey): string => (key.source === 'file' ? fileNameOf(key.path) : key.name);
 
 /**
  * The cards to show, in order. The desktop remembers file paths; the browser

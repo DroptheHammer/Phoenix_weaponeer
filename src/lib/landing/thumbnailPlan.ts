@@ -30,6 +30,20 @@ import {
 export const MAX_THUMB_WAYPOINTS = 100;
 export const MAX_THUMB_THREATS = 300;
 
+/**
+ * The recent-mission card's picture: planned 16:9 and drawn as plain SVG. In a short window the card shows it
+ * 2:1 instead, and its `slice` then crops (height - width / 2) / 2, here 10, off the top and the bottom. A dot
+ * standing on the frame's edge would lose half its circle, so the frame is planned with a margin wider than that
+ * crop plus the widest dot: a threat's radius (3.5) and half its outline (0.75) put 14.25 round a centre.
+ */
+export const CARD_PICTURE = {
+  width: 320,
+  height: 180,
+  marginPx: 16,
+  /** As the card draws them: the radii of a threat's dot and a waypoint's, and the outline both carry. */
+  dot: { threat: 3.5, waypoint: 3, outline: 1.5 },
+};
+
 /** Everything the picture needs, and nothing it must not show. No bullseye, no hidden threat. */
 export interface ThumbnailInput {
   /** The route, in the mission's own order. */

@@ -38,6 +38,42 @@ interface Props {
   suspended?: boolean;
 }
 
+interface FlightRowProps {
+  flight: FlightChoice;
+  chosen: boolean;
+  phone: boolean;
+  onChoose: () => void;
+  /** Phone only: a tap on a flight opens its jets. */
+  onOpen: () => void;
+}
+
+/**
+ * One flight in the list, a radio row. The chosen row keeps its own fill under the mouse: the hover fill is for the
+ * rows that are not chosen, because the two fills are one property and the hover one would win over it.
+ */
+export function FlightRow({ flight: f, chosen, phone, onChoose, onOpen }: FlightRowProps) {
+  return (
+    <li>
+      <label className={cx('flex cursor-pointer items-center gap-3 transition-colors duration-fast motion-reduce:transition-none', phone ? 'min-h-12 px-4 py-1' : 'min-h-tap px-3', !phone && !chosen && 'hover:bg-tint-2', chosen && 'bg-accent-soft')}>
+        <input
+          type="radio"
+          name="flight-group"
+          checked={chosen}
+          onChange={onChoose}
+          // On a phone, tapping a flight (a click with a pointer, not the keyboard's arrow keys) opens its jets.
+          onClick={(e) => { if (phone && (e.detail > 0)) onOpen(); }}
+          onKeyDown={(e) => { if (phone && e.key === 'Enter') { e.preventDefault(); onOpen(); } }}
+          className={cx('m-0 shrink-0 cursor-pointer appearance-none rounded-full border-2 border-control checked:border-accent checked:bg-accent checked:shadow-[inset_0_0_0_3px_var(--c-deep)]', phone ? 'size-[22px]' : 'size-5')}
+        />
+        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+          <span className="text-ui-body font-semibold text-ink">{f.label}</span>
+          <span className="text-ui-small text-ink-2">{W.flightRow(f.jets)}</span>
+        </span>
+      </label>
+    </li>
+  );
+}
+
 export function FragOrdersPreview({ data, aircraft, onBack, onImport, phone, suspended = false }: Props) {
   const reveal = useUiStore((s) => s.revealHidden);
   const profiles = useProfileStore((s) => s.profiles);
@@ -145,24 +181,7 @@ export function FragOrdersPreview({ data, aircraft, onBack, onImport, phone, sus
   );
 
   const row = (f: FlightChoice) => (
-    <li key={f.index}>
-      <label className={cx('flex cursor-pointer items-center gap-3 transition-colors duration-fast motion-reduce:transition-none', phone ? 'min-h-12 px-4 py-1' : 'min-h-tap px-3 hover:bg-tint-2', f.index === chosen && 'bg-accent-soft')}>
-        <input
-          type="radio"
-          name="flight-group"
-          checked={f.index === chosen}
-          onChange={() => setChosen(f.index)}
-          // On a phone, tapping a flight (a click with a pointer, not the keyboard's arrow keys) opens its jets.
-          onClick={(e) => { if (phone && (e.detail > 0)) setView('detail'); }}
-          onKeyDown={(e) => { if (phone && e.key === 'Enter') { e.preventDefault(); setView('detail'); } }}
-          className={cx('m-0 shrink-0 cursor-pointer appearance-none rounded-full border-2 border-control checked:border-accent checked:bg-accent checked:shadow-[inset_0_0_0_3px_var(--c-deep)]', phone ? 'size-[22px]' : 'size-5')}
-        />
-        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-          <span className="text-ui-body font-semibold text-ink">{f.label}</span>
-          <span className="text-ui-small text-ink-2">{W.flightRow(f.jets)}</span>
-        </span>
-      </label>
-    </li>
+    <FlightRow key={f.index} flight={f} chosen={f.index === chosen} phone={phone} onChoose={() => setChosen(f.index)} onOpen={() => setView('detail')} />
   );
 
   const list = (
@@ -189,7 +208,7 @@ export function FragOrdersPreview({ data, aircraft, onBack, onImport, phone, sus
   // so a planner who sees an empty list can read why.
   const group = chosenFlight ? data.player_groups[chosenFlight.index] : null;
   const detail = (
-    <div className={cx('grid content-start gap-3', !phone && 'min-h-0 min-w-0 overflow-y-auto pb-1 pr-1 max-[899px]:overflow-visible')}>
+    <div className={cx('grid content-start gap-3', phone ? 'pt-1' : 'min-h-0 min-w-0 overflow-y-auto pb-1 pr-1 max-[899px]:overflow-visible')}>
       {!phone && notices}
       {group && chosenFlight && (
         <>
@@ -236,10 +255,12 @@ export function FragOrdersPreview({ data, aircraft, onBack, onImport, phone, sus
             </div>
             <IconButton icon="close" label={W.chooseClose} onClick={onBack} />
           </div>
-          <div ref={sheetBody} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4 pt-1 [scroll-padding-top:80px]">
+          {/* No padding above the scroller: a sticky bar stands at the scroller's very top, so padding there would be a
+              strip above the filter where rows scroll by. The gap above the filter is the bar's own. */}
+          <div ref={sheetBody} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4 [scroll-padding-top:80px]">
             {view === 'list' ? (
               <>
-                <div className="sticky top-0 z-[2] -mx-4 bg-surface-navy px-4 py-2 shadow-[0_1px_0_var(--c-line)]">{filter}</div>
+                <div className="sticky top-0 z-[2] -mx-4 bg-surface-navy px-4 pb-2 pt-3 shadow-[0_1px_0_var(--c-line)]">{filter}</div>
                 {notices}
                 <div className="mx-1 flex flex-wrap items-baseline justify-between gap-x-3 text-ui-small text-ink-2">
                   <p role="status" aria-live="polite">{W.flightCount(shown.length, all.length)}</p>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
 import { classifyLoadText } from '../../lib/landing/loadSniff';
-import { latestGate, routeLoad, type LoadOutcome, type LoadSource } from '../../lib/landing/loadRouter';
+import { latestGate, runLoad, type LoadOutcome, type LoadSource } from '../../lib/landing/loadRouter';
 import { chooseFileToLoad, platformLoadDeps, sourceFromFile, subscribeFileDrop } from '../../lib/landing/platformBindings';
 import { Button } from '../ui/Button';
 import { Icon } from '../ui/Icon';
@@ -21,7 +21,8 @@ export interface LoadBoxProps {
  * JSON itself), drop or choose a FragOrders .json or a saved mission. The data layer decides which
  * (classifyLoadText, routeLoad) and words every refusal; this only shows it. It never commits: the
  * outcome goes to App, which guards unsaved work at that moment. A newer load makes
- * an older one stale (latestGate), so Cancel just forgets the answer.
+ * an older one stale (latestGate), so Cancel just forgets the answer, and so does leaving
+ * the front page: a load still running when the box goes away is never answered.
  */
 export function LoadBox({ onOutcome, phone, web, disabled = false, fieldRef }: LoadBoxProps) {
   const [text, setText] = useState('');
@@ -36,16 +37,24 @@ export function LoadBox({ onOutcome, phone, web, disabled = false, fieldRef }: L
   const chip = kind?.kind === 'link' ? W.chipLink : kind?.kind === 'fragorders-json' ? W.chipFragJson : kind?.kind === 'saved-mission' ? W.chipSaved : null;
   const hint = refusal ?? (!kind ? (web ? W.hintIdleWeb : W.hintIdleDesktop) : kind.kind === 'link' ? W.hintLink : kind.kind === 'refused' ? W.hintUnknown : W.hintJson);
 
+  // The box goes away when the planner leaves the front page (the Open now card, a recent mission, Create new
+  // mission): a link still being fetched must not then open the chooser over the map, or replace the open
+  // mission. Closing the gate makes every answer still on its way stale. It is opened again on a second
+  // mount, which React's development double-mount does, so a gate closed for good would never answer.
+  useEffect(() => {
+    gate.open();
+    return () => gate.close();
+  }, [gate]);
+
   const run = async (source: LoadSource | LoadSource[], busyWords: string) => {
     if (disabled) return;
-    const token = gate.next();
     setRefusal(null);
     setBusy(busyWords);
-    const outcome = await routeLoad(source, platformLoadDeps);
-    if (!gate.isLatest(token)) return; // cancelled, or a newer load started
-    setBusy(null);
-    if (outcome.kind === 'error') setRefusal(outcome.message);
-    else onOutcome(outcome);
+    await runLoad(gate, source, platformLoadDeps, (outcome) => {
+      setBusy(null);
+      if (outcome.kind === 'error') setRefusal(outcome.message);
+      else onOutcome(outcome);
+    });
   };
   const submitText = () => {
     const k = classifyLoadText(text);

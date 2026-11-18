@@ -13,6 +13,7 @@ import { FrontPage } from "./components/landing/FrontPage";
 import { W } from "./components/landing/words";
 import { adoptSavedMission } from "./lib/landing/platformBindings";
 import type { LoadOutcome } from "./lib/landing/loadRouter";
+import { phoneHeader } from "./lib/landing/phoneHeader";
 import { MapView } from "./components/map/MapView";
 import { WaypointList } from "./components/waypoints/WaypointList";
 import { ThreatList } from "./components/threats/ThreatList";
@@ -577,11 +578,13 @@ function App() {
           settingsItem,
         ];
 
+    const header = phoneHeader(mission ? mission.name : null, shown === 'map', isDirty, 'Phoenix Weaponeer');
+
     return (
       <>
         <PhoneShell<PanelType>
-          title={mission && shown === 'map' ? mission.name : 'Phoenix Weaponeer'}
-          dirty={Boolean(mission && isDirty)}
+          title={header.title}
+          dirty={header.dirty}
           menu={phoneMenu}
           message={fileMsg}
           onDismissMessage={() => setFileMsg(null)}

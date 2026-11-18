@@ -133,14 +133,44 @@ export async function routeLoad(input: LoadSource | LoadSource[], deps: LoadDeps
   }
 }
 
+export interface LoadGate {
+  /** A ticket for a load that is starting; it makes every older ticket stale. */
+  next(): number;
+  isLatest(token: number): boolean;
+  /** The box that started loads is gone: no ticket is the latest, now or from here on, until `open`. */
+  close(): void;
+  /** The box is up again (a screen that mounts a second time): loads are wanted once more. */
+  open(): void;
+}
+
 /**
  * A ticket per load, so a slow answer that arrives after a newer load started
  * (or after the box was closed) can tell it is stale and be ignored.
  */
-export function latestGate(): { next(): number; isLatest(token: number): boolean } {
+export function latestGate(): LoadGate {
   let latest = 0;
+  let closed = false;
   return {
     next: () => ++latest,
-    isLatest: (token) => token === latest,
+    isLatest: (token) => !closed && token === latest,
+    close: () => { closed = true; },
+    open: () => { closed = false; },
   };
+}
+
+/**
+ * One load, from the moment it starts to its answer. The answer goes to `deliver` only while this is still the
+ * latest load on the gate: a newer load, Cancel, or the box having gone from the screen makes it stale, and a
+ * stale answer is thrown away. So a slow link can never open "Choose your flight" over the map, or replace the
+ * open mission, after the planner has left the front page.
+ */
+export async function runLoad(
+  gate: LoadGate,
+  source: LoadSource | LoadSource[],
+  deps: LoadDeps,
+  deliver: (outcome: LoadOutcome) => void,
+): Promise<void> {
+  const token = gate.next();
+  const outcome = await routeLoad(source, deps);
+  if (gate.isLatest(token)) deliver(outcome);
 }

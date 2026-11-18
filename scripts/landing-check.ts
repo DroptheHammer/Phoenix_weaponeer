@@ -29,13 +29,14 @@ import { threatListView } from '../src/lib/threatVisibility';
 import { useTheaterStore, type TheaterInfo } from '../src/stores/theaterStore';
 import { useUiStore } from '../src/stores/uiStore';
 import { classifyLoadText, decodeLoadBytes, LOAD_MAX_BYTES, MIZ_ADVICE } from '../src/lib/landing/loadSniff';
-import { routeLoad, latestGate, type LoadDeps, type LoadSource } from '../src/lib/landing/loadRouter';
+import { routeLoad, latestGate, runLoad, type LoadDeps, type LoadOutcome, type LoadSource } from '../src/lib/landing/loadRouter';
+import { phoneHeader } from '../src/lib/landing/phoneHeader';
 import { summarizeMission, theaterStateOf, type SummaryRefs } from '../src/lib/landing/missionSummary';
 import {
   MAX_RECENT_PEEKS, MAX_THUMB_THREATS, peekRecent, peekRecents, recentCardFrom, recentKeyId, recentKeys, STRICT_REVEAL,
   type PeekDeps, type RecentCard, type RecentKey,
 } from '../src/lib/landing/recentCards';
-import { planThumbnail, type ThumbnailInput } from '../src/lib/landing/thumbnailPlan';
+import { CARD_PICTURE, planThumbnail, type ThumbnailInput } from '../src/lib/landing/thumbnailPlan';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -886,6 +887,57 @@ ok('T5 the poles do not break the arithmetic', finite(poles) && poles.waypoints.
 ok('T5 a point that is not a position is left out, not drawn as NaN',
   planThumbnail({ waypoints: [{ lat: NaN, lon: 1, steerpoint: 1 }, { lat: 36.5, lon: -115.2, steerpoint: 2 }], threats: [], fallbackCenter: null, realWorld: false }, SIZE).waypoints.length === 1);
 
+// The card plans its picture 16:9 (CARD_PICTURE); a short window shows it 2:1, which crops (180 - 160) / 2 = 10 off the
+// top and the bottom. A point standing on the frame's edge must still show its whole circle, outline included, so the
+// check plans the picture the way the card does and looks for a dot that the 2:1 crop would cut. Two routes that reach
+// the frame: the route above, and one with a waypoint on the south edge and a threat (the widest dot) on the north edge.
+// This plans the picture itself, so it holds the margin's number; that the card uses it is held by landing-ui-check (UI12),
+// which reads the circles out of the card's own markup.
+// Red when (CARD_PICTURE): `marginPx: 16` becomes `marginPx: 12` (the planner's own default margin).
+// Seen: FAIL T6 a dot on the frame's edge keeps its whole circle when a short window crops the picture to 2:1  route cut: waypoint 1 at y 168.00, waypoint 3 at y 12.00; edge cut: waypoint 1 at y 168.00, threat 1 at y 12.00; edge reaches the frame true
+const cardPlanOf = (input: ThumbnailInput) => planThumbnail(input, CARD_PICTURE, { paddingPx: CARD_PICTURE.marginPx });
+const keptTop = (CARD_PICTURE.height - CARD_PICTURE.width / 2) / 2;
+const keptBottom = CARD_PICTURE.height - keptTop;
+const dotsOf = (plan: ReturnType<typeof planThumbnail>) => [
+  ...plan.waypoints.map((w, i) => ({ name: `waypoint ${i + 1}`, x: w.x, y: w.y, r: CARD_PICTURE.dot.waypoint + CARD_PICTURE.dot.outline / 2 })),
+  ...plan.threats.map((t, i) => ({ name: `threat ${i + 1}`, x: t.x, y: t.y, r: CARD_PICTURE.dot.threat + CARD_PICTURE.dot.outline / 2 })),
+];
+const cutDots = (plan: ReturnType<typeof planThumbnail>) =>
+  dotsOf(plan).filter((d) => d.y - d.r < keptTop - 1e-9 || d.y + d.r > keptBottom + 1e-9 || d.x - d.r < -1e-9 || d.x + d.r > CARD_PICTURE.width + 1e-9);
+const edgeRoute: ThumbnailInput = {
+  waypoints: [{ lat: 36.0, lon: -116.0, steerpoint: 1 }, { lat: 36.4, lon: -116.0, steerpoint: 2 }],
+  threats: [{ lat: 37.0, lon: -116.0, systemId: 'sa2' }],
+  fallbackCenter: null, realWorld: false,
+};
+const routeOnCard = cardPlanOf(routeCard.thumbnail);
+const edgeOnCard = cardPlanOf(edgeRoute);
+const reachesEdge = (plan: ReturnType<typeof planThumbnail>) => {
+  const ys = dotsOf(plan).map((d) => d.y);
+  return Math.abs(Math.min(...ys) - CARD_PICTURE.marginPx) < 0.5 && Math.abs(Math.max(...ys) - (CARD_PICTURE.height - CARD_PICTURE.marginPx)) < 0.5;
+};
+const cutNames = (plan: ReturnType<typeof planThumbnail>) => cutDots(plan).map((d) => `${d.name} at y ${d.y.toFixed(2)}`).join(', ');
+ok('T6 a dot on the frame\'s edge keeps its whole circle when a short window crops the picture to 2:1',
+  reachesEdge(routeOnCard) && reachesEdge(edgeOnCard) && routeOnCard.waypoints.length === 3 && edgeOnCard.threats.length === 1
+    && cutDots(routeOnCard).length === 0 && cutDots(edgeOnCard).length === 0,
+  `route cut: ${cutNames(routeOnCard) || 'none'}; edge cut: ${cutNames(edgeOnCard) || 'none'}; edge reaches the frame ${reachesEdge(edgeOnCard)}`);
+
+// What the phone's header shows: the mission's name only on the map, and the red unsaved dot only beside that name.
+// On the front page with a mission open and unsaved, the header is the app's own name: no dot there.
+// Red when (phoneHeader): `dirty: named && unsaved` becomes `dirty: unsaved`.
+// Seen: FAIL H1 the phone's header shows the unsaved dot only beside the mission's name  {"onMap":{"title":"Venom 1 - Plan","dirty":true},"onFront":{"title":"Phoenix Weaponeer","dirty":true},"cleanOnMap":{"title":"Venom 1 - Plan","dirty":false},"noMission":{"title":"Phoenix Weaponeer","dirty":true}}
+//         (on the front page with a mission open and unsaved, and with no mission at all, the dot was shown beside the app's name)
+{
+  const shown = {
+    onMap: phoneHeader('Venom 1 - Plan', true, true, 'Phoenix Weaponeer'),
+    onFront: phoneHeader('Venom 1 - Plan', false, true, 'Phoenix Weaponeer'),
+    cleanOnMap: phoneHeader('Venom 1 - Plan', true, false, 'Phoenix Weaponeer'),
+    noMission: phoneHeader(null, true, true, 'Phoenix Weaponeer'),
+  };
+  ok('H1 the phone\'s header shows the unsaved dot only beside the mission\'s name',
+    shown.onMap.title === 'Venom 1 - Plan' && shown.onMap.dirty && shown.onFront.title === 'Phoenix Weaponeer' && !shown.onFront.dirty
+      && !shown.cleanOnMap.dirty && shown.noMission.title === 'Phoenix Weaponeer' && !shown.noMission.dirty, JSON.stringify(shown));
+}
+
 // A hidden threat 200 miles off cannot move the frame, a tile, or a dot.
 const withFar = summaryMission({ ...routeMission, threats: [...routeMission.threats, threatAt('far', 'sa10', farNorth.lat, farNorth.lon, { hiddenOnMap: true })] });
 // Red when (recentCardFrom): the thumbnail's threats come from `mission.threats`, not the visible ones (`threats: mission.threats.slice(...)`).
@@ -1041,6 +1093,80 @@ async function run() {
   // Seen: FAIL L12 a dropped file has no path
   const noPath = await routeLoad(fileSource('b.json', utf8(m1Text), null).source, spyDeps().deps);
   ok('L12 a dropped file has no path', noPath.kind === 'saved-mission' && noPath.path === null);
+
+  // ─── A load that outlives the front page ───────────────────────────────────
+  // The answer of a load goes to the box only while the box is on the screen. Leaving the front page while a link
+  // is being fetched (Open now, a recent mission, Create new mission) closes the gate; the answer, when it comes,
+  // must not open "Choose your flight" over the map or replace the open mission. A box that comes back (React's
+  // development double-mount, a second visit) loads again.
+  // Two loads on one gate: the second one's answer is the one delivered, and the older one's is dropped, whichever
+  // answers first. The two links answer with different theaters, so the log says which load was delivered.
+  // Red when (latestGate): `close: () => { closed = true; }` does nothing (`close: () => {}`).
+  // Seen: FAIL L14 an answer that arrives after the box has gone is dropped, only the newest of two loads is answered, and a box that comes back loads again  {"open":["fragorders nevada"],"closedBefore":["fragorders nevada"],"startedAfter":["fragorders nevada"],"olderAnswersFirst":["fragorders caucasus"],"newerAnswersFirst":["fragorders caucasus"],"afterOpen":["fragorders nevada"]}
+  //         (the answer of the load that was running when the gate closed was still delivered, and so was one that started after it)
+  // Red when (latestGate): `open: () => { closed = false; }` does nothing (`open: () => {}`), so a box that comes back stays shut.
+  // Seen: FAIL L14 an answer that arrives after the box has gone is dropped, only the newest of two loads is answered, and a box that comes back loads again  {"open":["fragorders nevada"],"closedBefore":[],"startedAfter":[],"olderAnswersFirst":["fragorders caucasus"],"newerAnswersFirst":["fragorders caucasus"],"afterOpen":[]}
+  // Red when (latestGate): the older load of two is the one delivered (`isLatest: (token) => !closed && token === Math.min(latest, 1)`).
+  // Seen: FAIL L14 an answer that arrives after the box has gone is dropped, only the newest of two loads is answered, and a box that comes back loads again  {"open":["fragorders nevada"],"closedBefore":[],"startedAfter":[],"olderAnswersFirst":["fragorders nevada"],"newerAnswersFirst":["fragorders nevada"],"afterOpen":["fragorders nevada"]}
+  //         (a gate that delivers the first load and drops the second: both of the two-load cases name the wrong theater)
+  // Every link answers with a theater of its own, so a log of what was delivered says WHICH load's answer it was.
+  const slowLink = (theater: string) => {
+    const data = { theater } as unknown as FragOrdersData;
+    let answer: (data: FragOrdersData) => void = () => { throw new Error('the link was never asked for'); };
+    const deps: LoadDeps = {
+      fetchLink: () => new Promise<FragOrdersData>((resolve) => { answer = resolve; }),
+      parseFragOrders: async () => data,
+    };
+    return { deps, answer: () => answer(data) };
+  };
+  const answersInto = (log: string[]) => (outcome: LoadOutcome) => {
+    log.push(outcome.kind === 'fragorders' ? `fragorders ${outcome.data.theater}` : outcome.kind);
+  };
+  const textLoad = (gate: ReturnType<typeof latestGate>, link: ReturnType<typeof slowLink>, log: string[]) =>
+    runLoad(gate, { kind: 'text', text: LINK }, link.deps, answersInto(log));
+  const gateLog = {
+    open: [] as string[], closedBefore: [] as string[], startedAfter: [] as string[],
+    olderAnswersFirst: [] as string[], newerAnswersFirst: [] as string[], afterOpen: [] as string[],
+  };
+  const openGate = latestGate();
+  const openLoad = slowLink('nevada');
+  const openRun = textLoad(openGate, openLoad, gateLog.open);
+  openLoad.answer();
+  await openRun;
+  const goneGate = latestGate();
+  const goneLoad = slowLink('nevada');
+  const goneRun = textLoad(goneGate, goneLoad, gateLog.closedBefore);
+  goneGate.close();
+  goneLoad.answer();
+  await goneRun;
+  const lateLoad = slowLink('nevada');
+  const lateRun = textLoad(goneGate, lateLoad, gateLog.startedAfter);
+  lateLoad.answer();
+  await lateRun;
+  // Two loads on one gate, the second started while the first was still out: only the second's answer is delivered,
+  // whichever of the two answers comes first.
+  for (const olderFirst of [true, false]) {
+    const gate = latestGate();
+    const older = slowLink('nevada');
+    const newer = slowLink('caucasus');
+    const log = olderFirst ? gateLog.olderAnswersFirst : gateLog.newerAnswersFirst;
+    const runs = [textLoad(gate, older, log), textLoad(gate, newer, log)];
+    if (olderFirst) { older.answer(); newer.answer(); } else { newer.answer(); older.answer(); }
+    await Promise.all(runs);
+  }
+  const returnedGate = latestGate();
+  returnedGate.close();
+  returnedGate.open();
+  const againLoad = slowLink('nevada');
+  const againRun = textLoad(returnedGate, againLoad, gateLog.afterOpen);
+  againLoad.answer();
+  await againRun;
+  const wantLog: typeof gateLog = {
+    open: ['fragorders nevada'], closedBefore: [], startedAfter: [],
+    olderAnswersFirst: ['fragorders caucasus'], newerAnswersFirst: ['fragorders caucasus'], afterOpen: ['fragorders nevada'],
+  };
+  ok('L14 an answer that arrives after the box has gone is dropped, only the newest of two loads is answered, and a box that comes back loads again',
+    JSON.stringify(gateLog) === JSON.stringify(wantLog), JSON.stringify(gateLog));
 
   // ─── Reading a recent mission without opening it ───────────────────────────
   const peeks = peekSpy();
