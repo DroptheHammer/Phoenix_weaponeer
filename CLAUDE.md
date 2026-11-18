@@ -239,7 +239,7 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-### STATE 2026-11-18 03:10 UTC: READ THIS FIRST
+### STATE 2026-11-18 03:25 UTC: READ THIS FIRST
 
 Work resumed on 2026-11-17 and is running. **Where this block and anything
 below it disagree, this block is right.** Memory
@@ -252,17 +252,20 @@ then `be5ebcf` (text only: three real-world manuals are no longer named) and
 `9bb4d37` (from the user's look: the 3D playback says nothing about
 fire-control cones; the strike editor still does). geo-check 1,093; 188
 screenshot steps; start-up JS 634,551 (ceiling 635,049). "Playback look 6"
-and "Playback look 7" are in `Other Items/v040-builds/`; the user has seen 6
-and is going through it. Not started: stages 16, 17, 18a, 18b, 20.
+and "Playback look 7" are in `Other Items/v040-builds/`; the user has looked
+and said "good", so the three calls made for him stand (only the watched jet
+draws a bomb line; the blast ring shows through hills; the old spacing rule
+stays as a choice that is off by default). Running when this was written:
+stages 16 (the Notes list) and 17 (the card's side view in the playback), in
+the main working copy. Not started: 18a, 18b, 20.
 
-**Redesign: the work is on GitHub as `v040-shell-rebased`, tip `44c9872`.**
-The local branch is still called `v040-shell` (working copy
-`.claude/worktrees/shell`). It was moved twice onto the playback branch's tip
-(now `9bb4d37`), so pushing it under its own name means replacing GitHub's
-`v040-shell` (the old line, `87df2c9`), and that needs the user's yes (asked,
-not answered). Until then each new tip is pushed to the new name, which
-replaces nothing: `git push origin v040-shell:refs/heads/v040-shell-rebased`.
-After his yes: replace `v040-shell`, delete `v040-shell-rebased`.
+**Redesign, `v040-shell`, on GitHub at `44c9872`.** The user said yes, so
+GitHub's `v040-shell` was replaced with the line that stands on the playback
+branch's tip (`9bb4d37`). Working copy: `.claude/worktrees/shell`. Push a
+stage only after its review has passed: a fix round rewrites the stage's
+commit. When the playback branch moves, this branch is moved onto its new tip
+again (the director's job, checked commit by commit), and that push replaces
+the branch once more.
 
 Built and reviewed, in order: the design foundation (`docs/DESIGN_SYSTEM.md`
 is the guide), the front page with its load box and recent-mission cards, the
@@ -294,17 +297,17 @@ change (a release floor and a speed warning among them).
 
 **Sight mils.** The real jet's manual is out. The game's own manual prints
 only two bomb sight settings for the F-5E, neither near the planner's
-profiles. Asked of the user, not answered: print the planner's own
-calculated figure marked "est.", or no figure until he has test-flown it.
-Papers: `Other Items/v040-work/b3/BUILD_SPEC_S13_SIGHT_MILS.md` (ruling 14)
-and `F5E_GAME_SIDE_MEANING.md`.
+profiles. The user chose: the F-5E card prints the planner's own calculated
+figure, always marked "est.", following speed, height, dive angle and bomb.
+The design is being redone on that basis as a clean paper,
+`Other Items/v040-work/b3/BUILD_SPEC_S17_SIGHT_EST.md` (the older S13 paper
+is no longer a spec). He has not been asked about the other three manual
+jets, and he sees the whole table of figures before any number lands.
 
-**Waiting on the user, one at a time:** the yes to replace the redesign
-branch on GitHub (tidiness only, now that the work is there under the new
-name); the F-5E card question; his remarks on look 6 and look 7
-(three calls he can overrule: only the watched jet draws a bomb line; the
-blast ring shows through hills; the old spacing rule kept as a choice) and
-on the redesign copies; then the three "Sources" decisions above.
+**Waiting on the user, one at a time:** the three "Sources" decisions
+above; two picture questions on the redesign (the look of a main button
+that cannot be pressed; the playback's lettering); then the table of sight
+figures when its design is ready, and the redesign's last look.
 
 **Two build tracks share one Mac:** never run two browser-driven runs at
 once. Each run is told to wait until no headless browser is running.
