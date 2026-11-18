@@ -239,9 +239,68 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-### STATE 2026-11-18 07:45 UTC: READ THIS FIRST
+### PAUSED 2026-11-18 09:45 UTC: READ THIS FIRST
 
-Work resumed on 2026-11-17 and is running. **Where this block and anything
+The user had to log out, so the one running build was stopped cleanly, right
+after its builder committed. **Where this block and anything below it
+disagree, this block is right.** Both working copies are clean and
+everything reviewed is pushed.
+
+**Playback, `v040-playback-full`, pushed tip `02ba085`.** New since the
+block below: the first half of the threat list, reviewed over two rounds.
+Play hands the 3D view only the threats the planner may see (one the
+mission's author hid never crosses unless it is revealed in Settings), and
+the Notes list explains the threat symbols. geo-check 1,118; 200 screenshot
+steps; start-up JS 634,822 (ceiling 636,073).
+
+**One commit is on the main Mac only and NOT reviewed: `1904cc8`**, the
+second half of the threat list (threats drawn in 3D, switched on and off by
+system from Show, early-warning radars on demand). Do first: an independent
+review of that one commit, with every new check seen failing once; fix what
+it finds; then push. The review should hold it to three things the first
+half's review left for it: the dev fixture's early-warning radar sits where
+check TM4 has it; the screenshot check for a hidden threat's name can go
+red; no build ships with the first half but not the second. Then the
+director's proof stage and four small left-overs.
+
+**Redesign, `v040-shell`, tip `5e82e5d` (pushed).** The last tidy stage is
+in and reviewed (phone only: the tab bar, the sideways Layers panel, the Add
+buttons, the Menu from the keyboard). No stage is open. Still to do: move
+the branch onto the playback's final tip, bring the three ceilings down to
+what is built and refresh the Budgets table in `docs/DESIGN_SYSTEM.md` in
+the same commit, then build one combined app for the user to look at.
+
+**Sight figures: three decisions from the user on 2026-11-18; nothing is
+built.**
+1. The app may carry the community kneeboard packs' figures.
+2. Credits go in an About section of the app and in the read-me, **never on
+   a kneeboard card**. The app has no About section, so one is to be built
+   (opened from the File menu and from the phone's Menu). A card prints only
+   the number, with "(est.)" when the planner worked it out.
+3. **A DCS module's own manual always outranks a third-party document.** So
+   the F-5E manual's own two bombing rows go in and win where they apply,
+   and a pack only fills what a manual leaves out. Only old editions of the
+   F-5E and Mirage F1 manuals have been read: the user was asked to copy the
+   current ones from the DCS folder into `Other Items/Reference Docs/`. The
+   question about moving the F-5E's default dives is withdrawn until they
+   are read. A known snag: the F-5E manual's 30° row releases at 2,000 ft,
+   and the app refuses a Mk-82 release under 3,000 ft (a seed floor with no
+   source). That is its own question to the user, with a table.
+
+The design paper's last two rulings (18.8.8 and 18.8.9) hold the detail.
+
+**Waiting on the user, one at a time:** the two manuals; then the sight
+questions jet by jet; the redesign's last look ("Shell look 4"); the two
+"Sources" decisions in the block below.
+
+**Owed by the next session:** these notes have piled up over a five-day
+session. Move everything under this block to the top of
+`docs/SESSION_HISTORY.md` and leave one short set of notes here, as "END OF
+SESSION" above says.
+
+### STATE 2026-11-18 07:45 UTC (superseded by the block above where they differ)
+
+Work resumed on 2026-11-17 and was running. **Where this block and anything
 below it disagree, this block is right.** Memory
 (`project-v040-polish-and-playback`, `project-no-restricted-military-sources`,
 `project-sight-mils-follow-customize`) has the detail and the run ids.
