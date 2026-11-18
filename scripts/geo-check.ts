@@ -147,6 +147,10 @@ import {
 import { ANCHOR_VERTICES, PATH_STEP_S, DRAG_PATH_STEP_S, LINE_CASING, newSceneFragPose } from '../src/lib/playbackScene';
 import { groupTargets, targetTag, targetPost, letterInk, TARGET_STAND_PX, TARGET_GROUP_M, DISC_EDGE } from '../src/lib/playbackScene';
 import {
+  gapKind, targetGaps, TARGET_GAP_M, gapNoteText, buildNotes, noteFactsFrom, hatchNote, skipNote, DRAWING_CHECKS_HEAD, START_NOTE, PUSH_NOTE, AGL_NOTE, HATCH_NOTE_TIME,
+  type Note, type NoteFacts, type TargetGap,
+} from '../src/lib/playbackScene';
+import {
   calloutAlpha, calloutTargets, CalloutPlacer, CalloutFader, CALLOUT_BEFORE_WALL_S, CALLOUT_AFTER_WALL_S, CALLOUT_FADE_WALL_S, CALLOUT_MAX_PER_JET,
   labelLine1, labelLine2, LabelText, placeLabels, LABEL_OFFSET_PX, blockKeepClear, RING_CLEAR_PX, CHROME_BOXES_MAX, type SceneSource,
 } from '../src/lib/playbackScene';
@@ -7993,6 +7997,8 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     //   FAIL playback scene [RV9]: … valley target: floor 0.000 m (want -200), relief 300.000 m (want 500; the old level gave 300.000), …
     // the rift box widened to `south_deg: 29.0, … west_deg: 34.5` (over the sea and the Gulf of Aqaba):
     //   FAIL playback scene [RV9b]: … wrongly placed: the sea off Haifa, the sea off Tel Aviv, the head of the Gulf of Aqaba
+    // the rift box's west edge moved from 35.15 to `west_deg: 35.0` (Acre bay is out through the box's north edge, so only the coastal point just west of the edge goes red):
+    //   FAIL playback scene [RV9b]: … 2 dry depressions; wrongly placed: the coastal hills just west of the rift box
     const rvSea = { lat: 43.5, lon: 38.0 };
     const rvSeaFill = (depth_m: number, steep: boolean) => (gx: number, gy: number, z: number) => {
       const o = lonLatToTile(rvSea.lat, rvSea.lon, z), mpp = metresPerTilePixel(rvSea.lat, z);
@@ -8009,6 +8015,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     const shoreRead = mosaicHeightAt(rvShore.mosaic, fShore.origin.lat, fShore.origin.lon, -Infinity);
     const dryIn: [string, number, number][] = [['the Dead Sea', 31.5, 35.5], ['the Sea of Galilee', 32.8, 35.6], ['Jericho', 31.87, 35.45], ['Badwater', 36.23, -116.77], ['Furnace Creek', 36.46, -116.87]];
     const dryOut: [string, number, number][] = [['the sea off Haifa', 32.85, 34.8], ['Acre bay', 32.92, 35.05], ['the sea off Tel Aviv', 32.1, 34.7], ['the head of the Gulf of Aqaba', 29.55, 34.95],
+      ['the coastal hills just west of the rift box', 32.0, 35.05],
       ['the Black Sea', 43.5, 38.0], ['the Persian Gulf', 26.0, 52.0], ['off Guam', 13.4, 144.7], ['the Pacific off California', 34.0, -120.0]];
     const dryWrong = [...dryIn.filter(([, la, lo]) => !inDryDepression(la, lo)), ...dryOut.filter(([, la, lo]) => inDryDepression(la, lo))].map(([n]) => n);
     ok('playback scene [RV9b]: a ship over a sea bed, or a target on a steep shore, leaves the level at sea level and draws what the old clamp did; only the known dry depressions lower it',
@@ -13368,6 +13375,265 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
       }
       ok('playback look [L6-1]: the 3D playback gives no fire-control cone line under either rule (two jets on one axis: empty warnings and the all-clear; closed up: the rule\'s own lines only), while the strike strip still prints the cone line',
          why.length === 0, why.join('; ') || seen.join(' | '));
+    }
+
+    // ── The notes under the picture (notes.ts): what playback assumed and could not show, in plain words.
+
+    // [N1] A target planned off the ground drawn under it is found, and only past 15 m (about 50 ft): on a flat ground at 0, a
+    // target at +365.76 m (1,200 ft) is 'above', one at −365.76 m 'below', 10 m and exactly 15 m are 'on' it, 15.01 m is 'above';
+    // a ground that rises to meet the planned height leaves no gap; each gap names the seats on that target. On the four-ship's
+    // own shape (TGT2 planned 1,200 ft above the lead's target, flown by #2 here), through the scene's source: one gap, TGT2, #2.
+    // Mutation proof (seen red 2026-11-17): targets.ts gapKind `Math.abs(d) <= TARGET_GAP_M` → `d <= TARGET_GAP_M`:
+    //   FAIL playback B3 [N1]: a target planned off the ground drawn under it is found, above or below, only past 15 m, … flat ground: ["target-1 +365.76","target-5 +15.01"] (want target-1 +365.76, target-2 -365.76, target-5 +15.01); the gaps name [["T1000",["#2"]],["T5000",["#6"]]]; gapKind(365.76 | -365.76 | 10 | 15 | 15.01 over 0; 0 over 10 | 15.01): above, on, on, on, above, on, on (want above, below, on, on, above, on, below)
+    {
+      const why: string[] = [];
+      const at = (x: number, y: number) => ({ x, y, z: 0, name: `T${x}` });
+      const built = groupTargets([at(0, 0), at(1000, 365.76), at(2000, -365.76), at(3000, 10), at(4000, TARGET_GAP_M), at(5000, TARGET_GAP_M + 0.01)], [0, 1, 2, 3, 4, 5]).targets;
+      const labels = ['#1', '#2', '#3', '#4', '#5', '#6'];
+      const flat = targetGaps(built, labels, () => 0);
+      const sayGaps = (gs: readonly TargetGap[]) => JSON.stringify(gs.map((g) => `${g.key} ${g.gap_m > 0 ? '+' : ''}${g.gap_m.toFixed(2)}`));
+      if (sayGaps(flat) !== JSON.stringify(['target-1 +365.76', 'target-2 -365.76', 'target-5 +15.01'])) why.push(`flat ground: ${sayGaps(flat)} (want target-1 +365.76, target-2 -365.76, target-5 +15.01)`);
+      if (JSON.stringify(flat.map((g) => g.seatLabels)) !== JSON.stringify([['#2'], ['#3'], ['#6']]) || flat[0]?.name !== 'T1000') why.push(`the gaps name ${JSON.stringify(flat.map((g) => [g.name, g.seatLabels]))}`);
+      const kinds = ([[365.76, 0], [-365.76, 0], [10, 0], [TARGET_GAP_M, 0], [TARGET_GAP_M + 0.01, 0], [0, 10], [0, TARGET_GAP_M + 0.01]] as const).map(([p, g]) => gapKind(p, g));
+      if (kinds.join() !== 'above,below,on,on,above,on,below') why.push(`gapKind(365.76 | -365.76 | 10 | 15 | 15.01 over 0; 0 over 10 | 15.01): ${kinds.join(', ')} (want above, below, on, on, above, on, below)`);
+      const risen = targetGaps(built, labels, (x) => (x === 1000 ? 365.76 : 0));
+      if (risen.some((g) => g.key === 'target-1')) why.push('a ground that rises to the planned height still leaves a gap');
+      // Two jets on one target are one gap, naming both.
+      const shared = targetGaps(groupTargets([at(0, 100), at(0, 100)], [0, 2]).targets, labels, () => 0);
+      if (shared.length !== 1 || shared[0].seatLabels.join() !== '#1,#3') why.push(`two jets on one target: ${JSON.stringify(shared)}`);
+      // The four-ship's shape on a real source.
+      const gapM = fxMission(calculateDestination(tgt, 160, 2), 5200);
+      const gapPb = fxStrike(gapM, [{ target: wpTgt.id, weapon: 'mk82', profile: 'f16c.popup.std' }, { target: 'fx-tgt2', weapon: 'mk82', profile: 'f16c.popup.std' }], [0, 10], { strikeId: 'n1' }).pb;
+      const gapSrc = sceneSourceFrom(gapPb, retime(gapPb));
+      const real = targetGaps(gapSrc.targets, gapSrc.seatLabels, () => 0);
+      if (real.length !== 1 || real[0].name !== 'TGT2' || real[0].seatLabels.join() !== '#2' || !near(real[0].gap_m, 365.76, 0.01)) why.push(`the source's targets: ${sayGaps(real)} ${JSON.stringify(real.map((g) => [g.name, g.seatLabels]))} (want TGT2, #2, +365.76)`);
+      ok('playback B3 [N1]: a target planned off the ground drawn under it is found, above or below, only past 15 m, follows the ground drawn, and names the seats on it',
+         why.length === 0, why.join('; ') || `flat ground ${sayGaps(flat)}; the source's TGT2 ${sayGaps(real)}`);
+    }
+
+    // [N2] The gap's note, word for word: above, the bombs land at the planned height on the red post; below, under the drawn
+    // ground; the height is read to the nearest 10 ft with a thousands comma; the seats read "#1 and #2" and "#1, #2 and #4".
+    // Mutation proof (seen red 2026-11-17): notes.ts gapNoteText `const above = g.gap_m > 0;` → `const above = g.gap_m < 0;`:
+    //   FAIL playback B3 [N2]: the gap's note says it word for word … one seat, 1,200 ft above: "The target of #3 (TGT2) is planned 1,200 ft below the ground drawn there. Its bombs land under the drawn ground." (want "The target of #3 (TGT2) is planned 1,200 ft above the ground drawn there. Its bombs land at the planned height, on the red post over its ring."); two seats, 1,200 ft below: "The target of #1 and #2 (TGT1) is planned 1,200 ft above the ground drawn there. Its bombs land at the planned height, on the red post over its ring." (want …); …
+    {
+      const gap = (seats: string[], name: string, gap_m: number): TargetGap => ({ key: 'k', name, seatLabels: seats, gap_m });
+      const post = 'Its bombs land at the planned height, on the red post over its ring.', under = 'Its bombs land under the drawn ground.';
+      const cases: [string, TargetGap, string][] = [
+        ['one seat, 1,200 ft above', gap(['#3'], 'TGT2', 365.76), `The target of #3 (TGT2) is planned 1,200 ft above the ground drawn there. ${post}`],
+        ['two seats, 1,200 ft below', gap(['#1', '#2'], 'TGT1', -365.76), `The target of #1 and #2 (TGT1) is planned 1,200 ft below the ground drawn there. ${under}`],
+        ['three seats, 100 m (328 ft) read as 330 ft', gap(['#1', '#2', '#4'], 'TGT1', 100), `The target of #1, #2 and #4 (TGT1) is planned 330 ft above the ground drawn there. ${post}`],
+        ['10,000 ft with its comma', gap(['#2'], 'TGT2', 3048), `The target of #2 (TGT2) is planned 10,000 ft above the ground drawn there. ${post}`],
+        ['just past the limit, 15.24 m (50 ft) below', gap(['#2'], 'TGT2', -15.24), `The target of #2 (TGT2) is planned 50 ft below the ground drawn there. ${under}`],
+      ];
+      const bad = cases.filter(([, g, want]) => gapNoteText(g) !== want).map(([n, g, want]) => `${n}: ${JSON.stringify(gapNoteText(g))} (want ${JSON.stringify(want)})`);
+      ok('playback B3 [N2]: the gap\'s note says it word for word: above, the bombs land at the planned height on the red post; below, under the drawn ground; the height to the nearest 10 ft; the seats in a list',
+         bad.length === 0, bad.join('; ') || cases.map(([n, g]) => `${n}: ${gapNoteText(g).slice(0, 70)}…`).join(' | '));
+    }
+
+    // [N3] A note's key comes from where it came from, never from its words: two members left out for the same reason with the
+    // same seat label, two equal gray lines, two equal Apply lines, two jets giving one drawing check and one jet giving the same
+    // line twice, all keep their own keys, in a fixed order.
+    // Mutation proof (seen red 2026-11-17): notes.ts buildNotes the blast note's `key: \`blast-${i}\`` → `key: text`:
+    //   FAIL playback B3 [N3]: a note's key comes from where it came from, never from its words … keys ["apply-0","apply-1","skip-a","skip-b","gap-target-1","gap-target-2","same","same","hatch","push","start","agl","warn-a-0","warn-a-1","warn-b-0"] (want […"blast-0","blast-1"…]); 1 repeated: ["same"]
+    //   (with [N4] and [N5] red beside it: their gray lines no longer have the keys they expect)
+    {
+      const facts: NoteFacts = {
+        rule: 'time',
+        skipped: [{ id: 'a', label: '#2', reason: 'Its target waypoint is missing.' }, { id: 'b', label: '#2', reason: 'Its target waypoint is missing.' }],
+        trackWarnings: [{ id: 'a', label: '#1', text: 'No IP.' }, { id: 'a', label: '#1', text: 'No IP.' }, { id: 'b', label: '#1', text: 'No IP.' }],
+        gaps: [{ key: 'target-1', name: 'TGT2', seatLabels: ['#3'], gap_m: 400 }, { key: 'target-2', name: 'TGT2', seatLabels: ['#3'], gap_m: 400 }],
+        hasCardPush: true, hatch: true, blast: ['same', 'same'], applied: ['Applied.', 'Applied.'],
+      };
+      const notes = buildNotes(facts);
+      const keys = notes.map((n) => n.key);
+      const wantKeys = ['apply-0', 'apply-1', 'skip-a', 'skip-b', 'gap-target-1', 'gap-target-2', 'blast-0', 'blast-1', 'hatch', 'push', 'start', 'agl', 'warn-a-0', 'warn-a-1', 'warn-b-0'];
+      const repeated = keys.filter((k, i) => keys.indexOf(k) !== i);
+      ok('playback B3 [N3]: a note\'s key comes from where it came from, never from its words: equal skip lines, gray lines, Apply lines, gaps and drawing checks keep their own keys, in a fixed order',
+         JSON.stringify(keys) === JSON.stringify(wantKeys) && repeated.length === 0, `keys ${JSON.stringify(keys)} (want ${JSON.stringify(wantKeys)}); ${repeated.length} repeated: ${JSON.stringify(repeated)}`);
+    }
+
+    // [N4] Each note is there exactly when it should be, in the words and the tone it should have: the start and the altitudes
+    // always; the push note only with a card push; the hatching only where there are stripes, in the words of the rule; a member
+    // not flown and a gap in amber; the gray lines and Apply's lines as they come; the drawing checks last, under their heading.
+    // Mutation proof (seen red 2026-11-17): notes.ts buildNotes `if (f.hasCardPush)` → `if (true)`:
+    //   FAIL playback B3 [N4]: each note is there exactly when it should be, in its words and tone … no facts: "push,start,agl" (want start, agl); stripes only: "hatch,push,start,agl" (want hatch, start, agl); a member not flown: "skip-a,push,start,agl" (want skip-a, start, agl); …
+    {
+      const why: string[] = [];
+      const base: NoteFacts = { rule: 'time', skipped: [], trackWarnings: [], gaps: [], hasCardPush: false, hatch: false, blast: [], applied: [] };
+      const gapA: TargetGap = { key: 'target-1', name: 'TGT2', seatLabels: ['#3'], gap_m: 365.76 };
+      const keysFor = (f: Partial<NoteFacts>) => buildNotes({ ...base, ...f }).map((n) => n.key).join();
+      const rows: [string, Partial<NoteFacts>, string][] = [
+        ['no facts', {}, 'start,agl'],
+        ['a card push', { hasCardPush: true }, 'push,start,agl'],
+        ['stripes only', { hatch: true }, 'hatch,start,agl'],
+        ['a member not flown', { skipped: [{ id: 'a', label: '#2', reason: 'r' }] }, 'skip-a,start,agl'],
+        ['a target off the ground', { gaps: [gapA] }, 'gap-target-1,start,agl'],
+        ['a gray line', { blast: ['x'] }, 'blast-0,start,agl'],
+        ['what Apply said', { applied: ['x', 'y'] }, 'apply-0,apply-1,start,agl'],
+        ['a drawing check', { trackWarnings: [{ id: 'a', label: '#1', text: 'x' }] }, 'start,agl,warn-a-0'],
+        ['all of it', { skipped: [{ id: 'a', label: '#2', reason: 'r' }], gaps: [gapA], blast: ['x'], applied: ['y'], hatch: true, hasCardPush: true, trackWarnings: [{ id: 'a', label: '#1', text: 'z' }] },
+          'apply-0,skip-a,gap-target-1,blast-0,hatch,push,start,agl,warn-a-0'],
+      ];
+      for (const [name, f, want] of rows) if (keysFor(f) !== want) why.push(`${name}: ${JSON.stringify(keysFor(f))} (want ${want.replace(/,/g, ', ')})`);
+      const wordsOf = (f: Partial<NoteFacts>) => Object.fromEntries(buildNotes({ ...base, ...f }).map((n) => [n.key, n]));
+      const all = wordsOf({ skipped: [{ id: 'a', label: '#2', callsign: 'Viper 1-2', reason: 'Its target waypoint is missing.' }], gaps: [gapA], blast: ['b'], applied: ['a'], hatch: true, hasCardPush: true, trackWarnings: [{ id: 'w', label: '#1', text: 'No IP.' }] });
+      const exact: [string, string | undefined, string][] = [
+        ['start', all.start?.text, "The time bar starts 10 s before the first jet's first action. Show › Whole run-in starts it before the IP."],
+        ['push', all.push?.text, "Push IP is the card's time (the outlined IP mark on the lanes): fly that. The 3D flies the whole profile, so it crosses the IP a few seconds off (the filled IP mark)."],
+        ['agl', all.agl?.text, "Altitudes are the planner's: AGL is above each jet's own target, not the ground under it."],
+        ['hatch, spacing rule', all.hatch?.text, "Hatched amber on the time bar and the lanes: times when a jet would be over the target inside another jet's frag (est.)."],
+        ['skip, spacing rule', all['skip-a']?.text, "#2 Viper 1-2 isn't flown in 3D. Its target waypoint is missing. It still counts in the times and frag warnings."],
+        ['drawing check', all['warn-w-0']?.text, '#1: No IP.'],
+        ['hatch, blast rule', hatchNote('burst'), "Hatched amber on the time bar and the lanes: times when a jet would be inside another jet's blast radius when a bomb goes off (est.)."],
+        ['skip, blast rule', skipNote('burst', '#2', 'Viper 1-2', 'Its target waypoint is missing.'), "#2 Viper 1-2 isn't flown in 3D. Its target waypoint is missing. Its time still counts, but its jet and its bomb aren't checked for blast."],
+        ['skip with no callsign', skipNote('time', '#3', undefined, 'Not ready.'), "#3 isn't flown in 3D. Not ready. It still counts in the times and frag warnings."],
+        ['the spacing rule\'s hatching is the exported one', hatchNote('time'), HATCH_NOTE_TIME],
+        ['the heading', DRAWING_CHECKS_HEAD, 'Drawing checks, for whoever built the plan:'],
+      ];
+      for (const [name, got, want] of exact) if (got !== want) why.push(`${name}: ${JSON.stringify(got)} (want ${JSON.stringify(want)})`);
+      const tones = JSON.stringify(Object.fromEntries(Object.entries(all).map(([k, n]) => [k, n.group ? `${n.tone}/${n.group}` : n.tone])));
+      const wantTones = JSON.stringify({ 'apply-0': 'info', 'skip-a': 'warn', 'gap-target-1': 'warn', 'blast-0': 'info', hatch: 'info', push: 'info', start: 'info', agl: 'info', 'warn-w-0': 'info/drawing' });
+      if (tones !== wantTones) why.push(`tones ${tones} (want ${wantTones})`);
+      ok('playback B3 [N4]: each note is there exactly when it should be, in its words and tone: the start and the altitudes always, the push note only with a card push, the hatching in the rule\'s words, amber for a member not flown and a gap, the drawing checks last',
+         why.length === 0, why.join('; ') || `${rows.length} cases, ${exact.length} sentences, tones ${tones}`);
+    }
+
+    // [N5] The notes made from real playbacks (noteFactsFrom): a lone-ish pair 60 s apart has the push note, the start and the
+    // altitudes and no stripes; closed up to 2 s (the Mk-82 given a 3 nm radius so the blast rule fires too) the hatching note
+    // is there, in the words of the rule the strike is warned by; a three-ship with #2's target missing says so once, in the rule's
+    // words with the reason (under the blast rule the library's own gray line for it is left out, not said twice); two Mk-87s
+    // with no blast radius on file get the gray line under the blast rule and nothing under the spacing rule; a gap handed over
+    // and Apply's lines come as they are handed; the planner's drawing checks come from the jets' own warnings. The push note is
+    // there only for a card push on a flown jet: with no flown jet given a speed to work a push from (and with a push only on
+    // the member not flown, given a picture and speed so the readout has one for its seat) there is none.
+    // Mutation proof (seen red 2026-11-17): notes.ts noteFactsFrom `.filter((n) => !notFlown.has(n))` taken out:
+    //   FAIL playback B3 [N5]: the notes made from real playbacks are the right ones … burst, a member not flown: ["skip-n5s-burst-2","blast-0","push","start","agl"], 2 notes say "#2 isn't flown in 3D" (want 1 and no gray line): ["#2 isn't flown in 3D. Its target waypoint is missing. Its time still counts, but its jet and its bomb aren't checked for blast.","#2 isn't flown in 3D, so neither its jet nor its bomb is checked for blast"]
+    // noteFactsFrom's `hasCardPush: …` made `hasCardPush: true` (seen red 2026-11-18):
+    //   FAIL playback B3 [N5]: … burst, a push time only on the member not flown: ["skip-n5s-burst-2","push","start","agl"] (want no push note); burst, no push time on any jet: ["push","start","agl"] (want start, agl; the readout's pushes [null,null]); time, a push time only on the member not flown: ["skip-n5s-time-2","hatch","push","start","agl"] (want no push note); time, no push time on any jet: ["push","start","agl"] (want start, agl; …)
+    // and with only its `m.jet !== undefined &&` taken out (the member-not-flown arms alone go red):
+    //   FAIL playback B3 [N5]: … burst, a push time only on the member not flown: ["skip-n5s-burst-2","push","start","agl"] (want no push note); time, a push time only on the member not flown: ["skip-n5s-time-2","hatch","push","start","agl"] (want no push note)
+    {
+      const why: string[] = [];
+      const wide = withBlast(fxRows, { mk82: [18228, 'destroyed'] });
+      const seat = (weapon = 'mk82') => ({ target: wpTgt.id, weapon, profile: 'f16c.popup.std' });
+      const keyList = (n: Note[]) => n.map((x) => x.key);
+      const seen: string[] = [];
+      for (const rule of ['burst', 'time'] as const) {
+        const apart = fxStrike(flatM, [seat(), seat()], [0, 60], { trail: true, fragRule: rule, strikeId: `n5a-${rule}` }).pb;
+        const calm = buildNotes(noteFactsFrom(apart, retime(apart)));
+        if (keyList(calm).join() !== 'push,start,agl') why.push(`${rule}, 60 s apart: ${JSON.stringify(keyList(calm))} (want push, start, agl)`);
+        const close = fxStrike(flatM, [seat(), seat()], [0, 2], { trail: true, fragRule: rule, strikeId: `n5b-${rule}`, weapons: wide }).pb;
+        const tight = buildNotes(noteFactsFrom(close, retime(close)));
+        if (tight.find((n) => n.key === 'hatch')?.text !== hatchNote(rule)) why.push(`${rule}, 2 s apart: hatching ${JSON.stringify(tight.find((n) => n.key === 'hatch')?.text)} (want the ${rule} rule's)`);
+        // Stripes on a lane alone (no conflict on the bar) still call for the hatching note.
+        if (!buildNotes(noteFactsFrom(apart, retime(apart), { zones: 2 })).some((n) => n.key === 'hatch')) why.push(`${rule}: lane stripes alone left the hatching note out`);
+        // A member not flown.
+        const sk = fxStrike(flatM, [seat(), seat(), seat()], [0, 10, 40], { fragRule: rule, strikeId: `n5s-${rule}` });
+        const lost = { ...sk.mission, attacks: sk.mission.attacks.map((a) => (a.id === sk.attackIds[1] ? { ...a, targetWaypointId: 'fx-nowhere' } : a)) } as Mission;
+        const skipPb = buildStrikePlayback(playbackInputFromMission(lost, { strikeId: `n5s-${rule}` }, fxRows)!);
+        const skipT = retime(skipPb);
+        const skipNotes = buildNotes(noteFactsFrom(skipPb, skipT));
+        const skipWant = skipNote(rule, '#2', undefined, 'Its target waypoint is missing.');
+        const saying = skipNotes.filter((n) => n.text.includes("#2 isn't flown in 3D"));
+        if (skipPb.fragRule !== rule || saying.length !== 1 || saying[0].text !== skipWant || saying[0].tone !== 'warn' || keyList(skipNotes).filter((k) => k.startsWith('blast')).length)
+          why.push(`${rule}, a member not flown: ${JSON.stringify(keyList(skipNotes))}, ${saying.length} notes say "#2 isn't flown in 3D" (want 1 and no gray line): ${JSON.stringify(saying.map((n) => n.text))}`);
+        if (rule === 'burst' && !(skipT.blast?.notes ?? []).includes(notFlownNote('#2'))) why.push('burst: the library no longer gives its own line for a member not flown, so this check no longer sees the duplicate it guards against');
+        // No push note without a card push on a flown jet. The flown jets are given no speed to work a push from, so they have none;
+        // the member not flown is given the picture and speed of a flown one, so the readout does have a push for its seat, and the
+        // lanes have no lane to carry the outlined IP mark for it.
+        const donor = skipPb.members.find((m) => m.jet !== undefined)!;
+        const skippedSeat = skipPb.members.findIndex((m) => m.jet === undefined);
+        const pushOnlyOnSkipped = {
+          ...skipPb,
+          members: skipPb.members.map((m) => (m.jet === undefined ? { ...m, picture: donor.picture, speed_ktas: donor.speed_ktas } : { ...m, speed_ktas: undefined })),
+        } as StrikePlayback;
+        const pushT = retime(pushOnlyOnSkipped);
+        if (pushT.readout.pushes[skippedSeat]?.push_s === undefined || pushT.readout.pushes.some((p, seat) => seat !== skippedSeat && p.push_s !== undefined))
+          why.push(`${rule}: the readout's pushes are not the ones this arm is built on (${JSON.stringify(pushT.readout.pushes.map((p) => p.push_s))}, the member not flown at seat ${skippedSeat})`);
+        const noPush = keyList(buildNotes(noteFactsFrom(pushOnlyOnSkipped, pushT)));
+        if (noPush.includes('push')) why.push(`${rule}, a push time only on the member not flown: ${JSON.stringify(noPush)} (want no push note)`);
+        const noSpeed = { ...apart, members: apart.members.map((m) => ({ ...m, speed_ktas: undefined })) } as StrikePlayback;
+        const noSpeedT = retime(noSpeed);
+        const noSpeedKeys = keyList(buildNotes(noteFactsFrom(noSpeed, noSpeedT)));
+        if (noSpeedT.readout.pushes.some((p) => p.push_s !== undefined) || noSpeedKeys.join() !== 'start,agl')
+          why.push(`${rule}, no push time on any jet: ${JSON.stringify(noSpeedKeys)} (want start, agl; the readout's pushes ${JSON.stringify(noSpeedT.readout.pushes.map((p) => p.push_s))})`);
+        // A weapon with no blast radius on file.
+        const cbu = fxStrike(flatM, [seat('cbu87'), seat('cbu87')], [0, 30], { fragRule: rule, strikeId: `n5c-${rule}` }).pb;
+        const cbuNotes = buildNotes(noteFactsFrom(cbu, retime(cbu)));
+        const cbuName = fxRows.find((w) => w.id === 'cbu87')!.name;
+        const grayWant = rule === 'burst' ? [noRadiusNote(cbuName, ['#1', '#2'])] : [];
+        const gray = cbuNotes.filter((n) => n.key.startsWith('blast')).map((n) => n.text);
+        if (JSON.stringify(gray) !== JSON.stringify(grayWant)) why.push(`${rule}, two weapons with no radius: gray lines ${JSON.stringify(gray)} (want ${JSON.stringify(grayWant)})`);
+        seen.push(`${rule}: calm ${keyList(calm).join('/')}, closed up ${keyList(tight).join('/')}, skipped ${keyList(skipNotes).join('/')}, no radius ${keyList(cbuNotes).join('/')}`);
+      }
+      // What is handed over comes through: the scene's gap, Apply's lines at the top, the jets' own drawing checks last.
+      const pb2 = fxStrike(flatM, [seat(), seat()], [0, 60], { strikeId: 'n5d' }).pb;
+      const withWarning = { ...pb2, jets: pb2.jets.map((j, k) => (k === 1 ? { ...j, warnings: ['No IP: the planner\'s schematic 8 nm run-in is flown from its start.'] } : j)) } as StrikePlayback;
+      const handed = buildNotes(noteFactsFrom(withWarning, retime(withWarning), {
+        gaps: [{ key: 'target-1', name: 'TGT2', seatLabels: ['#2'], gap_m: 365.76 }], applied: ['Applied to the plan.'],
+      }));
+      if (keyList(handed).join() !== `apply-0,gap-target-1,push,start,agl,warn-${pb2.jets[1].id}-0` || handed[handed.length - 1].text !== `#2: No IP: the planner's schematic 8 nm run-in is flown from its start.` || handed[handed.length - 1].group !== 'drawing')
+        why.push(`handed over: ${JSON.stringify(keyList(handed))}, last ${JSON.stringify(handed[handed.length - 1]?.text)}`);
+      ok('playback B3 [N5]: the notes made from real playbacks are the right ones under either rule: calm, closed up, a member not flown (said once), a weapon with no radius, and what the scene and Apply hand over',
+         why.length === 0, why.join('; ') || seen.join(' | '));
+    }
+
+    // [N6] The notes say nothing about fire-control cones (the 3D playback does not warn of them: no time set here moves an
+    // attack axis, so they belong to the strike editor's strip alone). Two pop-ups in trail, one attack axis, are in the strike editor's cone ("#1 and #2 are
+    // only 0° apart — inside one 40° fire-control cone", the strip still says so); the notes made for them, 60 s apart and closed up
+    // to 2 s, under both rules, hold no such line and not the word "cone", nor does the list for a skipped member, a weapon with no
+    // radius or a gap handed over.
+    // Mutation proof (seen red 2026-11-17): notes.ts noteFactsFrom's `blast:` list given the strip's close-axis line
+    // (`…, ...timing.readout.splits.filter((s) => s.grade === 'inside').map((s) => \`${s.a} and ${s.b} are only ${s.deg.toFixed(0)}° apart — inside one 40° fire-control cone\`)]`):
+    //   FAIL playback B3 [N6]: the notes hold nothing about fire-control cones … burst, 60 s apart: 1 note says cone:["#1 and #2 are only 0° apart — inside one 40° fire-control cone"]; burst, 2 s apart: 1 note says cone:[…]; time, 60 s apart: …; time, 2 s apart: …
+    //   (with [N5] red beside it: its calm pair gains a gray line; and shot 75, which reads the notes opened on the trail pair, goes red with the same edit)
+    {
+      const why: string[] = [];
+      const coneLine = '#1 and #2 are only 0° apart — inside one 40° fire-control cone';
+      const wide = withBlast(fxRows, { mk82: [18228, 'destroyed'] });
+      const pair = [0, 1].map(() => ({ target: wpTgt.id, weapon: 'mk82', profile: 'f16c.popup.std' }));
+      const said: string[] = [];
+      for (const rule of ['burst', 'time'] as const) {
+        for (const [name, tots, weapons] of [['60 s apart', [0, 60], undefined], ['2 s apart', [0, 2], wide]] as const) {
+          const pb = fxStrike(flatM, pair, [...tots], { trail: true, fragRule: rule, strikeId: `n6-${rule}-${tots[1]}`, weapons }).pb;
+          const t = retime(pb);
+          // The strip still has the cone to speak of: without it this check would pass on anything.
+          const strip = strikeReadout(strikeJetsAt(pb, t.delays_s), rule).warnings;
+          if (!strip.includes(coneLine)) why.push(`${rule}, ${name}: the strike strip no longer holds the cone line, so there is nothing to keep out of the notes (${JSON.stringify(strip)})`);
+          const notes = buildNotes(noteFactsFrom(pb, t, { gaps: [{ key: 'target-1', name: 'TGT2', seatLabels: ['#2'], gap_m: 365.76 }], applied: ['Applied to the plan.'] }));
+          const cones = notes.filter((n) => /cone/i.test(n.text) || n.text.includes(coneLine));
+          if (cones.length) why.push(`${rule}, ${name}: ${cones.length} note${cones.length === 1 ? ' says' : 's say'} cone:${JSON.stringify(cones.map((n) => n.text))}`);
+          said.push(`${rule}/${name}: ${notes.length} notes`);
+        }
+        const sk = fxStrike(flatM, [...pair, ...pair.slice(0, 1)], [0, 10, 40], { trail: true, fragRule: rule, strikeId: `n6s-${rule}` });
+        const lost = { ...sk.mission, attacks: sk.mission.attacks.map((a) => (a.id === sk.attackIds[1] ? { ...a, targetWaypointId: 'fx-nowhere' } : a)) } as Mission;
+        const skipPb = buildStrikePlayback(playbackInputFromMission(lost, { strikeId: `n6s-${rule}` }, fxRows)!);
+        const skipCones = buildNotes(noteFactsFrom(skipPb, retime(skipPb))).filter((n) => /cone/i.test(n.text));
+        if (skipCones.length) why.push(`${rule}, a member not flown: ${skipCones.length} notes say cone`);
+      }
+      ok('playback B3 [N6]: the notes hold nothing about fire-control cones, under either rule, on two jets on one axis the strike editor still warns of (60 s apart and closed up), and with a member not flown, a gap and Apply\'s lines',
+         why.length === 0, why.join('; ') || said.join(' | '));
+    }
+
+    // [N7] The notes say nothing about threats the mission's author hid: no count, no note, no hint. Whatever facts are handed over,
+    // no note's words mention a threat that is hidden or probable; the facts have no field for one.
+    // Mutation proof (seen red 2026-11-17): notes.ts buildNotes gaining `notes.push({ key: 'probable', tone: 'info', text: 'Probable threats — location unknown (1): the mission author hid where these are.' });` before its return:
+    //   FAIL playback B3 [N7]: the notes say nothing about threats the author hid … a note says it: "Probable threats — location unknown (1): the mission author hid where these are." (three times, one for each fact set)
+    //   (with [N3], [N4] and [N5] red beside it: they pin the exact lists of notes)
+    {
+      const why: string[] = [];
+      const everything: NoteFacts = {
+        rule: 'burst', skipped: [{ id: 'a', label: '#2', reason: 'Its target waypoint is missing.' }], trackWarnings: [{ id: 'a', label: '#1', text: 'No IP.' }],
+        gaps: [{ key: 'target-1', name: 'TGT2', seatLabels: ['#3'], gap_m: 365.76 }], hasCardPush: true, hatch: true, blast: ['No blast radius on file for CBU-87 (#1 and #2).'], applied: ['Applied.'],
+      };
+      const hint = /hidden|\bhid\b|probable|location unknown|author/i;
+      for (const f of [everything, { ...everything, rule: 'time' as const }, { ...everything, skipped: [], gaps: [], blast: [], applied: [], trackWarnings: [] }]) {
+        const hits = buildNotes(f).filter((n) => hint.test(n.text));
+        if (hits.length) why.push(`a note says it: ${JSON.stringify(hits[0].text)}`);
+      }
+      const fields = Object.keys(everything).filter((k) => hint.test(k));
+      if (fields.length) why.push(`the facts have a field for it: ${fields.join(', ')}`);
+      ok('playback B3 [N7]: the notes say nothing about threats the author hid: no count, no note and no hint, whatever the facts', why.length === 0, why.join('; ') || 'three fact sets, 0 notes with a threat word');
     }
 
     // [BX13] The dropper's own guard is untouched by the frag rule: a Mk-82 dive released at 2,999 ft AGL is still an error inside

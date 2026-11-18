@@ -12,7 +12,7 @@
  */
 import { memo, useEffect, useRef } from 'react';
 import type { StrikeWindow } from '../../lib/playback';
-import type { CameraMode, SceneSource, TileSource } from '../../lib/playbackScene';
+import type { CameraMode, SceneSource, TargetGap, TileSource } from '../../lib/playbackScene';
 import { createPlaybackScene, type PlaybackScene, type TerrainStatus } from './scene/createScene';
 
 export interface SceneHostProps {
@@ -34,6 +34,8 @@ export interface SceneHostProps {
   onCamera(mode: CameraMode): void;
   onFatal(err: unknown): void;
   onTerrain(s: TerrainStatus): void;
+  /** The targets planned off the ground drawn under them, told at the first frame and whenever the ground changes. */
+  onTargets(gaps: TargetGap[]): void;
   onContextLost(): void;
   onRemount(): void;
 }
@@ -57,6 +59,7 @@ export const SceneHost = memo(function SceneHost(props: SceneHostProps) {
       onCamera: (m) => latest.current.onCamera(m),
       onFatal: (e) => latest.current.onFatal(e),
       onTerrain: (s) => latest.current.onTerrain(s),
+      onTargets: (g) => latest.current.onTargets(g),
       onContextLost: () => latest.current.onContextLost(),
       onRemount: () => latest.current.onRemount(),
     });

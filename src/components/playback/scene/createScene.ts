@@ -31,8 +31,8 @@
 import { Color, Fog, NoToneMapping, SRGBColorSpace, Scene, Vector3, WebGLRenderer } from 'three';
 import type { StrikeWindow } from '../../../lib/playback';
 import {
-  BG, MAX_DPR, PlayClock, UI_EMIT_MS, aimWeight, homeBox, homePose, newSceneJetPose, FOG_FAR_K,
-  type ActionPointsMode, type AttackColours, type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TileSource,
+  BG, MAX_DPR, PlayClock, UI_EMIT_MS, aimWeight, homeBox, homePose, newSceneJetPose, targetGaps, FOG_FAR_K,
+  type ActionPointsMode, type AttackColours, type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TargetGap, type TileSource,
 } from '../../../lib/playbackScene';
 import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
@@ -74,6 +74,11 @@ export interface SceneOptions {
   onFatal(err: unknown): void;
   /** The ground's loading notes, failures, switch state and credits, whenever they change. */
   onTerrain?(s: TerrainStatus): void;
+  /**
+   * The targets planned off the ground drawn under them (none, when every target sits on it), told once when the first
+   * frame is drawn and again whenever the drawn ground changes (the heights arrive, or Real | Flat is switched).
+   */
+  onTargets?(gaps: TargetGap[]): void;
   /** The graphics driver took the WebGL context away: drawing has stopped (show a "restoring…" note). */
   onContextLost?(): void;
   /** The context is back: dispose this scene and create a new one (remount the host). */
@@ -415,6 +420,8 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   let frames = 0, renders = 0, frameMs = 0, drewLast = false;
   let lastTime: number | null = null, lastEmit = -Infinity;
   let contextLost = false, disposed = false;
+  // The drawn ground a target's height was last told against (the first frame always tells).
+  let gapsAt = -1;
 
   function draw(dt: number) {
     dirty = false;
@@ -426,6 +433,11 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     ctx.dpr = dpr;
     ctx.ground = terrain.ground;
     ctx.groundVersion = terrain.groundVersion;
+    // The targets never move, so a gap between a planned height and the drawn ground changes only with the ground.
+    if (terrain.groundVersion !== gapsAt) {
+      gapsAt = terrain.groundVersion;
+      opts.onTargets?.(targetGaps(source.targets, source.seatLabels, terrain.heightAt));
+    }
     ctx.watched = camJet;
     ctx.speed = clock.currentSpeed;
     ctx.again = false;

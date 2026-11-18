@@ -16,7 +16,10 @@
  * swatch of the time bar's stripes while it has any; nothing about fire-control
  * cones, which no time set here can change), and the small print
  * (what ground is drawn, the Real | Flat switch, the theater warnings, the
- * credits). Fits a 1024×768 window. The overlay around it has the title bar and
+ * credits) with a folded list of notes opened from a button on the credits line: what
+ * playback assumed and could not show (a jet it does not fly, a target planned
+ * off the ground drawn under it, where the time bar starts, the push time, what
+ * the stripes mean, what Apply just said). Fits a 1024×768 window. The overlay around it has the title bar and
  * the Close button. While the playhead is on a frag warning, a chip over the
  * picture names it, also at 16×. The words the 3D lays on the picture keep off
  * the camera buttons and the strike's name, whose boxes are measured here.
@@ -86,8 +89,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { buildStrikePlayback, dangerZones, playbackInputFromMission, retime, type PlaybackInput, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
   APPLY_WORDS, applyShift, applyStatusLines, axisFraction, cardOrder, conflictBands, DRAG_PATH_STEP_S, editorOffsets, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks,
-  markerMoments, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
-  type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TileSource,
+  buildNotes, markerMoments, noteFactsFrom, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
+  type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TargetGap, type TileSource,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
 import { tauriTiles } from './terrain/tauriTiles';
@@ -296,6 +299,8 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
 
   const [scene, setScene] = useState<PlaybackScene | null>(null);
   const [terrain, setTerrain] = useState<TerrainStatus>();
+  // The targets planned off the ground drawn under them: the scene tells at its first frame and whenever its ground changes.
+  const [gaps, setGaps] = useState<readonly TargetGap[]>([]);
   const [fatal, setFatal] = useState<Error>();
   const [lost, setLost] = useState<'no' | 'restoring' | 'stuck'>('no');
   const [mountKey, setMountKey] = useState(0);
@@ -323,6 +328,8 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
     if (s) s.setCamera(s.cameraMode(), jet);
   }, [pb, watched]);
   const onTerrain = useCallback((s: TerrainStatus) => setTerrain(s), []);
+  // The same gaps again (a rebuilt scene tells afresh) leave the notes as they are.
+  const onTargets = useCallback((g: TargetGap[]) => setGaps((was) => (JSON.stringify(was) === JSON.stringify(g) ? was : g)), []);
   const onContextLost = useCallback(() => setLost('restoring'), []);
   const rebuild = useCallback(() => {
     resumeAt.current = sceneRef.current?.clock.time ?? resumeAt.current;
@@ -375,6 +382,10 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
     });
   }, [apply, tie, pb, session, act, seatLabels, seatCallsigns]);
   const statusLines = useMemo(() => (session.status ? applyStatusLines(session.status) : undefined), [session.status]);
+  // The notes under the picture: what this view assumed and could not show, at the times as they stand. What Apply just
+  // said stands at the top of them until the times next change.
+  const zoneCount = useMemo(() => lanes.reduce((n, l) => n + l.zones.length, 0), [lanes]);
+  const notes = useMemo(() => buildNotes(noteFactsFrom(pb, timing, { gaps, zones: zoneCount, applied: statusLines })), [pb, timing, gaps, zoneCount, statusLines]);
   // DEV: nothing to report until the times have been changed once.
   const reTimeMs = useCallback(() => {
     const ms = reTime.current.timing + reTime.current.source + reTime.current.scene;
@@ -499,6 +510,7 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
           onCamera={onCamera}
           onFatal={onFatal}
           onTerrain={onTerrain}
+          onTargets={onTargets}
           onContextLost={onContextLost}
           onRemount={rebuild}
         />
@@ -537,7 +549,7 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
           apply={apply && pb.members.length >= 2 ? { ...APPLY_WORDS[apply.to], onApply: applyTimes } : undefined}
           status={statusLines}
         />
-        <StatusNotes terrain={terrain} notes={built.launch.notes} restoring={lost === 'restoring'} onGround={onGround} />
+        <StatusNotes terrain={terrain} theater={built.launch.notes} notes={notes} restoring={lost === 'restoring'} onGround={onGround} />
       </div>
     </div>
   );

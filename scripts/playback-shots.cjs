@@ -2167,6 +2167,18 @@ async function checkFit(page, tag, w, h) {
  * the note), at both sizes. Measured 2026-11-15: canvas 1400×592 and 1024×444 (floors 560 and 420); the one
  * lane with its warnings line, 1400×682 and 1024×534.
  *
+ * The notes (check 76) are folded here, which is how a pilot first sees them: their button sits on the credits line,
+ * beside the sources' fold, and takes no row of its own; the floors are held with the list shut. On the first try the button
+ * was put at the right of the ground line instead, and at 1024×768 it squeezed the ground note onto a second line: the four-ship's
+ * canvas was 434 folded and 418 after an Apply, under the floor. On the credits line (already two lines at 1024, one at 1400) it
+ * costs nothing: 444 and 428, as before it. The four-ship is measured again after the Apply of check 14 (the Apply line up, the
+ * cards' renumbering said): canvas 1400×576 and 1024×428 (floors 560 and 420).
+ *
+ * Proven red 2026-11-17 by one temporary edit to StatusNotes.tsx, the list open from the start (`useState(false)` → `useState(true)`):
+ *   STEP FAIL 7b canvas at least 1350x560 with the lane, … the notes folded (1400x900) — canvas 1400x626 (want ≥ 1350x560); 1 lane (want 1); 22 controls; credits at 820, sources at 820 (left 1272) (one row true); software line a chip on the picture; notes button open with its list showing
+ *   STEP FAIL 7b … with all 4 lanes, … the notes folded (1400x900-strike4) — canvas 1400x492 (want ≥ 1350x560); 4 lanes (want 4); 33 controls; …; notes button open with its list showing
+ *   STEP FAIL 7b … (1400x900-strike4-applied) — canvas 1400x476 (want ≥ 1350x560); …; notes button open with its list showing
+ *
  * Proven red on the four-ship 2026-11-15 by two temporary edits to ui.ts, each lane 40 px tall and the box
  * of lanes allowed 160 px (`LANE` 'h-[40px]', `LANES` 'max-h-[160px]': the canvas 40 px shorter):
  *   STEP FAIL 7b canvas at least 1000x420 with all 4 lanes, the warnings line and every control inside 1024x768; … (1024x768-strike4) — canvas 1024x404 (want ≥ 1000x420); 4 lanes (want 4); 25 controls; credits at 728, sources at 728 (left 896) (one row true); software line a chip on the picture
@@ -2198,6 +2210,8 @@ async function checkLayout(page, tag, w, h, lanesWanted = 1) {
       sources: [...d.querySelectorAll('summary')].filter((s) => /Elevation sources/.test(textOf(s))).map(box)[0] || null,
       softRow: [...d.querySelectorAll('p')].filter((p) => /draws 3D in software/.test(textOf(p))).length,
       softChip: [...d.querySelectorAll('div')].filter((e) => e.children.length === 0 && /draws 3D in software/.test(textOf(e))).map(box)[0] || null,
+      notesToggle: d.querySelector('[data-notes-toggle]')?.getAttribute('aria-expanded') ?? null,
+      notesList: !!d.querySelector('[data-notes]'),
     };
   });
   const [fw, fh] = LAYOUT_FLOOR[w];
@@ -2205,9 +2219,11 @@ async function checkLayout(page, tag, w, h, lanesWanted = 1) {
   const outside = r.controls.filter((b) => b.l < 0 || b.t < 0 || b.r > w + 0.5 || b.b > h + 0.5);
   const oneRow = !!r.credits && !!r.sources && Math.abs(r.credits.t - r.sources.t) <= 6 && r.sources.l >= r.credits.l;
   const chipOnPicture = r.softRow === 0 && (!r.softChip || (r.softChip.l >= r.canvas.l && r.softChip.r <= r.canvas.r && r.softChip.t >= r.canvas.t && r.softChip.b <= r.canvas.b));
-  step(`7b canvas at least ${fw}x${fh} with ${lanesWanted === 1 ? 'the lane' : `all ${lanesWanted} lanes`}, the warnings line and every control inside ${w}x${h}; credits and sources on one row; the software line on the picture (${tag})`,
-    r.lanes === lanesWanted && r.controls.length > 0 && outside.length === 0 && cw >= fw && ch >= fh && oneRow && chipOnPicture,
-    `canvas ${Math.round(cw)}x${Math.round(ch)} (want ≥ ${fw}x${fh}); ${r.lanes} lane${r.lanes === 1 ? '' : 's'} (want ${lanesWanted}); ${r.controls.length} controls${outside.length ? `, outside: ${outside.map((b) => b.name).join(', ')}` : ''}; credits at ${r.credits ? Math.round(r.credits.t) : 'none'}, sources at ${r.sources ? `${Math.round(r.sources.t)} (left ${Math.round(r.sources.l)})` : 'none'} (one row ${oneRow}); software line ${r.softChip ? 'a chip on the picture' : 'not shown'}${r.softRow ? ', and also a row under it' : ''}`);
+  // The notes are there and folded: the floors are measured with the list shut, which is how a pilot first sees it.
+  const notesFolded = r.notesToggle === 'false' && !r.notesList;
+  step(`7b canvas at least ${fw}x${fh} with ${lanesWanted === 1 ? 'the lane' : `all ${lanesWanted} lanes`}, the warnings line and every control inside ${w}x${h}; credits and sources on one row; the software line on the picture; the notes folded (${tag})`,
+    r.lanes === lanesWanted && r.controls.length > 0 && outside.length === 0 && cw >= fw && ch >= fh && oneRow && chipOnPicture && notesFolded,
+    `canvas ${Math.round(cw)}x${Math.round(ch)} (want ≥ ${fw}x${fh}); ${r.lanes} lane${r.lanes === 1 ? '' : 's'} (want ${lanesWanted}); ${r.controls.length} controls${outside.length ? `, outside: ${outside.map((b) => b.name).join(', ')}` : ''}; credits at ${r.credits ? Math.round(r.credits.t) : 'none'}, sources at ${r.sources ? `${Math.round(r.sources.t)} (left ${Math.round(r.sources.l)})` : 'none'} (one row ${oneRow}); software line ${r.softChip ? 'a chip on the picture' : 'not shown'}${r.softRow ? ', and also a row under it' : ''}; notes button ${r.notesToggle === null ? 'missing' : r.notesToggle === 'false' ? 'folded' : 'open'}${r.notesList ? ' with its list showing' : ''}`);
 }
 
 /**
@@ -3966,6 +3982,22 @@ async function checkDiamondKeys(page, tag) {
  * magenta; run again the same day after the layer lost its colour option, the same line):
  *   STEP FAIL 20 a skipped #2 is not drawn; #3 flies in #3's lime (1400x900-skip) — flown #1 #3; labels #1 #3; a third arrow none; t -49.2; #3 at 174,538: 0 lime px (need 70)
  * (green: 161 lime px; the lines alone, arrow shrunk, 24.)
+ *
+ * And the notes say why #2 is not there: the button reads "⚠ Notes (4) ▸" (amber), the list holds the skip note, the push time,
+ * the start and the altitudes, and exactly one note says "#2 isn't flown in 3D", word for word: the reason the library gives and
+ * what the blast check leaves out ("Its time still counts, but its jet and its bomb aren't checked for blast."). The library's own
+ * gray line for the same member ("…so neither its jet nor its bomb is checked for blast") is not shown beside it.
+ * Proven red 2026-11-17 by one temporary edit to notes.ts, that line left in (the `.filter((n) => !notFlown.has(n))` of noteFactsFrom taken out):
+ *   STEP FAIL 20 a skipped #2 is not drawn and its note says why, once; … (1400x900-skip) — flown #1 #3; …; 164 lime px (need 70); notes "⚠ Notes (5) ▸" amber true, ["skip-h-skip-2","blast-0","push","start","agl"], 2 say "#2 isn't flown in 3D": "⚠ #2 isn't flown in 3D. Its target waypoint is missing. Its time still counts, but its jet and its bomb aren't checked for blast."
+ *
+ * And #2 keeps its lane between #1's and #3's: the lanes run 0, 1, 2 with one skipped, its row says "not flown in 3D: Its target
+ * waypoint is missing." with the reason whole in the tooltip, and its cell at the right still reads "TOT T+0:10" with a time box
+ * ("#2 time over target, seconds after T", 10) to type in; the flown lanes say nothing of the kind.
+ * Proven red 2026-11-18 by two temporary edits to JetLanes.tsx's skipped row (a run of the skip page alone):
+ * - the reason's span taken out (`<span className="truncate">not flown in 3D: {info.skipped}</span>` deleted):
+ *   STEP FAIL 20 a skipped #2 is not drawn and its note says why, once; … (1400x900-skip) — …; lanes in order [0, 1, 2] (want 0, 1, 2), 1 skipped; #2's row says null, title null, cell "TOT T+0:10", time box "#2 time over target, seconds after T" = 10
+ * - the row's `<Readout … />` taken out:
+ *   STEP FAIL 20 a skipped #2 is not drawn and its note says why, once; … (1400x900-skip) — …; lanes in order [0, 1, 2] (want 0, 1, 2), 1 skipped; #2's row says "not flown in 3D: Its target waypoint is missing.", title "Its target waypoint is missing.", cell null, time box none
  */
 async function checkSkipped(page, tag) {
   const spread = await spreadMoment(page);
@@ -3983,9 +4015,41 @@ async function checkSkipped(page, tag) {
   }
   const lime = p ? patch(img, p.map(Math.round), ARROW_PATCH).filter(limeLike).length : 0;
   const firsts = labels.jets.map((l) => l.lines[0].split(' ')[0]).sort().join(' ');
-  step(`20 a skipped #2 is not drawn; #3 flies in #3's lime (${tag})`,
-    jets.join(' ') === '#1 #3' && firsts === '#1 #3' && third === null && lime >= SEAT_MIN,
-    `flown ${jets.join(' ')}; labels ${firsts}; a third arrow ${third ? 'yes' : 'none'}; t ${spread.t === null ? 'none' : spread.t.toFixed(1)}; #3 at ${p ? p.map(Math.round) : 'none'}: ${lime} lime px (need ${SEAT_MIN})`);
+  // The notes say why #2 is not there: one note, in amber, the reason from the library and what the blast check leaves out.
+  await notesCount(page, 'Notes (4)');
+  const shut = await notesState(page);
+  await notesToggle(page).click();
+  await settle(page, 250);
+  const opened = await notesState(page);
+  await notesToggle(page).click(); // folded again for the checks after
+  const sayings = opened.list ? opened.list.notes.filter((n) => n.text.includes("#2 isn't flown in 3D")) : [];
+  const notesOk = !!shut.toggle && shut.toggle.text === '⚠ Notes (4) ▸' && shut.toggle.amber && !!opened.list && sayings.length === 1 && sayings[0].key.startsWith('skip-') &&
+    sayings[0].tone === 'warn' && sayings[0].text === `⚠ ${NOTE_SKIP_BURST}` && opened.list.notes.every((n) => !n.text.includes('so neither its jet nor its bomb'));
+  // And #2 keeps its lane, in its place between #1's and #3's: the row says "not flown in 3D: {the reason}" (the reason whole in its
+  // tooltip), and the cell at the right still holds its time over target (the plan's 10 s) in a box that can be typed in.
+  const rows = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"] [data-lane], [role="dialog"] [data-lane-skipped]')].map((r) => {
+    const skipped = r.hasAttribute('data-lane-skipped');
+    const said = [...r.querySelectorAll('[title]')].find((e) => (e.textContent || '').includes('not flown in 3D:'));
+    const cell = r.querySelector('[data-readout]');
+    const box = cell ? cell.querySelector('input[type="number"]') : null;
+    return {
+      seat: r.getAttribute(skipped ? 'data-lane-skipped' : 'data-lane'), skipped,
+      said: said ? (said.textContent || '').trim() : null, title: said ? said.getAttribute('title') : null,
+      cell: cell ? (cell.innerText || '').trim().split('\n')[0] : null,
+      box: box ? { label: box.getAttribute('aria-label'), value: box.value } : null,
+    };
+  }));
+  const skippedRows = rows.filter((r) => r.skipped);
+  const sk = skippedRows[0];
+  const laneOk = rows.map((r) => r.seat).join() === '0,1,2' && skippedRows.length === 1 && sk.seat === '1' &&
+    sk.said === 'not flown in 3D: Its target waypoint is missing.' && sk.title === 'Its target waypoint is missing.' &&
+    sk.cell === 'TOT T+0:10' && !!sk.box && sk.box.label === '#2 time over target, seconds after T' && sk.box.value === '10' &&
+    rows.filter((r) => !r.skipped).every((r) => r.said === null);
+  step(`20 a skipped #2 is not drawn and its note says why, once; #3 flies in #3's lime; #2 keeps its lane, with its reason and its time box (${tag})`,
+    jets.join(' ') === '#1 #3' && firsts === '#1 #3' && third === null && lime >= SEAT_MIN && notesOk && laneOk,
+    `flown ${jets.join(' ')}; labels ${firsts}; a third arrow ${third ? 'yes' : 'none'}; t ${spread.t === null ? 'none' : spread.t.toFixed(1)}; #3 at ${p ? p.map(Math.round) : 'none'}: ${lime} lime px (need ${SEAT_MIN}); ` +
+      `notes "${shut.toggle ? shut.toggle.text : 'no button'}" amber ${shut.toggle ? shut.toggle.amber : '—'}, ${opened.list ? JSON.stringify(opened.list.notes.map((n) => n.key)) : 'no list'}, ${sayings.length} say "#2 isn't flown in 3D"${sayings[0] ? `: ${JSON.stringify(sayings[0].text)}` : ''}; ` +
+      `lanes in order [${rows.map((r) => r.seat).join(', ')}] (want 0, 1, 2), ${skippedRows.length} skipped; #2's row says ${sk ? JSON.stringify(sk.said) : 'none'}, title ${sk ? JSON.stringify(sk.title) : 'none'}, cell ${sk ? JSON.stringify(sk.cell) : 'none'}, time box ${sk && sk.box ? `"${sk.box.label}" = ${sk.box.value}` : 'none'}`);
 }
 
 /**
@@ -5102,10 +5166,23 @@ async function checkFragChip(page, tag) {
  *   STEP FAIL 75 two jets on one attack axis: … (1400x900-trail, burst) — rule burst; splits ["#1-#2 0.0° inside"] (want one, under 1°, inside); page warnings ["#1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want none); footer no all-clear, ["⚠ #1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want "✓ No blast warnings at these times."), more null; "fire-control cone" 2 times, "cone" 2 times on the page (want 0): "⚠ #1 and #2 are only 0° apart — inside one 40° fire-control cone"
  *   STEP FAIL 75 … (1400x900-trail, time) — rule time; …; footer no all-clear, ["⚠ #1 and #2 are only 0° apart — inside one 40° fire-control cone"] (want "✓ No frag warnings at these times."), …
  * Measured green 2026-11-17: under both rules the splits read "#1-#2 0.0° inside", no warning, the all-clear, "cone" 0 times.
+ *
+ * The notes are opened before the page is read, so their words count as the page's: the list holds three notes on the blast
+ * rule (the push time, the start of the bar, the altitudes) and four on the spacing rule (the stripes' note as well, the jets being
+ * in each other's frag), and none of them says cone.
+ * Proven red 2026-11-17 by one temporary edit to notes.ts, the strip's close-axis line fed to the notes (the `blast:` list of
+ * noteFactsFrom given one more line for each of the readout's splits graded inside: "#1 and #2 are only 0° apart — inside one
+ * 40° fire-control cone"); a run of this page alone:
+ *   STEP FAIL 75 two jets on one attack axis: … in its notes or anywhere else, … (1400x900-trail, burst) — rule burst; splits ["#1-#2 0.0° inside"] (want one, under 1°, inside); page warnings [] (want none); footer "✓ No blast warnings at these times." (want "✓ No blast warnings at these times."), more null; 4 notes open and read (want 3 or more); "fire-control cone" 1 times, "cone" 1 times on the page (want 0): "#1 and #2 are only 0° apart — inside one 40° fire-control cone"
+ *   STEP FAIL 75 … (1400x900-trail, time) — rule time; …; 5 notes open and read (want 3 or more); "fire-control cone" 1 times, "cone" 1 times on the page (want 0): "#1 and #2 are only 0° apart — inside one 40° fire-control cone"
  */
 async function checkNoCone(page, tag, rule) {
   await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
   await settle(page, 300);
+  // The folded notes would hide their words from this reading: open them, so what they say is on the page too.
+  if ((await notesState(page)).toggle?.open === 'false') await notesToggle(page).click();
+  await settle(page, 250);
+  const notesRead = (await notesState(page)).list?.notes.length ?? 0;
   await shot(page, `${tag}-75-trail-${rule}`);
   const m = await pbEval(page, () => ({ rule: __pb.moments.rule, warnings: __pb.moments.warnings, splits: __pb.moments.splits }));
   const f = await footerState(page);
@@ -5119,12 +5196,177 @@ async function checkNoCone(page, tag, rule) {
   });
   const want = rule === 'time' ? WANT_OK_TIME : WANT_OK_BURST;
   const oneAxis = m.splits.length === 1 && m.splits[0].deg < 1 && m.splits[0].grade === 'inside';
+  // The notes were open and read (the trail pair has three: the push time, the start of the bar and the altitudes).
   const ok = m.rule === rule && oneAxis && m.warnings.length === 0 && !!f.ok && f.ok.text === want && f.warns.length === 0 && f.more === null &&
-    said.fireControl === 0 && said.cone === 0;
-  step(`75 two jets on one attack axis: the playback says nothing about a fire-control cone, the footer is the all-clear (${tag}, ${rule})`, ok,
+    notesRead >= 3 && said.fireControl === 0 && said.cone === 0;
+  step(`75 two jets on one attack axis: the playback says nothing about a fire-control cone, in its notes or anywhere else, the footer is the all-clear (${tag}, ${rule})`, ok,
     `rule ${m.rule}; splits ${JSON.stringify(m.splits.map((s) => `${s.a}-${s.b} ${s.deg.toFixed(1)}° ${s.grade}`))} (want one, under 1°, inside); page warnings ${JSON.stringify(m.warnings)} (want none); ` +
       `footer ${f.ok ? JSON.stringify(f.ok.text) : `no all-clear, ${JSON.stringify(f.warns.map((w) => w.text))}`} (want ${JSON.stringify(want)}), more ${JSON.stringify(f.more)}; ` +
-      `"fire-control cone" ${said.fireControl} times, "cone" ${said.cone} times on the page (want 0)${said.sample ? `: ${JSON.stringify(said.sample)}` : ''}`);
+      `${notesRead} notes open and read (want 3 or more); "fire-control cone" ${said.fireControl} times, "cone" ${said.cone} times on the page (want 0)${said.sample ? `: ${JSON.stringify(said.sample)}` : ''}`);
+}
+
+// ── The notes under the picture: what playback assumed and could not show.
+const NOTE_GAP = 'The target of #3 (TGT2) is planned 1,200 ft above the ground drawn there. Its bombs land at the planned height, on the red post over its ring.';
+const NOTE_PUSH = "Push IP is the card's time (the outlined IP mark on the lanes): fly that. The 3D flies the whole profile, so it crosses the IP a few seconds off (the filled IP mark).";
+const NOTE_START = "The time bar starts 10 s before the first jet's first action. Show › Whole run-in starts it before the IP.";
+const NOTE_AGL = "Altitudes are the planner's: AGL is above each jet's own target, not the ground under it.";
+const NOTE_DRAWING = '#3: The drawn path doubles back (180°) where the climb line starts: it is flown as drawn.';
+const NOTE_DRAWING_HEAD = 'Drawing checks, for whoever built the plan:';
+const NOTE_HATCH_TIME = "Hatched amber on the time bar and the lanes: times when a jet would be over the target inside another jet's frag (est.).";
+const NOTE_SKIP_BURST = "#2 isn't flown in 3D. Its target waypoint is missing. Its time still counts, but its jet and its bomb aren't checked for blast.";
+const NOTE_APPLIED = 'Applied to the plan: the cards now use these times. To take it back, close playback and press Undo (⌘Z / Ctrl+Z), once for each Apply.';
+
+/**
+ * The notes as the page shows them: the button's words and state, and while the list is open each note's key, tone and
+ * words, the order of the list's lines (the heading before the planner's drawing checks shows as "head") and its box.
+ */
+const notesState = (page) => page.evaluate(() => {
+  const dlg = document.querySelector('[role="dialog"]');
+  const toggle = dlg.querySelector('[data-notes-toggle]');
+  const list = dlg.querySelector('[data-notes]');
+  const box = (e) => {
+    const b = e.getBoundingClientRect();
+    return { l: b.left, t: b.top, r: b.right, b: b.bottom, h: b.height };
+  };
+  return {
+    toggle: toggle ? { text: (toggle.textContent || '').trim(), open: toggle.getAttribute('aria-expanded'), controls: toggle.getAttribute('aria-controls'), amber: /\btext-amber-300\b/.test(toggle.className), box: box(toggle) } : null,
+    list: list ? {
+      id: list.id, box: box(list),
+      notes: [...list.querySelectorAll('[data-note]')].map((e) => ({ key: e.getAttribute('data-note'), tone: e.getAttribute('data-tone'), text: (e.textContent || '').trim() })),
+      order: [...list.children].map((e) => (e.hasAttribute('data-notes-head') ? 'head' : e.getAttribute('data-note'))),
+      heads: [...list.querySelectorAll('[data-notes-head]')].map((e) => (e.textContent || '').trim()),
+    } : null,
+    // The planner's own theater warnings: in view whether the list is open or not, never in the list.
+    theater: [...dlg.querySelectorAll('p')].filter((p) => (p.textContent || '').trim().startsWith('⚠') && !p.closest('[data-notes]')).length,
+  };
+});
+const notesToggle = (page) => page.locator('[role="dialog"] [data-notes-toggle]');
+/** Wait (briefly, and without failing) for the button to read `text`: the scene tells the view about the targets at its first frame. */
+const notesCount = (page, text) => page.waitForFunction((t) => (document.querySelector('[role="dialog"] [data-notes-toggle]')?.textContent || '').includes(t), text, { timeout: 20000, polling: 100 }).catch(() => {});
+
+/**
+ * Check 76 (the notes, on the four-ship handed over as the attack list hands one over, with the theater note): the notes
+ * are folded under a button on the credits line, which reads "⚠ Notes (5) ▸" (amber: one note asks for
+ * attention) and is the only sign of them while folded, the planner's own theater warning staying in view outside them.
+ * The scene's own report of the ground (TGT2 is planned 1,200 ft above the ground drawn under it: #3's target) is the
+ * first note, then the push time, the start of the time bar, the altitudes, and last, under their heading, the planner's
+ * own drawing check for #3's climb line; there is no hatching note on the blast rule (the jets are 10 s apart). Pressed, the
+ * list opens ("▾", aria-expanded, the list's id on aria-controls) inside the window and no taller than 96 px (it scrolls);
+ * Space on the focused button shuts it and does not start the clock, Enter opens it again. A time typed for #2 and applied
+ * to the plan puts the sentence Apply says at the top of the list (6 notes); a time changed after it takes it away (5).
+ *
+ * Measured green 2026-11-17: the list is 96 px tall (88 px with the heading left out), inside the window at both sizes; at
+ * 1024×768 it ends at 760.
+ *
+ * Proven red 2026-11-17, each by one temporary edit (a run of this page alone):
+ * - createScene.ts, the scene's report of the targets taken out (`opts.onTargets?.(…)` → `void targetGaps;`):
+ *   STEP FAIL 76 the notes are folded under a button, … (1400x900-strike4) — as opened: "Notes (4) ▸", aria-expanded false, amber false, controls pb-notes; list folded; …; pressed: "Notes (4) ▾" true; 4 notes ["push","start","agl","warn-h-strike4-3-0"], order ["push","start","agl","head","warn-h-strike4-3-0"], texts ["Push IP is the card's time …
+ * - StatusNotes.tsx, the heading before the drawing checks switched off (`{n.group === 'drawing' && …` → `{false && n.group === 'drawing' && …`):
+ *   STEP FAIL 76 the notes are folded under a button, … — …; pressed: "⚠ Notes (5) ▾" true; 5 notes ["gap-target-1","push","start","agl","warn-h-strike4-3-0"], order ["gap-target-1","push","start","agl","warn-h-strike4-3-0"], texts word for word, tones […], heading [], box 16,804–1384,892 88 px tall …
+ * - PlaybackOverlay.tsx, OWN_SPACE without `button` (Space on any button plays the clock instead of pressing it):
+ *   STEP FAIL 76 the notes are folded under a button, … — …; Space on the button: still open, clock playing; Enter: shut; after Apply: "⚠ Notes (6) ▸"; first note none, the rest none; times changed again: "⚠ Notes (5) ▸", notes none
+ */
+async function checkNotes(page, tag, w, h) {
+  await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
+  await notesCount(page, 'Notes (5)');
+  await settle(page, 300);
+  const parts = [];
+  let ok = true;
+  const note = (good, text) => { ok = ok && good; parts.push(text); };
+
+  const folded = await notesState(page);
+  note(!!folded.toggle && folded.toggle.text === '⚠ Notes (5) ▸' && folded.toggle.open === 'false' && folded.toggle.amber && folded.toggle.controls === 'pb-notes' && folded.list === null && folded.theater >= 1,
+    `as opened: ${folded.toggle ? `"${folded.toggle.text}", aria-expanded ${folded.toggle.open}, amber ${folded.toggle.amber}, controls ${folded.toggle.controls}` : 'no button'}; list ${folded.list ? 'showing' : 'folded'}; the planner's own warning in view ${folded.theater}×`);
+
+  await notesToggle(page).click();
+  await settle(page, 250);
+  const open = await notesState(page);
+  const L = open.list;
+  const wantKeys = ['gap-target-1', 'push', 'start', 'agl', 'warn-h-strike4-3-0'];
+  // A note that asks for attention starts with the ⚠ the page puts there.
+  const wantText = [NOTE_GAP, NOTE_PUSH, NOTE_START, NOTE_AGL, NOTE_DRAWING];
+  const wantTones = ['warn', 'info', 'info', 'info', 'info'];
+  const textOk = !!L && L.notes.every((n, i) => n.text === (wantTones[i] === 'warn' ? `⚠ ${wantText[i]}` : wantText[i]));
+  note(!!L && open.toggle.text === '⚠ Notes (5) ▾' && open.toggle.open === 'true' && L.id === open.toggle.controls && JSON.stringify(L.notes.map((n) => n.key)) === JSON.stringify(wantKeys) &&
+      JSON.stringify(L.notes.map((n) => n.tone)) === JSON.stringify(wantTones) && textOk &&
+      JSON.stringify(L.order) === JSON.stringify(['gap-target-1', 'push', 'start', 'agl', 'head', 'warn-h-strike4-3-0']) && JSON.stringify(L.heads) === JSON.stringify([NOTE_DRAWING_HEAD]) &&
+      L.box.l >= 0 && L.box.r <= w + 0.5 && L.box.b <= h + 0.5 && L.box.h <= 97 && open.theater >= 1,
+    `pressed: ${open.toggle ? `"${open.toggle.text}" ${open.toggle.open}` : 'no button'}; ${L ? `${L.notes.length} notes ${JSON.stringify(L.notes.map((n) => n.key))}, order ${JSON.stringify(L.order)}, texts ${textOk ? 'word for word' : JSON.stringify(L.notes.map((n) => n.text))}, tones ${JSON.stringify(L.notes.map((n) => n.tone))}, heading ${JSON.stringify(L.heads)}, box ${Math.round(L.box.l)},${Math.round(L.box.t)}–${Math.round(L.box.r)},${Math.round(L.box.b)} ${L.box.h.toFixed(0)} px tall (want ≤ 96, inside ${w}x${h})` : 'no list'}`);
+  await shot(page, `${tag}-76-notes-open`);
+
+  // The keyboard: Space on the focused button shuts the list and leaves the clock alone; Enter opens it again.
+  await page.focus('[role="dialog"] [data-notes-toggle]');
+  await page.keyboard.press(' ');
+  const spaced = { open: (await notesState(page)).toggle.open, playing: await pbEval(page, () => __pb.snapshot().playing) };
+  await page.keyboard.press('Enter');
+  const entered = (await notesState(page)).toggle.open;
+  note(spaced.open === 'false' && !spaced.playing && entered === 'true', `Space on the button: ${spaced.open === 'false' ? 'shut' : 'still open'}, clock ${spaced.playing ? 'playing' : 'still'}; Enter: ${entered === 'true' ? 'open' : 'shut'}`);
+
+  // What Apply says goes to the top of the list, and goes when the times change again.
+  const typeTime = async (n, v) => {
+    await boxOf(page, n).click();
+    await boxOf(page, n).fill(String(v));
+    await page.keyboard.press('Enter');
+    await settle(page, 300);
+  };
+  await typeTime(2, 25);
+  await page.locator('[role="dialog"] [data-apply]').click();
+  await settle(page, 400);
+  const after = await notesState(page);
+  note(!!after.list && after.toggle.text === '⚠ Notes (6) ▾' && after.list.notes[0].key === 'apply-0' && after.list.notes[0].text === NOTE_APPLIED && after.list.notes[0].tone === 'info' &&
+      JSON.stringify(after.list.notes.slice(1).map((n) => n.key)) === JSON.stringify(wantKeys),
+    `after Apply: ${after.toggle ? `"${after.toggle.text}"` : 'no button'}; first note ${after.list ? JSON.stringify(`${after.list.notes[0].key}: ${after.list.notes[0].text.slice(0, 50)}…`) : 'none'}, the rest ${after.list ? JSON.stringify(after.list.notes.slice(1).map((n) => n.key)) : 'none'}`);
+  await typeTime(2, 30);
+  const changed = await notesState(page);
+  note(!!changed.list && changed.toggle.text === '⚠ Notes (5) ▾' && JSON.stringify(changed.list.notes.map((n) => n.key)) === JSON.stringify(wantKeys),
+    `times changed again: ${changed.toggle ? `"${changed.toggle.text}"` : 'no button'}, notes ${changed.list ? JSON.stringify(changed.list.notes.map((n) => n.key)) : 'none'}`);
+  step(`76 the notes are folded under a button, say what playback assumed and could not show, word for word, and carry what Apply says until the times change (${tag})`, ok, parts.join('; '));
+}
+
+/**
+ * Check 76 on the spacing rule (the four-ship saved with it, jets 10 s apart): the hatching note is there, in the spacing
+ * rule's words, between the gap and the push time; on the blast rule's page above there is none.
+ *
+ * Proven red 2026-11-17 by one temporary edit to notes.ts, the hatching note left out (`if (f.hatch) notes.push(` → `if (false) notes.push(`):
+ *   STEP FAIL 76 on the spacing rule the hatching note says what the amber stripes are, in that rule's words (1400x900-strike4) — "⚠ Notes (5) ▾"; notes ["gap-target-1","push","start","agl","warn-h-strike4-3-0"]; hatching none
+ */
+async function checkNotesTime(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
+  await notesCount(page, 'Notes (6)');
+  await settle(page, 300);
+  if ((await notesState(page)).toggle?.open !== 'true') await notesToggle(page).click();
+  await settle(page, 250);
+  const s = await notesState(page);
+  const keys = s.list ? s.list.notes.map((n) => n.key) : [];
+  const hatch = s.list?.notes.find((n) => n.key === 'hatch');
+  step(`76 on the spacing rule the hatching note says what the amber stripes are, in that rule's words (${tag})`,
+    s.toggle?.text === '⚠ Notes (6) ▾' && JSON.stringify(keys) === JSON.stringify(['gap-target-1', 'hatch', 'push', 'start', 'agl', 'warn-h-strike4-3-0']) && hatch?.text === NOTE_HATCH_TIME && hatch.tone === 'info',
+    `${s.toggle ? `"${s.toggle.text}"` : 'no button'}; notes ${JSON.stringify(keys)}; hatching ${hatch ? JSON.stringify(hatch.text) : 'none'}`);
+}
+
+/**
+ * Check 76 on the lone pop-up (handed over as the editor hands one over, with the theater note): "Notes (3) ▸" in grey
+ * (nothing asks for attention), and once open exactly the push time, the start of the time bar and the altitudes, word
+ * for word; no gap, no stripes, no jet left out and no drawing check; the theater note in view outside the list.
+ *
+ * (The push note shown for a jet with no card push is geo-check's to hold, N4.)
+ *
+ * Proven red 2026-11-17 by one temporary edit to StatusNotes.tsx, the button amber whatever the notes say (`attention` made `true`):
+ *   STEP FAIL 76 a lone jet has three plain notes, a grey button, and its theater warning stays in view (1400x900) — folded "⚠ Notes (3) ▸" amber true; open ["push","start","agl"]; the planner's warning in view 1×
+ */
+async function checkNotesLone(page, tag) {
+  await pbEval(page, () => { __pb.pause(); });
+  await settle(page, 300);
+  const folded = await notesState(page);
+  await notesToggle(page).click();
+  await settle(page, 250);
+  const s = await notesState(page);
+  const L = s.list;
+  step(`76 a lone jet has three plain notes, a grey button, and its theater warning stays in view (${tag})`,
+    !!folded.toggle && folded.toggle.text === 'Notes (3) ▸' && !folded.toggle.amber && folded.list === null && folded.theater >= 1 && !!L && s.toggle.text === 'Notes (3) ▾' &&
+      JSON.stringify(L.notes.map((n) => [n.key, n.tone, n.text])) === JSON.stringify([['push', 'info', NOTE_PUSH], ['start', 'info', NOTE_START], ['agl', 'info', NOTE_AGL]]) && L.heads.length === 0 && s.theater >= 1,
+    `folded "${folded.toggle ? folded.toggle.text : 'no button'}" amber ${folded.toggle ? folded.toggle.amber : '—'}; open ${L ? JSON.stringify(L.notes.map((n) => n.key)) : 'no list'}; the planner's warning in view ${s.theater}×`);
+  await notesToggle(page).click(); // folded again, for the checks after
 }
 
 async function runFragChecks(browser, base) {
@@ -5221,7 +5463,24 @@ async function runStrikeChecks(browser, base) {
     await checkLayout(lay.page, `${tag}-strike4`, w, h, 4);
     // 14 on the same page, the attack list's way: it changes the times, and wants the tightest rows under the picture.
     await checkApplyPlan(lay.page, `${tag}-strike4`, w, h, lay.problems);
+    // 7b once more, with the Apply line up that names the jets the cards will number differently (the page the last arm of 14 left):
+    // the notes folded, and the canvas still inside its floor.
+    await checkLayout(lay.page, `${tag}-strike4-applied`, w, h, 4);
     await lay.context.close();
+    // 76 on a page of its own: it opens the list of notes, which takes the picture's room. Its "8 no page errors" steps (here, and for
+    // the spacing rule below) are the same page-error check as the rest; seen red 2026-11-18 with the notes button's click handler
+    // made to throw after it toggles the list (a run of this page alone; 76 itself stays green, the list still opens):
+    //   STEP FAIL 8 no page errors, four-ship notes (1400x900) — page error: mutation | page error: mutation | page error: mutation | …
+    const nt = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1`, w, h);
+    await checkNotes(nt.page, `${tag}-strike4`, w, h);
+    step(`8 no page errors, four-ship notes (${tag})`, nt.problems.length === 0, nt.problems.length ? nt.problems.slice(0, 8).join(' | ') : 'none');
+    await nt.context.close();
+    if (w === 1400) {
+      const nr = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1&rule=time`, w, h);
+      await checkNotesTime(nr.page, `${tag}-strike4`);
+      step(`8 no page errors, four-ship notes on the spacing rule (${tag})`, nr.problems.length === 0, nr.problems.length ? nr.problems.slice(0, 8).join(' | ') : 'none');
+      await nr.context.close();
+    }
     // 14 again on a page of its own, the attack editor's way (the same four jets handed over as the editor hands them over).
     const ed = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&notes=1&door=editor`, w, h);
     await checkApply(ed.page, `${tag}-strike4-editor`, w, h, ed.problems);
@@ -5303,6 +5562,7 @@ async function runChecks(browser, base) {
     await checkToolbarFit(page, tag, w, h);
     await checkLaneTime(page, tag);
     await checkNoHatchKeyLone(page, tag);
+    await checkNotesLone(page, tag);
     if (w === 1400) await checkLaneColours(page, tag);
     if (w === 1400) {
       await checkScrub(page);

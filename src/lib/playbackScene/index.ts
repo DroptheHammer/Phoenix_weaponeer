@@ -24,7 +24,8 @@
  * menu's state), session (what the open playback remembers: the jet watched,
  * the camera, the Show choices, every member's time over target), apply (what
  * Apply writes from those times and says afterwards, and how the cards will
- * number the jets then), lanes (the
+ * number the jets then), notes (what playback assumed and could not show, in plain words:
+ * a jet not flown, a target off the ground drawn under it, the push time, what the stripes mean), lanes (the
  * timeline's axis (kept still while a time is dragged), each jet's phase bands
  * and lettered marks, where the chips go, the stretches of frag conflict and
  * of each jet's danger zones, the keys that move a time), fragChip (the warning chip over the
@@ -51,6 +52,7 @@ export * from './homeView';
 export * from './show';
 export * from './session';
 export * from './apply';
+export * from './notes';
 export * from './lanes';
 export * from './fragChip';
 export * from './laneStyle';
