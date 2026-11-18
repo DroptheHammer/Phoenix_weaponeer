@@ -54,6 +54,12 @@ fs.mkdirSync(out, { recursive: true });
       await page.getByRole('menuitem', { name: desktopButton, exact: true }).click();
     }
   };
+  // Every load lands on the Flight overview; its "Open the map" (the header's filled button on the desktop, the
+  // pinned button at the foot on a phone) goes on to the planner.
+  const openTheMap = async () => {
+    await page.getByRole('button', { name: 'Open the map', exact: true }).click();
+    await page.getByRole('button', { name: /^Threats/ }).waitFor({ timeout: 10000 });
+  };
   step(`layout: ${phone ? 'phone' : 'desktop'} ${w}x${h}`);
 
   await page.goto(base);
@@ -67,8 +73,22 @@ fs.mkdirSync(out, { recursive: true });
   step('import preview shown');
   await shot('02-import-preview');
   await page.getByRole('button', { name: /^Import / }).click();
-  await page.getByRole('button', { name: /^Threats/ }).waitFor();
-  step('mission imported');
+  await page.getByRole('button', { name: 'Open the map', exact: true }).waitFor({ timeout: 15000 });
+  await page.getByRole('heading', { name: 'Jets and loadouts' }).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(1500); // the overview's map tiles
+  const jetCards = await page.locator('article').count();
+  const picker = page.getByRole('button', { name: /^Waypoint for the threat list: / });
+  step(`mission imported; the Flight overview shows ${jetCards} jet cards, the threat block is about "${(await picker.getAttribute('aria-label')).replace(/^Waypoint for the threat list: |\. Change$/g, '')}"`);
+  await shot('03a-overview');
+  // The waypoint list opens from its button and closes with Escape, focus back on the button.
+  await picker.click();
+  const rows = await page.getByRole('menuitemradio').count();
+  await shot('03b-overview-waypoints');
+  await page.keyboard.press('Escape');
+  await page.getByRole('menuitemradio').first().waitFor({ state: 'detached', timeout: 5000 });
+  step(`waypoint list: ${rows} waypoints offered; Escape closed it, focus back on its button: ${await picker.evaluate((el) => el === document.activeElement)}`);
+  await openTheMap();
+  step('map opened from the overview');
   await page.waitForTimeout(1500); // map tiles
   await shot('03-mission-map');
 
@@ -180,8 +200,8 @@ fs.mkdirSync(out, { recursive: true });
   step(`closed; Recent missions lists "${savedJson.name}": ${listed > 0}`);
   await shot('05a-my-missions');
   await page.getByRole('button', { name: new RegExp(savedJson.name) }).first().click();
-  await page.getByRole('button', { name: /^Threats/ }).waitFor({ timeout: 10000 });
-  step('reopened from Recent missions');
+  await openTheMap();
+  step('reopened from Recent missions (the overview, then the map)');
   // Closed at once on purpose: closing mid-zoom used to throw `_leaflet_pos`
   // from Leaflet's zoom-end timer (fixed by map/ZoomTimerGuard).
   await fileAction('Close', 'Close mission');
@@ -193,8 +213,8 @@ fs.mkdirSync(out, { recursive: true });
     page.getByRole('button', { name: 'Choose file' }).click(),
   ]);
   await chooser.setFiles(saved);
-  await page.getByRole('button', { name: /^Threats/ }).waitFor({ timeout: 10000 });
-  step(`reopened the saved mission (page errors so far: ${problems.length})`);
+  await openTheMap();
+  step(`reopened the saved mission, overview then map (page errors so far: ${problems.length})`);
   await shot('05-reopened');
 
   await page.waitForTimeout(600);

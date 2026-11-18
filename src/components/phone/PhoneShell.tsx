@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { BottomSheet, type Snap } from './BottomSheet';
+import { IconButton } from '../ui/IconButton';
 
 export interface PhoneMenuItem {
   label: string;
@@ -15,8 +16,12 @@ export interface PhoneTab<Id extends string> {
 }
 
 interface PhoneShellProps<Id extends string> {
-  /** Mission name, or the app name with no mission open. */
+  /** Mission name, or the app name with no mission open (the flight on the Flight overview). */
   title: string;
+  /** A second, smaller line under the title (the Flight overview's mission, place and when it was edited). */
+  subtitle?: string;
+  /** A back arrow before the title, back to the front page (the Flight overview). */
+  onBack?: () => void;
   /** Show the unsaved-work dot. */
   dirty?: boolean;
   menu: PhoneMenuItem[];
@@ -49,6 +54,8 @@ interface PhoneShellProps<Id extends string> {
  */
 export function PhoneShell<Id extends string>({
   title,
+  subtitle,
+  onBack,
   dirty = false,
   menu,
   message,
@@ -88,10 +95,22 @@ export function PhoneShell<Id extends string>({
         className="shrink-0 bg-dcs-navy shadow-lg flex items-center gap-2 pl-4 pr-1 z-[1200]"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <h1 className="flex-1 min-w-0 truncate text-base font-semibold py-3">
-          {title}
-          {dirty && <span className="text-dcs-accent ml-1" aria-label="unsaved changes">●</span>}
-        </h1>
+        {onBack && <IconButton icon="chev-left" label="Back to the front page" onClick={onBack} className="-ml-3 shrink-0" />}
+        {subtitle ? (
+          // Two lines: the title over a smaller one, each cut with an ellipsis rather than wrapping under the menu.
+          <div className="flex-1 min-w-0 py-1.5">
+            <h1 className="truncate text-ui-lead font-bold">
+              {title}
+              {dirty && <span className="text-dcs-accent ml-1" aria-label="unsaved changes">●</span>}
+            </h1>
+            <p className="truncate text-ui-small text-ink-2">{subtitle}</p>
+          </div>
+        ) : (
+          <h1 className="flex-1 min-w-0 truncate text-base font-semibold py-3">
+            {title}
+            {dirty && <span className="text-dcs-accent ml-1" aria-label="unsaved changes">●</span>}
+          </h1>
+        )}
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((open) => !open)}

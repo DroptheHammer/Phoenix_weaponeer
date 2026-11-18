@@ -14,6 +14,7 @@ import type { FragOrdersData } from '../src/types/fragorders.types';
 import type { Mission } from '../src/types/mission.types';
 import { JetCard } from '../src/components/landing/JetCard';
 import { RecentCardItem, RecentMissions } from '../src/components/landing/RecentMissions';
+import { ThreatBlock } from '../src/components/landing/ThreatBlock';
 import { W } from '../src/components/landing/words';
 import { FlightRow, FragOrdersPreview } from '../src/components/import/FragOrdersPreview';
 import { recentCardFrom, type RecentCard, type RecentKey, type ThumbnailInput } from '../src/lib/landing/recentCards';
@@ -46,6 +47,36 @@ ok('UI1 quantities in their own colour, an unknown store amber with its words, E
   qtyCells.length === 2 && qtyCells[0].includes('text-qty') && qtyCells[1].includes('text-warn') && card.includes('Not in the weapon table') &&
     /border-control[^>]*>(<svg[\s\S]*?<\/svg>)?ESTIMATED</.test(card) && !/text-warn[^>]*>[^<]*ESTIMATED/.test(card),
   qtyCells.join(' '));
+
+// ─── The Flight overview's threat block keeps its height ─────────────────────
+// One SAM in the mission and one row about TGT1: the list still holds four slots (the empty ones kept), the four
+// classes with nothing in them are dashed with a dash, and the row's numbers read as the card's.
+const totals = { systems: 1, threats: 1, classes: [{ cls: 'SAM', systems: 1, threats: 1 }, { cls: 'SHORAD', systems: 0, threats: 0 }, { cls: 'AAA', systems: 0, threats: 0 }, { cls: 'MANPADS', systems: 0, threats: 0 }, { cls: 'EWR', systems: 0, threats: 0 }] } as never;
+const oneRowNear = (status: string) => ({
+  waypointId: 'w', moreInReach: 0, moreInReachSites: [], outSystems: 0, outThreats: 0,
+  rows: [{ systemId: 'sa6', name: '2K12 Kub', nato: 'SA-6 Gainful', cls: 'SAM', inReach: true, nearest: { threatId: 't', position: { lat: 0, lon: 0 }, distance_nm: 7, bearing_deg: 300, status }, maxRange_nm: 13, count: 1 }],
+}) as never;
+const blockMarkup = (status: string) =>
+  renderToStaticMarkup(createElement(ThreatBlock, { totals, near: oneRowNear(status), short: 'TGT1', picker: null, sitesOff: [], onOpenThreats: () => {}, phone: false }));
+const block = blockMarkup('active');
+const listItems = (block.match(/<ol[\s\S]*?<\/ol>/)?.[0].match(/<li/g) ?? []).length;
+// Red when (ThreatBlock): the blank-slot filler `Array.from({ length: Math.max(0, 4 - Math.max(rows.length, 1)) }, …)` becomes `[]`.
+// Seen: FAIL UI2 one row still takes four slots; five tiles, the empty ones dashed with a dash; the words  1
+ok('UI2 one row still takes four slots; five tiles, the empty ones dashed with a dash; the words',
+  listItems === 4 && (block.match(/border-dashed/g) ?? []).length === 4 && block.includes('nearest</span> 7.0 nm at 300°') && block.includes('max range</span> 13 nm') &&
+    block.includes('× 1') && block.includes('Early warning') && block.includes('No other systems') && !block.includes('ACTIVE'),
+  String(listItems));
+// A site that is not active says so in the card's own word, beside the name.
+// Red when (ThreatBlock): the status span (`r.nearest.status !== 'active' && <span …>{OW.status(r.nearest.status)}</span>`) is deleted.
+// Seen: FAIL UI4 a destroyed site's row says DESTROYED, as the card does
+ok('UI4 a destroyed site\'s row says DESTROYED, as the card does', blockMarkup('destroyed').includes('· DESTROYED'));
+
+// When the overview's code cannot be fetched, App says so and offers the map. That failure is remembered until the
+// app is reloaded, so the words must not suggest that going back and opening it again will work.
+// Red when (words.ts): `overviewFailed` goes back to 'The Flight overview could not be opened.' alone.
+// Seen: FAIL UI13 the words when the Flight overview cannot open say to reload the app, or open the map  The Flight overview could not be opened.
+ok('UI13 the words when the Flight overview cannot open say to reload the app, or open the map',
+  W.overviewFailed === 'The Flight overview could not be opened. Reload the app to try again, or open the map.', W.overviewFailed);
 
 // ─── Choose your flight says nothing about threats the author hid ────────────
 // The chooser is drawn here as the phone's sheet: the desktop's dialog is a portal, which plain markup cannot show,

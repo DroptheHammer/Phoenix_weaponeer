@@ -5,8 +5,10 @@ import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
 import { useProfileStore } from "./stores/profileStore";
 import { useUiStore } from "./stores/uiStore";
 import { useVisibleMission } from "./hooks/useVisibleMission";
-// Types only: the flight chooser's code is loaded when a load needs it, not at start-up.
+// Types only: the flight chooser's and the Flight overview's code is loaded when a load needs it, not at start-up.
 import type { FragOrdersPreview } from "./components/import/FragOrdersPreview";
+import type { FlightOverviewProps } from "./components/landing/FlightOverview";
+import { overviewWhere, type ImportContext } from "./components/landing/overviewWhere";
 import { Modal } from "./components/common/Modal";
 import { Button } from "./components/ui/Button";
 import { FrontPage } from "./components/landing/FrontPage";
@@ -53,8 +55,13 @@ interface Aircraft {
 
 type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
-/** What fills the window: the front page (always, with no mission), or the planner's map. */
-type Screen = 'front' | 'map';
+/**
+ * What fills the window: the front page (always, with no mission), the Flight overview (where every load lands),
+ * or the planner's map.
+ */
+type Screen = 'front' | 'overview' | 'map';
+
+const noop = () => {};
 
 /**
  * What stands in for the flight chooser when its code cannot be loaded (a browser tab left open across a site
@@ -76,6 +83,25 @@ const FlightChooser = lazy(() =>
   import("./components/import/FragOrdersPreview")
     .then((m) => ({ default: m.FragOrdersPreview }))
     .catch(() => ({ default: ChooserUnavailable })),
+);
+
+/**
+ * What stands in for the Flight overview when its code cannot be loaded: it says so, and offers the map, which is
+ * already loaded, instead of blanking the app.
+ */
+function OverviewUnavailable({ onOpenMap }: FlightOverviewProps) {
+  return (
+    <div className="m-auto grid max-w-md justify-items-center gap-3 p-6 text-center">
+      <p className="text-ui-body text-ink-2">{W.overviewFailed}</p>
+      <Button variant="primary" icon="map" onClick={onOpenMap}>{W.openMap}</Button>
+    </div>
+  );
+}
+
+const FlightOverview = lazy(() =>
+  import("./components/landing/FlightOverview")
+    .then((m) => ({ default: m.FlightOverview }))
+    .catch(() => ({ default: OverviewUnavailable })),
 );
 
 /**
@@ -106,7 +132,12 @@ function App() {
   // The front page shows whenever no mission is open, and also when the planner goes back to it with one open.
   const [screen, setScreen] = useState<Screen>('front');
   // Where "Open now" on the front page goes back to: the screen the planner left for it.
-  const [returnTo, setReturnTo] = useState<Exclude<Screen, 'front'>>('map');
+  const [returnTo, setReturnTo] = useState<Exclude<Screen, 'front'>>('overview');
+  // What only an import knows (how many player flights the mission had, whether it came by link), for the
+  // overview's lines. Cleared by any other load and by Close.
+  const [importContext, setImportContext] = useState<ImportContext | null>(null);
+  // The waypoint the overview's threat block is about, when the planner picked one: per mission, for this session.
+  const [overviewWaypoint, setOverviewWaypoint] = useState<{ missionId: string; waypointId: string } | null>(null);
   // A FragOrders link or file the load box has read: "Choose your flight" is open over the front page.
   const [chooser, setChooser] = useState<{ data: FragOrdersData; via: 'link' | 'link-payload' | 'cli-export' } | null>(null);
   const loadField = useRef<HTMLInputElement>(null);
@@ -123,13 +154,27 @@ function App() {
 
   const shown: Screen = mission ? screen : 'front';
   const typeOf = useMemo(() => new Map(threats.map((t) => [t.id, t.threat_type])), [threats]);
+  // The overview reads the visible mission through these (Settings > Admin's reveal switches, and the databases).
+  const reveal = useUiStore((state) => state.revealHidden);
+  const refs = useMemo(() => ({ threatSystems: threats, aircraft, weapons, fuzeOptions }), [threats, aircraft, weapons, fuzeOptions]);
 
-  // Every load lands on the map, with no panel open and the display filter cleared.
-  const afterLoad = () => {
+  // Fetch the two screens that load on demand once the page is up, so they are there when a load wants them. A
+  // failure here is silent: the lazy load above says so when the screen is opened.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void import("./components/landing/FlightOverview").catch(noop);
+      void import("./components/import/FragOrdersPreview").catch(noop);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Every load lands on the overview (an empty new mission on the map, having nothing to overview), with no
+  // panel open and the display filter cleared.
+  const afterLoad = (to: Exclude<Screen, 'front'>) => {
     setActivePanel(null);
     resetDisplayFilter();
     setFileMsg(null);
-    setScreen('map');
+    setScreen(to);
   };
 
   // To the front page with the mission kept: remember where the planner was, for the "Open now" card.
@@ -208,7 +253,8 @@ function App() {
     if (result.status === 'ok') {
       setActivePanel(null);
       resetDisplayFilter();
-      setScreen('map');
+      setImportContext(null);
+      setScreen('overview');
     }
     reportFileResult(result, 'Opened');
   };
@@ -222,7 +268,8 @@ function App() {
     }
     guardUnsaved('open another mission', () => {
       adoptSavedMission(outcome.mission, outcome.path);
-      afterLoad();
+      setImportContext(null);
+      afterLoad('overview');
     });
   };
 
@@ -233,8 +280,10 @@ function App() {
     if (!current) return;
     guardUnsaved('import a new mission', () => {
       importFromFragOrders(current.data, groupIndex);
+      const id = useMissionStore.getState().mission?.id;
+      setImportContext(id ? { missionId: id, playerFlights: current.data.player_groups.length, via: current.via } : null);
       setChooser(null);
-      afterLoad();
+      afterLoad('overview');
     });
   };
 
@@ -282,7 +331,19 @@ function App() {
       setActivePanel(null);
       setFileMsg(null);
       setScreen('front');
+      setImportContext(null);
+      setOverviewWaypoint(null);
     });
+  };
+
+  // From the overview to the map: with no panel open, or with the Threats panel open.
+  const openMap = () => {
+    setActivePanel(null);
+    setScreen('map');
+  };
+  const openThreatsOnMap = () => {
+    setActivePanel('threats');
+    setScreen('map');
   };
 
   // Cmd/Ctrl+S saves; Cmd/Ctrl+Z undoes, and Shift+Z (or Ctrl+Y) redoes. There
@@ -374,13 +435,15 @@ function App() {
   const handleStrikeNearMeCreated = (created: Mission) => {
     loadMission(created);
     setShowStrikeNearMe(false);
-    afterLoad();
+    setImportContext(null);
+    afterLoad('overview');
   };
 
   const handleNewMission = () => {
     guardUnsaved('start a new mission', () => {
       createMission("New Mission", "caucasus");
-      afterLoad();
+      setImportContext(null);
+      afterLoad('map');
     });
   };
 
@@ -543,6 +606,27 @@ function App() {
     />
   );
 
+  // The place a mission is planned on, as the headers name it.
+  const place = mission ? (isRealWorld(mission) ? 'Real world' : theaterInfo?.display_name ?? '') : '';
+  // The overview's "where you are" for the header: the flight, its jets, and a line with the mission and place.
+  const where = mission && shown === 'overview' ? overviewWhere(mission, aircraft, importContext, place, new Date()) : null;
+
+  const overview = mission && (
+    <Suspense fallback={<div className="flex-1" />}>
+      <FlightOverview
+        mission={mission}
+        reveal={reveal}
+        refs={refs}
+        importContext={importContext}
+        chosenWaypointId={overviewWaypoint?.missionId === mission.id ? overviewWaypoint.waypointId : null}
+        onChooseWaypoint={(id) => setOverviewWaypoint({ missionId: mission.id, waypointId: id })}
+        onOpenMap={openMap}
+        onOpenThreats={openThreatsOnMap}
+        phone={isPhone}
+      />
+    </Suspense>
+  );
+
   // In the browser "Save" hands over a file, so it says so.
   const saveLabel = platform.isWeb ? 'Export .json' : 'Save';
 
@@ -558,10 +642,18 @@ function App() {
           { id: 'kneeboards', label: 'Cards' },
         ]
       : [];
-    // The front page holds the load box, so its menu leads with what the page has not got; the map's menu
-    // leads with the way back to the load box.
+    // The front page holds the load box, so its menu leads with what the page has not got; the overview's menu
+    // leads with the way back to the load box, and the map's with the way back to the overview.
     const strikeItem = STRIKE_NEAR_ME_AVAILABLE ? [{ label: W.strikeNearMe, onClick: handleStrikeNearMe }] : [];
     const settingsItem = { label: 'Settings', onClick: () => setShowSettings(true) };
+    const overviewMenu: PhoneMenuItem[] = [
+      { label: W.heroTitle, onClick: handleImportClick },
+      { label: W.createNew, onClick: handleNewMission },
+      ...strikeItem,
+      { label: 'Export .json', onClick: () => void handleSaveAs() },
+      { label: 'Close mission', onClick: handleCloseMission },
+      settingsItem,
+    ];
     const phoneMenu: PhoneMenuItem[] = shown === 'front'
       ? [
           { label: W.createNew, onClick: handleNewMission },
@@ -569,21 +661,18 @@ function App() {
           ...(mission ? [{ label: 'Close mission', onClick: handleCloseMission }] : []),
           settingsItem,
         ]
-      : [
-          { label: W.heroTitle, onClick: handleImportClick },
-          { label: W.createNew, onClick: handleNewMission },
-          ...strikeItem,
-          { label: 'Export .json', onClick: () => void handleSaveAs() },
-          { label: 'Close mission', onClick: handleCloseMission },
-          settingsItem,
-        ];
+      : shown === 'overview'
+        ? overviewMenu
+        : [{ label: 'Flight overview', onClick: () => setScreen('overview') }, ...overviewMenu];
 
-    const header = phoneHeader(mission ? mission.name : null, shown === 'map', isDirty, 'Phoenix Weaponeer');
+    const header = phoneHeader(mission ? mission.name : null, shown === 'map', isDirty, 'Phoenix Weaponeer', where);
 
     return (
       <>
         <PhoneShell<PanelType>
           title={header.title}
+          subtitle={header.subtitle}
+          onBack={shown === 'overview' ? toFront : undefined}
           dirty={header.dirty}
           menu={phoneMenu}
           message={fileMsg}
@@ -603,6 +692,8 @@ function App() {
             <p className="text-center text-red-400 py-12 px-4">Error: {error}</p>
           ) : shown === 'map' ? (
             <div className="absolute inset-0">{mapView}</div>
+          ) : shown === 'overview' ? (
+            <div className="absolute inset-0 flex flex-col">{overview}</div>
           ) : (
             <div className="absolute inset-0 flex flex-col">{frontPage}</div>
           )}
@@ -616,10 +707,9 @@ function App() {
 
   // ---- The header (AppBar): what it says on each screen ----
   const dirtyWords = platform.isWeb ? 'Not exported' : 'Unsaved changes';
-  const place = mission ? (isRealWorld(mission) ? 'Real world' : theaterInfo?.display_name ?? '') : '';
   const flightName = mission?.flightMembers[0] ? flightGroupOf(mission.flightMembers[0].callsign) : '';
-  // The planner's way back to the Flight overview (a back link and a File row). There is no
-  // overview screen yet, so neither is drawn until this is set.
+  // The planner's way back to the Flight overview (a back link and a File row). Neither is drawn
+  // until this is set, which comes with the planner's own new frame; the phone's menu has it already.
   const openOverview: (() => void) | undefined = undefined;
   const openItem: FileMenuItem = { id: 'open', label: 'Open', sub: platform.isWeb ? 'Open a .json file' : 'Open a saved mission', icon: 'folder', onSelect: handleOpen };
   // Import goes to the front page's load box (handleImportClick), which replaces nothing until a load runs.
@@ -683,18 +773,42 @@ function App() {
             closeItem,
           ],
         }
-      : // The front page: a mission kept open behind it can still be closed from here.
-        { ...barShared, lead: fileStatus, fileItems: mission ? [openItem, importItem, closeItem] : [openItem, importItem] };
+      : shown === 'overview' && mission && where
+        ? {
+            // The overview: the way back to the front page, the flight and its jets over the mission and place,
+            // and "Open the map" as the one filled button. No Save here (Cmd/Ctrl+S still saves).
+            ...barShared,
+            lead: (
+              <>
+                <BackLink label={W.frontPage} onClick={toFront} />
+                <HeaderWhere
+                  title={where.title}
+                  titleAside={where.aircraft ? ` · ${where.aircraft}` : undefined}
+                  fullTitle={where.aircraft ? `${where.title} · ${where.aircraft}` : where.title}
+                  sub={<span className="max-[959px]:hidden">{where.sub}</span>}
+                  subTitle={where.sub}
+                  status={fileMsg}
+                />
+              </>
+            ),
+            primary: <AppBarPrimary icon="map" label={W.openMap} onClick={openMap} />,
+            fileItems: [...saveAsItems, openItem, importItem, closeItem],
+          }
+        : // The front page: a mission kept open behind it can still be closed from here.
+          { ...barShared, lead: fileStatus, fileItems: mission ? [openItem, importItem, closeItem] : [openItem, importItem] };
 
   // The front page fills the window under the header and scrolls on its own; on the map screen the
   // planner fills it edge to edge.
   const onFront = shown === 'front' && !loading && !error;
+  const onOverview = shown === 'overview' && !loading && !error;
   return (
     <div className="flex h-screen flex-col bg-dcs-dark text-white">
       <AppBar {...bar} />
 
       {onFront ? (
         <main className="flex min-h-0 flex-1 flex-col">{frontPage}</main>
+      ) : onOverview ? (
+        <main className="flex min-h-0 flex-1 flex-col">{overview}</main>
       ) : (
       <main className={shown === 'map' ? 'relative flex min-h-0 flex-1 flex-col' : 'p-6'}>
         {loading ? (

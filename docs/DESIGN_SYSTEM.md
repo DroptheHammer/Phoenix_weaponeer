@@ -312,6 +312,8 @@ before it is kept.
 | X4, X9 (`landing-ui-check.tsx`) | the map's marker code is pinned; `tall:` and `short:` are height queries and the width variants still build |
 | UI1, X3, X8 (`landing-ui-check.tsx`) | the jet card's quantity colour, amber unknown stores and ESTIMATED tag; no raw colour in `src/components/landing/` or in the flight chooser; no comment there points at a git-ignored file, and no width query stands in for a height rule |
 | UI3, UI3b, X2 (`landing-ui-check.tsx`) | the flight chooser names only threats the planner may see and reads as for no threats when all are hidden, the link's notice included; no front-page, chooser or overview file reads or words a hidden-threat count |
+| UI2, UI4, UI13 (`landing-ui-check.tsx`) | the Flight overview's threat block keeps four row slots and dashes its empty classes; a site that is not active says so in the card's word; the overview's fallback words say to reload or open the map |
+| `bundle-check.mjs` (`LAZY_MARKERS`) | the Flight overview loads when it opens, on both builds, never at start-up |
 
 **The built app**: `npm run build` and `npm run build:web` end with
 `bundle-check.mjs` and `style-check.mjs`. Style-check fails on a font host, a
@@ -386,6 +388,9 @@ grows the offline cache, which holds every chunk.
   colour.
 - A choice list opens from its own button (never an inline drop-down): Escape
   closes it and puts focus back on the button, and a press outside closes it.
+- A Leaflet map outside the planner (the Flight overview's picture) sits in a
+  box with `isolate`: Leaflet's panes carry z-index 400 to 1000 and would
+  otherwise draw over a list or menu that drops over the map.
 - A new dialog is a `Modal`; it gets the look and the keyboard for free.
 - Keep `role="dialog"` on anything that should block Undo and own Escape.
 - Run `design-shots.cjs` before and after, and look at the diff pictures.

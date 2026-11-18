@@ -387,6 +387,18 @@ async function importMission(page) {
   await page.getByRole('button', { name: IMPORT_PICKED }).waitFor();
 }
 
+/**
+ * After a load, on to the planner's map. A copy with the Flight overview lands there first and goes on with its
+ * "Open the map"; an older copy lands on the map at once. Either can be the "before" one.
+ */
+async function toMap(page) {
+  const openMap = page.getByRole('button', { name: 'Open the map', exact: true });
+  const threats = page.getByRole('button', { name: /^Threats/ });
+  await openMap.or(threats).first().waitFor();
+  if ((await openMap.count()) > 0) await openMap.first().click();
+  await threats.first().waitFor();
+}
+
 /** One copy at one size: every screen's picture and the measures the checks need. */
 async function appRun(browser, base, size) {
   const { context, page, record, phone } = await newAppContext(browser, size);
@@ -404,7 +416,7 @@ async function appRun(browser, base, size) {
     m.importDialog = await box(page.locator('[role="dialog"]').last());
 
     await page.getByRole('button', { name: IMPORT_PICKED }).click();
-    await page.getByRole('button', { name: /^Threats/ }).first().waitFor();
+    await toMap(page);
     await page.locator('.leaflet-marker-icon').first().waitFor();
     await page.waitForTimeout(1500); // the map's fit, and the blocked tiles giving up
     shots.map = await picture(page);
@@ -559,6 +571,7 @@ async function cardsRun(browser, base, dir) {
     await page.goto(base);
     await importMission(page);
     await page.getByRole('button', { name: IMPORT_PICKED }).click();
+    await toMap(page);
     await page.getByRole('button', { name: /^Attacks/ }).waitFor();
     const selectWith = (placeholder) => page.locator(`select:has(option:text("${placeholder}"))`);
     for (const attacker of [1, 2, 1]) {

@@ -53,8 +53,10 @@ function pngSize(file) {
   await page.getByRole('button', { name: 'Load', exact: true }).click();
   await page.getByRole('dialog', { name: 'Choose your flight' }).waitFor({ timeout: 10000 });
   await page.getByRole('button', { name: /^Import / }).click();
+  // The import lands on the Flight overview; the map is one press on.
+  await page.getByRole('button', { name: 'Open the map', exact: true }).click();
   await page.getByRole('button', { name: /^Attacks/ }).waitFor();
-  step('mission imported');
+  step('mission imported, map opened from the overview');
 
   // Pilot 1, pilot 2, then pilot 1 again: the repeat must get its own file name.
   const selectWith = (placeholder) => page.locator(`select:has(option:text("${placeholder}"))`);

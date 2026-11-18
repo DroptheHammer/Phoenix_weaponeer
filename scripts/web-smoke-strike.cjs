@@ -50,8 +50,10 @@ const SYNTHETIC = { latitude: 10, longitude: 20, accuracy: 12 };
   step((await page.getByText(/^Target set at/).innerText()).replace(/\s*Move it$/, ''));
   await shot('02-details');
   await page.getByRole('button', { name: 'Create mission' }).click();
+  // The new mission lands on the Flight overview; the banner is the map's.
+  await page.getByRole('button', { name: 'Open the map', exact: true }).click();
   await page.getByText("Real world: can't be flown in DCS").waitFor({ timeout: 10000 });
-  step('mission created; real-world banner shown');
+  step('mission created, map opened from the overview; real-world banner shown');
   await page.waitForTimeout(800);
   await shot('03-mission');
 

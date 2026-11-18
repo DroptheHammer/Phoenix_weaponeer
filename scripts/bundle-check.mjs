@@ -9,6 +9,9 @@
 //   node scripts/bundle-check.mjs dist-web --none  web: neither is anywhere; the sizes are
 //                                                  printed for the record and not capped
 //
+// On both, the screens that load when they open (LAZY_MARKERS, the Flight overview) are in the
+// build but not in what loads at start.
+//
 // Run at the end of `npm run build` and `npm run build:web`.
 //
 // The ceiling is in scripts/bundle-budget.json: `baselineBytes` is the start-up
@@ -51,6 +54,13 @@ const MARKERS = ['vec3 transformed = vec3( position );', 'THREE.WebGLRenderer'];
 // If a build reports one as "in no lazy chunk", the string was reworded, or the
 // library has gone from the build: look before editing this list.
 const LIBRARY_MARKERS = ['No jet in this strike can be played.', 'Mapzen (AWS Open Data)', 'when it goes off, inside its'];
+
+// Screens that load only when they open, on both builds: each string is words only that screen
+// carries. The Flight overview's threat block caption is in overviewWords.ts, which only the
+// overview's own files import; one eager import of the overview (or of those words) would pull
+// all of it into start-up. Each must be in the build (the phone's offline copy included), in a
+// file that does not load at start.
+const LAZY_MARKERS = ['as the kneeboard card orders them'];
 
 function* files(dir) {
   for (const name of readdirSync(dir)) {
@@ -98,6 +108,19 @@ const eagerBytes = sizeOf(eagerPaths);
 const cssPaths = readdirSync(assets).filter((f) => f.endsWith('.css') && html.includes(f)).map((f) => join(assets, f));
 const count = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 console.log(`Start-up CSS in ${root}: ${bytes(sizeOf(cssPaths))} bytes in ${count(cssPaths.length, 'file')}.`);
+
+for (const marker of LAZY_MARKERS) {
+  const atStart = [...eager].filter((f) => text(join(assets, f)).includes(marker));
+  const later = scripts.filter((f) => !eager.has(f) && text(join(assets, f)).includes(marker));
+  // Proven able to fail: with App.tsx importing the overview eagerly (`import { FlightOverview as EagerOverview } from
+  // "./components/landing/FlightOverview";` in place of its lazy()), on both builds,
+  // "Bundle check FAILED for dist: a screen that should load when it opens loads at start-up, in index-<hash>.js (it carries "as the kneeboard card orders them"). ..."
+  // and the same for dist-web.
+  if (atStart.length) fail(`a screen that should load when it opens loads at start-up, in ${atStart.join(', ')} (it carries "${marker}"). Only a lazy import() may reach it.`);
+  // Proven able to fail: with the marker written 'as the kneeboard card orders them x', on both builds,
+  // "Bundle check FAILED for dist: "as the kneeboard card orders them x" is in no lazy chunk: has the screen's wording changed, or has it left the build? ..."
+  if (later.length === 0) fail(`"${marker}" is in no lazy chunk: has the screen's wording changed, or has it left the build? Fix LAZY_MARKERS at the top of this script.`);
+}
 
 if (none) {
   const allJs = scripts.map((f) => join(assets, f));

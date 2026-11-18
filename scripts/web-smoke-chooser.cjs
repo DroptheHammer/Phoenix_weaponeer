@@ -106,7 +106,8 @@ const phone = +w < 768 || +h < 500;
   await page.goto(base);
   await loadFixture();
   await importFlight().click();
-  await page.getByRole('button', { name: /^Attacks/ }).waitFor({ timeout: 15000 });
+  // An import lands on the Flight overview.
+  await page.getByRole('button', { name: 'Open the map', exact: true }).waitFor({ timeout: 15000 });
   step('a mission is open (its autosave is refused, so it counts as unsaved)');
 
   // ---- Load it again: Import asks first, over the chooser ----
@@ -156,8 +157,8 @@ const phone = +w < 768 || +h < 500;
   await unsaved.getByRole('button', { name: 'Discard', exact: true }).click();
   await unsaved.waitFor({ state: 'detached', timeout: 5000 });
   await chooser.waitFor({ state: 'detached', timeout: 5000 });
-  await page.getByRole('button', { name: /^Attacks/ }).waitFor({ timeout: 15000 });
-  step('Discard imported the flight and landed on the map');
+  await page.getByRole('button', { name: 'Open the map', exact: true }).waitFor({ timeout: 15000 });
+  step('Discard imported the flight and landed on the Flight overview');
   await shot('03-imported');
 
   console.log(problems.length ? `PROBLEMS\n${problems.join('\n')}` : 'NO PAGE ERRORS');
