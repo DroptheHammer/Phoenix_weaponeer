@@ -119,8 +119,7 @@ function SeatButton({ info, watched, onWatch }: { info: LaneInfo; watched: boole
       disabled={!flown}
       aria-pressed={watched}
       aria-label={`Watch ${who}`}
-      // The side view is not built yet, so the title does not say it follows the watch.
-      title={flown ? `Watch ${info.label}: Chase, From target and the planner's colours follow it` : 'Not flown in 3D'}
+      title={flown ? `Watch ${info.label}: Chase, From target, Side view and the planner's colours follow it` : 'Not flown in 3D'}
       onClick={() => onWatch(info.seat)}
       onMouseDown={keepFocus}
       className={`${LANE_LABEL} ${!flown ? SEAT_SKIPPED : watched ? SEAT_ON : SEAT_OFF}`}

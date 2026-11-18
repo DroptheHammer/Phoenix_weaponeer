@@ -2499,9 +2499,9 @@ const canvasBox = (page) => page.$eval('[role="dialog"] canvas', (c) => {
   const r = c.getBoundingClientRect();
   return { l: r.left, t: r.top, w: r.width, h: r.height };
 });
-/** The camera buttons shown pressed (the speed buttons are pressed too, so they are left out by name). */
+/** The view buttons shown pressed: the cameras and the side view (the speed buttons are pressed too, so they are left out by name). */
 const pressedCamera = (page) => page.$$eval('[role="dialog"] button[aria-pressed="true"]', (els) =>
-  els.map((e) => (e.textContent || '').trim()).filter((s) => /^(Orbit|Top-down|Chase #\d+|From target)$/.test(s)));
+  els.map((e) => (e.textContent || '').trim()).filter((s) => /^(Orbit|Top-down|Chase #\d+|From target|Side view)$/.test(s)));
 /** How far a page point is from the canvas's middle, as fractions of its width and height. */
 const offCentre = (p, cv) => (p ? [(p[0] - (cv.l + cv.w / 2)) / cv.w, (p[1] - (cv.t + cv.h / 2)) / cv.h] : [NaN, NaN]);
 
@@ -3036,7 +3036,7 @@ async function checkShowKeys(page) {
 
 /**
  * Check 31: with the Show panel open the view's own buttons fit. The panel lies inside the picture;
- * the toolbar (the four cameras, Home view and Show) lies inside it too and clear of the title plate
+ * the toolbar (the four cameras, Side view, Home view and Show) lies inside it too and clear of the title plate
  * (to its right); the dev frame-time box (bottom right, shown here because the checks run on the dev server; the check
  * plays a second first so there is a frame time to show) does not touch them; and every button on
  * the page lies inside the window. Run at both sizes; 1024×768 is the tight one.
@@ -3053,6 +3053,10 @@ async function checkShowKeys(page) {
  * With the camera buttons in the toolbar, the second proof again (2026-11-14, `justify-start pl-3`):
  *   STEP FAIL 31 … (1024x768) — canvas [0,45,1024,605], panel [724,85,1012,151], buttons [12,53,449,79], title [12,53,107,77], frame-time [787,577,1012,597]
  * (green at 1024×768: buttons [575,53,1012,79], 468 px clear of the title's right edge.)
+ * With Side view in the toolbar (seven buttons) it is green at 1400×900 (buttons [875,53,1388,79]) and at 1024×768
+ * (buttons [499,53,1012,79], 411 px clear of a title as short as the harness's; a title cut at its 40% limit, 410 px, still
+ * leaves 77 px). Proven red 2026-11-18 by one temporary edit to ViewToolbar.tsx, the Side view button's entry taken out:
+ *   STEP FAIL 31 Show open: panel inside the picture, buttons clear of the title and of the frame-time box (1024x768) — canvas [0,45,1024,579], panel [724,85,1012,555], buttons missing, title [12,53,88,77], frame-time [787,551,1012,571]
  */
 async function checkToolbarFit(page, tag, w, h) {
   await pbEval(page, async () => {
@@ -3076,8 +3080,8 @@ async function checkToolbarFit(page, tag, w, h) {
     const buttons = [...dialog.querySelectorAll('button')];
     const byText = (s) => buttons.find((b) => (b.textContent || '').trim() === s);
     const frame = [...dialog.querySelectorAll('div')].find((d) => d.children.length === 0 && /^dev: /.test((d.textContent || '').trim()));
-    // The toolbar's buttons: the four cameras, Home view and Show.
-    const toolbar = ['Orbit', 'Top-down', 'From target', 'Home view', 'Show ▾'].map(byText)
+    // The toolbar's buttons: the four cameras, Side view, Home view and Show.
+    const toolbar = ['Orbit', 'Top-down', 'From target', 'Side view', 'Home view', 'Show ▾'].map(byText)
       .concat(buttons.filter((b) => /^Chase #\d+$/.test((b.textContent || '').trim())));
     return {
       canvas: box(dialog.querySelector('canvas')),
@@ -3091,7 +3095,7 @@ async function checkToolbarFit(page, tag, w, h) {
   await page.getByRole('button', { name: 'Show ▾' }).click(); // shut again
   const inside = (a, o) => a && o && a.l >= o.l - 0.5 && a.t >= o.t - 0.5 && a.r <= o.r + 0.5 && a.b <= o.b + 0.5;
   const touch = (a, o) => a.l < o.r && a.r > o.l && a.t < o.b && a.b > o.t;
-  const found = r.canvas && r.panel && r.toolbar.length === 6 && r.toolbar.every(Boolean) && r.title && r.frame;
+  const found = r.canvas && r.panel && r.toolbar.length === 7 && r.toolbar.every(Boolean) && r.title && r.frame;
   const tool = found
     ? { l: Math.min(...r.toolbar.map((b) => b.l)), t: Math.min(...r.toolbar.map((b) => b.t)), r: Math.max(...r.toolbar.map((b) => b.r)), b: Math.max(...r.toolbar.map((b) => b.b)) }
     : null;
@@ -4435,6 +4439,234 @@ async function checkWatchSeat(page, tag) {
 }
 
 /**
+ * What the side view's dot canvas holds: how many of its pixels are not clear, and for each colour asked for ({ name,
+ * hex }, an exact match to 6 in every channel, solid pixels only) how many there are and where their middle is, canvas
+ * pixels (the page is at a device ratio of 1). Null with no side view up.
+ */
+const readDots = (page, wants) => page.evaluate((wants) => {
+  const c = document.querySelector('[data-side-dots]');
+  if (!c) return null;
+  const w = c.width;
+  const d = c.getContext('2d').getImageData(0, 0, w, c.height).data;
+  const rgb = wants.map((q) => [1, 3, 5].map((i) => parseInt(q.hex.slice(i, i + 2), 16)));
+  const acc = wants.map(() => ({ n: 0, sx: 0, sy: 0 }));
+  let opaque = 0;
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    if (d[i + 3] === 0) continue;
+    opaque++;
+    if (d[i + 3] < 250) continue;
+    for (let k = 0; k < wants.length; k++) {
+      if (Math.abs(d[i] - rgb[k][0]) <= 6 && Math.abs(d[i + 1] - rgb[k][1]) <= 6 && Math.abs(d[i + 2] - rgb[k][2]) <= 6) {
+        acc[k].n++;
+        acc[k].sx += p % w;
+        acc[k].sy += Math.floor(p / w);
+      }
+    }
+  }
+  const out = { opaque };
+  wants.forEach((q, k) => { out[q.name] = { n: acc[k].n, x: acc[k].n ? acc[k].sx / acc[k].n : NaN, y: acc[k].n ? acc[k].sy / acc[k].n : NaN }; });
+  return out;
+}, wants);
+
+/**
+ * How many pixels of the side view's picture are not the card's paper (a drawing, not an empty box); and the pixels of
+ * colour `hex` within `r` of (x, y): how many, and the middle of the box round them (the letters inside a marker's disc
+ * leave gaps that would pull the middle of the pixels themselves to one side).
+ */
+const readPicture = (page, near) => page.evaluate((near) => {
+  const c = document.querySelector('[data-side-picture]');
+  if (!c) return null;
+  const ctx = c.getContext('2d');
+  const far = (p, rgb, tol) => Math.abs(p[0] - rgb[0]) > tol || Math.abs(p[1] - rgb[1]) > tol || Math.abs(p[2] - rgb[2]) > tol;
+  const all = ctx.getImageData(0, 0, c.width, c.height).data;
+  let inked = 0;
+  for (let i = 0; i < all.length; i += 4) if (far([all[i], all[i + 1], all[i + 2]], [244, 244, 236], 24)) inked++;
+  const out = { inked, w: c.width, h: c.height, disc: { n: 0, x: NaN, y: NaN } };
+  if (near) {
+    const x0 = Math.max(0, Math.round(near.x - near.r)), y0 = Math.max(0, Math.round(near.y - near.r));
+    const w = Math.min(c.width, Math.round(near.x + near.r)) - x0, h = Math.min(c.height, Math.round(near.y + near.r)) - y0;
+    const d = ctx.getImageData(x0, y0, w, h).data;
+    const rgb = [1, 3, 5].map((i) => parseInt(near.hex.slice(i, i + 2), 16));
+    let n = 0, lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
+    for (let p = 0; p < w * h; p++) {
+      const px = x0 + (p % w), py = y0 + Math.floor(p / w);
+      if (!far([d[p * 4], d[p * 4 + 1], d[p * 4 + 2]], rgb, 10) && Math.hypot(px - near.x, py - near.y) <= near.r) {
+        n++;
+        lo = [Math.min(lo[0], px), Math.min(lo[1], py)];
+        hi = [Math.max(hi[0], px), Math.max(hi[1], py)];
+      }
+    }
+    out.disc = { n, x: n ? (lo[0] + hi[0]) / 2 : NaN, y: n ? (lo[1] + hi[1]) / 2 : NaN };
+  }
+  return out;
+}, near);
+
+/**
+ * Check 15d (the four-ship): Side view, the kneeboard card's own side view of the watched jet laid over the picture.
+ * - The button: pressed, alone among the views; the panel covers the 3D canvas (1 px), and what is drawn on it is a
+ *   picture (at least SIDE_INKED_MIN pixels that are not the card's paper), not an empty box.
+ * - Nothing is drawn in 3D meanwhile: a second of play moves the clock but the scene's count of drawn frames
+ *   (stats().renders) does not move.
+ * - The jet: a moment before its release (#1) its dot is drawn in its seat colour (at least SIDE_DOT_MIN solid
+ *   pixels) and sits on the picture's own REL disc, within SIDE_ON_REL_PX of that disc's middle (found in the
+ *   picture's yellow pixels near it); 6 s earlier it is to the left of where it is then, by at least SIDE_MOVE_PX
+ *   (it moves along the picture as the clock runs).
+ * - The bomb: half way down its fall the jet's dot is gone and a small dark dot (at least SIDE_BOMB_MIN pixels of
+ *   the dark ink) is to the right of where the jet's dot was at the release; a second after it lands nothing is
+ *   drawn on the dot canvas at all.
+ * - Leaving: Orbit puts the 3D back (the panel gone, Orbit pressed, drawn frames counted again); the seat button
+ *   for #3 with the side view up keeps it up and moves it to #3 (the caption names #3, #3's colour in the dot canvas
+ *   and #1's not, the view still the side view); Home view leaves it for Orbit.
+ * - A lost graphics context given back leaves the side view up on a rebuilt scene that still draws nothing.
+ * The view is put back to Orbit at Home watching #1 for the checks after.
+ *
+ * Measured green 2026-11-18, at 1400×900 and 1024×768: the picture 18,350 and 15,475 pixels; a second of play moves the
+ * clock 1.0 s and the scene's drawn frames 5 → 5; the jet's dot 97 and 98 pixels, 0.37 and 0.19 px from the REL disc's
+ * middle (a thousandth of a second before the release; floor SIDE_ON_REL_PX 2), 194 and 140 px along the picture in
+ * 6 s; the bomb 41 and 40 pixels of ink; the rebuilt scene's drawn frames 1 → 1.
+ *
+ * Proven red 2026-11-18, one temporary edit each (1400×900; the part of the message that changes):
+ * - PlaybackView.tsx, `scene?.setDrawing(!sideView)` → `scene?.setDrawing(true)` (the 3D keeps drawing under the panel):
+ *   STEP FAIL 15d … — up: …, a second of play moved the clock 0.43 s and drawn frames 6 → 13; …; a lost context: rebuilt true (scenes made 2 → 4), pressed ["Side view"], panels 1, drawn frames 8 → 13 over a second of play (clock 0.50 s)
+ * - SidePanel.tsx, `paint` returning before it draws a dot (`if (w > 0) return;`):
+ *   STEP FAIL 15d … — …; jet: 0 px of its colour (need 60) at nowhere, 0 px of the REL disc at nowhere: no px apart (need 2); …; bomb: half way down 0 px of the jet's colour (want under 10), 0 px of dark ink (need 20) …; #3's seat button: …, 0 px of #3's colour (need 60) …
+ * - sideView.ts, SIDE_PAD_BOTTOM_PX 48 → 40 (the dots no longer lie where the card's painter put the marker):
+ *   STEP FAIL 15d … (1400x900-strike4) — …; jet: 92 px of its colour (need 60) at 1019.6, 300.6, 453 px of the REL disc at 1020.0, 297.0: 3.64 px apart (need 2); …
+ *   STEP FAIL 15d … (1024x768-strike4) — …; jet: 98 px of its colour (need 60) at 742.0, 229.0, 455 px of the REL disc at 742.0, 225.0: 4.04 px apart (need 2); …
+ * - sideView.ts, `bs.stage === 'falling'` → `bs.stage !== 'carried'` (the bomb stays on after it lands; geo-check SV2 goes red with it):
+ *   STEP FAIL 15d … — …; bomb: half way down 0 px of the jet's colour (want under 10), 41 px of dark ink (need 20) at x 1156.9 against the jet's 1019.7 at the release; after the impact 66 px drawn (want 0); …
+ * - SidePanel.tsx, the bomb's dot never drawn (`if (w < 0 && dots.bomb.visible …`):
+ *   STEP FAIL 15d … — …; bomb: half way down 0 px of the jet's colour (want under 10), 0 px of dark ink (need 20) at x none against the jet's 1019.7 at the release; …
+ * - SidePanel.tsx, the panel's class `absolute inset-0` → `absolute inset-x-0 top-0 h-1/2` (it covers half the picture):
+ *   STEP FAIL 15d … — up: pressed ["Side view"], panel [0,45,1400,306] over canvas [0,45,1400,612], …
+ * - PlaybackView.tsx, `onCamera` ignoring every report while the side view is up (`if (modeNow.current === 'side') return;`; nothing leaves it):
+ *   STEP FAIL 15d … — …; Orbit: pressed ["Side view"], panels 1, drawn frames 5 → 5; …; Home view: pressed ["Side view"], panels 1; …
+ * - PlaybackView.tsx, `onCamera` without the seat button's hold (`… && !sceneRef.current`; the seat button sets the scene's camera again and that report ends the side view):
+ *   STEP FAIL 15d … — …; #3's seat button: pressed ["Orbit"], panels 0, watching seat 3, caption "", 0 px of #3's colour (need 60) and 0 of #1's (want under 10); …
+ * - PlaybackView.tsx, `onCamera` without the guard for a scene made under the side view (`… && keepSide.current`; the rebuilt scene opens in Orbit and says so):
+ *   STEP FAIL 15d … — …; a lost context: rebuilt true (scenes made 2 → 4), pressed ["Orbit"], panels 0, drawn frames 8 → 12 over a second of play (clock 0.40 s)
+ * - PlaybackView.tsx, the SidePanel's `colour={jetColor(watched)}` → `colour={jetColor(0)}` (the dot keeps seat #1's colour):
+ *   STEP FAIL 15d … — …; #3's seat button: pressed ["Side view"], panels 1, watching seat 3, caption names #3, 0 px of #3's colour (need 60) and 96 of #1's (want under 10); …
+ * - PlaybackView.tsx, the SidePanel's `jet={watchedJet}` → `jet={0}` (the side view stays on the lead's jet):
+ *   STEP FAIL 15d … — …; #3's seat button: pressed ["Side view"], panels 1, watching seat 3, caption names #3, 0 px of #3's colour (need 60) and 0 of #1's (want under 10); …
+ */
+const SIDE_INKED_MIN = 800, SIDE_DOT_MIN = 60, SIDE_BOMB_MIN = 20, SIDE_MOVE_PX = 5, SIDE_ON_REL_PX = 2, SIDE_INK = '#111827', REL_YELLOW = '#eab308';
+async function checkSideView(page, tag) {
+  const parts = [];
+  let ok = true;
+  const view = (hex) => ({ name: 'seat', hex });
+  await pbEval(page, () => { __pb.pause(); __pb.setRange(false); __pb.setSpeed(1); __pb.goHome(); __pb.seek(__pb.snapshot().start); });
+  await page.evaluate(() => document.querySelector('[role="dialog"]').focus());
+  await settle(page, 300);
+  const m = await pbEval(page, () => ({ jets: __pb.moments.jets, colours: __pb.colours.jets }));
+  const cv = await canvasBox(page);
+  const panelBox = () => page.$eval('[data-side-view]', (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; }).catch(() => null);
+  const panels = () => page.locator('[role="dialog"] [data-side-view]').count();
+  const renders = () => pbEval(page, () => ({ renders: __pb.stats().renders, t: __pb.snapshot().t }));
+  const at = async (t) => { await pbEval(page, (x) => __pb.seek(x), t); await settle(page, 300); };
+  const rel = m.jets[0].release, imp = m.jets[0].impact;
+
+  // The view comes up and covers the picture.
+  await page.getByRole('button', { name: 'Side view', exact: true }).click();
+  await settle(page, 400);
+  const pressed = await pressedCamera(page);
+  const box = await panelBox();
+  const covers = !!box && Math.abs(box.l - cv.l) <= 1 && Math.abs(box.t - cv.t) <= 1 && Math.abs(box.w - cv.w) <= 1 && Math.abs(box.h - cv.h) <= 1;
+  const pic = await readPicture(page, null);
+  const r0 = await renders();
+  await pbEval(page, () => __pb.play());
+  await page.waitForTimeout(1000);
+  await pbEval(page, () => __pb.pause());
+  const r1 = await renders();
+  const upOk = pressed.join() === 'Side view' && covers && !!pic && pic.inked >= SIDE_INKED_MIN && r1.renders === r0.renders && r1.t - r0.t > 0.2;
+  ok = ok && upOk;
+  parts.push(`up: pressed ${JSON.stringify(pressed)}, panel ${box ? `[${[box.l, box.t, box.w, box.h].map(Math.round)}]` : 'none'} over canvas [${[cv.l, cv.t, cv.w, cv.h].map(Math.round)}], ${pic ? pic.inked : 0} px drawn (need ${SIDE_INKED_MIN}); a second of play moved the clock ${(r1.t - r0.t).toFixed(2)} s and drawn frames ${r0.renders} → ${r1.renders}`);
+
+  // The jet's dot, on the REL disc, and moving.
+  await at(rel - 0.001); // a thousandth before the release: the jet is on the REL disc to a fiftieth of a pixel and still drawn
+  const late = await readDots(page, [view(m.colours[0])]);
+  const disc = late && late.seat.n ? await readPicture(page, { x: late.seat.x, y: late.seat.y, r: 22, hex: REL_YELLOW }) : null;
+  const off = disc && disc.disc.n ? Math.hypot(disc.disc.x - late.seat.x, disc.disc.y - late.seat.y) : Infinity;
+  await at(rel - 6);
+  const early = await readDots(page, [view(m.colours[0])]);
+  await shot(page, `${tag}-15d-side-view-jet`);
+  const moved = late && early && early.seat.n ? late.seat.x - early.seat.x : NaN;
+  const jetOk = !!late && late.seat.n >= SIDE_DOT_MIN && !!disc && disc.disc.n >= 30 && off <= SIDE_ON_REL_PX && moved >= SIDE_MOVE_PX;
+  ok = ok && jetOk;
+  parts.push(`jet: ${late ? late.seat.n : 0} px of its colour (need ${SIDE_DOT_MIN}) at ${late && late.seat.n ? `${late.seat.x.toFixed(1)}, ${late.seat.y.toFixed(1)}` : 'nowhere'}, ${disc ? disc.disc.n : 0} px of the REL disc at ${disc && disc.disc.n ? `${disc.disc.x.toFixed(1)}, ${disc.disc.y.toFixed(1)}` : 'nowhere'}: ${Number.isFinite(off) ? off.toFixed(2) : 'no'} px apart (need ${SIDE_ON_REL_PX}); 6 s earlier ${Number.isFinite(moved) ? moved.toFixed(1) : 'no'} px to the left (need ${SIDE_MOVE_PX})`);
+
+  // The bomb, then nothing.
+  await at((rel + imp) / 2);
+  const fall = await readDots(page, [view(m.colours[0]), { name: 'ink', hex: SIDE_INK }]);
+  await shot(page, `${tag}-15d-side-view-bomb`);
+  await at(imp + 1);
+  const after = await readDots(page, []);
+  const bombOk = !!fall && fall.seat.n < 10 && fall.ink.n >= SIDE_BOMB_MIN && !!late && fall.ink.x > late.seat.x + 3 && !!after && after.opaque === 0;
+  ok = ok && bombOk;
+  parts.push(`bomb: half way down ${fall ? fall.seat.n : 0} px of the jet's colour (want under 10), ${fall ? fall.ink.n : 0} px of dark ink (need ${SIDE_BOMB_MIN}) at x ${fall && fall.ink.n ? fall.ink.x.toFixed(1) : 'none'} against the jet's ${late && late.seat.n ? late.seat.x.toFixed(1) : 'none'} at the release; after the impact ${after ? after.opaque : 'no canvas'} px drawn (want 0)`);
+
+  // Leaving by Orbit: the 3D is back.
+  const beforeOrbit = (await renders()).renders;
+  await page.getByRole('button', { name: 'Orbit', exact: true }).click();
+  await settle(page, 400);
+  const orbit = { pressed: await pressedCamera(page), panels: await panels(), renders: (await renders()).renders };
+  const orbitOk = orbit.pressed.join() === 'Orbit' && orbit.panels === 0 && orbit.renders > beforeOrbit;
+  ok = ok && orbitOk;
+  parts.push(`Orbit: pressed ${JSON.stringify(orbit.pressed)}, panels ${orbit.panels}, drawn frames ${beforeOrbit} → ${orbit.renders}`);
+
+  // The seat button with the side view up moves it to that seat's jet and does not leave it; Home view leaves it.
+  await page.getByRole('button', { name: 'Side view', exact: true }).click();
+  await settle(page, 300);
+  await page.getByRole('button', { name: 'Watch #3 Viper 1-3', exact: true }).click();
+  await settle(page, 300);
+  await at(m.jets[2].release - 0.05);
+  const third = await readDots(page, [{ name: 'three', hex: m.colours[2] }, { name: 'one', hex: m.colours[0] }]);
+  const caption = await page.$eval('[data-side-view]', (e) => e.textContent || '').catch(() => '');
+  const seat = { pressed: await pressedCamera(page), panels: await panels(), watched: await pbEval(page, () => __pb.watched()) };
+  const seatOk = seat.pressed.join() === 'Side view' && seat.panels === 1 && seat.watched === 2 && caption.includes('Side view of #3 Viper 1-3') && !!third && third.three.n >= SIDE_DOT_MIN && third.one.n < 10;
+  ok = ok && seatOk;
+  parts.push(`#3's seat button: pressed ${JSON.stringify(seat.pressed)}, panels ${seat.panels}, watching seat ${seat.watched === null ? 'none' : seat.watched + 1}, caption ${caption.includes('Side view of #3 Viper 1-3') ? 'names #3' : JSON.stringify(caption.slice(0, 40))}, ${third ? third.three.n : 0} px of #3's colour (need ${SIDE_DOT_MIN}) and ${third ? third.one.n : 0} of #1's (want under 10)`);
+  await page.getByRole('button', { name: 'Home view', exact: true }).click();
+  await settle(page, 300);
+  const home = { pressed: await pressedCamera(page), panels: await panels() };
+  const homeOk = home.pressed.join() === 'Orbit' && home.panels === 0;
+  ok = ok && homeOk;
+  parts.push(`Home view: pressed ${JSON.stringify(home.pressed)}, panels ${home.panels}`);
+
+  // A lost graphics context given back: the rebuilt scene opens under the side view and draws nothing. (Not loseAndRestore:
+  // it waits for the scene to be "ready", which counts a drawn frame, and a scene that is not drawing never has one.)
+  await page.getByRole('button', { name: 'Side view', exact: true }).click();
+  await settle(page, 300);
+  const made = await pbEval(page, () => __pb.stats().sceneCreates);
+  await pbEval(page, () => __pb.loseContext());
+  await page.waitForTimeout(400);
+  await pbEval(page, () => __pb.restoreContext());
+  let rebuilt = true;
+  try {
+    await page.waitForFunction((b) => __pb.stats().sceneCreates > b && __pb.stats().frames !== undefined, made, { timeout: 20000, polling: 100 });
+  } catch {
+    rebuilt = false;
+  }
+  await settle(page, 700);
+  const kept = { pressed: await pressedCamera(page), panels: await panels() };
+  const k0 = await renders();
+  await pbEval(page, () => __pb.play());
+  await page.waitForTimeout(1000);
+  await pbEval(page, () => __pb.pause());
+  const k1 = await renders();
+  const lostOk = rebuilt && kept.pressed.join() === 'Side view' && kept.panels === 1 && k1.renders === k0.renders && k1.t - k0.t > 0.2;
+  ok = ok && lostOk;
+  parts.push(`a lost context: rebuilt ${rebuilt} (scenes made ${made} → ${await pbEval(page, () => __pb.stats().sceneCreates)}), pressed ${JSON.stringify(kept.pressed)}, panels ${kept.panels}, drawn frames ${k0.renders} → ${k1.renders} over a second of play (clock ${(k1.t - k0.t).toFixed(2)} s)`);
+
+  // Back to the state the checks after expect: Orbit at Home, watching #1, at the start.
+  await page.getByRole('button', { name: 'Orbit', exact: true }).click();
+  await page.getByRole('button', { name: 'Watch #1 Viper 1-1', exact: true }).click();
+  await pbEval(page, () => { __pb.goHome(); __pb.seek(__pb.snapshot().start); });
+  await settle(page, 300);
+  step(`15d Side view: the card's own side view over the picture, the jet on its REL disc and then its bomb, no 3D drawn meanwhile, left by Orbit or Home view, kept by the seat button and a lost context (${tag})`, ok, parts.join('; '));
+}
+
+/**
  * Check 14 (Apply from the editor): on the four-ship handed over as the attack editor hands one over (the page's
  * door=editor), with the theater note (the page whose small print is the longest, four lanes and all) and the
  * editor's way of writing the sliders replaced by a recorder. The attack list's Apply is the next check.
@@ -5415,6 +5647,7 @@ async function runStrikeChecks(browser, base) {
     await checkConflictChip(page, `${tag}-strike4`);
     await checkFragTimeFour(page, `${tag}-strike4`);
     await checkWatchSeat(page, `${tag}-strike4`);
+    await checkSideView(page, `${tag}-strike4`);
     if (w === 1400) {
       await checkRetimes(page, `${tag}-strike4`);
       await checkDragRange(page, `${tag}-strike4`);

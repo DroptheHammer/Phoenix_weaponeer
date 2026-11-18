@@ -19,7 +19,9 @@
  *
  * Frame order: the world layers move to strike time t, then the camera
  * follows (and is kept above the ground), then whatever must read the final
- * camera (sizes kept constant on screen).
+ * camera (sizes kept constant on screen). While a 2D view covers the whole
+ * picture (the card's side view) drawing is switched off: only the first
+ * step runs, and the views over the picture are told the time (onDraw).
  *
  * Failures: a frame that throws stops the loop and goes to onFatal (errors
  * inside requestAnimationFrame never reach a React error boundary by
@@ -227,6 +229,18 @@ export interface PlaybackScene {
    * drawn first), 0…1, as the camera used it: 0 in every mode but Chase. Null when the scene is gone. For the screenshot checks.
    */
   cameraAim(): { weight: number } | null;
+  /**
+   * Draw the picture or not. Off, the clock and every layer still move to each new time (so nothing is out of step when
+   * drawing resumes), but the camera stands still and nothing is handed to the graphics card: for while a 2D view covers
+   * the whole picture (the card's side view). On again, the next frame draws everything afresh.
+   */
+  setDrawing(on: boolean): void;
+  /**
+   * Call `fn` with the clock's time after every frame the scene works out, drawn or not: a 2D view laid over the picture
+   * follows the clock through this. Nothing is called until the next frame, so a new listener draws its own first look at
+   * the clock's time. Returns the way to stop.
+   */
+  onDraw(fn: (t_s: number) => void): () => void;
   /** Where a point (three.js axes: x east, y up, z = −north, m) is on screen through the camera as it is now. Undefined behind it. For the screenshot checks. */
   projectPoint(x: number, y: number, z: number): ScreenPoint | undefined;
   /** The box Home frames, ENU m (a copy). For the checks. */
@@ -422,6 +436,13 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   let contextLost = false, disposed = false;
   // The drawn ground a target's height was last told against (the first frame always tells).
   let gapsAt = -1;
+  // Drawing is off while a 2D view covers the whole picture (the card's side view); the listeners are those views' hooks.
+  let drawing = true;
+  const drawListeners: ((t_s: number) => void)[] = [];
+  /** Tell every listener the time, last to first so one may stop itself while it is called; allocates nothing. */
+  function tellListeners() {
+    for (let i = drawListeners.length - 1; i >= 0; i--) drawListeners[i](ctx.t);
+  }
 
   function draw(dt: number) {
     dirty = false;
@@ -447,6 +468,11 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     const focus = rig.mode === 'target' ? cam.position.distanceTo(follow.jet) : cam.position.distanceTo(rig.controls.target);
     ctx.focusPxPerM = viewH / (2 * Math.max(focus, 1) * Math.tan((cam.fov * Math.PI) / 360));
     for (const l of layers) l.update(ctx); // 1. everything moves to time t
+    if (!drawing) {
+      // Nothing is seen: the camera stands still, no layer reads it, nothing is rendered. The views laid over the picture follow the clock.
+      tellListeners();
+      return;
+    }
     // 2. the camera follows the watched jet (Chase, From target), eases, stays above ground; keep drawing while it settles.
     if (source.jetCount > 0) fillFollow(jets[camJet] ? jets[camJet].pose : source.jetAt(camJet, ctx.t, camPose));
     fillAim();
@@ -455,6 +481,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     if (ctx.again) dirty = true; // a layer is still easing something (a callout fading): one more frame
     renderer.render(scene, rig.camera);
     renders++;
+    tellListeners();
   }
 
   function frame(time: number) {
@@ -514,6 +541,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     abort.abort(); // 2. tile loads stop; no callback fires after this
     ro.disconnect();
     unsubscribeClock();
+    drawListeners.length = 0; // nothing may be told of a frame after the scene is gone
     rig.controls.removeEventListener('change', onControlsChange);
     // Removed before forceContextLoss below, which fires 'webglcontextlost' and would otherwise show "restoring…" on close.
     canvas.removeEventListener('webglcontextlost', onLost);
@@ -606,6 +634,18 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     setChromeBoxes: (boxes) => {
       labels.setChromeBoxes(boxes);
       invalidate();
+    },
+    setDrawing: (on) => {
+      if (on === drawing) return;
+      drawing = on;
+      invalidate(); // back on, the next frame draws everything afresh
+    },
+    onDraw(fn) {
+      drawListeners.push(fn);
+      return () => {
+        const i = drawListeners.indexOf(fn);
+        if (i >= 0) drawListeners.splice(i, 1);
+      };
     },
     setSource: (next, o) => {
       if (next === source) return;

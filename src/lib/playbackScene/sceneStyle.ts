@@ -187,6 +187,21 @@ export const LABEL_LINE_PX = 16;
 export const LABEL_PAD_PX = 4;
 export const LABEL_GAP_PX = 4;
 
+/**
+ * The moving dots on the card's side view (its picture is pale, the card's own Day paper): the jet's dot in its seat
+ * colour on a dark rim, its seat label beside it in dark ink (a seat colour alone, the amber one above all, does not
+ * read on the paper), and the bomb a small dark dot. The ink is the page's own dark grey (gray-900).
+ */
+export const SIDE_INK = '#111827';
+/** The card's Day paper, which the side view is drawn on (its own painter fills it; the seat label's halo is this colour too). */
+export const SIDE_PAPER = '#F4F4EC';
+export const SIDE_JET_R_PX = 7;
+export const SIDE_JET_RIM_PX = 2;
+export const SIDE_BOMB_R_PX = 4;
+export const SIDE_LABEL_FONT = 'bold 11px ui-sans-serif, system-ui, sans-serif';
+/** The gap between the jet's dot and its label, CSS pixels. */
+export const SIDE_LABEL_GAP_PX = 4;
+
 /** Jet k's colour, the same as its tab in the strike editor. */
 export function jetColor(k: number): string {
   return JET_COLORS[((k % JET_COLORS.length) + JET_COLORS.length) % JET_COLORS.length];

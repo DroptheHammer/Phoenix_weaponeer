@@ -21,8 +21,11 @@
  * actionPoints (each jet's first action, the moments that carry the
  * planner's words, the stretch of the clock that is played), homeView (what
  * Home frames, which camera opens), show (what the 3D view shows: the Show
- * menu's state), session (what the open playback remembers: the jet watched,
- * the camera, the Show choices, every member's time over target), apply (what
+ * menu's state), sideView (the card's side view: its scale, and where a jet
+ * and its bomb are on it; it samples the plan layer, the card's own lines, for
+ * that 2D picture alone, as source samples the display layer for the 3D one),
+ * session (what the open playback remembers: the jet watched,
+ * the camera or the side view, the Show choices, every member's time over target), apply (what
  * Apply writes from those times and says afterwards, and how the cards will
  * number the jets then), notes (what playback assumed and could not show, in plain words:
  * a jet not flown, a target off the ground drawn under it, the push time, what the stripes mean), lanes (the
@@ -50,6 +53,7 @@ export * from './labels';
 export * from './actionPoints';
 export * from './homeView';
 export * from './show';
+export * from './sideView';
 export * from './session';
 export * from './apply';
 export * from './notes';

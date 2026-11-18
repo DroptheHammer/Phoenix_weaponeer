@@ -167,7 +167,7 @@ import { editorOffsets, planOffsets, applyShift, cardOrder, renumbered, renumber
 import { PHASE_WORDS, markTitle, bandTitle, pinnedTitle, laneSummary, handleTitle, handleLabel, boxLabel, heldTitle, HATCH_KEY_TITLE, fragChromeWords } from '../src/components/playback/laneText';
 import {
   LANE, LANES, SEAT_OFF, SEAT_ON, SEAT_SKIPPED, LANE_SKIPPED, FOOTER_OK, FOOTER_MORE, FOOTER_WARN, FOOTER_REST,
-  READOUT, TIME_BOX, CONFLICT_MARK, FOOTER_DIRTY, FOOTER_RESET, FOOTER_STATUS,
+  READOUT, TIME_BOX, CONFLICT_MARK, FOOTER_DIRTY, FOOTER_RESET, FOOTER_STATUS, SIDE_BG,
 } from '../src/components/playback/ui';
 import { PHASES, PHASE_STYLE, dangerZones, inDangerZone } from '../src/lib/playback';
 import {
@@ -196,6 +196,7 @@ import {
 } from '../src/lib/playbackScene';
 import { aimWeight, lookDirection, AIM_IN_WALL_S, AIM_HOLD_WALL_S, AIM_OUT_WALL_S, type Look3 } from '../src/lib/playbackScene';
 import { targetLook, TARGET_MAX_UP_DEG } from '../src/lib/playbackScene';
+import { sideMapping, sideX, sideY, newSideDots, newSideScratch, sideDotsInto, sideCaption, SIDE_INK, SIDE_PAPER, type SideMap } from '../src/lib/playbackScene';
 import { harnessLaunch, harnessFixtureLaunch, harnessMoments, SOLO_FIXTURES, type SoloFixture } from '../src/components/playback/dev/fixture';
 import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
 import { editorBurstReadout } from '../src/components/playback/fragEditor';
@@ -12496,6 +12497,176 @@ void (async () => {
        fb14Bad.length ? fb14Bad.join('; ') : `${fb14Cases.length} cases, every field`);
   } catch (e) {
     ok('playback B3 (cameras): the section ran without throwing', false, String((e as Error)?.stack ?? e));
+  }
+}
+
+// ─── 0.4.0 playback B3: the side view ─────────────────────────────────────────
+// The kneeboard card's side view as a view of the playback (sideView.ts): where the card's own painter puts a point,
+// and where a jet and its bomb are on that picture at a moment. The pop-up, a loft, a dive, a level run, a rocket pass
+// and the four-ship are built through the dev harness's launches (the planner's own functions on the real profile
+// files and reference rows). Each check carries its mutation proof (2026-11-18): one temporary edit to the real
+// module, geo-check run, the FAIL line copied (shortened with …), the edit restored.
+{
+  try {
+    const svSets = (['one', 'loft', 'dive', 'level', 'rocket', 'strike4'] as const).map((name) => {
+      const l = harnessFixtureLaunch(name), from = l.fromMission;
+      const pb = buildStrikePlayback((l.input ?? (from && playbackInputFromMission(from.mission, from.subject, from.weapons)))!);
+      return { name, pb, timing: retime(pb) };
+    });
+    const svJets = svSets.flatMap((s) => s.pb.jets.map((j, k) => ({ ...s, k, j, tag: `${s.name} #${k + 1} ${j.family}` })));
+    // A 2D context that logs every call (the card checks' recording context, copied: it is local to their block).
+    const svRecorder = () => {
+      const log: { name: string; args: unknown[] }[] = [];
+      const state: Record<string, unknown> = { font: '10px sans-serif', globalCompositeOperation: 'source-over' };
+      const em = () => parseFloat(/([\d.]+)px/.exec(String(state.font))?.[1] ?? '10');
+      const ctx = new Proxy(state, {
+        get: (s, name: string) =>
+          name === 'measureText' ? (text: string) => ({ width: text.length * 0.6 * em() }) : name in s ? s[name] : (...args: unknown[]) => { log.push({ name, args }); },
+        set: (s, name: string, value) => { s[name] = value; return true; },
+      });
+      return { ctx: ctx as unknown as CanvasRenderingContext2D, log };
+    };
+
+    // [SV1] The side view's scale is the card painter's. drawSideProfile (the card's and the attack editor's own
+    // function) is run on a recording canvas for every flown jet of the fixtures (pop-up, loft, dive, level run,
+    // rocket pass, the four-ship: nine side profiles) in a small box at the origin and a large one off it; each
+    // marker's disc sits where sideMapping says its point is (0.01 px), the APEX star too, and the ground line
+    // runs along the mapping's ground to just past the target's range. The painter's margins are not exported and
+    // its file is the card's, so sideView.ts writes them out again, and this is what keeps the two together.
+    // Mutation proof (seen red 2026-11-18): sideView.ts SIDE_PAD_BOTTOM_PX 48 → 40 (the ground and every height move):
+    //   FAIL playback B3 [SV1]: … two boxes  one #1 popup in 480×260: marker 0 drawn at (60.6, 199.9), the mapping says (60.6, 207.3); one #1 popup in 480×260: marker 1 drawn at (93.2, 199.9), the mapping says (93.2, 207.3); …
+    const sv1Boxes = [{ x: 0, y: 0, w: 480, h: 260 }, { x: 30, y: 40, w: 1000, h: 450 }];
+    const sv1Bad: string[] = [];
+    let sv1Discs = 0, sv1Stars = 0;
+    for (const { j, tag } of svJets) {
+      for (const box of sv1Boxes) {
+        const where = `${tag} in ${box.w}×${box.h}`;
+        const m = sideMapping(j.side, box);
+        const { ctx, log } = svRecorder();
+        drawSideProfile(ctx, j.side, box);
+        const at = (p: { dist_nm: number; alt_ft: number }): number[] => [sideX(m, p.dist_nm), sideY(m, p.alt_ft)];
+        const apart = (a: number[], b: number[]) => Math.abs(a[0] - b[0]) > 0.01 || Math.abs(a[1] - b[1]) > 0.01;
+        const fmt = (p: number[]) => `(${p[0].toFixed(1)}, ${p[1].toFixed(1)})`;
+        const discs = log.filter((l) => l.name === 'arc' && l.args[2] === SIDE_MARKER_R).map((l) => [l.args[0] as number, l.args[1] as number]);
+        const wantDiscs = j.side.points.filter((p) => p.kind !== 'APEX' && p.kind !== 'EGRESS').map(at);
+        if (discs.length !== wantDiscs.length) sv1Bad.push(`${where}: ${discs.length} discs drawn, ${wantDiscs.length} markers`);
+        discs.forEach((d, i) => { if (wantDiscs[i] && apart(d, wantDiscs[i])) sv1Bad.push(`${where}: marker ${i} drawn at ${fmt(d)}, the mapping says ${fmt(wantDiscs[i])}`); });
+        const stars = log.filter((l) => l.name === 'fillText' && l.args[0] === '★').map((l) => [l.args[1] as number, l.args[2] as number]);
+        const wantStars = j.side.points.filter((p) => p.kind === 'APEX').map(at);
+        if (stars.length !== wantStars.length) sv1Bad.push(`${where}: ${stars.length} apex stars drawn, ${wantStars.length} apex points`);
+        stars.forEach((d, i) => { if (wantStars[i] && apart(d, wantStars[i])) sv1Bad.push(`${where}: apex ${i} drawn at ${fmt(d)}, the mapping says ${fmt(wantStars[i])}`); });
+        // The ground: a line from just inside the box's left edge to 6 px past the target's range, at the mapping's ground.
+        const from = log.find((l) => l.name === 'moveTo')?.args as number[] | undefined, to = log.find((l) => l.name === 'lineTo')?.args as number[] | undefined;
+        if (!from || !to || apart([from[0], from[1]], [box.x + 4, m.groundY]) || apart([to[0], to[1]], [sideX(m, 0) + 6, m.groundY]))
+          sv1Bad.push(`${where}: the ground line runs ${from ? fmt(from) : 'nowhere'} to ${to ? fmt(to) : 'nowhere'}, the mapping says ${fmt([box.x + 4, m.groundY])} to ${fmt([sideX(m, 0) + 6, m.groundY])}`);
+        sv1Discs += discs.length;
+        sv1Stars += stars.length;
+      }
+    }
+    ok('playback B3 [SV1]: the side view\'s scale is the card painter\'s: every marker disc, apex star and the ground line drawn by the card\'s own function lie where sideMapping puts them (0.01 px), on every flown jet of the fixtures in two boxes',
+       sv1Bad.length === 0 && svJets.length === 9 && sv1Discs >= 40 && sv1Stars >= 4, sv1Bad.slice(0, 4).join('; ') || `${svJets.length} jets × ${sv1Boxes.length} boxes, ${sv1Discs} discs and ${sv1Stars} stars`);
+
+    // [SV2] The dots on that picture. At the moment a jet releases its dot is on the picture's REL marker (1 px) and
+    // is gone a moment later while its bomb shows; the bomb is on the ground at the target's range just before it
+    // lands (1 px) and is gone after; before the IP and after the impact there is neither. Between the IP and the
+    // release, and again between the release and the impact, 20 moments each: the dot is exactly where the PLAN
+    // layer puts the jet (the card's own lines: its straight-line range to its own target and its height above it),
+    // not where the display layer's rounded corners and formation slot put it.
+    // Mutation proofs (each seen red 2026-11-18): sideView.ts sideDotsInto, the jet sampled on 'display' in place of 'plan':
+    //   FAIL playback B3 [SV2]: … on every flown jet)  one #1 popup: before the IP a dot shows; one #1 popup: jet dot 14 of 20 at (115.43, 375.86) is not the plan layer's (115.94, 375.86); one #1 popup: jet dot 15 of 20 at (232.71, 332.43) is not the plan layer's (232.69, 332.35); …
+    // and the bomb sampled on 'display' (red on the tied pair alone; the other jets' bombs are the same on both layers):
+    //   FAIL playback B3 [SV2]: … on every flown jet)  the trail pair tied, #2 popup: bomb dot 0 of 20 at (702.33, 222.10) is not the plan layer's (729.66, 222.10); the trail pair tied, #2 popup: bomb dot 1 of 20 at (711.69, 228.54) is not the plan layer's (739.29, 228.54); …
+    // A pair is there too: the trail fixture's two pop-ups, both on the lead's side so their lines coincide, timed over
+    // the target together. They push together, so the display layer flies them side by side in formation slots all the
+    // way down; a bomb differs between the layers only then (it leaves the displayed jet, a slot to the side), so
+    // without the pair the bomb's mutation could not fail.
+    const sv2Trail = harnessFixtureLaunch('trail'), sv2From = sv2Trail.fromMission;
+    const sv2Pb = buildStrikePlayback((sv2Trail.input ?? (sv2From && playbackInputFromMission(sv2From.mission, sv2From.subject, sv2From.weapons)))!);
+    const sv2Pair = { name: 'trail', pb: sv2Pb, timing: retime(sv2Pb, { [sv2Pb.jets[1].id]: 0 }) };
+    const sv2Jets = [...svJets, ...sv2Pair.pb.jets.map((j, k) => ({ ...sv2Pair, k, j, tag: `the trail pair tied, #${k + 1} ${j.family}` }))];
+    const sv2Bad: string[] = [];
+    let sv2Moments = 0;
+    for (const { pb, timing, k, j, tag } of sv2Jets) {
+      const m = sideMapping(j.side, { x: 0, y: 0, w: 1000, h: 450 });
+      const dots = newSideDots(), scratch = newSideScratch();
+      const at = (t: number) => sideDotsInto(dots, pb, timing, k, t, m, scratch);
+      const { push_s, release_s, impact_s } = timing.jets[k];
+      const rel = j.side.points.find((p) => p.kind === 'REL');
+      const relX = rel ? sideX(m, rel.dist_nm) : NaN, relY = rel ? sideY(m, rel.alt_ft) : NaN;
+      let d = at(release_s);
+      if (!d.jet.visible || Math.hypot(d.jet.x - relX, d.jet.y - relY) > 1) sv2Bad.push(`${tag}: at the release the jet dot is at ${d.jet.visible ? `(${d.jet.x.toFixed(1)}, ${d.jet.y.toFixed(1)})` : 'nowhere'}, REL is at (${relX.toFixed(1)}, ${relY.toFixed(1)})`);
+      d = at(release_s + 0.5);
+      if (d.jet.visible || !d.bomb.visible) sv2Bad.push(`${tag}: 0.5 s after the release the jet dot shows ${d.jet.visible} and the bomb's ${d.bomb.visible}`);
+      d = at(impact_s - 0.001);
+      if (!d.bomb.visible || Math.hypot(d.bomb.x - sideX(m, 0), d.bomb.y - m.groundY) > 1)
+        sv2Bad.push(`${tag}: just before it lands the bomb is at ${d.bomb.visible ? `(${d.bomb.x.toFixed(1)}, ${d.bomb.y.toFixed(1)})` : 'nowhere'}, the target's foot is at (${sideX(m, 0).toFixed(1)}, ${m.groundY.toFixed(1)})`);
+      d = at(impact_s + 0.5);
+      if (d.jet.visible || d.bomb.visible) sv2Bad.push(`${tag}: 0.5 s after the impact a dot still shows`);
+      d = at(push_s - 0.5);
+      if (d.jet.visible || d.bomb.visible) sv2Bad.push(`${tag}: before the IP a dot shows`);
+      for (let i = 0; i < 20; i++) {
+        sv2Moments++;
+        const tj = push_s + ((release_s - push_s) * (i + 0.5)) / 20;
+        const wj = sideCoords(pb, k, sampleJet(pb, timing, k, tj, 'plan'));
+        d = at(tj);
+        const wx = sideX(m, wj.range_nm), wy = sideY(m, wj.agl_ft);
+        if (!d.jet.visible || Math.abs(d.jet.x - wx) > 0.01 || Math.abs(d.jet.y - wy) > 0.01)
+          sv2Bad.push(`${tag}: jet dot ${i} of 20 at ${d.jet.visible ? `(${d.jet.x.toFixed(2)}, ${d.jet.y.toFixed(2)})` : 'nowhere'} is not the plan layer's (${wx.toFixed(2)}, ${wy.toFixed(2)})`);
+        const tb = release_s + ((impact_s - release_s) * (i + 0.5)) / 20;
+        const wb = sideCoords(pb, k, sampleBomb(pb, timing, k, tb, 'plan'));
+        d = at(tb);
+        const bx = sideX(m, wb.range_nm), by = sideY(m, wb.agl_ft);
+        if (!d.bomb.visible || Math.abs(d.bomb.x - bx) > 0.01 || Math.abs(d.bomb.y - by) > 0.01)
+          sv2Bad.push(`${tag}: bomb dot ${i} of 20 at ${d.bomb.visible ? `(${d.bomb.x.toFixed(2)}, ${d.bomb.y.toFixed(2)})` : 'nowhere'} is not the plan layer's (${bx.toFixed(2)}, ${by.toFixed(2)})`);
+      }
+    }
+    ok('playback B3 [SV2]: the jet\'s dot rides the card\'s own lines from the IP to its release and lands on the REL marker, then its bomb falls to the target\'s foot and nothing shows before the IP or after the impact (the plan layer, 20 moments each way, on every flown jet)',
+       sv2Bad.length === 0 && sv2Moments === 220, sv2Bad.slice(0, 4).join('; ') || `${sv2Jets.length} jets (${svJets.length} and a tied pair), ${sv2Moments} moments each way, the release on REL to the pixel, the bomb on the ground at the target`);
+
+    // [SV3] What the side view says and the colours it draws in. The words under the picture, with and without a
+    // callsign; the paper the picture is drawn on is the card's Day paper, in the stylesheet's class (ui.ts SIDE_BG)
+    // and in the colour the seat label's halo is drawn in (sceneStyle.ts SIDE_PAPER), so a restyle of one cannot
+    // leave the other behind; and the dark ink of the seat label, the dot's rim and the bomb is held on that paper
+    // at 4.5:1 for normal eyes, protans and deutans (the seat colours themselves are not: amber on cream is under
+    // 1.7:1, so the rim and the label carry the dot).
+    // Mutation proofs (each seen red 2026-11-18): sceneStyle.ts SIDE_INK '#111827' → '#9ca3af':
+    //   FAIL playback B3 [SV3]: … in three visions  ink on the paper 2.26:1 (text, want 4.5)
+    // SIDE_PAPER '#F4F4EC' → '#F4F4EB':
+    //   FAIL playback B3 [SV3]: … in three visions  SIDE_PAPER #F4F4EB is the card's Day paper #F4F4EC false, SIDE_BG "bg-[#F4F4EC]"
+    // sideView.ts sideCaption "as on the card" → "as in the card":
+    //   FAIL playback B3 [SV3]: … in three visions  words: ["Side view of #3 Viper 1-3, as in the card: range to its own target, …
+    const sv3Words = [sideCaption('#3', 'Viper 1-3'), sideCaption('#2', undefined)];
+    const sv3Want = [
+      'Side view of #3 Viper 1-3, as on the card: range to its own target, height above it, vertical scale stretched. The jet to release, then its bomb.',
+      'Side view of #2, as on the card: range to its own target, height above it, vertical scale stretched. The jet to release, then its bomb.',
+    ];
+    const sv3Paper = SIDE_PAPER === DAY_THEME.diagramBg && SIDE_BG === `bg-[${SIDE_PAPER}]`;
+    const sv3Ink = Math.min(...VISIONS.map((v) => ratio(parseColour(SIDE_INK)!, parseColour(SIDE_PAPER)!, v)));
+    ok('playback B3 [SV3]: the side view\'s words are exact with and without a callsign, its paper is the card\'s Day paper in the stylesheet and in the label\'s halo, and the dark ink of the seat label, the dot\'s rim and the bomb stands off it at 4.5:1 in three visions',
+       sv3Words.join('|') === sv3Want.join('|') && sv3Paper && sv3Ink >= CONTRAST_FLOOR.text,
+       sv3Words.join('|') !== sv3Want.join('|') ? `words: ${JSON.stringify(sv3Words)}`
+         : !sv3Paper ? `SIDE_PAPER ${SIDE_PAPER} is the card's Day paper ${DAY_THEME.diagramBg} ${SIDE_PAPER === DAY_THEME.diagramBg}, SIDE_BG "${SIDE_BG}"`
+         : sv3Ink < CONTRAST_FLOOR.text ? `ink on the paper ${sv3Ink.toFixed(2)}:1 (text, want ${CONTRAST_FLOOR.text})`
+         : `ink on the paper ${sv3Ink.toFixed(2)}:1 worst of three visions; paper ${SIDE_PAPER}, class ${SIDE_BG}`);
+
+    // [SV4] The side view is a mode of the session, so it follows the watch and the times without being left: with it up,
+    // picking another seat watches that seat and stays in it, and a time moved leaves it up; picking a camera leaves it,
+    // and Side view again brings it back; choosing it when it is up changes nothing (the same object).
+    // Mutation proof (seen red 2026-11-18): session.ts the watch case `{ ...s, watched: a.seat }` → `{ ...s, watched: a.seat, mode: 'orbit' }`
+    // (SS6, which says the watch moves nothing else, goes red with it):
+    //   FAIL playback B3 [SV4]: … and choosing it when it is up changes nothing  watching #3 from the side view: mode orbit (want side), seat 2 (want 2); a time moved: side; a camera: orbit; back: side; same choice, same object: true
+    const sv4Pb = svSets.find((s) => s.name === 'strike4')!.pb;
+    const sv4 = initSession(sv4Pb, undefined, { mode: 'side' });
+    const sv4Watch = sessionReducer(sv4, { type: 'watch', seat: 2 });
+    const sv4Delay = sessionReducer(sv4, { type: 'delay', id: sv4Pb.members[1].id, value_s: 25 });
+    const sv4Out = sessionReducer(sv4, { type: 'mode', mode: 'orbit' });
+    const sv4Back = sessionReducer(sv4Out, { type: 'mode', mode: 'side' });
+    const sv4Same = sessionReducer(sv4, { type: 'mode', mode: 'side' });
+    ok('playback B3 [SV4]: with the side view up, watching another seat or moving a time leaves it up (on that seat\'s jet), a camera button leaves it and Side view brings it back, and choosing it when it is up changes nothing',
+       sv4.mode === 'side' && sv4Watch.mode === 'side' && sv4Watch.watched === 2 && sv4Delay.mode === 'side' && sv4Delay !== sv4 && sv4Out.mode === 'orbit' && sv4Back.mode === 'side' && sv4Same === sv4,
+       `watching #3 from the side view: mode ${sv4Watch.mode} (want side), seat ${sv4Watch.watched} (want 2); a time moved: ${sv4Delay.mode}; a camera: ${sv4Out.mode}; back: ${sv4Back.mode}; same choice, same object: ${sv4Same === sv4}`);
+  } catch (e) {
+    ok('playback B3 (side view): the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
 }
 

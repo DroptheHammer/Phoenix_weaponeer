@@ -4,8 +4,8 @@
  * press (the PlaybackLaunch), never the stores, so what plays is exactly what
  * the editor showed, and the dev harness can mount it with a made-up plan.
  *
- * Layout: the 3D scene fills the space, with the camera buttons, Home view and
- * Show over its top right; under it, the timeline (play, pause, scrub, speeds)
+ * Layout: the 3D scene fills the space, with the camera buttons, Side view, Home
+ * view and Show over its top right; under it, the timeline (play, pause, scrub, speeds)
  * with the amber stripes of any frag warning along it (the moment a bomb went
  * off with another jet inside its blast radius; on a strike warned by spacing
  * in time, a jet over the target inside another's frag), one lane for every jet
@@ -47,6 +47,12 @@
  * It opens riding behind the watched jet (Chase) at the start of the time bar,
  * unless that jet is not in the picture yet then: it opens at Home instead,
  * rather than on empty sky (still watching it).
+ *
+ * Side view is the kneeboard card's own side view of the watched jet laid over
+ * the whole picture (SidePanel.tsx), with the jet and then its bomb moving on it
+ * as the clock runs. The scene draws nothing while it is up; any camera button,
+ * or Home view, brings the 3D back as it was. A seat button moves the side view
+ * to that seat's jet, and a lost graphics context given back leaves it up.
  *
  * What the open playback remembers (the watched seat, the camera in use, the
  * Show choices and every member's time over target) is one pure session
@@ -90,7 +96,7 @@ import { buildStrikePlayback, dangerZones, playbackInputFromMission, retime, typ
 import {
   APPLY_WORDS, applyShift, applyStatusLines, axisFraction, cardOrder, conflictBands, DRAG_PATH_STEP_S, editorOffsets, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks,
   buildNotes, markerMoments, noteFactsFrom, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
-  type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TargetGap, type TileSource,
+  type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TargetGap, type TileSource, type ViewMode,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
 import { tauriTiles } from './terrain/tauriTiles';
@@ -100,6 +106,7 @@ import { JetLanes, type LaneInfo } from './JetLanes';
 import { DelayFooter } from './DelayFooter';
 import { fragChromeWords } from './laneText';
 import { ViewToolbar } from './ViewToolbar';
+import { SidePanel } from './SidePanel';
 import { CanvasChips, SoftwareChip } from './CanvasChips';
 import { StatusNotes } from './StatusNotes';
 import { PlaybackUnavailable } from './PlaybackErrorBoundary';
@@ -232,8 +239,10 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   const [session, dispatch] = useReducer(sessionReducer, built, openSession);
   const { show, watched, dragging } = session;
   const watchedJet = pb.members[watched]?.jet ?? 0;
-  // The camera the scene is told about: the side view (not built yet) leaves the scene's own camera as it is.
+  // The camera the scene is told about: the side view is not a camera (it covers the picture, and the scene draws
+  // nothing meanwhile), so a scene made while it is up opens in Orbit.
   const cameraMode: CameraMode = session.mode === 'side' ? 'orbit' : session.mode;
+  const sideView = session.mode === 'side';
 
   // The strike at the times as they stand. Playback opened with the plan's times, for which the timing and
   // the source were already worked out (the first render reuses them); any other set is worked out afresh.
@@ -315,17 +324,35 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
     setScene(s);
   }, []);
   const onFatal = useCallback((e: unknown) => setFatal(e instanceof Error ? e : new Error(String(e))), []);
-  const onCamera = useCallback((m: CameraMode) => dispatch({ type: 'mode', mode: m }), []);
-  const pickCamera = useCallback((m: CameraMode) => sceneRef.current?.setCamera(m, watchedJet), [watchedJet]);
+  // The scene tells the camera's mode after every change of it. While the side view is up two of those are not a choice
+  // of view and must not end it: a seat button (below) hands the scene its new jet by setting its camera again, and a scene
+  // made while it is up (a lost graphics context given back) opens in Orbit and says so.
+  const modeNow = useRef(session.mode);
+  modeNow.current = session.mode;
+  const keepSide = useRef(false);
+  const onCamera = useCallback((m: CameraMode) => {
+    if (modeNow.current === 'side' && (keepSide.current || !sceneRef.current)) return;
+    dispatch({ type: 'mode', mode: m });
+  }, []);
+  const pickView = useCallback((m: ViewMode) => {
+    if (m === 'side') dispatch({ type: 'mode', mode: 'side' });
+    else sceneRef.current?.setCamera(m, watchedJet);
+  }, [watchedJet]);
   // A seat button: the watch moves to that seat's jet. The scene keeps its camera mode; Chase and From
-  // target start again on the new jet, and the planner's colour code moves with it. (The scene moves its
-  // watched jet only through setCamera, which also puts Top-down back to its first view.)
+  // target start again on the new jet, the side view shows it, and the planner's colour code moves with it.
+  // (The scene moves its watched jet only through setCamera, which also puts Top-down back to its first view.)
   const watchSeat = useCallback((seat: number) => {
     const jet = pb.members[seat]?.jet;
     if (jet === undefined || seat === watched) return;
     dispatch({ type: 'watch', seat });
     const s = sceneRef.current;
-    if (s) s.setCamera(s.cameraMode(), jet);
+    if (!s) return;
+    keepSide.current = true;
+    try {
+      s.setCamera(s.cameraMode(), jet);
+    } finally {
+      keepSide.current = false;
+    }
   }, [pb, watched]);
   const onTerrain = useCallback((s: TerrainStatus) => setTerrain(s), []);
   // The same gaps again (a rebuilt scene tells afresh) leave the notes as they are.
@@ -448,6 +475,11 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   useEffect(() => {
     scene?.setBombCam(show.bombCam);
   }, [scene, show.bombCam]);
+  // The side view covers the whole picture: the scene draws nothing while it is up (and everything again after), and a
+  // rebuilt scene is told too.
+  useEffect(() => {
+    scene?.setDrawing(!sideView);
+  }, [scene, sideView]);
 
   // The view's own controls over the picture (the camera buttons along the top right, the strike's name at the top
   // left), measured against the canvas and handed to the scene, so callout plates and jet labels keep off them. Measured
@@ -514,14 +546,19 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
           onContextLost={onContextLost}
           onRemount={rebuild}
         />
+        {/* The card's side view over the whole picture. First after the scene and with no stacking order of its own, so the buttons, the name and the chips below lie over it. */}
+        {scene && sideView && (
+          <SidePanel scene={scene} pb={pb} timing={timing} jet={watchedJet} seat={source.labelOf(watchedJet)} callsign={pb.jets[watchedJet]?.callsign} colour={jetColor(watched)} />
+        )}
         {/* On its own dark plate: behind it can be the navy sky, the pale haze or the map. */}
         <div ref={nameRef} data-name-chip="" className="absolute top-2 left-3 max-w-[40%] truncate pointer-events-none rounded bg-dcs-navy/80 px-2 py-0.5 text-sm font-semibold text-gray-100">{built.title}</div>
         {scene && <CanvasChips scene={scene} source={source} jet={watchedJet} mode={cameraMode} conflicts={timing.conflicts} warnings={timing.readout.warnings} />}
-        {software && <SoftwareChip />}
+        {/* Nothing is drawn in 3D under the side view, so slowness there is no news. */}
+        {software && !sideView && <SoftwareChip />}
         {scene && (
           // A wrapper with no box of its own (the toolbar still lies over the whole picture), there to find its buttons by.
           <div ref={toolbarRef} className="contents">
-            <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={cameraMode} seat={source.labelOf(watchedJet)} onMode={pickCamera} />
+            <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={session.mode} seat={source.labelOf(watchedJet)} onMode={pickView} />
           </div>
         )}
         {import.meta.env.DEV && scene && <FrameTime scene={scene} reTime={reTimeMs} />}
