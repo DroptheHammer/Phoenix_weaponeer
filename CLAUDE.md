@@ -239,7 +239,66 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-### PAUSED 2026-11-16 15:40 UTC: READ THIS FIRST
+### STATE 2026-11-18 01:45 UTC: READ THIS FIRST
+
+Work resumed on 2026-11-17 and is running. **Where this block and anything
+below it disagree, this block is right.** Memory
+(`project-v040-polish-and-playback`, `project-no-restricted-military-sources`,
+`project-sight-mils-follow-customize`) has the detail and the run ids.
+
+**Playback, `v040-playback-full`, tip `9bb4d37` (pushed).** The three
+review-fix stages are done and reviewed (`e152a37`, `1bd89a1`, `5d3f929`),
+then `be5ebcf` (text only: three real-world manuals are no longer named) and
+`9bb4d37` (from the user's look: the 3D playback says nothing about
+fire-control cones; the strike editor still does). geo-check 1,093; 188
+screenshot steps; start-up JS 634,551 (ceiling 635,049). "Playback look 6"
+and "Playback look 7" are in `Other Items/v040-builds/`; the user has seen 6
+and is going through it. Not started: stages 16, 17, 18a, 18b, 20.
+
+**Redesign, `v040-shell`: local tip is far ahead of GitHub and NOT PUSHED.**
+The branch was moved twice onto the playback branch's tip (now `9bb4d37`), so
+pushing it means replacing the copy on GitHub, and that needs the user's yes
+(asked, not answered). GitHub still has the old line at `87df2c9`. On this
+Mac, in `.claude/worktrees/shell`: the design foundation is complete (dialog
+keyboard behaviour and the proof stage included; `docs/DESIGN_SYSTEM.md` is
+the guide), and the front page's stages S1 to S6 are built and reviewed: the
+new front page with its load box and recent-mission cards, and the new
+flight chooser. geo-check 1,326; start-up JS 654,284; stylesheet 69,218;
+offline cache 1,706,415. A tidy stage for eight small review findings was
+running when this was written. "Shell look 1" (the foundation only) is in
+`Other Items/v040-builds/`; a second copy with the new screens comes after
+the tidy stage. Next after that: the app shell's first two stages, then the
+flight overview. **If the Mac is lost before the push, everything since
+`87df2c9` on this branch is lost with it.**
+
+**Sources.** The user ruled that a real-world military manual carrying a
+distribution restriction or an export-control notice is never a source here
+(section "Sources" above), unless DCS's own documentation or a published
+guide prints the same figure. An audit of every real-world document the
+project cites is done (`Other Items/v040-work/sources-audit/`). Done so far:
+the three restricted-marked ones are no longer named at the branch tips.
+Still to do, each needing the user's word: whether to scrub the two-day-old
+notes about one of them from the unreleased public history; how to credit
+the pop-up model's source; and a small table of weapon numbers that would
+change (a release floor and a speed warning among them).
+
+**Sight mils.** The real jet's manual is out. The game's own manual prints
+only two bomb sight settings for the F-5E, neither near the planner's
+profiles. Asked of the user, not answered: print the planner's own
+calculated figure marked "est.", or no figure until he has test-flown it.
+Papers: `Other Items/v040-work/b3/BUILD_SPEC_S13_SIGHT_MILS.md` (ruling 14)
+and `F5E_GAME_SIDE_MEANING.md`.
+
+**Waiting on the user, one at a time:** the yes to replace the redesign
+branch on GitHub; the F-5E card question; his remarks on look 6 and look 7
+(three calls he can overrule: only the watched jet draws a bomb line; the
+blast ring shows through hills; the old spacing rule kept as a choice) and
+on the redesign copies; then the three "Sources" decisions above.
+
+**Two build tracks share one Mac:** never run two browser-driven runs at
+once. Each run is told to wait until no headless browser is running.
+
+### PAUSED 2026-11-16 15:40 UTC (superseded by the block above)
 
 The user had to move, so every run was stopped cleanly. **Where this block and
 the older notes below disagree, this block is right.** Both working copies
