@@ -98,6 +98,8 @@ export default {
       lineHeight: {
         'ui-tight': 'var(--lh-tight)',
         'ui-body': 'var(--lh-body)',
+        'where-title': 'var(--where-title-lh)',
+        'where-sub': 'var(--where-sub-lh)',
       },
       letterSpacing: {
         label: '0.06em',
@@ -133,9 +135,21 @@ export default {
         tab: 'var(--tab)',
         rail: 'var(--rail-w)',
         badge: 'var(--badge)',
+        bar: 'var(--bar)',
+        dock: 'var(--dock-w)',
+        legend: 'var(--legend-w)',
+        menu: 'var(--menu-w)',
+        inset: 'var(--inset)',
       },
       transitionDuration: { fast: 'var(--t-fast)', panel: 'var(--t-panel)' },
       transitionTimingFunction: { ui: 'var(--ease)' },
+      // The side panel slides in when it opens from closed (motion-safe only).
+      keyframes: {
+        'sheet-in': { from: { transform: 'translateX(28px)', opacity: '0' }, to: { transform: 'none', opacity: '1' } },
+      },
+      animation: {
+        'sheet-in': 'sheet-in var(--t-panel) var(--ease)',
+      },
     },
   },
   plugins: [

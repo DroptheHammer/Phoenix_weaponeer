@@ -16,6 +16,11 @@ export interface TabItem<Id extends string> {
   count?: string | number;
   /** rail and bar: the icon above the label. */
   icon?: IconName;
+  /**
+   * rail and bar: a short second line under the label ("1 hidden"). It is part of the
+   * accessible name too: "Attacks (2 · 1 hidden)".
+   */
+  note?: string;
   title?: string;
   disabled?: boolean;
 }
@@ -75,6 +80,17 @@ const ITEM: Record<TabsVariant, { base: string; on: string; off: string }> = {
 const BADGE_BASE =
   'absolute -top-[7px] left-[calc(100%-5px)] h-[18px] min-w-[18px] rounded-pill px-1 text-center text-ui-caption font-bold leading-[18px]';
 
+/**
+ * The accessible name of a rail or bar tab, whose count is a badge on the icon: "Threats (2)",
+ * "Attacks (2 · 1 hidden)", "Kneeboards". Without it the name would start with the badge's number.
+ */
+export function stackedName(item: { label: string; count?: string | number; note?: string }): string {
+  const inBrackets = [item.count, item.note].filter((part) => part !== undefined && part !== '').join(' · ');
+  return inBrackets ? `${item.label} (${inBrackets})` : item.label;
+}
+
+const NOTE_BASE = 'text-ui-caption font-medium leading-tight';
+
 export function Tabs<Id extends string>({ items, selected, onSelect, variant, label, toggle, className }: TabsProps<Id>) {
   const toggles = toggle ?? (variant === 'rail' || variant === 'bar');
   const style = ITEM[variant];
@@ -89,6 +105,7 @@ export function Tabs<Id extends string>({ items, selected, onSelect, variant, la
             key={item.id}
             type="button"
             aria-pressed={on}
+            aria-label={stacked ? stackedName(item) : undefined}
             title={item.title}
             disabled={item.disabled}
             onClick={() => onSelect(nextSelection(selected, item.id, toggles))}
@@ -101,6 +118,7 @@ export function Tabs<Id extends string>({ items, selected, onSelect, variant, la
                   {item.count !== undefined ? <span className={cx(BADGE_BASE, on ? 'bg-surface-deep text-ink' : 'bg-tint-3 text-ink')}>{item.count}</span> : null}
                 </span>
                 <span>{item.label}</span>
+                {item.note ? <span className={cx(NOTE_BASE, on ? 'text-ink-on-accent' : 'text-ink-2')}>{item.note}</span> : null}
               </>
             ) : (
               <>

@@ -192,3 +192,11 @@
     --legend-w: 256px;
   }
 }
+
+/* ---- The app shell: the header's two lines and the planner's columns ---- */
+:root {
+  --where-title-lh: 23px;                /* the header's title line */
+  --where-sub-lh: 15px;                  /* the smaller line under it */
+  --dock-w: calc(var(--rail-w) + 14px);  /* the planner's left column: the rail, its 6 px padding and 1 px edge each side (96) */
+  --panel-w: clamp(380px, 34%, 520px);   /* the planner's side panel: 34% of the planner's width, 380 to 520 px */
+}
