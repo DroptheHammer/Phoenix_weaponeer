@@ -5,7 +5,9 @@
  *
  * On the Flight overview (`overview` given, a mission open, not on the map) the header is the flight: "Venom 1 ·
  * 4 × F-16C Viper" over a second line with the mission's name, place and when it was edited. The mission's name is
- * only in that smaller line there, so the dot is not shown beside the flight either.
+ * only in that smaller line there, so the dot is not shown beside the flight either. Unsaved work is said there in
+ * words instead (`unsavedWords`, "Not exported" in the browser), first in that second line, because a phone cuts a
+ * line at its right end and these are the words that must not be cut.
  */
 export function phoneHeader(
   missionName: string | null,
@@ -13,10 +15,12 @@ export function phoneHeader(
   unsaved: boolean,
   appName: string,
   overview: { title: string; aircraft: string; sub: string } | null = null,
+  unsavedWords = 'Unsaved changes',
 ): { title: string; subtitle?: string; dirty: boolean } {
   const named = missionName !== null && onMap;
   if (missionName !== null && !onMap && overview) {
-    return { title: overview.aircraft ? `${overview.title} · ${overview.aircraft}` : overview.title, subtitle: overview.sub || undefined, dirty: false };
+    const subtitle = unsaved ? [unsavedWords, overview.sub].filter(Boolean).join(' · ') : overview.sub;
+    return { title: overview.aircraft ? `${overview.title} · ${overview.aircraft}` : overview.title, subtitle: subtitle || undefined, dirty: false };
   }
   return { title: named ? missionName : appName, dirty: named && unsaved };
 }

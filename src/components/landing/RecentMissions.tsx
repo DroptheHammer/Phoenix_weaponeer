@@ -15,6 +15,9 @@ import { IconButton } from '../ui/IconButton';
 import { cx } from '../ui/cx';
 import { W } from './words';
 
+/** The small pill after a card's name ("Open now", and its unsaved words): words, not colour, carry the meaning. */
+const TAG = 'inline-flex min-h-tag items-center whitespace-nowrap rounded-pill bg-tint-2 px-2 text-ui-caption font-semibold tracking-tag text-ink';
+
 const DOT_CLASS: Record<string, string> = { SAM: 'fill-data-sam', SHORAD: 'fill-data-shorad', AAA: 'fill-data-aaa', MANPADS: 'fill-data-manpads', EWR: 'fill-data-ewr' };
 
 /**
@@ -43,6 +46,8 @@ export interface RecentCardItemProps {
   card: RecentCard;
   /** The mission open right now ("Open now"), not one read from a file or kept in this browser. */
   isLive: boolean;
+  /** The words for unsaved work in that open mission. Told on the live card only: a stored card is a saved copy and never shows them. */
+  unsaved?: string;
   now: Date;
   theaterName: (theaterId: string) => string;
   aircraftName: (aircraftId: string) => string;
@@ -59,7 +64,7 @@ export interface RecentCardItemProps {
 }
 
 /** One recent mission: the route picture over its name, where and when, and its flights. */
-export function RecentCardItem({ card, isLive, now, theaterName, aircraftName, typeOf, asking, onOpen, onForget, onAsk, onCancelAsk, onDelete }: RecentCardItemProps) {
+export function RecentCardItem({ card, isLive, unsaved, now, theaterName, aircraftName, typeOf, asking, onOpen, onForget, onAsk, onCancelAsk, onDelete }: RecentCardItemProps) {
   const forgetNameId = useId();
   const title = card.status === 'ok' ? card.name : card.label;
   const when = card.status === 'ok' ? editedWhenCapital(card.lastEdited, now) : null;
@@ -75,9 +80,11 @@ export function RecentCardItem({ card, isLive, now, theaterName, aircraftName, t
           <span aria-hidden="true" className="grid aspect-video w-full place-items-center bg-surface-deep text-ink-3 short:aspect-[2/1]"><Icon name="file" size="lg" /></span>
         )}
         <span className={cx('grid gap-0.5 px-4 pb-4 pt-3 max-[1279px]:px-3 short:pb-3 short:pt-2.5')}>
-          <span className="flex items-center gap-2 text-ui-lead font-semibold leading-[1.3] [overflow-wrap:anywhere]">
+          {/* The two tags wrap under the name on a narrow card, rather than squeezing it to nothing. */}
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-ui-lead font-semibold leading-[1.3] [overflow-wrap:anywhere]">
             {title}
-            {isLive && <span className="inline-flex min-h-tag items-center whitespace-nowrap rounded-pill bg-tint-2 px-2 text-ui-caption font-semibold tracking-tag text-ink">{W.recentOpenNow}</span>}
+            {isLive && <span className={TAG}>{W.recentOpenNow}</span>}
+            {isLive && unsaved && <span className={TAG}>{unsaved}</span>}
           </span>
           {fileName && <span className="text-ui-small text-ink-3 [overflow-wrap:anywhere]">{fileName}</span>}
           {card.status === 'ok' ? (
@@ -127,6 +134,8 @@ export function RecentCardItem({ card, isLive, now, theaterName, aircraftName, t
 export interface RecentMissionsProps {
   /** The mission open right now, if the planner came back to the front page with it open. */
   openMission: Mission | null;
+  /** The words for unsaved work in the open mission, or nothing: handed to the "Open now" card only. */
+  openUnsaved?: string;
   onContinue: () => void;
   onOpenFile: (path: string) => void;
   onOpenLocal: (id: string) => void;
@@ -138,7 +147,7 @@ export interface RecentMissionsProps {
 }
 
 /** Recent missions as cards: a grid on the desktop, one column on a phone, each card a picture of the route over its title. */
-export function RecentMissions({ openMission, onContinue, onOpenFile, onOpenLocal, aircraft, typeOf, phone, web }: RecentMissionsProps) {
+export function RecentMissions({ openMission, openUnsaved, onContinue, onOpenFile, onOpenLocal, aircraft, typeOf, phone, web }: RecentMissionsProps) {
   const recentPaths = useSettingsStore((s) => s.settings.recentMissions);
   const forget = useSettingsStore((s) => s.forgetRecentMission);
   const entries = useLocalMissionStore((s) => s.entries);
@@ -180,6 +189,7 @@ export function RecentMissions({ openMission, onContinue, onOpenFile, onOpenLoca
         key={id}
         card={card}
         isLive={isLive}
+        unsaved={isLive ? openUnsaved : undefined}
         now={now}
         theaterName={(theaterId) => theaters[theaterId]?.display_name ?? theaterId}
         aircraftName={nameOf}

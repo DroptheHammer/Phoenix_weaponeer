@@ -20,8 +20,10 @@ interface PhoneShellProps<Id extends string> {
   title: string;
   /** A second, smaller line under the title (the Flight overview's mission, place and when it was edited). */
   subtitle?: string;
-  /** A back arrow before the title, back to the front page (the Flight overview). */
+  /** A back arrow before the title: the way back from the Flight overview. */
   onBack?: () => void;
+  /** The back arrow's name, spoken by a screen reader and shown as its tooltip: the caller words it, as it names the place the arrow goes to. */
+  backLabel?: string;
   /** Show the unsaved-work dot. */
   dirty?: boolean;
   menu: PhoneMenuItem[];
@@ -56,6 +58,7 @@ export function PhoneShell<Id extends string>({
   title,
   subtitle,
   onBack,
+  backLabel = 'Back',
   dirty = false,
   menu,
   message,
@@ -95,7 +98,7 @@ export function PhoneShell<Id extends string>({
         className="shrink-0 bg-dcs-navy shadow-lg flex items-center gap-2 pl-4 pr-1 z-[1200]"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
-        {onBack && <IconButton icon="chev-left" label="Back to the front page" onClick={onBack} className="-ml-3 shrink-0" />}
+        {onBack && <IconButton icon="chev-left" label={backLabel} onClick={onBack} className="-ml-3 shrink-0" />}
         {subtitle ? (
           // Two lines: the title over a smaller one, each cut with an ellipsis rather than wrapping under the menu.
           <div className="flex-1 min-w-0 py-1.5">

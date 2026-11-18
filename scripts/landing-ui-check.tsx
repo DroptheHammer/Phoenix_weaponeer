@@ -13,6 +13,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { FragOrdersData } from '../src/types/fragorders.types';
 import type { Mission } from '../src/types/mission.types';
+import { FrontPage } from '../src/components/landing/FrontPage';
 import { JetCard } from '../src/components/landing/JetCard';
 import { RecentCardItem, RecentMissions } from '../src/components/landing/RecentMissions';
 import { ThreatBlock } from '../src/components/landing/ThreatBlock';
@@ -180,14 +181,14 @@ const savedMission = {
   waypoints: [{ id: 'w1', steerpoint: 1, name: 'WP1', type: 'target', coordinates: { lat: 36.5, lon: -115.2 }, elevation_ft: 2000 }],
   threats: [], flightMembers: [{ id: 'f1', callsign: 'Testcall 1-1', position: 1, role: 'flight_lead', aircraftId: 'f16c', loadout: [] }], attacks: [],
 } as unknown as Mission;
-const recentsMarkup = (storageError: string | null) => {
+const recentsMarkup = (storageError: string | null, openUnsaved?: string) => {
   // As for the chooser above: a server render reads the store's initial state, which is where the failure is set, and put back.
   const initial = useLocalMissionStore.getInitialState();
   const before = initial.error;
   initial.error = storageError;
   try {
     return renderToStaticMarkup(createElement(RecentMissions, {
-      openMission: savedMission, onContinue: () => {}, onOpenFile: () => {}, onOpenLocal: () => {},
+      openMission: savedMission, openUnsaved, onContinue: () => {}, onOpenFile: () => {}, onOpenLocal: () => {},
       aircraft: [{ id: 'f16c', name: 'F-16C Viper' }], typeOf: new Map<string, string>(), phone: false, web: true,
     }));
   } finally {
@@ -206,9 +207,9 @@ ok('UI6 the amber autosave failure and the grey "saved automatically" line are n
 
 // A card for a saved file is told from another copy of the same mission by its file name (the small grey line under the
 // mission's name; the folder is not printed), and the card's tooltip is the full path. A browser-stored mission has no file.
-const cardMarkup = (card: RecentCard) =>
+const cardMarkup = (card: RecentCard, isLive = false, unsaved?: string) =>
   renderToStaticMarkup(createElement(RecentCardItem, {
-    card, isLive: false, now: new Date('2026-06-01T00:00:00Z'),
+    card, isLive, unsaved, now: new Date('2026-06-01T00:00:00Z'),
     theaterName: (id) => id, aircraftName: (id) => id, typeOf: new Map<string, string>(),
     asking: false, onOpen: () => {}, onForget: () => {}, onAsk: () => {}, onCancelAsk: () => {}, onDelete: () => {},
   }));
@@ -245,6 +246,43 @@ const tooltipOf = (markup: string) => /title="([^"]*)"/.exec(lastButtonOf(markup
 ok('UI7b the × on a saved-file card says the file is not deleted and is still named for its mission; a browser card\'s says Delete',
   tooltipOf(fileCard) === W.recentForgetTitle && spokenName(fileCard) === W.recentForget('Test Mission') && spokenName(browserCard) === W.recentDelete('Test Mission') && !browserCard.includes('not deleted'),
   `tooltip "${tooltipOf(fileCard)}", name "${spokenName(fileCard)}"; browser card name "${spokenName(browserCard)}"`);
+
+// With the mission kept open behind the front page, its "Open now" card says when it has unsaved work, in words, as a second
+// tag after "Open now". Only that card: a card for a saved file or a browser entry is a copy on disk, and never shows them, even
+// if the words are handed to it by mistake. FrontPage and RecentMissions pass the words down (the stored cards cannot be drawn
+// in a server render, so RecentMissions' hand-over to the live card alone is read from its source).
+// Red when (RecentCardItem): the unsaved tag's `{isLive && unsaved && …}` loses its `isLive &&` (a stored card then shows the words);
+// or the tag line is deleted (the live card then shows none); or FrontPage stops handing `openUnsaved` to RecentMissions.
+// Seen: FAIL UI14 "Open now" says when its work is unsaved, in a second tag after it, and no stored card ever does  live with words true, second tag true, live without true, saved-file card with them handed in false, browser card false, through RecentMissions true, through FrontPage true, App's hand-over true
+//         (the `isLive &&` taken out: both stored cards showed the words)
+//       FAIL UI14 …  live with words false, second tag false, live without true, saved-file card with them handed in true, browser card true, through RecentMissions false, through FrontPage false, App's hand-over true
+//         (the tag line deleted)
+//       FAIL UI14 …  live with words true, second tag true, live without true, saved-file card with them handed in true, browser card true, through RecentMissions true, through FrontPage false, App's hand-over true
+//         (FrontPage's `openUnsaved={p.openUnsaved}` line deleted)
+const UNSAVED = 'Unsaved changes';
+const liveKey = { source: 'browser', id: 'ui-m1', name: 'Test Mission', savedAt: '2026-01-01T00:00:00Z' } as const;
+const liveCard = recentCardFrom(savedMission, liveKey, () => null);
+const liveWith = cardMarkup(liveCard, true, UNSAVED);
+const liveWithout = cardMarkup(liveCard, true);
+const savedFileByMistake = cardMarkup(recentCardFrom(savedMission, { source: 'file', path: FILE_PATH }, () => null), false, UNSAVED);
+const browserByMistake = cardMarkup(recentCardFrom(savedMission, liveKey, () => null), false, UNSAVED);
+const frontMarkup = (openUnsaved?: string) => renderToStaticMarkup(createElement(FrontPage, {
+  phone: false, web: true, openMission: savedMission, openUnsaved, onOutcome: () => {}, onContinue: () => {}, onOpenFile: () => {}, onOpenLocal: () => {},
+  onNewMission: () => {}, aircraft: [{ id: 'f16c', name: 'F-16C Viper' }], typeOf: new Map<string, string>(), busy: false,
+}));
+const unsavedSeen = {
+  liveWith: liveWith.includes(UNSAVED) && liveWith.includes(W.recentOpenNow),
+  second: liveWith.indexOf(W.recentOpenNow) < liveWith.indexOf(UNSAVED) && (liveWith.match(/rounded-pill/g) ?? []).length === 2,
+  liveWithout: liveWithout.includes(W.recentOpenNow) && !liveWithout.includes(UNSAVED) && (liveWithout.match(/rounded-pill/g) ?? []).length === 1,
+  savedFile: !savedFileByMistake.includes(UNSAVED) && !savedFileByMistake.includes(W.recentOpenNow),
+  browser: !browserByMistake.includes(UNSAVED) && !browserByMistake.includes(W.recentOpenNow),
+  recents: recentsMarkup(null, UNSAVED).includes(UNSAVED) && !recentsMarkup(null).includes(UNSAVED),
+  frontPage: frontMarkup(UNSAVED).includes(UNSAVED) && !frontMarkup().includes(UNSAVED),
+  handOver: /unsaved=\{isLive \? openUnsaved : undefined\}/.test(src('src/components/landing/RecentMissions.tsx')) && /openUnsaved=\{isDirty \? dirtyWords : undefined\}/.test(src('src/App.tsx')),
+};
+ok('UI14 "Open now" says when its work is unsaved, in a second tag after it, and no stored card ever does',
+  Object.values(unsavedSeen).every(Boolean),
+  `live with words ${unsavedSeen.liveWith}, second tag ${unsavedSeen.second}, live without ${unsavedSeen.liveWithout}, saved-file card with them handed in ${unsavedSeen.savedFile}, browser card ${unsavedSeen.browser}, through RecentMissions ${unsavedSeen.recents}, through FrontPage ${unsavedSeen.frontPage}, App's hand-over ${unsavedSeen.handOver}`);
 
 // A card's route picture is planned 16:9, and a short window shows it 2:1 with `slice`, which crops (height - width / 2) / 2
 // off the top and the bottom. A dot on the frame's edge must still be whole, outline and all. The circles are read out of

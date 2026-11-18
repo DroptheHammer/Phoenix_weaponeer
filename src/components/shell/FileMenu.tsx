@@ -44,8 +44,11 @@ export function pressShutsMenu(wrap: { contains(node: unknown): boolean } | null
  * gives the keyboard back to the button, then runs the row (which may open a dialog: the dialog
  * then hands the keyboard back to File when it closes).
  *
- * Escape is taken on the menu itself and stopped there, so it shuts only the menu. A dialog
- * covers the header and keeps Tab inside itself, so the menu cannot be reached while one is open.
+ * Escape is heard on the window while the menu is open, not on the menu: a press on the menu's
+ * own padding leaves the keyboard on the page, and Escape must still shut the menu from there.
+ * The arrow keys, Home, End and Tab stay on the menu, where the keyboard is when they matter. No
+ * dialog can be open with the menu (a row shuts it before it runs, and a press anywhere else shuts
+ * it), so the window's Escape is never meant for something else.
  */
 export function FileMenu({ items }: { items: FileMenuItem[] }) {
   const [open, setOpen] = useState(false);
@@ -54,20 +57,31 @@ export function FileMenu({ items }: { items: FileMenuItem[] }) {
   const rows = useRef<(HTMLButtonElement | null)[]>([]);
   const id = useId();
 
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) button.current?.focus();
+  };
+
   useEffect(() => {
     if (!open) return;
     rows.current[0]?.focus();
     const onDown = (event: PointerEvent) => {
       if (pressShutsMenu(wrap.current, event.target)) setOpen(false);
     };
+    const onEscape = (event: globalThis.KeyboardEvent) => {
+      const action = menuKey(event.key, -1, 0);
+      if (action && 'close' in action && action.close === 'to-button') {
+        event.preventDefault();
+        close(true);
+      }
+    };
     window.addEventListener('pointerdown', onDown);
-    return () => window.removeEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onEscape);
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onEscape);
+    };
   }, [open]);
-
-  const close = (refocus: boolean) => {
-    setOpen(false);
-    if (refocus) button.current?.focus();
-  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const list = rows.current.filter((r): r is HTMLButtonElement => r !== null);
@@ -76,11 +90,8 @@ export function FileMenu({ items }: { items: FileMenuItem[] }) {
     if ('focus' in action) {
       event.preventDefault();
       list[action.focus]?.focus();
-    } else if (action.close === 'to-button') {
-      event.preventDefault();
-      event.stopPropagation();
-      close(true);
-    } else close(false);
+    } else if (action.close === 'move-on') close(false);
+    // Escape ('to-button') is the window's, above.
   };
 
   return (

@@ -938,19 +938,28 @@ ok('T6 a dot on the frame\'s edge keeps its whole circle when a short window cro
       && !shown.cleanOnMap.dirty && shown.noMission.title === 'Phoenix Weaponeer' && !shown.noMission.dirty, JSON.stringify(shown));
 }
 // On the Flight overview the phone's header is the flight and its jets, over the mission's line; the mission's name
-// is only in that smaller line, so no dot there either. A flight with no jets is its name alone.
+// is only in that smaller line, so no dot there either. A flight with no jets is its name alone. Unsaved work is said in
+// words instead of a dot, FIRST in that second line (a phone cuts a line at its right end), and not at all when saved.
 // Red when (phoneHeader): the overview's branch (`if (missionName !== null && !onMap && overview) { … }`) is deleted.
 // Seen: FAIL H2 on the Flight overview the phone's header is the flight over the mission's line, with no dot  {"overview":{"title":"Phoenix Weaponeer","dirty":false},"noJets":{"title":"Phoenix Weaponeer","dirty":false},"onMap":{"title":"Venom 1 - Plan","dirty":true}}
+// Red when (phoneHeader, the words): `const subtitle = unsaved ? [unsavedWords, overview.sub].filter(Boolean).join(' · ') : overview.sub;` becomes `const subtitle = overview.sub;`.
+// Seen: FAIL H2 …  {"overview":{"title":"Venom 1 · 4 × F-16C Viper","subtitle":"Venom 1 - Plan · Test Nevada · edited today, 14:20","dirty":false},"saved":{…,"subtitle":"Venom 1 - Plan · Test Nevada · edited today, 14:20","dirty":false},"noLine":{"title":"Venom 1 · 4 × F-16C Viper","dirty":false},…
+//         (with unsaved work the second line carried no words)
+//       FAIL H2 …  {"overview":{…,"subtitle":"Venom 1 - Plan · Test Nevada · edited today, 14:20 · Not exported","dirty":false},"saved":{…},"noLine":{"title":"Venom 1 · 4 × F-16C Viper","subtitle":"Unsaved changes","dirty…
+//         (the words put last in the line instead of first)
 {
   const where = { title: 'Venom 1', aircraft: '4 × F-16C Viper', sub: 'Venom 1 - Plan · Test Nevada · edited today, 14:20' };
   const shown = {
-    overview: phoneHeader('Venom 1 - Plan', false, true, 'Phoenix Weaponeer', where),
+    overview: phoneHeader('Venom 1 - Plan', false, true, 'Phoenix Weaponeer', where, 'Not exported'),
+    saved: phoneHeader('Venom 1 - Plan', false, false, 'Phoenix Weaponeer', where, 'Not exported'),
+    noLine: phoneHeader('Venom 1 - Plan', false, true, 'Phoenix Weaponeer', { ...where, sub: '' }, 'Unsaved changes'),
     noJets: phoneHeader('Venom 1 - Plan', false, false, 'Phoenix Weaponeer', { title: 'Venom 1 - Plan', aircraft: '', sub: 'Venom 1 - Plan · Test Nevada' }),
     onMap: phoneHeader('Venom 1 - Plan', true, true, 'Phoenix Weaponeer', null),
   };
-  ok('H2 on the Flight overview the phone\'s header is the flight over the mission\'s line, with no dot',
-    shown.overview.title === 'Venom 1 · 4 × F-16C Viper' && shown.overview.subtitle === where.sub && !shown.overview.dirty
-      && shown.noJets.title === 'Venom 1 - Plan' && shown.onMap.title === 'Venom 1 - Plan' && shown.onMap.dirty && shown.onMap.subtitle === undefined,
+  ok('H2 on the Flight overview the phone\'s header is the flight over the mission\'s line, with no dot; unsaved work is said in words first in that line',
+    shown.overview.title === 'Venom 1 · 4 × F-16C Viper' && shown.overview.subtitle === `Not exported · ${where.sub}` && !shown.overview.dirty
+      && shown.saved.subtitle === where.sub && !shown.saved.dirty && shown.noLine.subtitle === 'Unsaved changes' && !shown.noLine.dirty
+      && shown.noJets.title === 'Venom 1 - Plan' && shown.noJets.subtitle === 'Venom 1 - Plan · Test Nevada' && shown.onMap.title === 'Venom 1 - Plan' && shown.onMap.dirty && shown.onMap.subtitle === undefined,
     JSON.stringify(shown));
 }
 

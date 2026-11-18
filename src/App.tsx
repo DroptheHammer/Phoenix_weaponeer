@@ -89,11 +89,12 @@ const FlightChooser = lazy(() =>
  * What stands in for the Flight overview when its code cannot be loaded: it says so, and offers the map, which is
  * already loaded, instead of blanking the app.
  */
-function OverviewUnavailable({ onOpenMap }: FlightOverviewProps) {
+function OverviewUnavailable({ onOpenMap, phone }: FlightOverviewProps) {
   return (
     <div className="m-auto grid max-w-md justify-items-center gap-3 p-6 text-center">
       <p className="text-ui-body text-ink-2">{W.overviewFailed}</p>
-      <Button variant="primary" icon="map" onClick={onOpenMap}>{W.openMap}</Button>
+      {/* The desktop header already has the one filled "Open the map"; the phone's header has none, so here it is filled. */}
+      <Button variant={phone ? 'primary' : 'outline'} icon="map" onClick={onOpenMap}>{W.openMap}</Button>
     </div>
   );
 }
@@ -588,11 +589,16 @@ function App() {
     </>
   );
 
+  // The words for work not yet saved, said in the headers, on the overview and on the front page's "Open now" card. In
+  // the browser every save is a download, so the work is "not exported" rather than unsaved.
+  const dirtyWords = platform.isWeb ? 'Not exported' : 'Unsaved changes';
+
   const frontPage = (
     <FrontPage
       phone={isPhone}
       web={platform.isWeb}
       openMission={mission}
+      openUnsaved={isDirty ? dirtyWords : undefined}
       onOutcome={handleOutcome}
       onContinue={() => setScreen(returnTo)}
       onOpenFile={handleOpenRecent}
@@ -665,7 +671,7 @@ function App() {
         ? overviewMenu
         : [{ label: 'Flight overview', onClick: () => setScreen('overview') }, ...overviewMenu];
 
-    const header = phoneHeader(mission ? mission.name : null, shown === 'map', isDirty, 'Phoenix Weaponeer', where);
+    const header = phoneHeader(mission ? mission.name : null, shown === 'map', isDirty, 'Phoenix Weaponeer', where, dirtyWords);
 
     return (
       <>
@@ -673,6 +679,7 @@ function App() {
           title={header.title}
           subtitle={header.subtitle}
           onBack={shown === 'overview' ? toFront : undefined}
+          backLabel={W.backToFront}
           dirty={header.dirty}
           menu={phoneMenu}
           message={fileMsg}
@@ -706,7 +713,6 @@ function App() {
   // ---- Desktop layout (and the web build on a large screen) ----
 
   // ---- The header (AppBar): what it says on each screen ----
-  const dirtyWords = platform.isWeb ? 'Not exported' : 'Unsaved changes';
   const flightName = mission?.flightMembers[0] ? flightGroupOf(mission.flightMembers[0].callsign) : '';
   // The planner's way back to the Flight overview (a back link and a File row). Neither is drawn
   // until this is set, which comes with the planner's own new frame; the phone's menu has it already.
@@ -717,6 +723,16 @@ function App() {
   // In the browser every save is a fresh download, so Save As would be the same as Save.
   const saveAsItems: FileMenuItem[] = platform.isWeb ? [] : [{ id: 'save-as', label: 'Save As', sub: 'Save a copy under a new name', icon: 'save', onSelect: () => void handleSaveAs() }];
   const closeItem: FileMenuItem = { id: 'close', label: 'Close', sub: 'Close this mission', icon: 'close', onSelect: handleCloseMission };
+  // The planner's filled button is Save; on the screens that have a mission but no such button, File carries it. A File
+  // row has no disabled state, so it is always there: saving a saved mission saves it again.
+  const saveItem: FileMenuItem = {
+    id: 'save',
+    label: saveLabel,
+    sub: platform.isWeb ? 'Download the mission as a .json file' : 'Save this mission',
+    icon: 'save',
+    onSelect: () => void handleSave(),
+  };
+  const missionFileItems: FileMenuItem[] = [saveItem, ...saveAsItems, openItem, importItem, closeItem];
   // A file message on a screen with no "where" line (the front page).
   const fileStatus = fileMsg ? (
     <p role="status" title={fileMsg} className={`m-0 min-w-0 truncate text-ui-small ${fileMsg.startsWith('Error') ? 'font-semibold text-warn' : 'text-ink-2'}`}>
@@ -785,17 +801,25 @@ function App() {
                   title={where.title}
                   titleAside={where.aircraft ? ` · ${where.aircraft}` : undefined}
                   fullTitle={where.aircraft ? `${where.title} · ${where.aircraft}` : where.title}
-                  sub={<span className="max-[959px]:hidden">{where.sub}</span>}
-                  subTitle={where.sub}
+                  sub={
+                    where.sub || isDirty ? (
+                      <>
+                        {/* As in the planner's bar: on a narrow window the line goes first and the unsaved words never go. */}
+                        {where.sub ? <span className="max-[959px]:hidden">{where.sub}{isDirty ? ' · ' : ''}</span> : null}
+                        {isDirty ? dirtyWords : null}
+                      </>
+                    ) : undefined
+                  }
+                  subTitle={[where.sub, isDirty ? dirtyWords : ''].filter(Boolean).join(' · ')}
                   status={fileMsg}
                 />
               </>
             ),
             primary: <AppBarPrimary icon="map" label={W.openMap} onClick={openMap} />,
-            fileItems: [...saveAsItems, openItem, importItem, closeItem],
+            fileItems: missionFileItems,
           }
-        : // The front page: a mission kept open behind it can still be closed from here.
-          { ...barShared, lead: fileStatus, fileItems: mission ? [openItem, importItem, closeItem] : [openItem, importItem] };
+        : // The front page: a mission kept open behind it can be saved and closed from here.
+          { ...barShared, lead: fileStatus, fileItems: mission ? missionFileItems : [openItem, importItem] };
 
   // The front page fills the window under the header and scrolls on its own; on the map screen the
   // planner fills it edge to edge.

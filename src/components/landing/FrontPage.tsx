@@ -13,6 +13,8 @@ export interface FrontPageProps {
   /** platform.isWeb, passed in: only platformBindings.ts may import @platform (check X1). */
   web: boolean;
   openMission: Mission | null;
+  /** The words for work in the open mission not yet saved ("Unsaved changes", "Not exported" in the browser), or nothing: told on the "Open now" card only. */
+  openUnsaved?: string;
   onOutcome: (o: Exclude<LoadOutcome, { kind: 'error' }>) => void;
   onContinue: () => void;
   onOpenFile: (path: string) => void;
@@ -68,6 +70,7 @@ export function FrontPage(p: FrontPageProps) {
         </div>
         <RecentMissions
           openMission={p.openMission}
+          openUnsaved={p.openUnsaved}
           onContinue={p.onContinue}
           onOpenFile={p.onOpenFile}
           onOpenLocal={p.onOpenLocal}

@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { stackedName, Tabs } from '../src/components/ui/Tabs';
 import { AppBar, AppBarPrimary, HeaderWhere } from '../src/components/shell/AppBar';
 import { FileMenu, menuKey, pressShutsMenu } from '../src/components/shell/FileMenu';
+import { PhoneShell } from '../src/components/phone/PhoneShell';
 import { readTokens } from './tokens.mjs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -125,16 +126,25 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   const wired = {
     button: /onClick=\{\(\) => \(open \? close\(true\) : setOpen\(true\)\)\}/.test(menuSrc),
     press: /if \(pressShutsMenu\(wrap\.current, event\.target\)\) setOpen\(false\);/.test(menuSrc) && /window\.addEventListener\('pointerdown', onDown\)/.test(menuSrc),
-    escape: /role="menu"[\s\S]*?onKeyDown=\{onKeyDown\}/.test(menuSrc) && /action\.close === 'to-button'\) \{\s*event\.preventDefault\(\);\s*event\.stopPropagation\(\);\s*close\(true\);/.test(menuSrc),
+    // Escape is heard on the window while the menu is open (a press on the menu's padding leaves the keyboard on the page),
+    // put on and taken off with the outside-press listener, and it asks menuKey what the key means.
+    escape: /window\.addEventListener\('keydown', onEscape\);/.test(menuSrc) && /window\.removeEventListener\('keydown', onEscape\);/.test(menuSrc)
+      && /const onEscape = [^\n]*\{\s*const action = menuKey\(event\.key, -1, 0\);\s*if \(action && 'close' in action && action\.close === 'to-button'\) \{\s*event\.preventDefault\(\);\s*close\(true\);/.test(menuSrc),
+    // The arrow keys, Home, End and Tab stay on the menu itself.
+    onMenu: /role="menu"[\s\S]*?onKeyDown=\{onKeyDown\}/.test(menuSrc) && /action\.close === 'move-on'\) close\(false\);/.test(menuSrc) && /if \('focus' in action\) \{\s*event\.preventDefault\(\);\s*list\[action\.focus\]\?\.focus\(\);/.test(menuSrc),
   };
   // Red when: menuKey's Escape returns `{ close: 'move-on' }` (focus would not go back to File); or pressShutsMenu's
-  // `return !wrap?.contains(target);` becomes `return false;`; or File's `setOpen(true)` becomes `setOpen(false)` (it would never open).
-  // Seen: FAIL SH26 the File menu opens from its own button, …  keys [{"close":"move-on"},{"close":"move-on"},{"focus":0},…   (Escape)
-  //       FAIL SH26 …  presses false,false,false; button true, press true, escape true   (a press outside)
-  //       FAIL SH26 …  presses false,true,true; button false, press true, escape true   (File never opens)
-  ok('SH26 the File menu opens from its own button, Escape shuts only the menu and puts the keyboard back on File, Tab shuts it and moves on, the arrows wrap, and a press outside shuts it',
-     JSON.stringify(keys) === JSON.stringify(keysWant) && presses.join(',') === 'false,true,true' && wired.button && wired.press && wired.escape,
-     `keys ${JSON.stringify(keys)}; presses ${presses.join(',')}; button ${wired.button}, press ${wired.press}, escape ${wired.escape}`);
+  // `return !wrap?.contains(target);` becomes `return false;`; or File's `setOpen(true)` becomes `setOpen(false)` (it would never open);
+  // or the window's Escape is taken out (the `window.addEventListener('keydown', onEscape);` line is deleted, and Escape then does nothing
+  // after a press on the menu's padding); or Tab's `else if (action.close === 'move-on') close(false);` is deleted from the menu's own handler.
+  // Seen: FAIL SH26 the File menu opens from its own button, …  keys [{"close":"move-on"},{"close":"move-on"},{"focus":0},…]; presses false,true,true; button true, press true, escape true, onMenu true   (Escape)
+  //       FAIL SH26 …  keys […]; presses false,false,false; button true, press true, escape true, onMenu true   (a press outside)
+  //       FAIL SH26 …  presses false,true,true; button false, press true, escape true, onMenu true   (File never opens)
+  //       FAIL SH26 …  presses false,true,true; button true, press true, escape false, onMenu true   (the window's Escape taken out)
+  //       FAIL SH26 …  presses false,true,true; button true, press true, escape true, onMenu false   (Tab's close taken out of the menu's handler)
+  ok('SH26 the File menu opens from its own button, Escape shuts the menu from wherever the keyboard is (heard on the window while it is open) and puts the keyboard back on File, Tab shuts it and moves on, the arrows wrap, and a press outside shuts it',
+     JSON.stringify(keys) === JSON.stringify(keysWant) && presses.join(',') === 'false,true,true' && wired.button && wired.press && wired.escape && wired.onMenu,
+     `keys ${JSON.stringify(keys)}; presses ${presses.join(',')}; button ${wired.button}, press ${wired.press}, escape ${wired.escape}, onMenu ${wired.onMenu}`);
 
   // Red when: `const toolbarButton = 'px-3';` is put back in App.tsx; or App draws a second header (`<header` or a second <AppBar).
   // Seen: FAIL SH20 App draws its desktop header only through one <AppBar> (no toolbarButton string, no <header> of its own)  toolbarButton true; AppBar 1; <header false
@@ -142,4 +152,73 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   ok('SH20 App draws its desktop header only through one <AppBar> (no toolbarButton string, no <header> of its own)',
      !/toolbarButton/.test(app) && count(app, /<AppBar\b/g) === 1 && !/<header\b/.test(app) && /from ["']\.\/components\/shell\/AppBar["']/.test(app),
      `toolbarButton ${/toolbarButton/.test(app)}; AppBar ${count(app, /<AppBar\b/g)}; <header ${/<header\b/.test(app)}`);
+
+  // The three File menus (the planner's, the overview's and the front page's) and the unsaved words are built in App, so
+  // they are read from its source, one branch of the header at a time.
+  const branch = (from: RegExp, to: RegExp) => {
+    const start = app.search(from);
+    const rest = start < 0 ? '' : app.slice(start);
+    const end = rest.slice(1).search(to);
+    return end < 0 ? '' : rest.slice(0, end + 1);
+  };
+  const plannerBar = branch(/shown === 'map' && mission\s*\?\s*\{/, /: shown === 'overview' && mission && where/);
+  const overviewBar = branch(/shown === 'overview' && mission && where\s*\?\s*\{/, /: \/\/ The front page/);
+
+  // Unsaved work is said in words where the title is the flight. The overview bar's small line ends with the words, which stay
+  // when the rest of the line goes under 960 px (as in the planner's bar), its tooltip carries them, and it has no dot (the
+  // dot belongs beside the mission's name). One `dirtyWords` is defined above the phone branch, and the phone header is given it.
+  // Red when: the overview bar's `{isDirty ? dirtyWords : null}` is taken out of its `sub` (or its tooltip loses `isDirty ? dirtyWords : ''`); or
+  // `dirtyWords` is defined again below the phone branch; or the phone header's call loses its `dirtyWords`.
+  // Seen: FAIL SH27 unsaved work is said in words on the Flight overview, on the desktop bar and in the phone header, from one definition  words in the small line false, in its tooltip true, no dot true, one definition above the phone branch true, given to the phone header true
+  //         (the words taken out of the line)
+  //       FAIL SH27 …  words in the small line true, in its tooltip true, no dot true, one definition above the phone branch true, given to the phone header false
+  //         (the phone header's call without `dirtyWords`)
+  const defAt = app.search(/const dirtyWords = platform\.isWeb \? 'Not exported' : 'Unsaved changes';/);
+  const phoneAt = app.search(/if \(isPhone\) \{/);
+  const says = {
+    line: /<span className="max-\[959px\]:hidden">\{where\.sub\}\{isDirty \? ' · ' : ''\}<\/span> : null\}\s*\{isDirty \? dirtyWords : null\}/.test(overviewBar),
+    tooltip: /subTitle=\{\[where\.sub, isDirty \? dirtyWords : ''\]\.filter\(Boolean\)\.join\(' · '\)\}/.test(overviewBar),
+    noDot: overviewBar.length > 0 && !/\bdirty=\{/.test(overviewBar),
+    oneDefinition: count(app, /const dirtyWords\b/g) === 1 && defAt >= 0 && phoneAt > defAt,
+    phone: /phoneHeader\([^)]*, where, dirtyWords\)/.test(app),
+  };
+  ok('SH27 unsaved work is said in words on the Flight overview, on the desktop bar and in the phone header, from one definition',
+     Object.values(says).every(Boolean), `words in the small line ${says.line}, in its tooltip ${says.tooltip}, no dot ${says.noDot}, one definition above the phone branch ${says.oneDefinition}, given to the phone header ${says.phone}`);
+
+  // Save is in File on each screen that has a mission but no Save button: the overview and the front page with a mission
+  // open. A File row has no disabled state, so the row is always there. The planner's menu is unchanged (its filled button
+  // is Save), and the front page with no mission stays Open and Import.
+  // Red when: `saveItem` is taken out of `missionFileItems` (the overview's and the front page's list); or put into the planner's list.
+  // Seen: FAIL SH28 Save is a File row on the overview and on the front page while a mission is open, and not in the planner's menu or the front page with no mission  row true, shared list false, overview true, front page true, planner without it true
+  //         (saveItem taken out of the shared list)
+  //       FAIL SH28 …  row true, shared list true, overview false, front page true, planner without it true
+  //         (the overview given a list of its own without it)
+  const saveRow = /const saveItem: FileMenuItem = \{\s*id: 'save',\s*label: saveLabel,\s*sub: platform\.isWeb \? 'Download the mission as a \.json file' : 'Save this mission',\s*icon: 'save',\s*onSelect: \(\) => void handleSave\(\),\s*\};/.test(app);
+  const lists = {
+    row: saveRow && /const saveLabel = platform\.isWeb \? 'Export \.json' : 'Save';/.test(app),
+    list: /const missionFileItems: FileMenuItem\[\] = \[saveItem, \.\.\.saveAsItems, openItem, importItem, closeItem\];/.test(app),
+    overview: /fileItems: missionFileItems,/.test(overviewBar),
+    front: /fileItems: mission \? missionFileItems : \[openItem, importItem\] \}/.test(app),
+    planner: /fileItems: \[[\s\S]*?\.\.\.saveAsItems,\s*openItem,\s*importItem,\s*closeItem,\s*\]/.test(plannerBar) && !/saveItem/.test(plannerBar),
+  };
+  ok('SH28 Save is a File row on the overview and on the front page while a mission is open, and not in the planner\'s menu or the front page with no mission',
+     Object.values(lists).every(Boolean), `row ${lists.row}, shared list ${lists.list}, overview ${lists.overview}, front page ${lists.front}, planner without it ${lists.planner}`);
+
+  // The phone's back arrow takes its name from the screen that draws it, so the words live in one place.
+  // Red when: PhoneShell's `label={backLabel}` becomes `label="Back to the front page"`; or App stops passing `backLabel={W.backToFront}`.
+  // Seen: FAIL SH29 the phone's back arrow is named by what App gives it, and PhoneShell holds no such words of its own  named by the given words false, only with onBack true, no literal in PhoneShell false, App passes W.backToFront true
+  //         (the literal put back)
+  //       FAIL SH29 …  named by the given words true, only with onBack true, no literal in PhoneShell true, App passes W.backToFront false
+  //         (App's `backLabel` line taken out)
+  const phoneSrc = read('src/components/phone/PhoneShell.tsx');
+  const arrow = html(createElement(PhoneShell<'a'>, { title: 'Venom 1', onBack: noop, backLabel: 'Back to somewhere else', menu: [], children: null }));
+  const noArrow = html(createElement(PhoneShell<'a'>, { title: 'Venom 1', backLabel: 'Back to somewhere else', menu: [], children: null }));
+  const named = {
+    given: arrow.includes('aria-label="Back to somewhere else"') && arrow.includes('title="Back to somewhere else"'),
+    onlyWithBack: !noArrow.includes('Back to somewhere else'),
+    noLiteral: !/back to the front page/i.test(phoneSrc),
+    passed: /backLabel=\{W\.backToFront\}/.test(app),
+  };
+  ok('SH29 the phone\'s back arrow is named by what App gives it, and PhoneShell holds no such words of its own',
+     Object.values(named).every(Boolean), `named by the given words ${named.given}, only with onBack ${named.onlyWithBack}, no literal in PhoneShell ${named.noLiteral}, App passes W.backToFront ${named.passed}`);
 }

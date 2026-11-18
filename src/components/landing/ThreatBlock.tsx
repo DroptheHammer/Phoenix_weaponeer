@@ -115,7 +115,7 @@ export function ThreatBlock({
 
   const head = (
     <div className={cx(phone ? 'px-3 pb-2 pt-3' : 'mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3')}>
-      <h3 className={cx('flex items-center gap-1 font-bold', phone ? 'text-ui-body' : 'text-ui-small leading-[18px]')}>
+      <h3 className={cx('flex items-center gap-2 font-bold', phone ? 'text-ui-body' : 'text-ui-small leading-[18px]')}>
         {OW.near} {picker}
       </h3>
       <p className={cx('text-ui-caption leading-4', phone ? 'mt-1 text-ink-2' : 'text-ink-3')}>{OW.nearCaption}</p>
