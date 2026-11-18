@@ -239,75 +239,82 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-### STATE 2026-11-18 03:25 UTC: READ THIS FIRST
+### STATE 2026-11-18 07:45 UTC: READ THIS FIRST
 
 Work resumed on 2026-11-17 and is running. **Where this block and anything
 below it disagree, this block is right.** Memory
 (`project-v040-polish-and-playback`, `project-no-restricted-military-sources`,
 `project-sight-mils-follow-customize`) has the detail and the run ids.
 
-**Playback, `v040-playback-full`, tip `9bb4d37` (pushed).** The three
-review-fix stages are done and reviewed (`e152a37`, `1bd89a1`, `5d3f929`),
-then `be5ebcf` (text only: three real-world manuals are no longer named) and
-`9bb4d37` (from the user's look: the 3D playback says nothing about
-fire-control cones; the strike editor still does). geo-check 1,093; 188
-screenshot steps; start-up JS 634,551 (ceiling 635,049). "Playback look 6"
-and "Playback look 7" are in `Other Items/v040-builds/`; the user has looked
-and said "good", so the three calls made for him stand (only the watched jet
-draws a bomb line; the blast ring shows through hills; the old spacing rule
-stays as a choice that is off by default). Running when this was written:
-stages 16 (the Notes list) and 17 (the card's side view in the playback), in
-the main working copy. Not started: 18a, 18b, 20.
+**History was rewritten on 2026-11-18, with the user's yes.** Two-day-old
+notes and roadmap text that should never have been written were taken out of
+the unreleased history of `main` and both work branches; only that text
+changed, in the old commits that held it. Every commit hash on those three
+lines from 2026-11-15 on is new, so **a clone made before 2026-11-18 must be
+cloned again, never merged**, and hashes quoted in the older blocks below
+are the old ones. Releases and their tags are untouched.
 
-**Redesign, `v040-shell`, on GitHub at `44c9872`.** The user said yes, so
-GitHub's `v040-shell` was replaced with the line that stands on the playback
-branch's tip (`9bb4d37`). Working copy: `.claude/worktrees/shell`. Push a
-stage only after its review has passed: a fix round rewrites the stage's
-commit. When the playback branch moves, this branch is moved onto its new tip
-again (the director's job, checked commit by commit), and that push replaces
-the branch once more.
+**Playback, `v040-playback-full`, tip `43a5920` (pushed).** On top of the
+review fixes and the user's look ("good" to looks 6 and 7): a folded Notes
+list under the picture (what the 3D assumed and could not show) and a Side
+view button (the card's own side view of the watched jet, with the jet and
+then its bomb moving on it), both reviewed, then a small ceiling raise.
+geo-check 1,104; 200 screenshot steps; start-up JS 634,559 (ceiling
+636,073). Running when this was written, in the main working copy: the
+threat list in two stages (threats on and off by system; early-warning
+radars on demand). Then the director's proof stage and a new look.
 
-Built and reviewed, in order: the design foundation (`docs/DESIGN_SYSTEM.md`
-is the guide), the front page with its load box and recent-mission cards, the
-flight chooser, the new header with its File menu, and the Flight overview,
-the screen every load now lands on (jets and loadouts, the threats near the
-target or any waypoint picked, a map framed on them). A check holds the
-planner's Threats panel to saying nothing about hidden threats. geo-check
-1,352; start-up JS 662,530 (ceiling 675,830); stylesheet 73,195 (76,695);
-offline cache 1,747,068 (1,764,068). "Shell look 1", "2" and "3" are in
-`Other Items/v040-builds/`; 3 has the header and the overview.
+**Redesign, `v040-shell`, tip `cb8969d` (pushed). Every stage is built and
+reviewed.** Working copy: `.claude/worktrees/shell`. In order: the design
+foundation (`docs/DESIGN_SYSTEM.md` is the guide, now with a Shell section),
+the front page with its load box and recent-mission cards, the flight
+chooser, the header with its File menu, the Flight overview every load lands
+on, the planner's icon rail with count badges and floating side panel, the
+map's Legend as a small button in its bottom-left corner that is shut at
+start (the user's own request), the phone's navy bars, icon tabs and sheet,
+three small dialogs, and a screenshot proof (`scripts/shell-shots.cjs`).
+Start-up JS 671,302 (ceiling 675,830); stylesheet 74,617 (76,695); offline
+cache 1,756,154 (1,764,068). "Shell look 4" in `Other Items/v040-builds/` is
+the whole redesign; the user has not looked at it yet.
 
-Running when this was written: six more stages in one run (small fixes; the
-planner's icon rail, floating side panel and map controls; the Legend as a
-button in the map's corner, which is the user's own request; the phone's
-bars and sheet; three small dialogs; a screenshot proof). After it: read
-each diff, bring the three ceilings down, build "Shell look 4", and put the
-whole redesign in front of the user before anything merges to `main`.
+Still to do on it: when the playback's threat list is in, move the branch
+onto the playback's final tip (the director's job, checked commit by commit;
+that push replaces the branch again), one last tidy stage of six small
+left-overs (listed at the end of the redesign's working paper), bring the
+three ceilings down to what is built, and put the whole thing in front of
+the user before anything merges to `main`.
 
 **Sources.** The user ruled that a real-world military manual carrying a
 distribution restriction or an export-control notice is never a source here
 (section "Sources" above), unless DCS's own documentation or a published
 guide prints the same figure. An audit of every real-world document the
-project cites is done (`Other Items/v040-work/sources-audit/`). Done so far:
-the three restricted-marked ones are no longer named at the branch tips.
-Still to do, each needing the user's word: whether to scrub the two-day-old
-notes about one of them from the unreleased public history; how to credit
-the pop-up model's source; and a small table of weapon numbers that would
-change (a release floor and a speed warning among them).
+project cites is done (`Other Items/v040-work/sources-audit/`), the marked
+ones are no longer named anywhere, and the history is clean (above). Still
+needing the user's word: how to credit the pop-up model's source, and a
+small table of weapon numbers that would change (a release floor and a
+speed warning among them).
 
-**Sight mils.** The real jet's manual is out. The game's own manual prints
-only two bomb sight settings for the F-5E, neither near the planner's
-profiles. The user chose: the F-5E card prints the planner's own calculated
-figure, always marked "est.", following speed, height, dive angle and bomb.
-The design is being redone on that basis as a clean paper,
-`Other Items/v040-work/b3/BUILD_SPEC_S17_SIGHT_EST.md` (the older S13 paper
-is no longer a spec). He has not been asked about the other three manual
-jets, and he sees the whole table of figures before any number lands.
+**Sight mils: designed, not built, waiting on the user.** He stopped a table
+of mostly calculated figures: a known document's figure comes first, and the
+planner's calculation only fills in between. He then supplied community
+kneeboard packs made from test drops in the game. The design is redone on
+them and reviewed (`Other Items/v040-work/b3/BUILD_SPEC_S18_SIGHT_TABLES.md`,
+rulings in its last section; the S13 and S17 papers are no longer specs):
+on a setting a document prints, the card prints that figure; between printed
+settings, a figure worked from them and marked "est."; further out, "no
+figure", and the pilot types their own. Today's eight fixed numbers trace to
+no document and several are far off. He has the whole table and one
+question: may the app carry the packs' figures, with credit? Then, one per
+message: new attacks moved onto the documents' own settings, jet by jet
+(F-5E dives, F-5E Snakeye laydown, A-4E-C dives, a new Mirage F1 20° dive),
+and two offers (read the F-4E's in-game bombing calculator at six points;
+fly a short F-5E test drop). It is built last, on top of the redesign, and
+only what he has said yes to.
 
-**Waiting on the user, one at a time:** the three "Sources" decisions
-above; two picture questions on the redesign (the look of a main button
-that cannot be pressed; the playback's lettering); then the table of sight
-figures when its design is ready, and the redesign's last look.
+**Waiting on the user, one at a time:** the sight-figure questions above;
+the two "Sources" decisions; two picture questions on the redesign (the look
+of a main button that cannot be pressed; the playback's lettering); the
+redesign's last look ("Shell look 4") with its open questions.
 
 **Two build tracks share one Mac:** never run two browser-driven runs at
 once. Each run is told to wait until no headless browser is running.
