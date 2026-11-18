@@ -273,15 +273,16 @@ Not built, on purpose: closing a dialog by pressing the backdrop (the attack
 editor has no discard prompt, so a stray press would lose work), and marking
 the page behind a dialog as inert.
 
+The on-top test is held twice: DS23 tests the helper, and
+`scripts/web-smoke-chooser.cjs` proves it in a browser on the one path the web
+build has that opens a `Modal` over a dialog (the flight chooser under
+"Unsaved changes": one Escape closes only the top one). That run fails with the
+on-top test taken out of `Modal`'s Escape handler, on the desktop layout. The
+chooser asks for nothing of its own there: on a phone it is a sheet, not a
+`Modal`, so it switches its own Escape off while the other dialog is up.
+
 Open, small, for the next change that touches `Modal`:
 
-- **No check yet catches the on-top test taken out of `Modal`'s Escape
-  handler.** The web build has no path a user can take that opens one `Modal`
-  over another, so the browser run cannot show it, and DS23 tests only the
-  helper. The first screen that opens a `Modal` over a `Modal` (for example
-  a chooser under the "Unsaved changes" dialog) should prove in a browser that
-  one Escape closes only the top one, and show that check failing with the
-  on-top test taken out.
 - **Escape typed while an input method is composing text also closes the
   dialog.** `Modal`'s key handler does not skip `event.isComposing` (the
   playback's does), so Escape that cancels composed text in a dialog field
@@ -309,7 +310,8 @@ before it is kept.
 | DS19, DS20, DS22 | no blanket motion rule; the phone block; the quantity colour |
 | DS23, DS24 | the dialog on top; Tab staying inside |
 | X4, X9 (`landing-ui-check.tsx`) | the map's marker code is pinned; `tall:` and `short:` are height queries and the width variants still build |
-| UI1, X3, X8 (`landing-ui-check.tsx`) | the jet card's quantity colour, amber unknown stores and ESTIMATED tag; no raw colour in `src/components/landing/`; no comment there points at a git-ignored file, and no width query stands in for a height rule |
+| UI1, X3, X8 (`landing-ui-check.tsx`) | the jet card's quantity colour, amber unknown stores and ESTIMATED tag; no raw colour in `src/components/landing/` or in the flight chooser; no comment there points at a git-ignored file, and no width query stands in for a height rule |
+| UI3, UI3b, X2 (`landing-ui-check.tsx`) | the flight chooser names only threats the planner may see and reads as for no threats when all are hidden, the link's notice included; no front-page, chooser or overview file reads or words a hidden-threat count |
 
 **The built app**: `npm run build` and `npm run build:web` end with
 `bundle-check.mjs` and `style-check.mjs`. Style-check fails on a font host, a
@@ -332,6 +334,16 @@ playwright-core folder) and `CHROME_PATH` (a Chromium binary), or falls back to
   then the same on the attack editor. A change that moves a control it presses
   (the header's Settings button, the Attacks panel's "+ Add Attack") changes
   the script in the same commit and runs it.
+- **The flight chooser under "Unsaved changes"**, at 1280 x 800 and at 390 x 844
+  on the web build (the first run is desktop, the second a phone):
+  ```
+  node scripts/web-smoke-chooser.cjs http://localhost:4173/ <screenshotDir> [width height]
+  ```
+  It makes the browser's mission store refuse writes, imports a flight, loads
+  the mission again and presses Import: "Unsaved changes" must open over the
+  chooser. Cancel comes back to the chooser with the flight still chosen, one
+  Escape closes only "Unsaved changes", the next closes the chooser, and Discard
+  imports.
 - **Before and after**, the whole proof of a change to the look:
   ```
   node scripts/design-shots.cjs --before <tree> --out <dir>

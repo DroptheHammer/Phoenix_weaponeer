@@ -10,7 +10,10 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { FragOrdersData } from '../src/types/fragorders.types';
 import { JetCard } from '../src/components/landing/JetCard';
+import { FragOrdersPreview } from '../src/components/import/FragOrdersPreview';
+import { useUiStore } from '../src/stores/uiStore';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -38,29 +41,91 @@ ok('UI1 quantities in their own colour, an unknown store amber with its words, E
     /border-control[^>]*>(<svg[\s\S]*?<\/svg>)?ESTIMATED</.test(card) && !/text-warn[^>]*>[^<]*ESTIMATED/.test(card),
   qtyCells.join(' '));
 
-// ─── What the front page's own files may write ───────────────────────────────
-// The flight chooser's file (src/components/import/FragOrdersPreview.tsx) is still the old picker, written in Tailwind's
-// own palette; it joins this list when it is rewritten on the tokens.
-const files = readdirSync('src/components/landing').map((f) => `src/components/landing/${f}`);
+// ─── Choose your flight says nothing about threats the author hid ────────────
+// The chooser is drawn here as the phone's sheet: the desktop's dialog is a portal, which plain markup cannot show,
+// and both draw the same warnings and notices from the same variables. Two threats the author hid (one matched, one
+// with no database row) and one with no database row that anyone may see.
+const flight = { name: 'Testcall', callsign: 'Testcall 1-1', aircraft_type: 'F-16C_50', waypoints: [], units: [{ name: 'u1', callsign: 'Testcall11', onboard_num: null, loadout: [] }] };
+const threat = (unit_type: string, group_name: string, system_id: string | null, hidden_on_planner: boolean, hidden_on_map: boolean) => ({
+  unit_type, group_name, position: { lat: 36.1, lon: -115.1 }, system_id, system_name: system_id ? '2K12 Kub' : null,
+  confidence: system_id ? 'High' : 'Unknown', hidden_on_planner, hidden_on_map,
+});
+const chooserData = (threats: ReturnType<typeof threat>[], notices: string[] = []) => ({
+  theater: 'nevada', theater_display_name: 'Test Nevada', projection_verified: true, bullseye: { lat: 36, lon: -115 },
+  player_groups: [flight], threats, trigger_zones: [], warnings: [], notices, source: null,
+}) as unknown as FragOrdersData;
+const chooserMarkup = (data: FragOrdersData, reveal = { onPlanner: false, onMap: false }) => {
+  // A server render reads the store's initial state, not its current one (zustand hands React the initial state as
+  // the server snapshot), so that is where the Settings switches are set, and put back.
+  const initial = useUiStore.getInitialState();
+  const before = initial.revealHidden;
+  initial.revealHidden = reveal;
+  try {
+    return renderToStaticMarkup(createElement(FragOrdersPreview, { data, aircraft: [{ id: 'f16c', name: 'F-16C Viper' }], onBack: () => {}, onImport: () => {}, phone: true }));
+  } finally {
+    initial.revealHidden = before;
+  }
+};
+const hiddenThreats = [threat('SA-6 Kub STR', 'FAKE-HIDDEN-GROUP', 'sa6', true, false), threat('FAKE-HIDDEN-UNKNOWN', 'g', null, false, true)];
+const step = chooserMarkup(chooserData([...hiddenThreats, threat('FAKE-SEEN-UNKNOWN', 'g2', null, false, false)]));
+// Only words a planner could read are searched: the classes and the decorative icons' aria-hidden are left out.
+const readable = (markup: string) => markup.replace(/aria-hidden="true"|class="[^"]*"/g, '');
+// Red when (FragOrdersPreview): the unmatched threats are worked out from `data.threats` instead of the view
+// (`threatView.unmatchedTypes` becomes `data.threats.filter((t) => t.system_id === null).map((t) => t.unit_type)`).
+// Seen: FAIL UI3 the step names only threats the planner may see, and says nothing about hidden ones
+//         (the warning then also listed FAKE-HIDDEN-UNKNOWN; UI3b failed with it: same as none false, warning true, hidden names true)
+ok('UI3 the step names only threats the planner may see, and says nothing about hidden ones',
+  step.includes('FAKE-SEEN-UNKNOWN') && !step.includes('FAKE-HIDDEN') && !/hidden|probable|location unknown/i.test(readable(step)) &&
+    step.includes('Choose your flight') && step.includes('Testcall 1') && step.includes('Import Testcall 1'));
+// A link whose threats are all hidden carries the link's notice ("no enemy air defences"), as a link with none does: with
+// nothing revealed the step reads exactly like the step for no threats, notice included. With a switch on in Settings the
+// planner sees the threat listed elsewhere, and the notice goes, as before.
+// Red when (FragOrdersPreview): the notices are printed from `data.notices` instead of the view (`threatView.notices.map` becomes `data.notices.map`).
+// Seen: FAIL UI3b with every threat hidden the step reads as for a mission with none, the link's notice included, and a revealed threat takes the notice away  same as none true, notice true, warning false, hidden names false, notice when revealed true, both switches name the unmatched one true
+//         (a threat the planner has revealed is listed, yet the step still printed "no enemy air defences"; UI3 stayed green)
+const NO_THREATS_NOTICE = 'This link shows no enemy air defences. The mission may have none, or its publisher chose not to share them.';
+const allHidden = chooserMarkup(chooserData(hiddenThreats, [NO_THREATS_NOTICE]));
+const noneAtAll = chooserMarkup(chooserData([], [NO_THREATS_NOTICE]));
+const revealed = chooserMarkup(chooserData(hiddenThreats, [NO_THREATS_NOTICE]), { onPlanner: true, onMap: false });
+// Both switches on: the planner now sees all three, so the one with no database row is named in the warning.
+const revealedBoth = chooserMarkup(chooserData(hiddenThreats, [NO_THREATS_NOTICE]), { onPlanner: true, onMap: true });
+ok('UI3b with every threat hidden the step reads as for a mission with none, the link\'s notice included, and a revealed threat takes the notice away',
+  allHidden === noneAtAll && allHidden.includes(NO_THREATS_NOTICE) && !allHidden.includes('import warning') && !allHidden.includes('FAKE-HIDDEN') &&
+    !revealed.includes(NO_THREATS_NOTICE) && revealedBoth.includes('FAKE-HIDDEN-UNKNOWN') && !revealedBoth.includes(NO_THREATS_NOTICE),
+  `same as none ${allHidden === noneAtAll}, notice ${allHidden.includes(NO_THREATS_NOTICE)}, warning ${allHidden.includes('import warning')}, hidden names ${allHidden.includes('FAKE-HIDDEN')}, notice when revealed ${revealed.includes(NO_THREATS_NOTICE)}, both switches name the unmatched one ${revealedBoth.includes('FAKE-HIDDEN-UNKNOWN')}`);
+
+// ─── What the front page's and the chooser's own files may write ─────────────
+// The chooser is held to the same rules as the landing components.
+const files = ['src/components/import/FragOrdersPreview.tsx', ...readdirSync('src/components/landing').map((f) => `src/components/landing/${f}`)];
+// The front page, the chooser and the overview never read or word a hidden-threat count, a "probable threats" line or an
+// "author hid" tag: the app says nothing about threats the author hid unless Settings reveals them.
+// Red when: `const probableCount = 0;` is added to FragOrdersPreview.tsx (or `summary.threats.probableCount` read in a landing file).
+// Seen: FAIL X2 the front page, the step and the overview never read or word a hidden-threat count  src/components/import/FragOrdersPreview.tsx
+const talk = files.filter((f) => /probable|revealedCount|hiddenCount|isHiddenByAuthor|location unknown|hidden by (the mission )?author/i.test(src(f)));
+ok('X2 the front page, the step and the overview never read or word a hidden-threat count', talk.length === 0, talk.join(', '));
 // Colour comes from the tokens (text-ink, bg-surface-navy, text-qty, ...), never a hex, a colour function or a Tailwind
 // palette class, so the screens follow the design system if it changes.
-// Red when: `text-gray-400` (or any hex) is written in a landing file, say in the jet card.
-// Seen: FAIL X3 no raw colour in the landing components (tokens only)  src/components/landing/JetCard.tsx:26
+// Red when: `text-gray-400` (or any hex) is written in a landing file, say in the jet card, or in the chooser.
+// Seen: FAIL X3 no raw colour in the landing components and the chooser (tokens only)  src/components/landing/JetCard.tsx:26
 //         (the role line as `text-gray-400`)
-//       FAIL X3 no raw colour in the landing components (tokens only)  src/components/landing/words.ts:80
+//       FAIL X3 no raw colour in the landing components and the chooser (tokens only)  src/components/landing/words.ts:80
 //         (a `// #86efac` comment after the Qty word)
+//       FAIL X3 no raw colour in the landing components and the chooser (tokens only)  src/components/import/FragOrdersPreview.tsx:77
+//         (the chooser's unverified-coordinates notice as `text-amber-300`)
 const PALETTE = /\b(?:bg|text|border|ring|outline|fill|stroke|from|via|to|divide|placeholder|caret|accent|decoration|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d{2,3})?(?:\/\d{1,3})?\b/;
 const raw = files.flatMap((f) => src(f).split('\n').map((l, i) => [f, i + 1, l] as const)).filter(([, , l]) => /#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(l) || PALETTE.test(l)).map(([f, n]) => `${f}:${n}`);
-ok('X3 no raw colour in the landing components (tokens only)', raw.length === 0, raw.join(', '));
+ok('X3 no raw colour in the landing components and the chooser (tokens only)', raw.length === 0, raw.join(', '));
 // A comment in a committed file must make sense to someone who has only the repo: none may point at a git-ignored
 // file a reader cannot open, and no width query may stand in for a height one (Tailwind's max-[…] is max-WIDTH).
 // Red when: a comment in JetCard.tsx points at such a file by name and line, say "efb2.html .jet (:574-609)" (or a landing file gets `max-[819px]:mt-4`).
-// Seen: FAIL X8 no landing file points at a git-ignored file, and none writes a height rule as a width query  src/components/landing/JetCard.tsx
+// Seen: FAIL X8 no landing file or chooser points at a git-ignored file, and none writes a height rule as a width query  src/components/landing/JetCard.tsx
 //         (a `// efb2.html .jet (:574-609)` comment; the same with `max-[819px]:min-h-11` on the header row)
-//       FAIL X8 no landing file points at a git-ignored file, and none writes a height rule as a width query  scripts/overview-check.ts
+//       FAIL X8 no landing file or chooser points at a git-ignored file, and none writes a height rule as a width query  scripts/overview-check.ts
 //         (one of those words added to that file's header comment)
+//       FAIL X8 no landing file or chooser points at a git-ignored file, and none writes a height rule as a width query  src/components/import/FragOrdersPreview.tsx
+//         (a comment above the chooser's props pointing at such a file by name and line, as above)
 const pointers = [...files, 'scripts/overview-check.ts'].filter((f) => /efb2|critique|BRIEF-V2|v2-facts|mockup|Other Items|max-\[819px\]:/i.test(src(f)));
-ok('X8 no landing file points at a git-ignored file, and none writes a height rule as a width query', pointers.length === 0, pointers.join(', '));
+ok('X8 no landing file or chooser points at a git-ignored file, and none writes a height rule as a width query', pointers.length === 0, pointers.join(', '));
 
 // ─── The planner map's markers, rings and route ──────────────────────────────
 // mapMarkers.ts is pinned whole: its code with comments and spacing taken out, hashed. The two icon functions are

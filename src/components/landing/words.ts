@@ -75,6 +75,7 @@ export const W = {
   backToList: 'Back to the list of flights',
   importFlight: (label: string) => `Import ${label}`,
   importNone: 'Import a flight',
+  chooserFailed: 'The flight list could not be opened. Go back and press Load again.',
 
   // ── Jet card ──
   qty: 'Qty',

@@ -1,12 +1,14 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useMemo, useRef, type ComponentProps } from "react";
 import { platform } from "@platform";
 import { useMissionStore } from "./stores/missionStore";
 import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
 import { useProfileStore } from "./stores/profileStore";
 import { useUiStore } from "./stores/uiStore";
 import { useVisibleMission } from "./hooks/useVisibleMission";
-import { FragOrdersPreview } from "./components/import/FragOrdersPreview";
+// Types only: the flight chooser's code is loaded when a load needs it, not at start-up.
+import type { FragOrdersPreview } from "./components/import/FragOrdersPreview";
 import { Modal } from "./components/common/Modal";
+import { Button } from "./components/ui/Button";
 import { FrontPage } from "./components/landing/FrontPage";
 import { W } from "./components/landing/words";
 import { adoptSavedMission } from "./lib/landing/platformBindings";
@@ -50,8 +52,27 @@ type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 /** What fills the window: the front page (always, with no mission), or the planner's map. */
 type Screen = 'front' | 'map';
 
-/** The "Choose your flight" dialog's Escape while the "Unsaved changes" dialog stands over it. */
-const noop = () => {};
+/**
+ * What stands in for the flight chooser when its code cannot be loaded (a browser tab left open across a site
+ * update, a broken install): it says so and offers the way back, rather than throwing to the root error boundary
+ * and blanking the app.
+ */
+function ChooserUnavailable({ onBack }: ComponentProps<typeof FragOrdersPreview>) {
+  return (
+    <Modal title={W.chooseTitle} onClose={onBack}>
+      <p className="text-ui-body text-ink-2">{W.chooserFailed}</p>
+      <div className="mt-4 flex justify-end">
+        <Button variant="quiet" icon="chev-left" onClick={onBack}>{W.back}</Button>
+      </div>
+    </Modal>
+  );
+}
+
+const FlightChooser = lazy(() =>
+  import("./components/import/FragOrdersPreview")
+    .then((m) => ({ default: m.FragOrdersPreview }))
+    .catch(() => ({ default: ChooserUnavailable })),
+);
 
 /**
  * "Strike near me" needs the phone's GPS, so it is a web-build feature; the
@@ -467,11 +488,18 @@ function App() {
       {showSettings && <SettingsModal aircraft={aircraft} onClose={() => setShowSettings(false)} />}
 
       {/* Before the "Unsaved changes" dialog, on purpose: a dialog drawn later stands on top, and that one must
-          stand over this one, which stays open under it and ignores Escape until it is answered. */}
+          stand over this one, which stays open under it and takes no Escape until it is answered. */}
       {chooser && (
-        <Modal title={W.chooseTitle} widthClass="w-[min(720px,calc(100vw-48px))]" onClose={pendingAction ? noop : closeChooser}>
-          <FragOrdersPreview data={chooser.data} onBack={closeChooser} onImport={handleChooserImport} />
-        </Modal>
+        <Suspense fallback={null}>
+          <FlightChooser
+            data={chooser.data}
+            aircraft={aircraft}
+            phone={isPhone}
+            suspended={pendingAction !== null}
+            onBack={closeChooser}
+            onImport={handleChooserImport}
+          />
+        </Suspense>
       )}
 
       {showStrikeNearMe && (

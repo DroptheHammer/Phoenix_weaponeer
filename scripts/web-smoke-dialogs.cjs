@@ -12,10 +12,10 @@
 // require('playwright') (give NODE_PATH=$(npm root -g) for a global install)
 // and Playwright's own browser.
 //
-// Two of the app's own dialogs open at once only in the desktop app (closing
-// the window over an open editor asks about unsaved changes); in the web build
-// no path a user can take opens one dialog over another, so the on-top rule is
-// held by ui-check (DS23), not here.
+// Two dialogs at once: in the web build the one path a user can take is the
+// flight chooser under "Unsaved changes" (an import over unsaved work), which
+// scripts/web-smoke-chooser.cjs walks, so the on-top rule is proved in a
+// browser there. ui-check (DS23) holds the rule's helper.
 //
 // Prints one STEP line per stage; a thrown error prints FAILED and exits 1.
 //

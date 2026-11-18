@@ -367,7 +367,12 @@ async function firstScreen(page) {
   return (await front.count()) > 0;
 }
 
-/** Load the synthetic mission as far as the flight picker, whose own button reads "Import Mission". */
+/**
+ * Load the synthetic mission as far as the flight picker, whose own button reads "Import Viper 1" (the flight's
+ * name), or "Import Mission" in a copy from before "Choose your flight" was rebuilt. The header's own Import button
+ * has no word after it, and the old landing's "Import FragOrders" is left out, so the pattern finds only the picker's.
+ */
+const IMPORT_PICKED = /^Import (?!FragOrders)/;
 async function importMission(page) {
   if (await firstScreen(page)) {
     await page.getByPlaceholder('Paste a FragOrders link').fill(fixture);
@@ -378,7 +383,7 @@ async function importMission(page) {
     await page.getByPlaceholder('Or paste FragOrders JSON here...').fill(fixture);
     await page.getByRole('button', { name: 'Parse JSON' }).click();
   }
-  await page.getByRole('button', { name: 'Import Mission' }).waitFor();
+  await page.getByRole('button', { name: IMPORT_PICKED }).waitFor();
 }
 
 /** One copy at one size: every screen's picture and the measures the checks need. */
@@ -397,7 +402,7 @@ async function appRun(browser, base, size) {
     m.widths['import-preview'] = await widths(page);
     m.importDialog = await box(page.locator('[role="dialog"]').last());
 
-    await page.getByRole('button', { name: 'Import Mission' }).click();
+    await page.getByRole('button', { name: IMPORT_PICKED }).click();
     await page.getByRole('button', { name: /^Threats/ }).first().waitFor();
     await page.locator('.leaflet-marker-icon').first().waitFor();
     await page.waitForTimeout(1500); // the map's fit, and the blocked tiles giving up
@@ -551,7 +556,7 @@ async function cardsRun(browser, base, dir) {
   try {
     await page.goto(base);
     await importMission(page);
-    await page.getByRole('button', { name: 'Import Mission' }).click();
+    await page.getByRole('button', { name: IMPORT_PICKED }).click();
     await page.getByRole('button', { name: /^Attacks/ }).waitFor();
     const selectWith = (placeholder) => page.locator(`select:has(option:text("${placeholder}"))`);
     for (const attacker of [1, 2, 1]) {
