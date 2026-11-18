@@ -378,17 +378,25 @@ and Show all, and is never saved with a mission. Escape inside it shuts it and
 puts the keyboard on its button; a click elsewhere does not. A shut Legend with
 a layer switched off reads "Legend · filtered". Its counts are the visible
 mission's. The phone has no Legend box: a "Layers" button 12 px from the map's
-top and right opens the same contents in a panel 8 px under it, which stops at
-least 20 px above the map's bottom and scrolls, and shows a dot ("some layers
-hidden") while a filter is on.
+top and right opens the same contents in a panel 8 px under it, which stops 8 px
+above the map credit's chip (held sideways the panel is tall enough to reach it,
+and the chip stands in the same corner) and scrolls, and shows a dot ("some
+layers hidden") while a filter is on. The stop is worked out from the chip's own
+gap and height (`ABOVE_CREDIT`, in `MapCredit.tsx`), so a change to the chip
+moves it too.
 
 **The phone** (`PhoneShell`, `BottomSheet`). A top bar of 45 px with the title
 over a smaller second line (on the map the place, then "Not exported" while
 there is work not yet downloaded; on the Flight overview "Not exported" comes
 first, because a phone cuts that line at its right end), a back arrow where a
 screen has one, the dot named "unsaved changes", and a Menu button whose list
-has an icon on every row. A bar of five icon tabs at the foot, 69 px and clear
-of the home bar, the open one in the accent, the count a badge. A tab opens
+has an icon on every row. The menu answers a keyboard as File does: opening
+puts the keyboard on the first row, Up, Down, Home and End move round it (the
+same `menuKey` rule), Escape shuts it from wherever the keyboard is and gives it
+back to Menu, Tab shuts it and moves on, and a tap outside shuts it. A bar of
+five icon tabs at the foot, 69 px and clear of the home bar, the open one in the
+accent, the count a badge; a tab has no hover tint (a touch screen would leave
+it on the tab last tapped) and shows a press instead. A tab opens
 its panel as a bottom sheet over the map, half height or full: the 96 x 44
 handle switches them by touch, Enter or Space, and the close button is 44 px.
 The zoom is at the bottom left and the credit at the bottom right.
@@ -410,7 +418,7 @@ On a phone the notice banner on the map is 1050, the bottom sheet 1100, the
 message strip under the top bar 1150, the top bar and the tab bar 1200, and the
 menu 1300.
 
-**Held by:** `scripts/shell-check.tsx` (SH1 to SH38, in `npm run geo-check`:
+**Held by:** `scripts/shell-check.tsx` (SH1 to SH40, there is no SH18, in `npm run geo-check`:
 the names, the header and the File menu's lists and keys, the rail, the
 panel's frame and slide, the zoom and credit, the Legend's looks and its
 filters, the phone's bars, and that no shell file words or counts a threat the
@@ -438,7 +446,7 @@ new check is seen failing once before it is kept.
 | DS14, DS15, DS18 | the blocks' markup and states; `nextSelection`; the dialog's contract, heights and `tabindex` |
 | DS19, DS20, DS22 | no blanket motion rule; the phone block; the quantity colour |
 | DS23, DS24 | the dialog on top; Tab staying inside |
-| SH1 to SH38 (`shell-check.tsx`) | the app shell: the rail's names, the header and the File menu, the rail's counts, the side panel's frame and slide, the zoom and credit, the Legend, the phone's bars and sheet (see "The app shell") |
+| SH1 to SH40, there is no SH18 (`shell-check.tsx`) | the app shell: the rail's names, the header and the File menu, the rail's counts, the side panel's frame and slide, the zoom and credit, the Legend, the phone's bars and sheet (see "The app shell") |
 | X4, X9 (`landing-ui-check.tsx`) | the map's marker code is pinned; `tall:` and `short:` are height queries and the width variants still build |
 | UI1, X3, X8 (`landing-ui-check.tsx`) | the jet card's quantity colour, amber unknown stores and ESTIMATED tag; no raw colour in `src/components/landing/` or in the flight chooser; no comment there points at a git-ignored file, and no width query stands in for a height rule |
 | UI3, UI3b, X2, X2b (`landing-ui-check.tsx`) | the flight chooser names only threats the planner may see and reads as for no threats when all are hidden, the link's notice included; no front-page, chooser, overview or Threats-panel file reads or words a hidden-threat count; the Threats panel, drawn with hidden threats in the mission, lists and counts only what the planner may see, and each Settings switch shows its own kind |

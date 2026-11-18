@@ -8,6 +8,7 @@ import { Icon } from '../ui/Icon';
 import { Dot } from '../ui/Chip';
 import { Button } from '../ui/Button';
 import { Panel } from '../ui/Panel';
+import { ABOVE_CREDIT } from './MapCredit';
 
 export interface MapLegendProps {
   /** Full, unfiltered mission attacks — used to enumerate flights/members and their counts. */
@@ -137,12 +138,13 @@ export function LayersButton(props: MapLegendProps) {
 
   return (
     // The button sits 12 px from the map's top and right edge (clear of a notch), the panel 8 px
-    // under it, as tall as the map allows down to 20 px from its bottom, then it scrolls. The
-    // wrapper runs down the map's right side but lets every touch through except on the button
-    // and the panel.
+    // under it, as tall as the map allows down to 8 px above the map credit's chip (ABOVE_CREDIT:
+    // the chip is in the same corner, and held sideways the panel is tall enough to reach it),
+    // then it scrolls. The wrapper runs down the map's right side but lets every touch through
+    // except on the button and the panel.
     // font-sans: this sits inside MapView's `font-map` wrapper, which is kept for the attack
     // labels, but it is app chrome, so it takes the app's font.
-    <div ref={ref} className="pointer-events-none absolute bottom-5 right-[max(0.75rem,var(--safe-right))] top-3 z-[1000] flex flex-col items-end gap-2 font-sans">
+    <div ref={ref} className={cx('pointer-events-none absolute right-[max(0.75rem,var(--safe-right))] top-3 z-[1000] flex flex-col items-end gap-2 font-sans', ABOVE_CREDIT)}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

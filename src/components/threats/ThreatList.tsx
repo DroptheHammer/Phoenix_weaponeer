@@ -133,7 +133,8 @@ export function ThreatList({ threatSystems, availableThreats }: ThreatListProps)
               },
             });
           }}
-          className="bg-dcs-accent hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+          // Its words stay on one line and the button keeps its size: on a phone it is the text beside it that wraps.
+          className="bg-dcs-accent hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 shrink-0 whitespace-nowrap"
         >
           <span>+</span>
           <span>Add Threat</span>

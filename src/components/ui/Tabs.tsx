@@ -63,7 +63,9 @@ const ITEM: Record<TabsVariant, { base: string; on: string; off: string }> = {
   bar: {
     base: 'grid min-h-tab min-w-0 content-center justify-items-center gap-0.5 rounded-ui-md px-0.5 py-1.5 text-ui-small leading-tight transition-colors duration-fast ease-ui motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50',
     on: 'bg-accent font-bold text-ink-on-accent',
-    off: 'font-semibold text-ink-2 hover:bg-tint-2 active:bg-tint-2',
+    // No hover tint: this is the phone's bar, and on a touch screen a hover tint stays on the tab that was
+    // last tapped. A press is shown by `active:` alone.
+    off: 'font-semibold text-ink-2 active:bg-tint-2',
   },
   pills: {
     base: 'inline-flex min-h-tap-sm items-center gap-2 rounded-ui-md border px-3 text-ui-small font-semibold transition-colors duration-fast ease-ui motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50',

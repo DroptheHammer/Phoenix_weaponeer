@@ -131,7 +131,8 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
           {canStrike && (
             <button
               onClick={handleAddStrike}
-              className="border border-cyan-700 text-cyan-200 hover:bg-cyan-950 px-3 py-2 rounded-lg transition-colors"
+              // Its words stay on one line and the button keeps its size: on a phone it is the text beside it that wraps.
+              className="border border-cyan-700 text-cyan-200 hover:bg-cyan-950 px-3 py-2 rounded-lg transition-colors shrink-0 whitespace-nowrap"
               title={STRIKE_HINT}
             >
               + Add Strike
@@ -139,7 +140,7 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
           )}
           <button
             onClick={handleAddAttack}
-            className="bg-dcs-accent hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+            className="bg-dcs-accent hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2 shrink-0 whitespace-nowrap"
           >
             <span>+</span>
             <span>Add Attack</span>

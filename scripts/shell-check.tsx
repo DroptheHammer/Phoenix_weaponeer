@@ -284,11 +284,12 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
 
   const mapView = read('src/components/map/MapView.tsx');
   // Red when: `attributionControl={false}` is taken out of MapView (Leaflet's own credit would be drawn beside the app's); or the
-  // phone chrome's `<MapZoom` is taken out (the Layers button may stand first in that block, nothing else may).
+  // phone chrome's `<MapZoom` is taken out (the Layers button may stand first in that block, nothing else may); or it is renamed
+  // `<MapZoomX` (the name is matched whole, so a longer name does not pass for it).
   // Seen: FAIL SH8 Leaflet's own zoom and attribution are off; MapView draws the app's zoom and credit on a phone  attribution off false; Leaflet zoom false
-  //       FAIL SH8 …  attribution off true; Leaflet zoom false   (the phone's zoom renamed away)
+  //       FAIL SH8 …  attribution off true; Leaflet zoom false   (the phone's zoom renamed away: `<MapZoomX`)
   ok('SH8 Leaflet\'s own zoom and attribution are off; MapView draws the app\'s zoom and credit on a phone',
-     /attributionControl=\{false\}/.test(mapView) && /zoomControl=\{false\}/.test(mapView) && !/<ZoomControl/.test(mapView) && /\{isPhone && \(\s*<>\s*(?:<LayersButton[^>]*\/>\s*)?<MapZoom[\s\S]*?<MapCredit/.test(mapView),
+     /attributionControl=\{false\}/.test(mapView) && /zoomControl=\{false\}/.test(mapView) && !/<ZoomControl/.test(mapView) && /\{isPhone && \(\s*<>\s*(?:<LayersButton[^>]*\/>\s*)?<MapZoom\b[\s\S]*?<MapCredit/.test(mapView),
      `attribution off ${/attributionControl=\{false\}/.test(mapView)}; Leaflet zoom ${/<ZoomControl/.test(mapView)}`);
 
   // Red when: MAP_CREDIT becomes '© Map data'.
@@ -450,17 +451,19 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   const layers = html(createElement(LayersButton, props));
   const mapViewTag = app.slice(Math.max(0, app.indexOf('<MapView')), Math.max(0, app.indexOf('/>', app.indexOf('<MapView'))));
   const phoneLegend = {
-    once: count(app, /<LegendDock\b/g) === 1 && /legend=\{<LegendDock\b/.test(app) && !/<MapLegend\b/.test(mapViewSrc) && !/import \{ MapLegend \}/.test(mapViewSrc),
+    once: count(app, /<LegendDock\b/g) === 1 && /legend=\{<LegendDock\b/.test(app) && !/<MapLegend\b/.test(mapViewSrc) && !/import \{ MapLegend \}/.test(mapViewSrc) && !/<LegendDock\b/.test(mapViewSrc),
     shut: layers.includes('aria-expanded="false"') && />Layers</.test(layers) && !layers.includes('role="dialog"') && layers.includes('font-sans') && layers.includes('top-3'),
     panel: /role="dialog"\s+aria-label="Layers"/.test(legendSrc) && /<div\s+className="pointer-events-auto min-h-0 w-\[min\(var\(--legend-w\),calc\(100vw-1\.5rem\)\)\]/.test(legendSrc),
-    first: /\{isPhone && \(\s*<>\s*<LayersButton attacks=\{attacks\} flightMembers=\{flightMembers\} threats=\{threats\} \/>\s*<MapZoom/.test(mapViewSrc),
+    first: /\{isPhone && \(\s*<>\s*<LayersButton attacks=\{attacks\} flightMembers=\{flightMembers\} threats=\{threats\} \/>\s*<MapZoom\b/.test(mapViewSrc),
     visible: /threats=\{visibleMission\?\.threats \?\? \[\]\}/.test(mapViewTag) && !/threats=\{mission\.threats\}/.test(mapViewTag),
   };
   // Red when: App's `<MapView … threats={visibleMission?.threats ?? []}` becomes `threats={mission.threats}` (the phone's Layers panel would count the hidden ones); or
-  // MapView draws `<MapLegend … />` again (a second Legend on the desktop); or the panel loses its `min-h-0` (it runs past the map's bottom).
+  // MapView draws `<MapLegend … />` again (a second Legend on the desktop), or a `<LegendDock … />` (the same second Legend by its other name);
+  // or the panel loses its `min-h-0` (it runs past the map's bottom); or the phone chrome's `<MapZoom` is renamed `<MapZoomX` (matched whole).
   // Seen: FAIL SH33 the desktop draws its Legend once, in the planner's left column; …  Legend once true, shut true, panel true, first true, visible threats false   (App's MapView given mission.threats)
-  //       FAIL SH33 …  Legend once false, shut true, panel true, first true, visible threats true   (a `<MapLegend … />` line put back)
+  //       FAIL SH33 …  Legend once false, shut true, panel true, first true, visible threats true   (a `<MapLegend … />` line put back; also a `<LegendDock … />` line in MapView)
   //       FAIL SH33 …  Legend once true, shut true, panel false, first true, visible threats true   (`min-h-0` taken out of the panel)
+  //       FAIL SH33 …  Legend once true, shut true, panel true, first false, visible threats true   (`<MapZoomX`)
   ok('SH33 the desktop draws its Legend once, in the planner\'s left column; the phone\'s Layers button is the first thing in MapView\'s phone chrome, shut it is one button, open its panel is a dialog named "Layers" that fits the map, and it is given the visible threats',
      Object.values(phoneLegend).every(Boolean),
      `Legend once ${phoneLegend.once}, shut ${phoneLegend.shut}, panel ${phoneLegend.panel}, first ${phoneLegend.first}, visible threats ${phoneLegend.visible}`);
@@ -582,6 +585,53 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   // Seen: FAIL SH38 the phone's map header is given the same place the planner's bar names ("Nevada (NTTR)", "Real world"), worked out once  worked out once true, given to the phone header false, named in the planner's bar true
   ok('SH38 the phone\'s map header is given the same place the planner\'s bar names ("Nevada (NTTR)", "Real world"), worked out once',
      placeOnce && placeToPhone && placeToDesktop, `worked out once ${placeOnce}, given to the phone header ${placeToPhone}, named in the planner's bar ${placeToDesktop}`);
+
+  // The phone's tab bar has no hover tint: a touch screen keeps the tab that was last tapped in the hover state, so the tint stayed on
+  // it. A press still shows (`active:bg-tint-2`). The side rail is a mouse's, so it keeps its hover.
+  const tabItems = [{ id: 'a' as const, label: 'Route', icon: 'route' as const, count: 5 }, { id: 'b' as const, label: 'Cards', icon: 'card' as const }];
+  const barTabs = html(createElement(Tabs<'a' | 'b'>, { variant: 'bar', label: 'Planner panels', selected: 'a', onSelect: noop, items: tabItems }));
+  const railTabs = html(createElement(Tabs<'a' | 'b'>, { variant: 'rail', label: 'Planner panels', selected: 'a', onSelect: noop, items: tabItems }));
+  const tints = {
+    barNoHover: !/hover:/.test(barTabs),
+    // The tab that is off is the one the tint is for (the lit one is the accent).
+    barPress: /aria-pressed="false"[^>]*class="[^"]*\bactive:bg-tint-2\b/.test(barTabs),
+    railHover: /aria-pressed="false"[^>]*class="[^"]*\bhover:bg-tint-2\b/.test(railTabs),
+  };
+  // Red when: Tabs' bar `off:` style gets `hover:bg-tint-2` back; or loses `active:bg-tint-2`; or the rail's `hover:bg-tint-2` is taken out.
+  // Seen: FAIL SH39 the phone's tab bar has no hover tint (a touch screen would leave it on the last tab tapped) but still tints under a press, and the side rail keeps its hover  no hover on the bar false, press tint on the bar true, hover on the rail true   (the hover put back)
+  //       FAIL SH39 …  no hover on the bar true, press tint on the bar false, hover on the rail true   (`active:bg-tint-2` taken out)
+  //       FAIL SH39 …  no hover on the bar true, press tint on the bar true, hover on the rail false   (the rail's hover taken out)
+  ok('SH39 the phone\'s tab bar has no hover tint (a touch screen would leave it on the last tab tapped) but still tints under a press, and the side rail keeps its hover',
+     tints.barNoHover && tints.barPress && tints.railHover,
+     `no hover on the bar ${tints.barNoHover}, press tint on the bar ${tints.barPress}, hover on the rail ${tints.railHover}`);
+
+  // The phone's Menu has the File menu's keyboard, run by the same rule (menuKey, imported, not copied; SH26 runs the rule itself) and
+  // wired here: opening puts the keyboard on the first row; Up, Down, Home and End move through menuKey; Escape is heard on the window
+  // while the menu is open and puts the keyboard back on Menu; Tab shuts it and moves on; a tap outside still shuts it. The wiring is read
+  // from the source, as SH26 reads the File menu's.
+  const phoneShellSrc = read('src/components/phone/PhoneShell.tsx');
+  const keyed = {
+    reused: /import \{ menuKey \} from '\.\.\/shell\/FileMenu';/.test(phoneShellSrc) && !/key === '(Escape|ArrowDown|ArrowUp|Home|End|Tab)'/.test(phoneShellSrc),
+    first: /menuRows\(\)\[0\]\?\.focus\(\);/.test(phoneShellSrc),
+    arrows: /<div className="relative" ref=\{menuRef\} onKeyDown=\{onMenuKeyDown\}>/.test(phoneShellSrc) && /const action = menuKey\(event\.key, at, rows\.length\);/.test(phoneShellSrc)
+      && /if \('focus' in action\) \{\s*event\.preventDefault\(\);\s*rows\[action\.focus\]\?\.focus\(\);/.test(phoneShellSrc),
+    tab: /else if \(action\.close === 'move-on'\) closeMenu\(false\);/.test(phoneShellSrc),
+    escape: /const closeMenu = \(refocus: boolean\) => \{\s*setMenuOpen\(false\);\s*if \(refocus\) menuButton\.current\?\.focus\(\);\s*\};/.test(phoneShellSrc) && /<IconButton ref=\{menuButton\} icon="more" label="Menu"/.test(phoneShellSrc)
+      && /window\.addEventListener\('keydown', onEscape\);/.test(phoneShellSrc) && /window\.removeEventListener\('keydown', onEscape\);/.test(phoneShellSrc)
+      && /const onEscape = [^\n]*\{\s*const action = menuKey\(event\.key, -1, 0\);\s*if \(action && 'close' in action && action\.close === 'to-button'\) \{\s*event\.preventDefault\(\);\s*closeMenu\(true\);/.test(phoneShellSrc),
+    outside: /if \(!menuRef\.current\?\.contains\(event\.target as Node\)\) setMenuOpen\(false\);/.test(phoneShellSrc) && /window\.addEventListener\('pointerdown', onDown\);/.test(phoneShellSrc),
+  };
+  // Red when: the Escape handler's `closeMenu(true)` becomes `closeMenu(false)` (the keyboard would not go back to Menu); or the arrows' `menuKey(event.key, at, rows.length)`
+  // becomes a rule of the file's own (`ownKey(event.key, at, rows.length)`); or the open effect's `menuRows()[0]?.focus();` is taken out; or Tab's
+  // `else if (action.close === 'move-on') closeMenu(false);` is; or the window's Escape (`window.addEventListener('keydown', onEscape);`) is.
+  // Seen: FAIL SH40 the phone's Menu has the File menu's keyboard: …  rule imported, not copied true, first row on open true, arrows through menuKey true, Tab true, Escape back to Menu false, tap outside true   (`closeMenu(false)`)
+  //       FAIL SH40 …  rule imported, not copied true, first row on open true, arrows through menuKey false, Tab true, Escape back to Menu true, tap outside true   (`ownKey`)
+  //       FAIL SH40 …  rule imported, not copied true, first row on open false, arrows through menuKey true, Tab true, Escape back to Menu true, tap outside true   (the first-row focus taken out)
+  //       FAIL SH40 …  rule imported, not copied true, first row on open true, arrows through menuKey true, Tab false, Escape back to Menu true, tap outside true   (Tab's close taken out)
+  //       FAIL SH40 …  rule imported, not copied true, first row on open true, arrows through menuKey true, Tab true, Escape back to Menu false, tap outside true   (the window's Escape taken out)
+  ok('SH40 the phone\'s Menu has the File menu\'s keyboard: opening puts the keyboard on the first row, Up, Down, Home and End move through menuKey (imported, not copied), Escape shuts it from wherever the keyboard is and puts it back on Menu, Tab shuts it and moves on, and a tap outside still shuts it',
+     Object.values(keyed).every(Boolean),
+     `rule imported, not copied ${keyed.reused}, first row on open ${keyed.first}, arrows through menuKey ${keyed.arrows}, Tab ${keyed.tab}, Escape back to Menu ${keyed.escape}, tap outside ${keyed.outside}`);
 }
 
 // ─── The small dialogs' buttons ──────────────────────────────────────────────────────────

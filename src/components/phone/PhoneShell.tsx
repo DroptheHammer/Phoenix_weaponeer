@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { BottomSheet, type Snap } from './BottomSheet';
+import { menuKey } from '../shell/FileMenu';
 import { cx } from '../ui/cx';
 import { IconButton } from '../ui/IconButton';
 import { Icon, type IconName } from '../ui/Icon';
@@ -103,16 +104,52 @@ export function PhoneShell<Id extends string>({
 }: PhoneShellProps<Id>) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
 
-  // Close the menu on any tap outside it.
+  const closeMenu = (refocus: boolean) => {
+    setMenuOpen(false);
+    if (refocus) menuButton.current?.focus();
+  };
+  // The rows a key can land on (a disabled row takes no focus).
+  const menuRows = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? []);
+
+  // The menu answers a keyboard as the desktop's File menu does. Opening puts the keyboard on the first
+  // row; a tap anywhere outside shuts it; Escape shuts it from wherever the keyboard is (a tap on the
+  // menu's own padding leaves it on the page) and gives it back to Menu. Escape asks menuKey what a key
+  // means, as the arrows and Tab do on the menu itself.
   useEffect(() => {
     if (!menuOpen) return;
+    menuRows()[0]?.focus();
     const onDown = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
+    const onEscape = (event: globalThis.KeyboardEvent) => {
+      const action = menuKey(event.key, -1, 0);
+      if (action && 'close' in action && action.close === 'to-button') {
+        event.preventDefault();
+        closeMenu(true);
+      }
+    };
     window.addEventListener('pointerdown', onDown);
-    return () => window.removeEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onEscape);
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onEscape);
+    };
   }, [menuOpen]);
+
+  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const rows = menuRows();
+    const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+    if (at < 0) return; // the keyboard is on Menu itself: Enter and Space work as on any button
+    const action = menuKey(event.key, at, rows.length);
+    if (!action) return;
+    if ('focus' in action) {
+      event.preventDefault();
+      rows[action.focus]?.focus();
+    } else if (action.close === 'move-on') closeMenu(false);
+    // Escape ('to-button') is the window's, above.
+  };
 
   const openTab = tabs?.find((t) => t.id === activeTab);
   // Some tabs (e.g. Cards) open straight at full height; a `key` forces a
@@ -138,8 +175,8 @@ export function PhoneShell<Id extends string>({
           </h1>
           {subtitle ? <p className="m-0 min-w-0 truncate text-ui-small leading-tight text-ink-2">{subtitle}</p> : null}
         </div>
-        <div className="relative" ref={menuRef}>
-          <IconButton icon="more" label="Menu" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)} />
+        <div className="relative" ref={menuRef} onKeyDown={onMenuKeyDown}>
+          <IconButton ref={menuButton} icon="more" label="Menu" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)} />
           {menuOpen && (
             <PhoneMenuList
               items={menu}

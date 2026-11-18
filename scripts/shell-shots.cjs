@@ -1,6 +1,6 @@
 // Screenshot checks for the app shell: the header on every screen, the planner's icon rail and
 // floating side panel, the map's zoom, credit and Legend (shut and open), the File menu, where
-// the header and the dialogs stand in the stack, and the phone's bars, Layers button and sheet.
+// the header and the dialogs stand in the stack, and the phone's bars, Layers button, sheet and menu (also from the keyboard).
 // It serves a finished web build itself, loads the synthetic mission through the front page (no
 // real mission needed), blocks map tiles (a plain, repeatable map), measures, and writes a PNG
 // of every state it checks.
@@ -412,6 +412,8 @@ let browser;
     ok('phone S5 the Layers panel opens 8 px under its button, at the right inset, and ends at least 20 px above the map\'s bottom',
       pop && pop.t === layers.b + 8 && pop.r === map.r - 12 && pop.b <= map.b - 20, `panel ${fmt(pop)} map ${fmt(map)}`);
     await page.screenshot({ path: path.join(out, 'shell-phone-390-layers.png') });
+    // Red when: (argued, not run) the panel is shorter than the room here ([122,109 256x280], the chip at 745), so the old `bottom-5` leaves this green; L4, held sideways, is the one that goes red.
+    ok('phone S10 the open Layers panel ends at least 8 px above the map credit\'s chip', pop && credit && pop.b <= credit.t - 8, `panel ${fmt(pop)} credit ${fmt(credit)}`);
     await page.getByRole('checkbox', { name: /Route/ }).uncheck();
     await layersBtn.click();
     await sleep(100);
@@ -430,7 +432,19 @@ let browser;
     const accent = await accentOf(page);
     const lit = await background(threatsTab);
     await page.screenshot({ path: path.join(out, 'shell-phone-390-sheet.png') });
-    // Red when: BottomSheet's handle loses `aria-label={snap === 'half' ? 'Expand' : 'Shrink'}`, or the dialog loses its `aria-label={title}`. Argued, not run: either change stops the steps that follow (they press "Expand" and look for the dialog by its name), so the run ends there instead of printing a FAIL line.
+    // The sheet's header button keeps its words on one line: it is as tall as one line of its words plus its padding.
+    const addThreat = page.getByRole('dialog', { name: 'Threats' }).getByRole('button', { name: /Add Threat/ });
+    const addBox = await box(addThreat);
+    const addOneLine = await addThreat.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return Math.round(parseFloat(cs.lineHeight) + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
+    });
+    // Red when: the `shrink-0 whitespace-nowrap` classes are taken off ThreatList's Add Threat button (the words wrap onto two lines).
+    // Seen: FAIL phone S11 the Threats sheet's Add Threat button keeps its words on one line (one line tall)  button [246,437 127x64], one line is 40 px   (the two classes taken off)
+    ok('phone S11 the Threats sheet\'s Add Threat button keeps its words on one line (one line tall)', addBox && addBox.h === addOneLine, `button ${fmt(addBox)}, one line is ${addOneLine} px`);
+    // Red when: BottomSheet's `absolute inset-x-0 bottom-0` becomes `bottom-2` (the sheet floats 8 px above the tab bar).
+    // Seen: FAIL phone S2 the Threats sheet opens as a dialog named "Threats" over the map, above the tab bar, with its Expand handle  [0,366 390x402]   (S9 goes red with it)
+    // Also red when: BottomSheet's handle loses `aria-label={snap === 'half' ? 'Expand' : 'Shrink'}`, or the dialog loses its `aria-label={title}`. Argued, not run: either change stops the steps that follow (they press "Expand" and look for the dialog by its name), so the run ends there instead of printing a FAIL line.
     ok('phone S2 the Threats sheet opens as a dialog named "Threats" over the map, above the tab bar, with its Expand handle', half && half.b === tabs.t && (await page.getByRole('button', { name: 'Expand' }).count()) === 1, fmt(half));
     // Red when: Tabs' bar `on:` class loses `bg-accent` (the open tab is not lit).
     // Seen: FAIL phone S8 the open tab is the accent, and it is the only one lit  rgba(0, 0, 0, 0) vs rgb(233, 69, 96)
@@ -449,12 +463,81 @@ let browser;
       `half ${fmt(half)} full ${fmt(full)} back ${fmt(halfAgain)}`);
     await page.getByRole('button', { name: 'Close Threats' }).click();
     await sleep(200);
+    // The other sheets' Add buttons keep their words on one line as well: the Flight sheet's Add Pilot, and the Attacks sheet's Add Strike and Add Attack
+    // (the synthetic flight has two jets, so Add Strike is offered). A button's lines are the rows its words stand on, counted word by word.
+    const addLines = [];
+    for (const [tabName, sheetName] of [[/^Flight/, 'Flight'], [/^Attacks/, 'Attacks']]) {
+      const sheetTab = page.getByRole('group', { name: 'Planner panels' }).getByRole('button', { name: tabName });
+      await sheetTab.click();
+      await sleep(300);
+      for (const btn of await page.getByRole('dialog', { name: sheetName }).getByRole('button', { name: /Add / }).all()) {
+        const lines = await btn.evaluate((el) => {
+          let most = 0;
+          const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+            const range = document.createRange();
+            range.selectNodeContents(n);
+            most = Math.max(most, new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top))).size);
+          }
+          return most;
+        });
+        addLines.push(`${(await btn.innerText()).replace(/\s+/g, ' ').trim()}: ${lines}`);
+      }
+      await page.screenshot({ path: path.join(out, `shell-phone-390-sheet-${sheetName.toLowerCase()}.png`) });
+      await sheetTab.click();
+      await sleep(200);
+    }
+    // Red when: the `shrink-0 whitespace-nowrap` classes are taken off the Attacks sheet's two buttons in AttackList (both wrap onto two lines at 390 px wide).
+    // Seen: FAIL phone S12 the Flight and Attacks sheets' Add buttons keep their words on one line (Add Pilot, Add Strike, Add Attack)  + Add Pilot: 1 | + Add Strike: 2 | + Add Attack: 2   (the classes taken off both)
+    ok('phone S12 the Flight and Attacks sheets\' Add buttons keep their words on one line (Add Pilot, Add Strike, Add Attack)',
+      addLines.length === 3 && addLines.every((line) => line.endsWith(': 1')), addLines.join(' | '));
     const mapMenu = await menuRows();
     await page.screenshot({ path: path.join(out, 'shell-phone-390-menu.png') });
     // Red when: App's map menu loses its `{ label: 'Flight overview', ... }` row. (Argued, not run: a row loses its icon.)
     // Seen: FAIL phone S3 the map's menu leads with Flight overview, keeps Export .json and Close mission, and every row has an icon  Load a mission|Create new mission|Strike near me|Export .json|Close mission|Settings
     ok('phone S3 the map\'s menu leads with Flight overview, keeps Export .json and Close mission, and every row has an icon',
       same(rowNames(mapMenu), ['Flight overview', 'Load a mission', 'Create new mission', 'Strike near me', 'Export .json', 'Close mission', 'Settings']) && mapMenu.every((r) => r.icon), rowNames(mapMenu).join('|'));
+    // ---- The menu from the keyboard, as the desktop's File menu answers it (the map's menu has seven rows).
+    const menuBtn = page.getByRole('button', { name: 'Menu' });
+    const focusedText = () => page.evaluate(() => document.activeElement?.textContent?.trim() ?? null);
+    // (The menu was left open by the step above.)
+    if ((await page.getByRole('menu').count()) > 0) await menuBtn.click();
+    await menuBtn.focus();
+    await page.keyboard.press('Enter');
+    await sleep(100);
+    const kOpened = (await page.getByRole('menu').count()) === 1;
+    const kFirst = await focusedText();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    const kThird = await focusedText();
+    await page.keyboard.press('End');
+    const kLast = await focusedText();
+    await page.keyboard.press('ArrowDown');
+    const kWrapped = await focusedText();
+    await page.keyboard.press('ArrowUp');
+    const kUpWrapped = await focusedText();
+    await page.keyboard.press('Home');
+    const kHome = await focusedText();
+    await page.keyboard.press('Escape');
+    await sleep(100);
+    const kShut = (await page.getByRole('menu').count()) === 0;
+    const kBack = await activeLabel(page);
+    // Tab: open it again, Tab shuts it and the keyboard moves on (it is no longer in a menu).
+    await page.keyboard.press('Enter');
+    await sleep(100);
+    await page.keyboard.press('Tab');
+    await sleep(100);
+    const kTabShut = (await page.getByRole('menu').count()) === 0;
+    const kTabOn = await page.evaluate(() => !document.activeElement?.closest('[role="menu"]') && document.activeElement !== document.body);
+    // Leave the menu shut whatever happened above (a press on Menu toggles it).
+    if ((await page.getByRole('menu').count()) > 0) await menuBtn.click();
+    // Red when: PhoneShell's window Escape listener (`window.addEventListener('keydown', onEscape);`) is taken out (the menu stays open on its third row).
+    // Seen: FAIL phone K1 the Menu from the keyboard: …  opened true, first "Flight overview", Down twice "Create new mission", End "Settings", Down "Flight overview", Up "Settings", Home "Flight overview", Escape: menu shut false, keyboard on "null"; Tab: menu shut true, moved on true
+    //   (the later Tab line is not to be trusted there: the Enter that reopens the menu lands on the row the shut menu should have left)
+    ok('phone K1 the Menu from the keyboard: Enter opens it with the keyboard on its first row, Down twice reaches the third, End, Down, Up and Home move round it, Escape shuts it and puts the keyboard back on Menu, and Tab shuts it and moves on',
+      kOpened && kFirst === 'Flight overview' && kThird === 'Create new mission' && kLast === 'Settings' && kWrapped === 'Flight overview' && kUpWrapped === 'Settings' && kHome === 'Flight overview'
+        && kShut && kBack === 'Menu' && kTabShut && kTabOn,
+      `opened ${kOpened}, first "${kFirst}", Down twice "${kThird}", End "${kLast}", Down "${kWrapped}", Up "${kUpWrapped}", Home "${kHome}", Escape: menu shut ${kShut}, keyboard on "${kBack}"; Tab: menu shut ${kTabShut}, moved on ${kTabOn}`);
     // Red when, Seen: as the desktop E1 (a stray request to another host).
     ok('phone E1 no page errors; only this server (tiles blocked)', errors.length === 0 && onlyLocal(hosts), `${errors.join('; ')} hosts ${[...hosts].join(',')}`);
     await ctx.close();
@@ -492,6 +575,10 @@ let browser;
     // Seen: FAIL phone L2 held sideways, the Layers panel stops at least 20 px above the map's bottom and scrolls inside  panel [576,109 256x212] map [0,45 844x276] scrolls true
     ok('phone L2 held sideways, the Layers panel stops at least 20 px above the map\'s bottom and scrolls inside',
       pop && pop.t === layers.b + 8 && pop.b <= map.b - 20 && scrolls, `panel ${fmt(pop)} map ${fmt(map)} scrolls ${scrolls}`);
+    // The credit chip stands in the same corner, and held sideways the panel is tall enough to reach it.
+    // Red when: MapCredit's `ABOVE_CREDIT` is put back to the old `bottom-5` (the panel then runs 10 px under the chip).
+    // Seen: FAIL phone L4 held sideways, the open Layers panel ends at least 8 px above the map credit's chip and still scrolls inside  panel [576,109 256x192] credit [645,291 191x22] scrolls true   (`bottom-5`: the panel reaches 10 px under the chip)
+    ok('phone L4 held sideways, the open Layers panel ends at least 8 px above the map credit\'s chip and still scrolls inside', pop && credit && pop.b <= credit.t - 8 && scrolls, `panel ${fmt(pop)} credit ${fmt(credit)} scrolls ${scrolls}`);
     // Red when, Seen: as the desktop E1.
     ok('phone L3 held sideways, no page errors; only this server (tiles blocked)', errors.length === 0 && onlyLocal(hosts), `${errors.join('; ')} hosts ${[...hosts].join(',')}`);
     await ctx.close();

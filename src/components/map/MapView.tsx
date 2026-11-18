@@ -594,7 +594,8 @@ export function MapView({
       )}
 
       {/* A phone's map chrome: Layers (the legend and display filter) top right, zoom bottom
-          left, the credit bottom right. The desktop draws its own in PlannerShell. */}
+          left, the credit bottom right. The desktop draws its own in PlannerShell. The credit's
+          `bottom-2` is one of the measures ABOVE_CREDIT (MapCredit) keeps the Layers panel clear of. */}
       {isPhone && (
         <>
           <LayersButton attacks={attacks} flightMembers={flightMembers} threats={threats} />
