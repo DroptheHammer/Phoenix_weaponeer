@@ -962,6 +962,36 @@ ok('T6 a dot on the frame\'s edge keeps its whole circle when a short window cro
       && shown.noJets.title === 'Venom 1 - Plan' && shown.noJets.subtitle === 'Venom 1 - Plan · Test Nevada' && shown.onMap.title === 'Venom 1 - Plan' && shown.onMap.dirty && shown.onMap.subtitle === undefined,
     JSON.stringify(shown));
 }
+// On the map the phone's header, given the place, has a second line: the place, then the words that stand beside the dot
+// ("Test Nevada · Not exported"); the place alone when saved; the words alone while the place is not known; nothing when
+// there is neither. The dot stays beside the mission's name. The place belongs to the mission, so the front page's header
+// (the app's name) and the overview's second line never take it.
+// Red when (phoneHeader): `[place, unsaved ? unsavedWords : '']` becomes `[place]` (the words leave the map's line).
+// Seen: FAIL H3 on the map the phone's header has a second line: the place, then the unsaved words beside the dot; the front page and the overview never take the place  {"unsaved":{"title":"Venom 1 - Plan","subtitle":"Test Nevada","dirty":true},"saved":{…},"noPlace":{"title":"Venom 1 - Plan","dirty":true},"nothing":{…},…
+//         (an unsaved map said only the place, and with no place said nothing)
+// Red when (phoneHeader): `named && place !== null` becomes `place !== null` (the front page's header would carry the mission's place under the app's name).
+// Seen: FAIL H3 …  {…,"onFront":{"title":"Phoenix Weaponeer","subtitle":"Test Nevada · Not exported","dirty":false},"noMission":{"title":"Phoenix Weaponeer","subtitle":"Test Nevada · Not exported","dirty":false},…
+//         (the place and the unsaved words under the app's own name)
+{
+  const where = { title: 'Venom 1', aircraft: '4 × F-16C Viper', sub: 'Venom 1 - Plan · Test Nevada · edited today, 14:20' };
+  const onMap = (unsaved: boolean, place: string | null) => phoneHeader('Venom 1 - Plan', true, unsaved, 'Phoenix Weaponeer', null, 'Not exported', place);
+  const shown = {
+    unsaved: onMap(true, 'Test Nevada'),
+    saved: onMap(false, 'Test Nevada'),
+    noPlace: onMap(true, ''),
+    nothing: onMap(false, ''),
+    notGiven: onMap(true, null),
+    onFront: phoneHeader('Venom 1 - Plan', false, true, 'Phoenix Weaponeer', null, 'Not exported', 'Test Nevada'),
+    noMission: phoneHeader(null, true, true, 'Phoenix Weaponeer', null, 'Not exported', 'Test Nevada'),
+    overview: phoneHeader('Venom 1 - Plan', false, true, 'Phoenix Weaponeer', where, 'Not exported', 'Test Nevada'),
+  };
+  ok('H3 on the map the phone\'s header has a second line: the place, then the unsaved words beside the dot; the front page and the overview never take the place',
+    shown.unsaved.title === 'Venom 1 - Plan' && shown.unsaved.subtitle === 'Test Nevada · Not exported' && shown.unsaved.dirty
+      && shown.saved.subtitle === 'Test Nevada' && !shown.saved.dirty && shown.noPlace.subtitle === 'Not exported' && shown.nothing.subtitle === undefined
+      && shown.notGiven.subtitle === undefined && shown.onFront.title === 'Phoenix Weaponeer' && shown.onFront.subtitle === undefined
+      && shown.noMission.subtitle === undefined && shown.overview.subtitle === `Not exported · ${where.sub}`,
+    JSON.stringify(shown));
+}
 
 // A hidden threat 200 miles off cannot move the frame, a tile, or a dot.
 const withFar = summaryMission({ ...routeMission, threats: [...routeMission.threats, threatAt('far', 'sa10', farNorth.lat, farNorth.lon, { hiddenOnMap: true })] });

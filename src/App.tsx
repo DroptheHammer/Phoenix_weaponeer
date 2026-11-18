@@ -25,7 +25,7 @@ import { KneeboardPreview } from "./components/kneeboard/KneeboardPreview";
 import { UnsavedChangesDialog } from "./components/mission/UnsavedChangesDialog";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { useSettingsStore } from "./stores/settingsStore";
-import { PhoneShell, type PhoneMenuItem, type PhoneTab } from "./components/phone/PhoneShell";
+import { PhoneShell, type PhoneMenuItem } from "./components/phone/PhoneShell";
 import { useIsPhone } from "./hooks/useIsPhone";
 import { flushAutosave, isAutosaved, useAutosave } from "./stores/localMissionStore";
 import { MISSION_FILE_GONE, openLocalMission, openMission, openMissionAt, saveMission, saveMissionAs, type FileResult } from "./lib/missionFile";
@@ -38,7 +38,7 @@ import { flightGroupOf } from "./lib/callsign";
 import type { Map as LeafletMap } from "leaflet";
 import { PlannerShell } from "./components/shell/PlannerShell";
 import { LegendDock } from "./components/map/MapLegend";
-import { PANEL_TITLES, plannerRailItems, type PanelType, type RailCounts } from "./components/shell/railItems";
+import { PANEL_TITLES, phoneTabItems, plannerRailItems, type PanelType, type RailCounts } from "./components/shell/railItems";
 
 interface ThreatSystem {
   id: string;
@@ -654,39 +654,34 @@ function App() {
   // ---- Phone layout (web build only) ----
 
   if (isPhone) {
-    const phoneTabs: PhoneTab<PanelType>[] = mission && shown === 'map'
-      ? [
-          { id: 'waypoints', label: 'Route', badge: String(mission.waypoints.length) },
-          { id: 'threats', label: 'Threats', badge: String(visibleMission?.threats.length ?? 0) },
-          { id: 'flight', label: 'Flight', badge: String(mission.flightMembers.length) },
-          { id: 'attacks', label: 'Attacks', badge: hiddenAttackCount > 0 ? `${mission.attacks.length} · ${hiddenAttackCount} hid` : String(mission.attacks.length) },
-          { id: 'kneeboards', label: 'Cards' },
-        ]
-      : [];
+    // The bottom bar counts what the rail counts (railCounts), so a threat the mission author hid is not counted here either.
+    const phoneTabs = railCounts ? phoneTabItems(railCounts) : [];
     // The front page holds the load box, so its menu leads with what the page has not got; the overview's menu
     // leads with the way back to the load box, and the map's with the way back to the overview.
-    const strikeItem = STRIKE_NEAR_ME_AVAILABLE ? [{ label: W.strikeNearMe, onClick: handleStrikeNearMe }] : [];
-    const settingsItem = { label: 'Settings', onClick: () => setShowSettings(true) };
+    const strikeItem: PhoneMenuItem[] = STRIKE_NEAR_ME_AVAILABLE ? [{ label: W.strikeNearMe, icon: 'pin', onClick: handleStrikeNearMe }] : [];
+    const settingsItem: PhoneMenuItem = { label: 'Settings', icon: 'settings', onClick: () => setShowSettings(true) };
     const overviewMenu: PhoneMenuItem[] = [
-      { label: W.heroTitle, onClick: handleImportClick },
-      { label: W.createNew, onClick: handleNewMission },
+      { label: W.heroTitle, icon: 'folder', onClick: handleImportClick },
+      { label: W.createNew, icon: 'plus', onClick: handleNewMission },
       ...strikeItem,
-      { label: 'Export .json', onClick: () => void handleSaveAs() },
-      { label: 'Close mission', onClick: handleCloseMission },
+      { label: 'Export .json', icon: 'file', onClick: () => void handleSaveAs() },
+      { label: 'Close mission', icon: 'close', onClick: handleCloseMission },
       settingsItem,
     ];
     const phoneMenu: PhoneMenuItem[] = shown === 'front'
       ? [
-          { label: W.createNew, onClick: handleNewMission },
+          { label: W.createNew, icon: 'plus', onClick: handleNewMission },
           ...strikeItem,
-          ...(mission ? [{ label: 'Close mission', onClick: handleCloseMission }] : []),
+          ...(mission ? [{ label: 'Close mission', icon: 'close' as const, onClick: handleCloseMission }] : []),
           settingsItem,
         ]
       : shown === 'overview'
         ? overviewMenu
-        : [{ label: 'Flight overview', onClick: () => setScreen('overview') }, ...overviewMenu];
+        : [{ label: 'Flight overview', icon: 'flight', onClick: () => setScreen('overview') }, ...overviewMenu];
 
-    const header = phoneHeader(mission ? mission.name : null, shown === 'map', isDirty, 'Phoenix Weaponeer', where, dirtyWords);
+    // On the map the second line is the place, then "Not exported" while there is work not yet downloaded (the words
+    // that stand beside the dot, as on the desktop); the overview's own line and the front page's come from the helper.
+    const header = phoneHeader(mission ? mission.name : null, shown === 'map', isDirty, 'Phoenix Weaponeer', where, dirtyWords, place);
 
     return (
       <>

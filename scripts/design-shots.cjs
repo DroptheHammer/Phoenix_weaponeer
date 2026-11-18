@@ -439,7 +439,8 @@ async function appRun(browser, base, size) {
       return { font: getComputedStyle(wrapper).fontFamily, digits: getComputedStyle(wrapper).fontVariantNumeric };
     });
     if (phone) {
-      m.bars = [await box(page.locator('header').first()), await box(page.locator('nav').last())];
+      // The phone's tab bar is a <nav> in a copy from before the bars were redrawn, and the group "Planner panels" after.
+      m.bars = [await box(page.locator('header').first()), await box(page.locator('nav, [role="group"][aria-label="Planner panels"]').last())];
     } else {
       m.header = await box(page.locator('header').first());
       const rail = page.getByRole('button', { name: /^Waypoints \(/ }).locator('xpath=..');

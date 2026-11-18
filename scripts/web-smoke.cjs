@@ -91,12 +91,35 @@ fs.mkdirSync(out, { recursive: true });
   step('map opened from the overview');
   await page.waitForTimeout(1500); // map tiles
   await shot('03-mission-map');
+  if (phone) {
+    // The phone's top bar says the mission's name over its place (and "Not exported" while there is work not yet downloaded);
+    // the bottom bar is five icon tabs named by word and count; the menu is a list of icon rows.
+    const barText = (await page.locator('header').first().innerText()).replace(/\s+/g, ' ').trim();
+    const tabNames = await page.getByRole('group', { name: 'Planner panels' }).getByRole('button').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
+    if (!/Nevada/.test(barText) || tabNames.length !== 5) throw new Error(`the phone's bars are wrong: "${barText}"; tabs ${tabNames.join(' | ')}`);
+    await page.getByRole('button', { name: 'Menu' }).click();
+    const menuRows = await page.getByRole('menuitem').evaluateAll((els) => els.map((el) => `${el.textContent.trim()}${el.querySelector('svg') ? '' : ' (no icon)'}`));
+    await shot('03b-phone-menu');
+    await page.getByRole('button', { name: 'Menu' }).click();
+    step(`phone bar "${barText}"; tabs ${tabNames.join(' | ')}; menu rows ${menuRows.join(' | ')}`);
+  }
 
   await page.getByRole('button', { name: /^Threats/ }).click();
   await page.waitForTimeout(300);
   await shot('04-threats');
   const threatText = await page.locator('body').innerText();
   step(`threat panel mentions Kub: ${/Kub/.test(threatText)}, Shilka: ${/Shilka/.test(threatText)}`);
+  if (phone) {
+    // The sheet's handle is a button: the keyboard reaches it and Enter switches the sheet between half and full height.
+    const handle = page.getByRole('button', { name: 'Expand' });
+    await handle.focus();
+    await page.keyboard.press('Enter');
+    const nowFull = await page.getByRole('button', { name: 'Shrink' }).isVisible();
+    await page.keyboard.press('Enter');
+    const backToHalf = await page.getByRole('button', { name: 'Expand' }).isVisible();
+    step(`sheet handle by keyboard: Enter expands ${nowFull}, again shrinks ${backToHalf}`);
+    if (!nowFull || !backToHalf) throw new Error('the sheet handle does not switch by keyboard');
+  }
 
   // Placing a threat: a click on the desktop, the centre crosshair on a phone.
   const mapBox = await page.locator('.leaflet-container').first().boundingBox();
@@ -300,7 +323,7 @@ fs.mkdirSync(out, { recursive: true });
 
   await page.getByRole('button', { name: 'Save attack' }).click();
   await page.getByRole('button', { name: 'Save attack' }).waitFor({ state: 'detached', timeout: 5000 });
-  // The Attacks tab counts them: the rail button's badge on the desktop ("1" over "Attacks"), "Attacks 1" on a phone.
+  // The Attacks tab counts them: a badge on its icon ("1" over "Attacks"), on the desktop rail and on the phone's bottom bar alike.
   const attackCount = async () => (await page.getByRole('button', { name: /^Attacks/ }).first().innerText()).match(/\d+/)?.[0] ?? '0';
   step(`attack saved; Attacks tab counts ${await attackCount()}`);
   await shot('09-attack-saved');

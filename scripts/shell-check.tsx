@@ -14,7 +14,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { stackedName, Tabs } from '../src/components/ui/Tabs';
 import { AppBar, AppBarPrimary, HeaderWhere } from '../src/components/shell/AppBar';
 import { FileMenu, menuKey, pressShutsMenu } from '../src/components/shell/FileMenu';
-import { PhoneShell } from '../src/components/phone/PhoneShell';
+import { PhoneMenuList, PhoneShell } from '../src/components/phone/PhoneShell';
+import { BottomSheet } from '../src/components/phone/BottomSheet';
 import { plannerRailItems, phoneTabItems, PANEL_TITLES } from '../src/components/shell/railItems';
 import { MapZoom } from '../src/components/map/MapZoom';
 import { MapCredit, MAP_CREDIT } from '../src/components/map/MapCredit';
@@ -181,7 +182,7 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   // Seen: FAIL SH27 unsaved work is said in words on the Flight overview, on the desktop bar and in the phone header, from one definition  words in the small line false, in its tooltip true, no dot true, one definition above the phone branch true, given to the phone header true
   //         (the words taken out of the line)
   //       FAIL SH27 …  words in the small line true, in its tooltip true, no dot true, one definition above the phone branch true, given to the phone header false
-  //         (the phone header's call without `dirtyWords`)
+  //         (the phone header's call given `undefined` where `dirtyWords` stands; SH38 goes red with it)
   const defAt = app.search(/const dirtyWords = platform\.isWeb \? 'Not exported' : 'Unsaved changes';/);
   const phoneAt = app.search(/if \(isPhone\) \{/);
   const says = {
@@ -189,7 +190,7 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
     tooltip: /subTitle=\{\[where\.sub, isDirty \? dirtyWords : ''\]\.filter\(Boolean\)\.join\(' · '\)\}/.test(overviewBar),
     noDot: overviewBar.length > 0 && !/\bdirty=\{/.test(overviewBar),
     oneDefinition: count(app, /const dirtyWords\b/g) === 1 && defAt >= 0 && phoneAt > defAt,
-    phone: /phoneHeader\([^)]*, where, dirtyWords\)/.test(app),
+    phone: /phoneHeader\([^)]*, where, dirtyWords[,)]/.test(app),
   };
   ok('SH27 unsaved work is said in words on the Flight overview, on the desktop bar and in the phone header, from one definition',
      Object.values(says).every(Boolean), `words in the small line ${says.line}, in its tooltip ${says.tooltip}, no dot ${says.noDot}, one definition above the phone branch ${says.oneDefinition}, given to the phone header ${says.phone}`);
@@ -463,4 +464,122 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   ok('SH33 the desktop draws its Legend once, in the planner\'s left column; the phone\'s Layers button is the first thing in MapView\'s phone chrome, shut it is one button, open its panel is a dialog named "Layers" that fits the map, and it is given the visible threats',
      Object.values(phoneLegend).every(Boolean),
      `Legend once ${phoneLegend.once}, shut ${phoneLegend.shut}, panel ${phoneLegend.panel}, first ${phoneLegend.first}, visible threats ${phoneLegend.visible}`);
+}
+
+// ─── The phone shell, and no word about hidden threats anywhere in the shell ─────────────
+{
+  const phone = html(createElement(PhoneShell<'waypoints' | 'kneeboards'>, {
+    title: 'Testcall 1 - Test', subtitle: 'Nevada (NTTR) · Not exported', dirty: true, menu: [{ label: 'Export .json', icon: 'file', onClick: noop }],
+    tabs: [{ id: 'waypoints', label: 'Route', icon: 'route', count: 5 }, { id: 'kneeboards', label: 'Cards', icon: 'card' }],
+    activeTab: null, onTab: noop, children: createElement('div', { id: 'page' }),
+  }));
+  const overview = html(createElement(PhoneShell<'waypoints'>, {
+    title: 'Venom 1 · 4 × F-16C Viper', subtitle: 'Copper Anvil · Nevada (NTTR)', onBack: noop, backLabel: 'Back to the front page', menu: [], children: createElement('div'),
+  }));
+  // Red when: PhoneShell's `<IconButton icon="more" label="Menu"` becomes `label="More"`; or the `{subtitle ? <p …>{subtitle}</p> : null}` line is taken out
+  // (the overview loses its second line); or the `{onBack ? <IconButton icon="chev-left" … /> : null}` line is (no back arrow); or the bar's `variant="bar"` becomes
+  // `variant="pills"` (no `var(--safe-bottom)`, no `min-h-tab`, no names).
+  // Seen: FAIL SH16 the phone keeps its layout: top bar with the title, its second line, the back arrow, the unsaved dot (named) and "Menu"; the page; the bottom bar of tabs clear of the home bar, named "Route (5)", "Cards"  <div class="flex h-[100dvh] flex-col overflow-hidden bg-surface-window text-ink"><header class="z-[1200] flex min-h-[calc(var(--bar)+var(--safe-top))] shrink-0 items-center gap-3 border-b border-line-…
+  //       (each of the four changes; SH29 goes red with the back arrow's, SH34 with the pills)
+  ok('SH16 the phone keeps its layout: top bar with the title, its second line, the back arrow, the unsaved dot (named) and "Menu"; the page; the bottom bar of tabs clear of the home bar, named "Route (5)", "Cards"',
+     phone.includes('aria-label="Menu"') && phone.includes('aria-label="unsaved changes"') && phone.includes('>Nevada (NTTR) · Not exported</p>') && phone.includes('var(--safe-bottom)') && phone.includes('min-h-tab')
+       && phone.includes('aria-label="Route (5)"') && phone.includes('aria-label="Cards"') && phone.indexOf('id="page"') < phone.indexOf('aria-label="Route (5)"')
+       && overview.includes('aria-label="Back to the front page"') && overview.includes('>Copper Anvil · Nevada (NTTR)</p>') && !phone.includes('Back to the front page'),
+     phone.slice(0, 200));
+
+  const files = ['src/App.tsx', 'src/components/shell/AppBar.tsx', 'src/components/shell/FileMenu.tsx', 'src/components/shell/PlannerShell.tsx', 'src/components/shell/PanelSheet.tsx',
+    'src/components/shell/railItems.ts', 'src/components/map/MapLegend.tsx', 'src/components/phone/PhoneShell.tsx', 'src/components/phone/BottomSheet.tsx'];
+  // Red when: "<span>Probable threats</span>" is written into MapLegend.tsx (or such words, or a hidden-threat counter, into any file here).
+  // Seen: FAIL SH17 the shell never shows, counts or hints at threats the mission author hid (no such words, no hidden-threat counter)  src/components/map/MapLegend.tsx
+  //       FAIL SH17 …  src/components/phone/PhoneShell.tsx   (a line `// isHiddenByAuthor` put into the phone shell)
+  const hits = files.filter((f) => /probable threat|probableThreats|probableCount|location unknown|hidden by the mission author|hiddenCounts|isHiddenByAuthor/i.test(read(f)));
+  ok('SH17 the shell never shows, counts or hints at threats the mission author hid (no such words, no hidden-threat counter)', hits.length === 0, hits.join(', '));
+
+  // The phone's bottom bar: every tab an icon with its count as a badge and its note as a line, named by word, count
+  // and note, and the open one alone in the accent (a tab with no panel open has none).
+  const bar = (activeTab: 'attacks' | null) => html(createElement(PhoneShell<'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards'>, {
+    title: 'Testcall 1 - Test', menu: [], tabs: phoneTabItems({ waypoints: 5, visibleThreats: 2, flightMembers: 4, attacks: 2, hiddenAttacks: 1 }),
+    activeTab, onTab: noop, children: null,
+  }));
+  const tabsOf = (markup: string) => (markup.match(/<button[^>]*aria-pressed[^>]*>/g) ?? []);
+  const withOpen = tabsOf(bar('attacks'));
+  const lit = withOpen.filter((tag) => tag.includes('aria-pressed="true"'));
+  const names = withOpen.map((tag) => /aria-label="([^"]*)"/.exec(tag)?.[1]).join(' | ');
+  const noneOpen = tabsOf(bar(null));
+  const badges = ['>5</span>', '>2</span>', '>4</span>'].every((badge) => bar(null).includes(badge));
+  // Red when: PhoneShell's `selected={activeTab}` becomes `selected={null}` (no tab is lit while its sheet is open); or the Tabs bar's `bg-accent` leaves
+  // its open style; or `variant="bar"` becomes `variant="pills"` (no icons, no badges, plain names).
+  // Seen: FAIL SH34 the phone's bottom bar is five icon tabs named by word, count and note ("Attacks (2 · 1 hidden)"), the count as a badge and the note a line, and only the open tab is in the accent  names Route (5) | Threats (2) | Flight (4) | Attacks (2 · 1 hidden) | Cards; lit 0; none lit when none open true; badges true; note true   (`selected={null}`)
+  //       FAIL SH34 …  names  |  |  |  | ; lit 1; none lit when none open true; badges false; note false   (the pills)
+  ok('SH34 the phone\'s bottom bar is five icon tabs named by word, count and note ("Attacks (2 · 1 hidden)"), the count as a badge and the note a line, and only the open tab is in the accent',
+     names === 'Route (5) | Threats (2) | Flight (4) | Attacks (2 · 1 hidden) | Cards' && lit.length === 1 && lit[0].includes('Attacks (2 · 1 hidden)') && lit[0].includes('bg-accent')
+       && !withOpen.filter((tag) => !tag.includes('aria-pressed="true"')).some((tag) => tag.includes('bg-accent'))
+       && noneOpen.every((tag) => tag.includes('aria-pressed="false"')) && badges && bar(null).includes('>1 hidden</span>'),
+     `names ${names}; lit ${lit.length}; none lit when none open ${noneOpen.every((tag) => tag.includes('aria-pressed="false"'))}; badges ${badges}; note ${bar(null).includes('>1 hidden</span>')}`);
+
+  // The menu is a list of icon rows, and App's rows keep their words and each get their icon. The open menu is drawn through its own
+  // piece (the shell opens it on a tap); App's rows are read from its source, one `{ label: …` object at a time.
+  const menu = html(createElement(PhoneMenuList, { items: [{ label: 'Export .json', icon: 'file', onClick: noop }, { label: 'Close mission', icon: 'close', onClick: noop }, { label: 'Plain row', onClick: noop }], onPick: noop }));
+  const rows = {
+    drawn: count(menu, /role="menuitem"/g) === 3 && count(menu, /<svg\b/g) === 2 && /<svg[\s\S]*?<\/svg><\/span>Export \.json<\/button>/.test(menu) && /<button[^>]*role="menuitem"[^>]*>Plain row<\/button>/.test(menu),
+    menuOf: /role="menu"/.test(menu) && menu.includes('w-menu') && menu.includes('min-h-12'),
+  };
+  const app = read('src/App.tsx');
+  const menuSrc = app.slice(Math.max(0, app.indexOf('const strikeItem')), Math.max(0, app.indexOf('const header = phoneHeader(')));
+  const wanted = [
+    ["W.strikeNearMe", 'pin'], ["'Settings'", 'settings'], ['W.heroTitle', 'folder'], ['W.createNew', 'plus'], ["'Export .json'", 'file'], ["'Close mission'", 'close'], ["'Flight overview'", 'flight'],
+  ];
+  const withoutIcon = (menuSrc.match(/\{ label: [^,]+, (?!icon: )/g) ?? []);
+  const missing = wanted.filter(([label, icon]) => !new RegExp(`\\{ label: ${label.replace(/[.()']/g, '\\$&')}, icon: '${icon}'`).test(menuSrc));
+  const appRows = { count: count(menuSrc, /\{ label: /g) === 9, allIcons: withoutIcon.length === 0, wanted: missing.length === 0 };
+  // Red when: PhoneMenuList's `{item.icon ? (<span …><Icon name={item.icon} /></span>) : null}` is taken out (the rows lose their icons); or one of App's rows loses
+  // its `icon: '…'` (a row with no icon); or a row's words change (the wanted list no longer finds it).
+  // Seen: FAIL SH35 the phone's menu is a list of icon rows: each row draws its icon before its label, and App's nine rows keep their words and each has one  drawn false, a menu true; App's rows: 9 of 9 rows, without an icon none, words with their icon: none missing   (the icon taken out of PhoneMenuList)
+  //       FAIL SH35 …  drawn true, a menu true; App's rows: 9 of 9 rows, without an icon { label: W.createNew, , words with their icon: none missing   (the icon taken off the overview menu's "Create new mission" row)
+  //       FAIL SH35 …  drawn true, a menu true; App's rows: 9 of 9 rows, without an icon none, words with their icon: 'Export .json'→file   (that row worded "Export")
+  ok('SH35 the phone\'s menu is a list of icon rows: each row draws its icon before its label, and App\'s nine rows keep their words and each has one',
+     rows.drawn && rows.menuOf && appRows.count && appRows.allIcons && appRows.wanted,
+     `drawn ${rows.drawn}, a menu ${rows.menuOf}; App's rows: ${count(menuSrc, /\{ label: /g)} of 9 rows, without an icon ${withoutIcon.join(' ') || 'none'}, words with their icon: ${missing.map(([l, i]) => `${l}→${i}`).join(', ') || 'none missing'}`);
+
+  // The phone's tabs come from the same counts as the desktop rail (railCounts, which count only the threats the planner may see), not a list of their own.
+  // Red when: App's `const phoneTabs = railCounts ? phoneTabItems(railCounts) : [];` becomes a list of its own (`mission ? [{ id: 'threats', …, count: mission.threats.length }] : []`).
+  // Seen: FAIL SH36 the phone's tabs are made from the rail's counts (the visible mission's threats), not counted again in App  from railCounts false, no list of its own true
+  ok('SH36 the phone\'s tabs are made from the rail\'s counts (the visible mission\'s threats), not counted again in App',
+     /const phoneTabs = railCounts \? phoneTabItems\(railCounts\) : \[\];/.test(app) && !/\bbadge:/.test(app) && !/PhoneTab\b/.test(app),
+     `from railCounts ${/const phoneTabs = railCounts \? phoneTabItems\(railCounts\) : \[\];/.test(app)}, no list of its own ${!/\bbadge:/.test(app) && !/PhoneTab\b/.test(app)}`);
+
+  // The sheet's head and handle: a dialog named by its tab, a 96 x 44 handle that is a button (named Expand or Shrink, reachable by keyboard, switched by Enter or
+  // Space), a title and a close button named "Close {title}"; it opens at the height it is given, and a hidden sheet is kept.
+  const sheet = (props: { initialSnap?: 'half' | 'full'; hidden?: boolean }) => html(createElement(BottomSheet, { title: 'Threats', onClose: noop, ...props }, createElement('p', null, 'body')));
+  const half = sheet({});
+  const full = sheet({ initialSnap: 'full' });
+  const away = sheet({ hidden: true });
+  const sheetSrc = read('src/components/phone/BottomSheet.tsx');
+  const handleTag = /<div[^>]*role="button"[^>]*>/.exec(half)?.[0] ?? '';
+  const head = {
+    dialog: half.includes('role="dialog"') && half.includes('aria-label="Threats"') && half.includes('>Threats</h2>') && half.includes('aria-label="Close Threats"'),
+    handle: /\bh-tap\b/.test(handleTag) && /\bw-24\b/.test(handleTag),
+    focusable: handleTag.includes('tabindex="0"') && /onKeyDown=\{onKeyDown\}/.test(sheetSrc) && /if \(event\.key !== 'Enter' && event\.key !== ' '\) return;/.test(sheetSrc),
+    // 0.55 * 100 is 55.00000000000001 in floating point, which the browser takes as 55%.
+    heights: half.includes('aria-label="Expand"') && /height:55(\.\d+)?%/.test(half) && full.includes('aria-label="Shrink"') && full.includes('height:100%'),
+    kept: /class="[^"]*\shidden"/.test(away) && !/class="[^"]*\shidden"/.test(half) && away.includes('body'),
+  };
+  // Red when: the handle's `tabIndex={0}` is taken out (a keyboard cannot reach it); or `h-tap w-24` becomes `h-4 w-12` (a small target); or `Close ${title}` loses its name;
+  // or the Enter/Space line is taken out of the key handler.
+  // Seen: FAIL SH37 the sheet's head and handle: a dialog named by its tab, a 96 x 44 handle button the keyboard reaches and switches, a close button named "Close {title}", the height it is given, kept when hidden  dialog true, 96 x 44 handle true, keyboard false, heights true, kept when hidden true   (`tabIndex={0}` taken out; and the Enter/Space line)
+  //       FAIL SH37 …  dialog true, 96 x 44 handle false, keyboard true, heights true, kept when hidden true   (`h-4 w-12`)
+  //       FAIL SH37 …  dialog false, 96 x 44 handle true, keyboard true, heights true, kept when hidden true   (the close button named "Close")
+  ok('SH37 the sheet\'s head and handle: a dialog named by its tab, a 96 x 44 handle button the keyboard reaches and switches, a close button named "Close {title}", the height it is given, kept when hidden',
+     Object.values(head).every(Boolean),
+     `dialog ${head.dialog}, 96 x 44 handle ${head.handle}, keyboard ${head.focusable}, heights ${head.heights}, kept when hidden ${head.kept}`);
+
+  // The map's second line on the phone says where the mission is planned, in the words the desktop bar uses: App works the place out once and gives it to
+  // both the planner's bar and the phone's header (the header helper's own rule for what the line says is landing-check's H3).
+  const placeOnce = count(app, /const place = mission \? \(isRealWorld\(mission\) \? 'Real world' : theaterInfo\?\.display_name \?\? ''\) : '';/g) === 1;
+  const placeToPhone = /phoneHeader\([^)]*, where, dirtyWords, place\)/.test(app);
+  const placeToDesktop = /subTitle=\{\[place, isDirty \? dirtyWords : ''\]\.filter\(Boolean\)\.join\(' · '\)\}/.test(app);
+  // Red when: the phone header's call loses its last argument (`, dirtyWords, place);` becomes `, dirtyWords);`: the map's second line is gone).
+  // Seen: FAIL SH38 the phone's map header is given the same place the planner's bar names ("Nevada (NTTR)", "Real world"), worked out once  worked out once true, given to the phone header false, named in the planner's bar true
+  ok('SH38 the phone\'s map header is given the same place the planner\'s bar names ("Nevada (NTTR)", "Real world"), worked out once',
+     placeOnce && placeToPhone && placeToDesktop, `worked out once ${placeOnce}, given to the phone header ${placeToPhone}, named in the planner's bar ${placeToDesktop}`);
 }

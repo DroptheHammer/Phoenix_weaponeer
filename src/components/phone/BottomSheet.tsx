@@ -1,4 +1,5 @@
-import { useRef, useState, type ReactNode, type PointerEvent } from 'react';
+import { useRef, useState, type ReactNode, type PointerEvent, type KeyboardEvent } from 'react';
+import { IconButton } from '../ui/IconButton';
 
 export type Snap = 'half' | 'full';
 
@@ -21,7 +22,8 @@ interface BottomSheetProps {
  * Half height leaves the map in view above it, so a planner can see the attack
  * while editing its list; full height is for long lists. Tap the handle to
  * switch, or drag it — let go near the top for full, the middle for half, or
- * low down to close.
+ * low down to close. The handle is a 96 x 44 touch target over the sheet's head,
+ * and Enter or Space on it switches too.
  */
 export function BottomSheet({ title, onClose, children, hidden = false, initialSnap = 'half' }: BottomSheetProps) {
   const [snap, setSnap] = useState<Snap>(initialSnap);
@@ -57,40 +59,43 @@ export function BottomSheet({ title, onClose, children, hidden = false, initialS
     else setSnap(share > 0.78 ? 'full' : 'half');
   };
 
+  // The handle is a button, so a keyboard switches the height too.
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    setSnap(snap === 'half' ? 'full' : 'half');
+  };
+
   const height = dragHeight !== null ? `${dragHeight}px` : `${HEIGHT[snap] * 100}%`;
 
   return (
     <div
       ref={sheetRef}
-      className={`absolute inset-x-0 bottom-0 z-[1100] flex flex-col bg-dcs-navy rounded-t-2xl shadow-[0_-8px_24px_rgba(0,0,0,0.5)] ${
-        dragHeight === null ? 'transition-[height] duration-200' : ''
+      className={`absolute inset-x-0 bottom-0 z-[1100] flex flex-col rounded-t-ui-xl border border-b-0 border-line-strong bg-surface-navy shadow-ui-up ${
+        dragHeight === null ? 'transition-[height] duration-200 motion-reduce:transition-none' : ''
       } ${hidden ? 'hidden' : ''}`}
       style={{ height }}
       role="dialog"
       aria-label={title}
     >
       <div
-        className="shrink-0 cursor-grab touch-none select-none pt-2 pb-1"
+        className="absolute left-1/2 top-0 z-[1] h-tap w-24 -translate-x-1/2 cursor-grab touch-none select-none"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onKeyDown={onKeyDown}
+        tabIndex={0}
         aria-label={snap === 'half' ? 'Expand' : 'Shrink'}
         role="button"
       >
-        <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-500" />
+        <div className="absolute left-6 top-2 h-1.5 w-12 rounded-pill bg-tint-3" />
       </div>
-      <div className="shrink-0 flex items-center justify-between px-4 pb-2">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <button
-          onClick={onClose}
-          className="w-11 h-11 -mr-2 flex items-center justify-center text-2xl text-gray-400 hover:text-white"
-          aria-label={`Close ${title}`}
-        >
-          ×
-        </button>
+      <div className="flex shrink-0 items-center justify-between gap-3 pb-1 pl-5 pr-2 pt-5">
+        <h2 className="m-0 text-ui-title font-bold">{title}</h2>
+        <IconButton icon="close" label={`Close ${title}`} onClick={onClose} />
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-4">{children}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">{children}</div>
     </div>
   );
 }
