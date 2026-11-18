@@ -1,15 +1,17 @@
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, ZoomControl, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polyline, useMapEvents } from 'react-leaflet';
 import { divIcon, latLng, DragEndEvent, type Map as LeafletMap } from 'leaflet';
 import { OSM_TILE_URL } from '../../lib/kneeboardBasemap';
 import 'leaflet/dist/leaflet.css';
 import type { Theater, Waypoint, ThreatInstance, Coordinates, Attack } from '../../types';
 import type { FlightMember } from '../../types/flight.types';
 import { useTheaterInfo } from '../../stores/theaterStore';
-import { Fragment, useMemo, useEffect, useState } from 'react';
+import { Fragment, useMemo, useEffect, useRef, useState } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
 import { AttackLabelLayer } from './AttackLabelLayer';
 import { CustomIpMarker } from './CustomIpMarker';
 import { MapLegend } from './MapLegend';
+import { MapZoom } from './MapZoom';
+import { MapCredit } from './MapCredit';
 import { buildAttackPicture, pictureFitPoints } from '../../lib/attackPicture';
 import { attackIpAnchor } from '../../lib/ipAnchor';
 import type { PlacedLabel } from '../../lib/labelLayout';
@@ -47,6 +49,12 @@ interface MapViewProps {
   /** A saved attack's custom IP, dragged on the map. Mirrors onMoveThreat. */
   onMoveCustomIp?: (attackId: string, position: Coordinates) => void;
   flightMembers?: FlightMember[];
+  /**
+   * The Leaflet map, once it exists (and null when it goes). On the desktop the zoom, the credit
+   * and the legend float in the planner's own layout (PlannerShell), which needs the map to drive
+   * the zoom. On a phone this component draws them itself.
+   */
+  onMap?: (map: LeafletMap | null) => void;
 }
 
 /**
@@ -239,6 +247,7 @@ export function MapView({
   onRemoveThreat,
   onMoveCustomIp,
   flightMembers = [],
+  onMap,
 }: MapViewProps) {
   const theaterInfo = useTheaterInfo(theater);
   const center = theaterInfo?.default_center ?? { lat: 0, lon: 0 };
@@ -247,6 +256,15 @@ export function MapView({
   // Phones pick with a crosshair and move with a button instead of a click
   // and a drag (see CrosshairPick).
   const isPhone = useIsPhone();
+
+  // Hand the map to whoever draws the desktop chrome (and take it back when it goes). Read
+  // through a ref, so a caller's inline function cannot make this run on every render.
+  const onMapRef = useRef(onMap);
+  onMapRef.current = onMap;
+  useEffect(() => {
+    onMapRef.current?.(map);
+  }, [map]);
+  useEffect(() => () => onMapRef.current?.(null), []);
 
   // What the map is waiting for a click on — armed by ThreatList, or by a
   // marker's Move button on a phone. See uiStore.ts's MapPick.
@@ -325,13 +343,10 @@ export function MapView({
         zoom={8}
         className={`h-full w-full ${isPlacementMode && !isPhone ? 'cursor-crosshair' : ''}`}
         zoomControl={false}
+        attributionControl={false}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url={OSM_TILE_URL}
-          maxZoom={15}
-        />
-        <ZoomControl position="bottomleft" />
+        {/* Zoom and the tiles' credit are the app's own (MapZoom, MapCredit): below on a phone, in PlannerShell on the desktop. */}
+        <TileLayer url={OSM_TILE_URL} maxZoom={15} />
         <MapController theater={theater} waypoints={waypoints} threats={threats} />
         <FocusController attacks={attacks} waypoints={waypoints} focusAttackId={focusAttackId} onFocused={() => onAttackFocused?.()} />
         {/* Selection never feeds MapController's fitKey — picking something out
@@ -580,6 +595,15 @@ export function MapView({
 
       {/* Map legend — doubles as the display filter control */}
       <MapLegend attacks={attacks} flightMembers={flightMembers} threats={threats} />
+
+      {/* A phone's map chrome: zoom bottom left, the credit bottom right. The desktop draws its
+          own in PlannerShell. */}
+      {isPhone && (
+        <>
+          <MapZoom map={map} className="absolute bottom-3 left-[max(0.75rem,var(--safe-left))] z-[1000]" />
+          <MapCredit className="absolute bottom-2 right-[max(0.5rem,var(--safe-right))] z-[1000] max-w-[calc(100%-6rem)]" />
+        </>
+      )}
     </div>
   );
 }

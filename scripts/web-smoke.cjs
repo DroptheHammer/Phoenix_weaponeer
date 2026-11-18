@@ -284,7 +284,7 @@ fs.mkdirSync(out, { recursive: true });
 
   await page.getByRole('button', { name: 'Save attack' }).click();
   await page.getByRole('button', { name: 'Save attack' }).waitFor({ state: 'detached', timeout: 5000 });
-  // The Attacks tab counts them: "Attacks (1)" on the desktop, "Attacks 1" on a phone.
+  // The Attacks tab counts them: the rail button's badge on the desktop ("1" over "Attacks"), "Attacks 1" on a phone.
   const attackCount = async () => (await page.getByRole('button', { name: /^Attacks/ }).first().innerText()).match(/\d+/)?.[0] ?? '0';
   step(`attack saved; Attacks tab counts ${await attackCount()}`);
   await shot('09-attack-saved');

@@ -15,6 +15,10 @@ import { stackedName, Tabs } from '../src/components/ui/Tabs';
 import { AppBar, AppBarPrimary, HeaderWhere } from '../src/components/shell/AppBar';
 import { FileMenu, menuKey, pressShutsMenu } from '../src/components/shell/FileMenu';
 import { PhoneShell } from '../src/components/phone/PhoneShell';
+import { plannerRailItems, phoneTabItems, PANEL_TITLES } from '../src/components/shell/railItems';
+import { MapZoom } from '../src/components/map/MapZoom';
+import { MapCredit, MAP_CREDIT } from '../src/components/map/MapCredit';
+import { PlannerShell } from '../src/components/shell/PlannerShell';
 import { readTokens } from './tokens.mjs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -221,4 +225,96 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   };
   ok('SH29 the phone\'s back arrow is named by what App gives it, and PhoneShell holds no such words of its own',
      Object.values(named).every(Boolean), `named by the given words ${named.given}, only with onBack ${named.onlyWithBack}, no literal in PhoneShell ${named.noLiteral}, App passes W.backToFront ${named.passed}`);
+}
+
+// ─── The rail's items, the map's zoom and credit, the planner's frame ────────────────────
+{
+  const counts = { waypoints: 5, visibleThreats: 2, flightMembers: 4, attacks: 2, hiddenAttacks: 0 };
+  const items = plannerRailItems(counts);
+  const hidden = plannerRailItems({ ...counts, hiddenAttacks: 1 });
+  const phone = phoneTabItems(counts);
+  // Red when: plannerRailItems gives Threats `count: c.visibleThreats + 1`; or hiddenNote always returns `${n} hidden`.
+  // Seen: FAIL SH7 the rail counts waypoints, the threats it is given, …  Waypoints (5) | Threats (3) | Flight (4) | Attacks (2) | Kneeboards   (+ 1)
+  //       FAIL SH7 …  Waypoints (5) | Threats (2) | Flight (4) | Attacks (2 · 0 hidden) | Kneeboards   (the note always given)
+  ok('SH7 the rail counts waypoints, the threats it is given, jets and attacks, and notes hidden attacks only when there are some; the phone uses its own words',
+     items.map((i) => stackedName(i)).join(' | ') === 'Waypoints (5) | Threats (2) | Flight (4) | Attacks (2) | Kneeboards'
+       && stackedName(hidden[3]) === 'Attacks (2 · 1 hidden)'
+       && phone.map((i) => i.label).join(' ') === 'Route Threats Flight Attacks Cards'
+       && Object.values(PANEL_TITLES).join(' ') === 'Waypoints Threats Flight Attacks Kneeboards',
+     items.map((i) => stackedName(i)).join(' | '));
+
+  const app = read('src/App.tsx');
+  // Red when: App's rail counts become `visibleThreats: mission.threats.length,` (author-hidden threats counted on the rail).
+  // Seen: FAIL SH19 the rail counts the visible mission's threats only (author-hidden ones only when revealed in Settings › Admin)  visibleThreats: mission.threats.length
+  ok('SH19 the rail counts the visible mission\'s threats only (author-hidden ones only when revealed in Settings › Admin)',
+     /visibleThreats: visibleMission\?\.threats\.length \?\? 0/.test(app) && !/visibleThreats:\s*mission\.threats/.test(app),
+     /visibleThreats:[^,\n]*/.exec(app)?.[0] ?? 'no visibleThreats line');
+
+  // Red when: the planner branch's `) : shown === 'map' && mission && railCounts ? (` becomes `) : mission && railCounts ? (` (the
+  // planner would hang on there being a mission, not on the screen being the map).
+  // Seen: FAIL SH21 App draws the planner only through one <PlannerShell>, on the map screen only, and no hand-made rail  rail string false; PlannerShell 1; on the map screen false
+  ok('SH21 App draws the planner only through one <PlannerShell>, on the map screen only, and no hand-made rail',
+     !/bg-dcs-navy text-gray-300 hover:bg-dcs-blue/.test(app) && count(app, /<PlannerShell\b/g) === 1 && /shown === ["']map["'] && mission && railCounts \? \(\s*<PlannerShell/.test(app) && !/<Tabs\b/.test(app),
+     `rail string ${/bg-dcs-navy text-gray-300 hover:bg-dcs-blue/.test(app)}; PlannerShell ${count(app, /<PlannerShell\b/g)}; on the map screen ${/shown === ["']map["'] && mission && railCounts \? \(\s*<PlannerShell/.test(app)}`);
+
+  // The planner's way back to the Flight overview is a back link before the mission's name and the File menu's first row,
+  // both calling openOverview; the overview's own bar goes back to the front page and leads with "Open the map".
+  const from = app.search(/shown === 'map' && mission\s*\?\s*\{/);
+  const plannerBar = from < 0 ? '' : app.slice(from, from + Math.max(0, app.slice(from).search(/: shown === 'overview' && mission/)));
+  const back = {
+    opens: /const openOverview = \(\) => setScreen\(["']overview["']\);/.test(app),
+    link: /<BackLink label="Flight overview" onClick=\{openOverview\} \/>/.test(plannerBar),
+    row: /^\s*\{ id: 'overview', label: 'Flight overview', sub: [^\n]*, icon: 'flight', onSelect: openOverview \},$/m.test(plannerBar)
+      && /fileItems: \[\s*\{ id: 'overview'/.test(plannerBar),
+    overviewBar: /shown === ["']overview["'] && mission/.test(app) && /<BackLink label=\{W\.frontPage\} onClick=\{toFront\} \/>/.test(app) && /<AppBarPrimary icon="map" label=\{W\.openMap\}/.test(app),
+  };
+  // Red when: App keeps `const openOverview: (() => void) | undefined = undefined;` (the planner has no way back); or the planner bar's
+  // `<BackLink label="Flight overview" … />` is taken out; or the File row is.
+  // Seen: FAIL SH22 the planner opens the Flight overview (…), and the overview's header …  opens false, back link true, File row true, overview bar true   (left undefined)
+  //       FAIL SH22 …  opens true, back link false, File row true, overview bar true   (the back link taken out)
+  //       FAIL SH22 …  opens true, back link true, File row false, overview bar true   (the File row taken out)
+  ok('SH22 the planner opens the Flight overview (a back link before the mission\'s name, and File\'s first row), and the overview\'s header goes back to the front page and leads with "Open the map"',
+     Object.values(back).every(Boolean), `opens ${back.opens}, back link ${back.link}, File row ${back.row}, overview bar ${back.overviewBar}`);
+
+  const mapView = read('src/components/map/MapView.tsx');
+  // Red when: `attributionControl={false}` is taken out of MapView (Leaflet's own credit would be drawn beside the app's).
+  // Seen: FAIL SH8 Leaflet's own zoom and attribution are off; MapView draws the app's zoom and credit on a phone  attribution off false; Leaflet zoom false
+  ok('SH8 Leaflet\'s own zoom and attribution are off; MapView draws the app\'s zoom and credit on a phone',
+     /attributionControl=\{false\}/.test(mapView) && /zoomControl=\{false\}/.test(mapView) && !/<ZoomControl/.test(mapView) && /\{isPhone && \(\s*<>\s*<MapZoom[\s\S]*?<MapCredit/.test(mapView),
+     `attribution off ${/attributionControl=\{false\}/.test(mapView)}; Leaflet zoom ${/<ZoomControl/.test(mapView)}`);
+
+  // Red when: MAP_CREDIT becomes '© Map data'.
+  // Seen: FAIL SH9 the credit names OpenStreetMap's contributors (its licence asks for it); …  <p class="m-0 rounded-ui-md border border-line-strong bg-surface-float px-2.5 py-0.5 …
+  const credit = html(createElement(MapCredit));
+  const zoom = html(createElement(MapZoom, { map: null }));
+  ok('SH9 the credit names OpenStreetMap\'s contributors (its licence asks for it); the zoom is a named group of two 44 px buttons',
+     MAP_CREDIT === '© OpenStreetMap contributors' && credit.includes(MAP_CREDIT) && zoom.includes('aria-label="Map zoom"') && zoom.includes('aria-label="Zoom in"') && zoom.includes('aria-label="Zoom out"') && (zoom.match(/size-tap/g) ?? []).length === 2,
+     credit.slice(0, 160));
+
+  const make = (activePanel: 'attacks' | null, hidePanel: boolean) =>
+    html(createElement(PlannerShell<'attacks'>, {
+      map: createElement('div', { id: 'the-map' }),
+      leafletMap: null,
+      railItems: [{ id: 'attacks', label: 'Attacks', icon: 'attack', count: 2 }],
+      activePanel, onPanel: noop, panelTitle: 'Attacks', panel: createElement('p', null, 'panel body'), hidePanel,
+      legend: createElement('section', { 'aria-label': 'Legend' }),
+    }));
+  const shut = make(null, false);
+  const shown = make('attacks', false);
+  const picking = make('attacks', true);
+  // Red when: `hidden={hidePanel}` is dropped from <PanelSheet> in PlannerShell; or the open grid's `_var(--panel-w)]` becomes `_480px]`.
+  // Seen: FAIL SH10 the planner: the map under a click-through grid; …  <div class="relative min-h-0 flex-1 overflow-hidden bg-surface-deep"><div cla…   (each of the two changes)
+  ok('SH10 the planner: the map under a click-through grid; the rail and then the Legend in the left column; zoom and credit in the middle; the panel in a third column (--panel-w), kept but hidden while a map pick is armed',
+     shut.includes('pointer-events-none') && shut.includes('grid-cols-[var(--dock-w)_minmax(0,1fr)]') && !shut.includes('planner-panel-title')
+       && /aria-label="Planner panels"[\s\S]*aria-label="Legend"/.test(shut) && shut.includes('aria-label="Map zoom"') && shut.includes(MAP_CREDIT)
+       && shown.includes('_var(--panel-w)]') && shown.includes('id="planner-panel-title"') && shown.includes('panel body') && shown.includes('aria-label="Close panel"')
+       && picking.includes('panel body') && /<aside[^>]*class="hidden /.test(picking),
+     shown.slice(0, 220));
+
+  // Red when: PanelSheet's `entering && 'motion-safe:animate-sheet-in',` becomes `'motion-safe:animate-sheet-in',` (the slide would replay after every map pick).
+  // Seen: FAIL SH23 the side panel slides in on its first showing only: …  slide class drawn true; hangs on entering false
+  const sheet = read('src/components/shell/PanelSheet.tsx');
+  ok('SH23 the side panel slides in on its first showing only: the slide class hangs on `entering`, which the end of the slide and a map pick clear (a source check: the slide itself is CSS)',
+     shown.includes('motion-safe:animate-sheet-in') && /entering && ['"]motion-safe:animate-sheet-in['"]/.test(sheet) && /onAnimationEnd=\{settle\}/.test(sheet) && /if \(hidden\) setEntering\(false\)/.test(sheet),
+     `slide class drawn ${shown.includes('motion-safe:animate-sheet-in')}; hangs on entering ${/entering && ['"]motion-safe:animate-sheet-in['"]/.test(sheet)}`);
 }

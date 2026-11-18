@@ -35,6 +35,9 @@ import { isRealWorld } from "./lib/strikeNearMe";
 import { AppBar, AppBarPrimary, BackLink, HeaderWhere, type AppBarProps } from "./components/shell/AppBar";
 import type { FileMenuItem } from "./components/shell/FileMenu";
 import { flightGroupOf } from "./lib/callsign";
+import type { Map as LeafletMap } from "leaflet";
+import { PlannerShell } from "./components/shell/PlannerShell";
+import { PANEL_TITLES, plannerRailItems, type PanelType, type RailCounts } from "./components/shell/railItems";
 
 interface ThreatSystem {
   id: string;
@@ -52,8 +55,6 @@ interface Aircraft {
   /** The database's guess at the DCS kneeboard folder name; only aims the folder picker. */
   kneeboard_path: string;
 }
-
-type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
 
 /**
  * What fills the window: the front page (always, with no mission), the Flight overview (where every load lands),
@@ -144,6 +145,8 @@ function App() {
   const loadField = useRef<HTMLInputElement>(null);
   const [showStrikeNearMe, setShowStrikeNearMe] = useState(false);
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
+  // The Leaflet map, handed over by MapView, for the desktop's zoom buttons (they float outside the map).
+  const [leafletMap, setLeafletMap] = useState<LeafletMap | null>(null);
   const mapPick = useUiStore((state) => state.mapPick);
   // Action held back by the unsaved-changes guard, with the phrase shown to the user.
   const [pendingAction, setPendingAction] = useState<{ label: string; run: () => void } | null>(null);
@@ -480,8 +483,19 @@ function App() {
       onMoveThreat={handleMoveThreat}
       onRemoveThreat={handleRemoveThreat}
       onMoveCustomIp={handleMoveCustomIp}
+      onMap={setLeafletMap}
     />
   );
+
+  // What the rail counts. Threats: the visible mission's only, so a threat the mission author hid is never counted
+  // unless it is revealed in Settings › Admin.
+  const railCounts: RailCounts | null = mission && {
+    waypoints: mission.waypoints.length,
+    visibleThreats: visibleMission?.threats.length ?? 0,
+    flightMembers: mission.flightMembers.length,
+    attacks: mission.attacks.length,
+    hiddenAttacks: hiddenAttackCount,
+  };
 
   /*
     Unverified projection warning.
@@ -714,9 +728,9 @@ function App() {
 
   // ---- The header (AppBar): what it says on each screen ----
   const flightName = mission?.flightMembers[0] ? flightGroupOf(mission.flightMembers[0].callsign) : '';
-  // The planner's way back to the Flight overview (a back link and a File row). Neither is drawn
-  // until this is set, which comes with the planner's own new frame; the phone's menu has it already.
-  const openOverview: (() => void) | undefined = undefined;
+  // The planner's way back to the Flight overview: the back link before the mission's name, and File's first row (the
+  // phone's menu has the same row).
+  const openOverview = () => setScreen('overview');
   const openItem: FileMenuItem = { id: 'open', label: 'Open', sub: platform.isWeb ? 'Open a .json file' : 'Open a saved mission', icon: 'folder', onSelect: handleOpen };
   // Import goes to the front page's load box (handleImportClick), which replaces nothing until a load runs.
   const importItem: FileMenuItem = { id: 'import', label: 'Import', sub: 'Load a FragOrders link or file', icon: 'drop', onSelect: handleImportClick };
@@ -753,7 +767,7 @@ function App() {
           ...barShared,
           lead: (
             <>
-              {openOverview ? <BackLink label="Flight overview" onClick={openOverview} /> : null}
+              <BackLink label="Flight overview" onClick={openOverview} />
               <HeaderWhere
                 title={mission.name}
                 dirty={isDirty}
@@ -782,7 +796,7 @@ function App() {
             />
           ),
           fileItems: [
-            ...(openOverview ? [{ id: 'overview', label: 'Flight overview', sub: flightName ? `Jets, loadouts and threats for ${flightName}` : 'Jets, loadouts and threats', icon: 'flight' as const, onSelect: openOverview }] : []),
+            { id: 'overview', label: 'Flight overview', sub: flightName ? `Jets, loadouts and threats for ${flightName}` : 'Jets, loadouts and threats', icon: 'flight', onSelect: openOverview },
             ...saveAsItems,
             openItem,
             importItem,
@@ -843,91 +857,21 @@ function App() {
           <div className="text-center py-12">
             <p className="text-red-400">Error: {error}</p>
           </div>
-        ) : mission ? (
-          <div className="relative min-h-0 flex-1">
-            {/* Map - always visible as background */}
-            <div className="absolute inset-0">{mapView}</div>
-
-            {unverifiedBanner && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-2xl">{unverifiedBanner}</div>
-            )}
-
-            {/* Panel toggle buttons - floating on left side */}
-            <div className="absolute left-4 top-4 z-[1000] flex flex-col gap-2">
-              <button
-                onClick={() => setActivePanel(activePanel === 'waypoints' ? null : 'waypoints')}
-                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
-                  activePanel === 'waypoints'
-                    ? 'bg-dcs-accent text-white'
-                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
-                }`}
-              >
-                Waypoints ({mission.waypoints.length})
-              </button>
-              <button
-                onClick={() => setActivePanel(activePanel === 'threats' ? null : 'threats')}
-                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
-                  activePanel === 'threats'
-                    ? 'bg-dcs-accent text-white'
-                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
-                }`}
-              >
-                Threats ({visibleMission?.threats.length ?? 0})
-              </button>
-              <button
-                onClick={() => setActivePanel(activePanel === 'flight' ? null : 'flight')}
-                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
-                  activePanel === 'flight'
-                    ? 'bg-dcs-accent text-white'
-                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
-                }`}
-              >
-                Flight ({mission.flightMembers.length})
-              </button>
-              <button
-                onClick={() => setActivePanel(activePanel === 'attacks' ? null : 'attacks')}
-                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
-                  activePanel === 'attacks'
-                    ? 'bg-dcs-accent text-white'
-                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
-                }`}
-              >
-                Attacks ({mission.attacks.length}{hiddenAttackCount > 0 ? ` · ${hiddenAttackCount} hidden` : ''})
-              </button>
-              <button
-                onClick={() => setActivePanel(activePanel === 'kneeboards' ? null : 'kneeboards')}
-                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-colors ${
-                  activePanel === 'kneeboards'
-                    ? 'bg-dcs-accent text-white'
-                    : 'bg-dcs-navy text-gray-300 hover:bg-dcs-blue'
-                }`}
-              >
-                Kneeboards
-              </button>
-            </div>
-
-            {/* Right sidebar panel - slides in when active. Hidden (not unmounted —
-                an open AttackEditor must survive) while the map is waiting for a
-                placement click, so the click can land anywhere including the
-                strip the panel normally covers. */}
-            {activePanel && (
-              <div className={`absolute right-0 top-0 bottom-0 w-1/3 bg-dcs-navy shadow-2xl z-[1000] overflow-y-auto ${mapPick ? 'hidden' : ''}`}>
-                {/* Panel header */}
-                <div className="sticky top-0 bg-dcs-blue p-4 flex justify-between items-center shadow-md z-10">
-                  <h2 className="text-xl font-semibold capitalize">{activePanel}</h2>
-                  <button
-                    onClick={() => setActivePanel(null)}
-                    className="text-gray-400 hover:text-white text-2xl w-8 h-8 flex items-center justify-center"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                {/* Panel content */}
-                <div className="p-4">{renderPanel(activePanel)}</div>
-              </div>
-            )}
-          </div>
+        ) : shown === 'map' && mission && railCounts ? (
+          <PlannerShell<PanelType>
+            map={mapView}
+            leafletMap={leafletMap}
+            railItems={plannerRailItems(railCounts)}
+            activePanel={activePanel}
+            onPanel={setActivePanel}
+            panelTitle={activePanel ? PANEL_TITLES[activePanel] : ''}
+            panel={activePanel ? renderPanel(activePanel) : null}
+            // Kept mounted but out of sight (an open attack editor must survive) while the map waits for a placement
+            // click, so the click can land anywhere, including where the panel normally sits.
+            hidePanel={Boolean(mapPick)}
+            banner={unverifiedBanner || undefined}
+            legend={null}
+          />
         ) : null}
       </main>
       )}
