@@ -1,6 +1,7 @@
 /**
- * Checks for the front page, "Choose your flight" and the Flight overview's pieces: markup rendered to plain
- * HTML in node (react-dom/server), and scans of the source files. Run by geo-check after overview-check.
+ * Checks for the front page, "Choose your flight" and the Flight overview's pieces, and for the planner's Threats
+ * panel's silence about threats the author hid: markup rendered to plain HTML in node (react-dom/server), and scans
+ * of the source files. Run by geo-check after overview-check.
  *
  * Beside each check, "Red when" is the one-line change that turns it red, and "Seen" is the FAIL line it
  * printed.
@@ -17,9 +18,11 @@ import { RecentCardItem, RecentMissions } from '../src/components/landing/Recent
 import { ThreatBlock } from '../src/components/landing/ThreatBlock';
 import { W } from '../src/components/landing/words';
 import { FlightRow, FragOrdersPreview } from '../src/components/import/FragOrdersPreview';
+import { ThreatList } from '../src/components/threats/ThreatList';
 import { recentCardFrom, type RecentCard, type RecentKey, type ThumbnailInput } from '../src/lib/landing/recentCards';
 import { CARD_PICTURE } from '../src/lib/landing/thumbnailPlan';
 import { useLocalMissionStore } from '../src/stores/localMissionStore';
+import { useMissionStore } from '../src/stores/missionStore';
 import { useUiStore } from '../src/stores/uiStore';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -300,15 +303,81 @@ const dotFromHeader = /<PhoneShell<PanelType>[^>]*?\sdirty=\{header\.dirty\}/.te
 ok('UI10 the phone shell takes its title and its unsaved dot from phoneHeader',
   /const header = phoneHeader\(/.test(app) && titleFromHeader && dotFromHeader, `title ${titleFromHeader}, dirty ${dotFromHeader}`);
 
+// ─── The planner's Threats panel says nothing about threats the author hid ───
+// The panel is drawn as a planner sees it: a mission with two threats anyone may see (one from the mission, one the
+// planner added) and three the author hid (one each way, and one both ways), with the Settings switches at their
+// initial state, then with one switch on, then with both. With nothing revealed the panel must read exactly as for
+// the mission with those three taken out, and an all-hidden mission exactly as for none at all: no name, no count,
+// no line. With a switch on, its own kind is listed and counted like any other.
+const panelThreat = (id: string, systemId: string, source: 'mission' | 'planning', lat: number, flags: { hiddenOnPlanner?: boolean; hiddenOnMap?: boolean } = {}) =>
+  ({ id, systemId, position: { lat, lon: -115.5 }, status: 'active' as const, source, ...flags });
+const seenThreats = [panelThreat('s1', 'seen-a', 'mission', 36.1), panelThreat('s2', 'seen-b', 'planning', 36.2)];
+const hiddenPanelThreats = [
+  panelThreat('h1', 'hid-a', 'mission', 36.31, { hiddenOnPlanner: true }),
+  panelThreat('h2', 'hid-b', 'mission', 36.32, { hiddenOnMap: true }),
+  panelThreat('h3', 'hid-c', 'mission', 36.33, { hiddenOnPlanner: true, hiddenOnMap: true }),
+];
+const panelSystems = new Map(['FAKE-SEEN-MISSION', 'FAKE-SEEN-PLANNING', 'FAKE-HIDDEN-A', 'FAKE-HIDDEN-B', 'FAKE-HIDDEN-C'].map((name, i) => {
+  const id = ['seen-a', 'seen-b', 'hid-a', 'hid-b', 'hid-c'][i];
+  return [id, { id, name, nato_designation: null, threat_type: 'SAM', max_range_nm: 10, max_altitude_ft: 30000 }] as const;
+}));
+const panelMarkup = (threats: ReturnType<typeof panelThreat>[], reveal = { onPlanner: false, onMap: false }) => {
+  // A server render reads the stores' initial state, so the mission and the switches are set there, and put back.
+  const ui = useUiStore.getInitialState();
+  const store = useMissionStore.getInitialState();
+  const [revealBefore, missionBefore] = [ui.revealHidden, store.mission];
+  ui.revealHidden = reveal;
+  store.mission = { ...savedMission, threats } as unknown as Mission;
+  try {
+    return renderToStaticMarkup(createElement(ThreatList, { threatSystems: panelSystems, availableThreats: [] }));
+  } finally {
+    ui.revealHidden = revealBefore;
+    store.mission = missionBefore;
+  }
+};
+const panelAll = [...seenThreats, ...hiddenPanelThreats];
+const panelSilent = panelMarkup(panelAll);
+const panelTakenOut = panelMarkup(seenThreats);
+const panelAllHidden = panelMarkup(hiddenPanelThreats);
+const panelNone = panelMarkup([]);
+const panelPlannerSwitch = panelMarkup(panelAll, { onPlanner: true, onMap: false });
+const panelBothSwitches = panelMarkup(panelAll, { onPlanner: true, onMap: true });
+// Red when (ThreatList): the panel reads the store's whole list where it must read the visible one:
+// `const missionThreats = view.fromMission;` becomes `const missionThreats = (mission?.threats ?? []).filter((t) => t.source === 'mission');`.
+// Or the line under the title counts what is not shown: `{view.summary}` becomes `{`${mission?.threats.length ?? 0} threats`}`.
+// Or the panel ignores the switches: `threatListView(mission?.threats ?? [], reveal)` is given `{ onPlanner: true, onMap: true }` for `reveal`
+// (or `{ onPlanner: false, onMap: false }`, so that no switch ever shows anything).
+// Seen: FAIL X2b the Threats panel lists and counts only the threats a planner may see, reads as for no threats when all are hidden, and a Settings switch shows its own kind  as with them taken out false, all hidden as none false, planner switch "3 threats (2 from mission, 1 planning)", both "5 threats (4 from mission, 1 planning)", nothing revealed "2 threats (1 from mission, 1 planning)"
+//         (the mission list read from the store's whole list: the two threats the planner may see still counted right, but the hidden ones were listed; X2 stayed green, as it reads words, not what is drawn)
+//       FAIL X2b … as with them taken out false, all hidden as none false, planner switch "undefined", both "undefined", nothing revealed "undefined"
+//         (the line under the title counting `mission?.threats.length`: no "(… from mission, … planning)" left to read)
+//       FAIL X2b … as with them taken out false, all hidden as none false, planner switch "5 threats (4 from mission, 1 planning)", both "5 threats (4 from mission, 1 planning)", nothing revealed "5 threats (4 from mission, 1 planning)"
+//         (the switches ignored, as if both were on: the hidden three listed and counted with nothing revealed)
+//       FAIL X2b … as with them taken out true, all hidden as none true, planner switch "2 threats (1 from mission, 1 planning)", both "2 threats (1 from mission, 1 planning)", nothing revealed "2 threats (1 from mission, 1 planning)"
+//         (the other way: the switches never reveal, so a threat the planner asked to see stays out)
+ok('X2b the Threats panel lists and counts only the threats a planner may see, reads as for no threats when all are hidden, and a Settings switch shows its own kind',
+  panelSilent === panelTakenOut && panelSilent.includes('FAKE-SEEN-MISSION') && panelSilent.includes('FAKE-SEEN-PLANNING') &&
+    panelSilent.includes('2 threats (1 from mission, 1 planning)') && !panelSilent.includes('FAKE-HIDDEN') &&
+    panelAllHidden === panelNone && panelNone.includes('No threats identified.') && panelNone.includes('0 threats (0 from mission, 0 planning)') &&
+    !/hidden|probable|location unknown|author|withheld/i.test(readable(panelAllHidden)) &&
+    panelPlannerSwitch.includes('FAKE-HIDDEN-A') && !panelPlannerSwitch.includes('FAKE-HIDDEN-B') && !panelPlannerSwitch.includes('FAKE-HIDDEN-C') &&
+    panelPlannerSwitch.includes('3 threats (2 from mission, 1 planning)') &&
+    ['A', 'B', 'C'].every((letter) => panelBothSwitches.includes(`FAKE-HIDDEN-${letter}`)) && panelBothSwitches.includes('5 threats (4 from mission, 1 planning)'),
+  `as with them taken out ${panelSilent === panelTakenOut}, all hidden as none ${panelAllHidden === panelNone}, planner switch "${/\d+ threats \([^)]*\)/.exec(panelPlannerSwitch)?.[0]}", both "${/\d+ threats \([^)]*\)/.exec(panelBothSwitches)?.[0]}", nothing revealed "${/\d+ threats \([^)]*\)/.exec(panelSilent)?.[0]}"`);
+
 // ─── What the front page's and the chooser's own files may write ─────────────
 // The chooser is held to the same rules as the landing components.
 const files = ['src/components/import/FragOrdersPreview.tsx', ...readdirSync('src/components/landing').map((f) => `src/components/landing/${f}`)];
-// The front page, the chooser and the overview never read or word a hidden-threat count, a "probable threats" line or an
-// "author hid" tag: the app says nothing about threats the author hid unless Settings reveals them.
-// Red when: `const probableCount = 0;` is added to FragOrdersPreview.tsx (or `summary.threats.probableCount` read in a landing file).
-// Seen: FAIL X2 the front page, the step and the overview never read or word a hidden-threat count  src/components/import/FragOrdersPreview.tsx
-const talk = files.filter((f) => /probable|revealedCount|hiddenCount|isHiddenByAuthor|location unknown|hidden by (the mission )?author/i.test(src(f)));
-ok('X2 the front page, the step and the overview never read or word a hidden-threat count', talk.length === 0, talk.join(', '));
+// The front page, the chooser, the overview and the planner's Threats panel never read or word a hidden-threat count, a
+// "probable threats" line or an "author hid" tag: the app says nothing about threats the author hid unless Settings
+// reveals them. The panel is scanned for these words only: its colours are the planner's own, not the tokens that the
+// landing files are held to below, so it stays out of `files`.
+// Red when: `const probableCount = 0;` is added to FragOrdersPreview.tsx or ThreatList.tsx (or `summary.threats.probableCount` read in a landing file), or a "Probable Threats — location unknown" heading is put back in the panel.
+// Seen: FAIL X2 the front page, the step, the overview and the Threats panel never read or word a hidden-threat count  src/components/threats/ThreatList.tsx
+//         (`const probableCount = 0;` added to ThreatList.tsx; X2b stayed green, as an unused line draws nothing)
+const THREAT_PANEL = 'src/components/threats/ThreatList.tsx';
+const talk = [...files, THREAT_PANEL].filter((f) => /probable|revealedCount|hiddenCount|isHiddenByAuthor|location unknown|hidden by (the mission )?author/i.test(src(f)));
+ok('X2 the front page, the step, the overview and the Threats panel never read or word a hidden-threat count', talk.length === 0, talk.join(', '));
 // Colour comes from the tokens (text-ink, bg-surface-navy, text-qty, ...), never a hex, a colour function or a Tailwind
 // palette class, so the screens follow the design system if it changes.
 // Red when: `text-gray-400` (or any hex) is written in a landing file, say in the jet card, or in the chooser.

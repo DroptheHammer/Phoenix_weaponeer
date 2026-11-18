@@ -311,7 +311,7 @@ before it is kept.
 | DS23, DS24 | the dialog on top; Tab staying inside |
 | X4, X9 (`landing-ui-check.tsx`) | the map's marker code is pinned; `tall:` and `short:` are height queries and the width variants still build |
 | UI1, X3, X8 (`landing-ui-check.tsx`) | the jet card's quantity colour, amber unknown stores and ESTIMATED tag; no raw colour in `src/components/landing/` or in the flight chooser; no comment there points at a git-ignored file, and no width query stands in for a height rule |
-| UI3, UI3b, X2 (`landing-ui-check.tsx`) | the flight chooser names only threats the planner may see and reads as for no threats when all are hidden, the link's notice included; no front-page, chooser or overview file reads or words a hidden-threat count |
+| UI3, UI3b, X2, X2b (`landing-ui-check.tsx`) | the flight chooser names only threats the planner may see and reads as for no threats when all are hidden, the link's notice included; no front-page, chooser, overview or Threats-panel file reads or words a hidden-threat count; the Threats panel, drawn with hidden threats in the mission, lists and counts only what the planner may see, and each Settings switch shows its own kind |
 | UI2, UI4, UI13 (`landing-ui-check.tsx`) | the Flight overview's threat block keeps four row slots and dashes its empty classes; a site that is not active says so in the card's word; the overview's fallback words say to reload or open the map |
 | `bundle-check.mjs` (`LAZY_MARKERS`) | the Flight overview loads when it opens, on both builds, never at start-up |
 
