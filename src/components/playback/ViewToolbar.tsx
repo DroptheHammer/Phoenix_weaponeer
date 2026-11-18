@@ -9,7 +9,7 @@
  * panel can be placed against the picture's corner, and the canvas underneath
  * still gets every drag and wheel turn that does not land on a control.
  */
-import type { ShowAction, ShowState, ViewMode } from '../../lib/playbackScene';
+import type { SceneSystemRow, ShowAction, ShowState, ViewMode } from '../../lib/playbackScene';
 import type { PlaybackScene } from './scene/createScene';
 import { ShowMenu } from './ShowMenu';
 import { keepFocus, TOGGLE, TOGGLE_OFF, TOGGLE_ON } from './ui';
@@ -23,9 +23,12 @@ interface ViewToolbarProps {
   /** The watched jet's seat label, "#3": Chase, From target and the side view follow it. */
   seat: string;
   onMode(mode: ViewMode): void;
+  /** The Show menu's threat list: the systems the planner may see, and whether playback was handed threat data at all. */
+  threatRows: readonly SceneSystemRow[];
+  threatData: boolean;
 }
 
-export function ViewToolbar({ scene, show, dispatch, mode, seat, onMode }: ViewToolbarProps) {
+export function ViewToolbar({ scene, show, dispatch, mode, seat, onMode, threatRows, threatData }: ViewToolbarProps) {
   const views: { mode: ViewMode; label: string; title: string }[] = [
     { mode: 'orbit', label: 'Orbit', title: 'Turn the view round the strike: drag to turn, right-drag to slide, wheel to zoom' },
     { mode: 'top', label: 'Top-down', title: 'Straight down, north up, like the map: drag to slide, wheel to zoom' },
@@ -58,7 +61,7 @@ export function ViewToolbar({ scene, show, dispatch, mode, seat, onMode }: ViewT
         >
           Home view
         </button>
-        <ShowMenu show={show} dispatch={dispatch} />
+        <ShowMenu show={show} dispatch={dispatch} rows={threatRows} threatData={threatData} />
       </div>
     </div>
   );

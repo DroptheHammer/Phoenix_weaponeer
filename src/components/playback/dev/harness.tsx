@@ -20,6 +20,9 @@
  *   synthetic (default)  a known hill and a two-colour map, offline, the same every run
  *   live                 real OpenStreetMap and elevation tiles, fetched by the browser
  *   none                 flat ground, nothing fetched
+ * The four-ship's threats can be varied: ?ewr=1 adds a far early-warning radar whose ring
+ * reaches the drawn area; ?threats=hidden keeps only the threat its author hid, ?threats=none
+ * carries none; ?reveal=1 has the planner's switch for hidden threats on at the press.
  * Other parameters: ?open=0 starts closed; ?notes=1 adds an unverified-theater note
  * (the longest small print, for the 1024×768 fit check). The strikes also offer Apply,
  * and what it writes is recorded in __pb.applied: the four-ship and the four dives are
@@ -41,17 +44,17 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../index.css';
-import { dangerZones } from '../../../lib/playback';
+import { dangerZones, playbackBounds } from '../../../lib/playback';
 import {
-  jetColor, newSceneBombPose, newSceneJetPose, sceneSourceFrom, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource, type Session, type SessionAction,
-  type ShowState, type Speed, type TileSource,
+  jetColor, newSceneBombPose, newSceneJetPose, sceneDomes, sceneSourceFrom, terrainBoxOf, type ActionPointsMode, type EnuBox, type GroundMode, type SceneMarker, type SceneSource,
+  type SceneSystemRow, type Session, type SessionAction, type ShowState, type Speed, type TileSource,
 } from '../../../lib/playbackScene';
 import { JET_COLORS } from '../../../lib/jetColors';
 import PlaybackView from '../PlaybackView';
 import { PlaybackOverlay } from '../PlaybackOverlay';
 import { PlaybackErrorBoundary } from '../PlaybackErrorBoundary';
 import { lastLeak, sceneCounts, type PlaybackScene } from '../scene/createScene';
-import { harnessFixtureLaunch, harnessMoments, type AppliedTimes, type HarnessFixture } from './fixture';
+import { harnessFixtureLaunch, harnessMoments, type AppliedTimes, type HarnessFixture, type StrikeThreatOptions } from './fixture';
 import { COLOUR_SAMPLES, DRAPE_EAST, DRAPE_NORTH, DRAPE_WEST, HILL, hillHeight, syntheticTiles } from './syntheticTiles';
 import { liveTiles } from './liveTiles';
 import type { PlaybackLaunch } from '../types';
@@ -67,13 +70,25 @@ const notes = params.get('notes') === '1'
 // What Apply wrote, for each press: to the editor's sliders a list of times (the editor's order), to the plan each attack's time by its id.
 const applied: AppliedTimes[] = [];
 const doorParam = params.get('door');
-const realLaunch = harnessFixtureLaunch(fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined, (times) => applied.push(times), doorParam === 'editor' || doorParam === 'list' ? doorParam : undefined, ruleParam);
+// The four-ship's threat variants: ?ewr=1 adds a far early-warning radar whose ring reaches the drawn area; ?threats=hidden
+// keeps only the threat its author hid, ?threats=none carries none; ?reveal=1 has the planner's switch for hidden threats on.
+const threatOpts: StrikeThreatOptions = {
+  ewr: params.get('ewr') === '1',
+  only: (['hidden', 'none'] as const).find((v) => v === params.get('threats')),
+  reveal: params.get('reveal') === '1',
+};
+const realLaunch = harnessFixtureLaunch(
+  fixtureName as HarnessFixture, notes, watchParam ? Number(watchParam) : undefined, (times) => applied.push(times), doorParam === 'editor' || doorParam === 'list' ? doorParam : undefined, ruleParam,
+  threatOpts,
+);
 const launch: PlaybackLaunch = params.get('gone') === '1' && realLaunch.fromMission
   ? { ...realLaunch, fromMission: { ...realLaunch.fromMission, subject: { strikeId: 'no-such-strike' } } }
   : realLaunch;
 const moments = harnessMoments(realLaunch);
 // The same source the view builds, for the world positions the checks compare against.
 const source = sceneSourceFrom(moments.pb, moments.timing);
+// The threat rows the view builds for its Show menu, the same way (the checks compare what the menu shows against them).
+const threatRows = sceneDomes(realLaunch.threats, moments.pb.frame, terrainBoxOf(playbackBounds(moments.pb))).systems;
 
 /** Every map and elevation tile asked for, so a check can prove a re-time fetches nothing. */
 let tileRequests = 0;
@@ -228,6 +243,19 @@ interface PbHandle {
   /** The Show choices as the view last held them (null until playback has opened). */
   show(): ShowState | null;
   /**
+   * Switch on exactly these threat systems (ids) and every other one off, one Show › Threats switch at a time through the
+   * session, as the menu's boxes would. Nothing before playback has opened.
+   */
+  setThreats(ids: readonly string[]): void;
+  /** The Show menu's threat rows, made the way the view makes them (sceneDomes on the launch's threats). */
+  threatRows(): readonly SceneSystemRow[];
+  /** How many threat domes are drawn now (their system switched on; a radar that covers the area or is beyond it is no dome). Null before the scene exists. */
+  domeCount(): number | null;
+  /** Every dome as the scene's dome layer laid it last: switched on or not, its look, its segments (ring and cage). Null before the scene exists. */
+  domes(): ReturnType<PlaybackScene['debugDomes']>;
+  /** Jet `jet`'s (default the lead) place against the threat envelopes now: the dome it is inside (−1: none), its threat, and whether the white ring was drawn. */
+  inside(jet?: number): ReturnType<PlaybackScene['debugInside']>;
+  /**
    * What each lane under the time bar shows, read off the page as drawn (page pixels): its axis box, every
    * chip (letters, kind, row 0 above the band / 1 below / -1 a dot, centre x from the axis box's left edge, box),
    * the pinned group's marks and text, the diamond at the time over target, the line at the clock's time,
@@ -360,6 +388,17 @@ const pb: PbHandle = {
   setActionPoints: (mode) => sessionAct?.({ type: 'show', a: { type: 'actionPoints', value: mode } }),
   act: (a) => sessionAct?.(a),
   show: () => sessionNow?.show ?? null,
+  setThreats(ids) {
+    const keys = sessionNow?.show.threatKeys ?? [];
+    for (const key of keys) sessionAct?.({ type: 'show', a: { type: 'threat', key, on: ids.includes(key) } });
+  },
+  threatRows: () => threatRows,
+  domeCount() {
+    const d = scene?.debugDomes();
+    return d ? d.domes.filter((x) => x.on).length : null;
+  },
+  domes: () => scene?.debugDomes() ?? null,
+  inside: (jet = 0) => scene?.debugInside(jet) ?? null,
   lanes: () =>
     [...document.querySelectorAll('[role="dialog"] [data-lane]')].map((lane) => {
       const axis = lane.querySelector('[data-lane-axis]')!;

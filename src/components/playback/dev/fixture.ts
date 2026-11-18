@@ -52,7 +52,10 @@
  * 4 nm west-north-west, a P-19 early-warning radar 8 nm east, whose range covers
  * the whole drawn area so it has no ring to draw, and an SA-11 the mission's
  * author hid, 5 nm south-south-west, which must reach nothing: it is inside the
- * drawn area, so a leak would show.
+ * drawn area, so a leak would show. Its variants (StrikeThreatOptions): a 1L13
+ * early-warning radar added far to the west, whose ring reaches into the drawn
+ * area; only the hidden SA-11 with a hidden 1L13 there (a plan whose threats are all hidden); no threats
+ * at all; and the planner's switch for hidden threats on at the press.
  *
  * `rule` is the frag rule the strike is saved with ('burst' or 'time'); left
  * out, the strike says nothing and the app's own default applies.
@@ -183,15 +186,34 @@ function strikeMission(tgt2: { coordinates: { lat: number; lon: number }; elevat
 /** The reference data's threat systems, every field kept, as the planner's lists carry them. */
 const threatSystems = (reference as unknown as { threat_systems: PlaybackSystemRow[] }).threat_systems;
 
+/**
+ * Which threats the four-ship carries, and how the press treats them. `ewr`: a 1L13 early-warning radar (active, from the
+ * mission) 190 nm on 270° from TGT1 joins them, whose 200 nm ring reaches into the drawn area. `only`: 'hidden' keeps
+ * only the SA-11 its author hid and a 1L13 its author hid where the `ewr` one stands (a plan whose threats are all
+ * hidden), 'none' carries no threats at all. `reveal`: the
+ * planner's Settings switch for threats hidden on the planner is on at the press, so the SA-11 comes through.
+ */
+export interface StrikeThreatOptions {
+  ewr?: boolean;
+  only?: 'hidden' | 'none';
+  reveal?: boolean;
+}
+
 /** The four-ship's threats: an SA-6 and an SA-8 to draw, a P-19 that covers the area, and an SA-11 the mission's author hid. */
-export function strikeThreats(): ThreatInstance[] {
+export function strikeThreats(o: StrikeThreatOptions = {}): ThreatInstance[] {
   const at = (id: string, systemId: string, bearing: number, nm: number, status: ThreatInstance['status'], source: ThreatInstance['source'], hidden = false): ThreatInstance =>
     ({ id, systemId, position: calculateDestination(TARGET, bearing, nm), status, source, ...(hidden ? { hiddenOnPlanner: true } : {}) });
+  const hiddenSa11 = at('h-sa11', 'sa11', 200, 5, 'active', 'mission', true);
+  if (o.only === 'none') return [];
+  // With it, an early-warning radar its author hid too, where the `ewr` one stands, so a leak would also put a radar's words
+  // on the picture.
+  if (o.only === 'hidden') return [hiddenSa11, at('h-1l13', 'ewr1l13', 270, 190, 'active', 'mission', true)];
   return [
     at('h-sa6', 'sa6', 45, 3, 'active', 'mission'),
     at('h-sa8', 'sa8', 300, 4, 'suppressed', 'planning'),
-    at('h-sa11', 'sa11', 200, 5, 'active', 'mission', true),
+    hiddenSa11,
     at('h-p19', 'p19', 90, 8, 'active', 'mission'),
+    ...(o.ewr ? [at('h-1l13', 'ewr1l13', 270, 190, 'active', 'mission')] : []),
   ];
 }
 
@@ -259,8 +281,12 @@ export type AppliedTimes = number[] | Record<string, number>;
  * attack list hands over a lone attack's row.
  * `watch` is the seat number (1 = #1) playback opens watching; left out, the lead (or, for late, #2).
  * `rule` is the frag rule the strike is saved with; left out, the strike says nothing.
+ * `threats` changes the four-ship's threats or how the press treats them (StrikeThreatOptions).
  */
-export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = [], watch?: number, record?: (times: AppliedTimes) => void, door?: 'editor' | 'list', rule?: FragRule): PlaybackLaunch {
+export function harnessFixtureLaunch(
+  fixture: HarnessFixture, notes: string[] = [], watch?: number, record?: (times: AppliedTimes) => void, door?: 'editor' | 'list', rule?: FragRule,
+  threatOpts: StrikeThreatOptions = {},
+): PlaybackLaunch {
   if (fixture === 'one') return door === 'list' ? harnessLoneFromList(notes) : harnessLaunch(notes, rule);
   if (fixture in SOLO_FIXTURES) return harnessSoloLaunch(fixture as SoloFixture, notes, rule);
   const m = strikeMission();
@@ -292,8 +318,9 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
   // Every member in seat order, skipped ones included, so a seat number names the same member as the card.
   const ids = [...input.jets.map((j) => ({ id: j.id, label: j.label })), ...(input.skipped ?? []).map((j) => ({ id: j.id, label: j.label }))];
   const seat = watch ?? (fixture === 'late' ? 2 : 1);
-  // The four-ship's threats, through the press as the planner's with nothing revealed (so the hidden SA-11 is not among them).
-  const threats = fixture === 'strike4' ? { threats: threatsAtPress(strikeThreats(), threatSystems, { onPlanner: false, onMap: false }) } : {};
+  // The four-ship's threats, through the press as the planner's with nothing revealed (so the hidden SA-11 is not among them),
+  // unless the planner's switch for threats hidden on the planner is on.
+  const threats = fixture === 'strike4' ? { threats: threatsAtPress(strikeThreats(threatOpts), threatSystems, { onPlanner: !!threatOpts.reveal, onMap: false }) } : {};
   if ((fixture === 'strike4' || fixture === 'dive4' || fixture === 'ridge' || fixture === 'trail') && door !== 'editor') {
     return {
       fromMission: { mission: planned, subject: { strikeId: strikeIdOf(fixture) }, weapons }, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes,

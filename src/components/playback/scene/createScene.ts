@@ -17,7 +17,8 @@
  * moving or easing out, a resize, a new map tile, the ground switching), so
  * a paused view leaves the graphics card idle: the app stays open for hours.
  *
- * Frame order: the world layers move to strike time t, then the camera
+ * Frame order: the world layers move to strike time t (and each jet is
+ * tested against the threat envelopes switched on), then the camera
  * follows (and is kept above the ground), then whatever must read the final
  * camera (sizes kept constant on screen). While a 2D view covers the whole
  * picture (the card's side view) drawing is switched off: only the first
@@ -33,11 +34,12 @@
 import { Color, Fog, NoToneMapping, SRGBColorSpace, Scene, Vector3, WebGLRenderer } from 'three';
 import type { StrikeWindow } from '../../../lib/playback';
 import {
-  BG, MAX_DPR, PlayClock, UI_EMIT_MS, aimWeight, homeBox, homePose, newSceneJetPose, targetGaps, FOG_FAR_K,
+  BG, MAX_DPR, PlayClock, UI_EMIT_MS, aimWeight, domeMaskInto, homeBox, homePose, newSceneJetPose, pickInside, targetGaps, FOG_FAR_K,
   type ActionPointsMode, type AttackColours, type CameraMode, type ClockSnapshot, type EnuBox, type GroundMode, type SceneJetPose, type SceneSource, type Speed, type TargetGap, type TileSource,
 } from '../../../lib/playbackScene';
 import { CameraRig, type Follow } from './cameraRig';
 import { DisposeBag } from './disposeBag';
+import { createDomeLayer, type DomeDebug, type DomeLayer } from './domeLayer';
 import { createImpactLayer, type ImpactDebug, type ImpactLayer } from './impactLayer';
 import { createJetLayer, type ArrowDebug, type BombTraceDebug, type JetLayer } from './jetLayer';
 import { createLabelLayer, type LabelDebug, type LabelLayer, type ScreenBox } from './labelLayer';
@@ -47,6 +49,24 @@ import { createTerrainLayer, type TerrainStatus } from './terrainLayer';
 
 export type { TerrainStatus } from './terrainLayer';
 export type { ScreenBox } from './labelLayer';
+export type { DomeDebug } from './domeLayer';
+
+/** Where a jet is against the threat envelopes on the last frame (for the screenshot checks). */
+export interface InsideDebug {
+  /** The dome it is inside (an index into source.domes), or −1. */
+  dome: number;
+  /** That dome's threat, when there is one. */
+  threatId?: string;
+  /** The white ring was drawn round its arrow (never while drawing is switched off: nothing is drawn then). */
+  halo: boolean;
+  /** That ring's outer radius on screen, CSS pixels (0 without a ring). */
+  haloPx: number;
+  /** Its inner radius as laid, read off its geometry: on screen, CSS pixels, and in metres at the arrow (0 without a ring). */
+  haloInnerPx: number;
+  haloInnerM: number;
+  /** The draw order of the jet's posts, ring, bomb outline, bomb and arrow, read off their meshes. */
+  order: { posts: number; halo: number; bombHull: number; bomb: number; arrow: number };
+}
 
 export interface SceneOptions {
   /** The element the canvas fills (give it a size; the scene follows it with a ResizeObserver). */
@@ -171,6 +191,12 @@ export interface PlaybackScene {
   /** The ring round each falling bomb, the flash where it lands, the ring at the weapon's blast radius and the words beside it (Show › Impact); off leaves the bomb alone. */
   setImpact(on: boolean): void;
   /**
+   * The threat systems switched on (Show › Threats, their ids): their envelopes are drawn, a jet inside one is marked,
+   * and an early-warning radar's ring and its words show; every other system's are not. Until it is first called, the
+   * weapons are on and the radars off, as the menu opens.
+   */
+  setThreatSystems(on: readonly string[]): void;
+  /**
    * Chase looks at the watched jet's bomb from its release until it lands, holds on the burst, then turns back to the
    * jet (Show › Watch the bomb land); off, it stays on the jet. The other cameras are not affected.
    */
@@ -229,6 +255,14 @@ export interface PlaybackScene {
    * drawn first), 0…1, as the camera used it: 0 in every mode but Chase. Null when the scene is gone. For the screenshot checks.
    */
   cameraAim(): { weight: number } | null;
+  /**
+   * Jet `jet`'s (a playback index, default 0) place against the threat envelopes at the clock's time now (a pending change is
+   * drawn first): the dome it is inside, its threat, whether the white ring was drawn round its arrow (never while drawing
+   * is switched off) and its outer radius on screen. Null when the scene is gone or there is no such jet. For the screenshot checks.
+   */
+  debugInside(jet?: number): InsideDebug | null;
+  /** Every threat dome as the dome layer last laid it (a pending change is drawn first): switched on or not, its look, its segments. Null when the scene is gone. For the screenshot checks. */
+  debugDomes(): DomeDebug | null;
   /**
    * Draw the picture or not. Off, the clock and every layer still move to each new time (so nothing is out of step when
    * drawing resumes), but the camera stands still and nothing is handed to the graphics card: for while a 2D view covers
@@ -325,11 +359,14 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
   // One layer per flown jet, jets[k] drawing playback jet k, and beside it impacts[k] for where its bomb lands.
   const jets: JetLayer[] = [];
   let impacts: ImpactLayer[] = [];
+  // The threat envelopes, when there are any (they are the open's: every source made for it carries the same domes).
+  let domes: DomeLayer | undefined;
   try {
     terrain = createTerrainLayer({
       source, tiles: opts.tiles, renderer, parent: scene, fog, bag, signal: abort.signal, invalidate,
       onStatus: (s) => opts.onTerrain?.(s),
     });
+    if (source.domes.length) domes = createDomeLayer({ source, parent: scene, bag });
     targets = createTargetLayer({ source, parent: scene, bag });
     for (let k = 0; k < source.jetCount; k++) jets.push(createJetLayer({ source, jet: k, parent: scene, bag }));
     impacts = jets.map((j) => createImpactLayer({ source, jet: j.jet, parent: scene, bag }));
@@ -348,8 +385,9 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     liveScenes--;
     throw err;
   }
-  // The targets before the labels: the overlay draws each TGT disc on the post top the target layer has just laid.
-  const layers: Layer[] = [terrain, targets, ...jets, ...impacts, labels];
+  // The targets before the labels: the overlay draws each TGT disc on the post top the target layer has just laid. The
+  // envelopes right after the ground, which their rings lie on.
+  const layers: Layer[] = [terrain, ...(domes ? [domes] : []), targets, ...jets, ...impacts, labels];
   const onControlsChange = () => invalidate();
   rig.controls.addEventListener('change', onControlsChange);
 
@@ -380,7 +418,17 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     ground: terrain.ground, groundVersion: terrain.groundVersion, heightAt: terrain.heightAt,
     watched: camJet, attackColours: 'watched', focusPxPerM: 1,
     speed: clock.currentSpeed, labels: true, actionPoints: 'coming', impact: true, again: false,
+    // As the menu opens, until the view hands over its choice: the weapons' envelopes on, the early-warning radars off.
+    domeMask: Uint8Array.from(source.domes, (d) => (d.ewr ? 0 : 1)),
+    inside: new Int16Array(source.jetCount).fill(-1),
   };
+  /** Which envelope each flown jet is inside now, after the layers have moved it: switched-on weapons only (pickInside). */
+  function fillInside() {
+    for (let k = 0; k < ctx.inside.length; k++) {
+      const p = jets[k]?.pose;
+      ctx.inside[k] = domes && p && p.visible ? pickInside(source.domes, domes.baseY, ctx.domeMask, p.x, p.y, p.z) : -1;
+    }
+  }
   const follow: Follow = { jet: new Vector3(), vel: new Vector3(), heading_deg: 0, target: new Vector3(), targetGround: 0, aim: new Vector3(), aimWeight: 0 };
   const camPose = newSceneJetPose();
   // Show › Watch the bomb land: on as the menu opens, so a rebuilt scene's first frame is already right.
@@ -468,6 +516,7 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
     const focus = rig.mode === 'target' ? cam.position.distanceTo(follow.jet) : cam.position.distanceTo(rig.controls.target);
     ctx.focusPxPerM = viewH / (2 * Math.max(focus, 1) * Math.tan((cam.fov * Math.PI) / 360));
     for (const l of layers) l.update(ctx); // 1. everything moves to time t
+    fillInside(); // the envelope each jet is in now, for the rings round the arrows and the labels' words after the camera
     if (!drawing) {
       // Nothing is seen: the camera stands still, no layer reads it, nothing is rendered. The views laid over the picture follow the clock.
       tellListeners();
@@ -631,6 +680,11 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
       bombCam = on;
       invalidate();
     },
+    setThreatSystems: (on) => {
+      domeMaskInto(source.domes, on, ctx.domeMask);
+      domes?.maskChanged(); // the envelopes' lines are laid again at the next frame, not per frame
+      invalidate();
+    },
     setChromeBoxes: (boxes) => {
       labels.setChromeBoxes(boxes);
       invalidate();
@@ -715,6 +769,26 @@ export function createPlaybackScene(opts: SceneOptions): PlaybackScene {
         try { draw(0); } catch (err) { fail(err); return null; }
       }
       return { weight: follow.aimWeight };
+    },
+    debugInside(j = 0) {
+      if (disposed || contextLost || fatal || j < 0 || j >= jets.length) return null;
+      if (dirty) {
+        try { draw(0); } catch (err) { fail(err); return null; }
+      }
+      const dome = ctx.inside[j];
+      // While drawing is off (the side view up) no frame lays the ring, so whatever it last was is not on screen.
+      const halo = drawing && jets[j].haloShown();
+      const laid = jets[j].debugHalo();
+      return { dome, threatId: source.domes[dome]?.threatId, halo, haloPx: halo ? jets[j].haloPx() : 0, haloInnerPx: halo ? laid.innerPx : 0, haloInnerM: halo ? laid.innerM : 0, order: laid.order };
+    },
+    debugDomes() {
+      if (disposed || contextLost || fatal) return null;
+      if (dirty) {
+        try { draw(0); } catch (err) { fail(err); return null; }
+      }
+      if (domes) return domes.debug();
+      const none = { colour: '', width: 0, visible: false };
+      return { domes: [], looks: { active: 0, activeDashed: 0, idle: 0, idleDashed: 0 }, materials: { active: none, activeDashed: none, idle: none, idleDashed: none } };
     },
     projectPoint(x, y, z) {
       if (disposed || contextLost || fatal) return undefined;

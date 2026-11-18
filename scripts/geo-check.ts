@@ -123,7 +123,7 @@ import { validateMission } from '../src/lib/validateMission';
 import { isThreatVisible, visibleMission, threatListView, importThreatView } from '../src/lib/threatVisibility';
 import { escapeHtml } from '../src/lib/html';
 import { runAttackChecks, hasErrors, noDataNote } from '../src/lib/attackChecks';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import {
   PlayClock, MAX_FRAME_DT_S, SPEEDS, speedLabel, enuToThree, homePose, HOME_MARGIN, HOME_MIN_DIST_M, worldPerPixel, screenScale, nearPlaneFor, HOME_FOV,
@@ -152,7 +152,7 @@ import {
 } from '../src/lib/playbackScene';
 import {
   calloutAlpha, calloutTargets, CalloutPlacer, CalloutFader, CALLOUT_BEFORE_WALL_S, CALLOUT_AFTER_WALL_S, CALLOUT_FADE_WALL_S, CALLOUT_MAX_PER_JET,
-  labelLine1, labelLine2, LabelText, placeLabels, LABEL_OFFSET_PX, blockKeepClear, RING_CLEAR_PX, CHROME_BOXES_MAX, type SceneSource,
+  labelLine1, labelLine2, LabelText, placeLabels, LABEL_OFFSET_PX, LABEL_SLIDE_STEPS, blockKeepClear, RING_CLEAR_PX, CHROME_BOXES_MAX, type SceneSource,
 } from '../src/lib/playbackScene';
 import {
   laneMarks, laneBands, laneChips, placeChips, pinnedGroup, axisFraction, axisTime, chipWidth, CHIP_GAP_PX, CHIP_TEXT, BAND_OUTLINE, DIAMOND_EDGE, IP_TEXT,
@@ -203,6 +203,7 @@ import type { PlaybackSystemRow } from '../src/components/playback/types';
 import {
   sceneDomes, groupOf, THREAT_GROUPS, systemLabel, ringCover, domeSegmentCount, domeSegmentsInto, insideDomeAt, domeMaskInto, pickInside, ewrTagPoint, threatRowNote,
   MAX_DOMES, DOME_ACTIVE, DOME_IDLE, EWR_SEG_M, EWR_RING_MAX_SEGS, START_NOTE_WHOLE, ewrNote, outsideNote, cappedNote, LEGEND_NOTE, threatFactsOf,
+  insideLine, ewrTagText, threatMenuOf, THREAT_GROUP_HEADINGS, NO_THREATS, NO_THREAT_DATA,
   type SceneDome, type SceneThreats, type SceneSystem, type SceneSystemRow, type DomeSet,
 } from '../src/lib/playbackScene';
 import { editorBurstReadout } from '../src/components/playback/fragEditor';
@@ -9771,8 +9772,10 @@ void (async () => {
       return [outX[0], outY[0]];
     };
     const lb3bNone = lb3b([]), lb3bRight = lb3b([[230, 100, 60, 30]]), lb3bUpper = lb3b([[60, 90, 300, 30]]);
-    // Up-right, up-left and down-right each lose 400 px² or more; down-left (86…186 × 164…196) loses 5 × 4 = 20.
-    const lb3bAll = lb3b([[60, 90, 300, 30], [214, 164, 100, 32], [181, 192, 20, 20]]);
+    // Up-right, up-left and down-right each lose 400 px² or more; down-left (86…186 × 164…196) loses 5 × 4 = 20. The two bands
+    // above y 104 and below y 196 touch no corner but cover every spot slid up or down from them (each by 1,600 px² or more),
+    // so here no spot at all is free and the least covering corner is still the answer.
+    const lb3bAll = lb3b([[60, 90, 300, 30], [214, 164, 100, 32], [181, 192, 20, 20], [0, 0, 400, 104], [0, 196, 400, 104]]);
     const lb3bIs = (p: number[], x: number, y: number) => p[0] === x && p[1] === y;
     ok('playback B3 [LB3b]: a jet\'s label takes the spot that leaves a target\'s disc and tag uncovered: up-left when the box is up-right, down-right when it lies over both upper spots, the least covering one when every spot touches a box',
        lb3bIs(lb3bNone, 214, 104) && lb3bIs(lb3bRight, 86, 104) && lb3bIs(lb3bUpper, 214, 164) && lb3bIs(lb3bAll, 86, 164),
@@ -9811,8 +9814,9 @@ void (async () => {
     const kcRing = kcLabel([[240, 120, 11], [150, 120, 11]], [1, 0], []);
     const kcChrome = kcLabel([], [], [[60, 90, 300, 30]]);
     // A ring at the release, twice its size (22 px): its box 174…226 × 124…176 takes 12 × 12 of every corner; the control
-    // adds 6 × 100 to the up-right one.
-    const kcLeast = kcLabel([[200, 150, 22]], [1], [[214, 60, 186, 50]]);
+    // adds 6 × 100 to the up-right one. The two bands above y 104 and below y 196 touch no corner but cover every spot slid
+    // up or down from them, so no spot at all is free and the least covering corner is still the answer.
+    const kcLeast = kcLabel([[200, 150, 22]], [1], [[214, 60, 186, 50], [0, 0, 400, 104], [0, 196, 400, 104]]);
     // The plate's first spot round the disc (400, 300), radius 13: 416.3…536.3 × 258.7…283.7.
     const kcRingBox = [440 - 15, 270 - 15, 30, 30];
     const kcPlateRing = kcPlate([[440, 270, 11]], [1], []);
@@ -9829,6 +9833,90 @@ void (async () => {
        `label: kept ring up-right (${kcRing.join(', ')}) (want 86, 104); control over both upper spots (${kcChrome.join(', ')}) (want 214, 164); pulsing ring and a control (${kcLeast.join(', ')}) (want 86, 104); ` +
        `plate: kept ring over spot 0 → spot ${kcPlateRing.s} (covers it ${fb12Over(kcPlateRing.box, kcRingBox)}); control over spot 0 → spot ${kcPlateChrome.s} (want 1); control over the view → spot ${kcPlateFull.s} (want −1); ` +
        `boxes ${kcFull.n} / 3: ${kcList.map((b) => b.join(' ')).join('; ') || 'none'}`);
+
+    // [LB5] Labels that find no free corner slide clear. Four three-line labels (100 × 48) on arrows a few pixels apart, with a
+    // target's disc and tag lying over both lower corners: #1 and #2 have a free corner and take it exactly where the corner
+    // search always put them (up-right (214, 88), up-left (89, 90)); #3 and #4 have none, so their spots are slid up a label
+    // line at a time until one is clear: #3 to (211, 28), #4 to (90, 38). No two overlap, none covers the target's box, all lie
+    // inside the 400 × 300 view, and exactly the two slid ones are flagged (they get a leader to their arrow). The same input
+    // gives the same output.
+    // The order of the tries is pinned by three single labels (anchor (200, 150), 100 × 32) whose answer turns on it. LB3b's
+    // old last case (the target's box over both upper spots, two small boxes touching the lower ones, nothing else) slides
+    // down-right two lines to (214, 196); KC1's old pulsing ring (box 174…226 × 124…176) with the control over the up-right
+    // spot slides up-left a line to (86, 88): all four corners are tried at each step before the next step, the upper ones
+    // slid up and the lower ones down. With one box over the whole view every spot covers the same, and the earliest tried,
+    // up-right (214, 104), wins the tie.
+    // Mutation proofs (seen red 2026-11-19): labels.ts `LABEL_SLIDE_STEPS = 6` → `0` (the behaviour goes red, not only the
+    // constant's own test):
+    //   FAIL playback B3 [LB5]: … (214, 88) (89, 90) (211, 92) (90, 86); overlapping true, 0 on the target's box, in view true, first two as the corner search puts them true, slid ones at (211, 28) and (90, 38) false; slid 0,0,0,0 (want 0,0,1,1); the order: LB3b's old case (86, 164) slid 0 (want 214, 196), KC1's old case (86, 104) slid 0 (want 86, 88), the whole view covered (214, 104) slid 0
+    // The tries corner by corner (each corner slid through every step before the next corner; LB3b, KC1 and LB7 red beside it):
+    //   FAIL playback B3 [LB5]: … (214, 88) (217, 26) (83, 92) (90, 38); …, first two as the corner search puts them false, slid ones at (211, 28) and (90, 38) false; slid 0,1,0,1 (want 0,0,1,1); the order: LB3b's old case (214, 56) slid 1 (want 214, 196), KC1's old case (214, 24) slid 1 (want 86, 88), the whole view covered (214, 104) slid 0
+    // The lower spots slid upward (`ay[i] + o + dy` → `ay[i] + o - dy`; LB3b red beside it):
+    //   FAIL playback B3 [LB5]: … the order: LB3b's old case (86, 148) slid 1 (want 214, 196), KC1's old case (86, 88) slid 1, the whole view covered (214, 104) slid 0
+    // The latest spot winning a tie (`cost < bestCost` → `cost <= bestCost`; KC1 red beside it):
+    //   FAIL playback B3 [LB5]: … the order: LB3b's old case (214, 196) slid 1, KC1's old case (86, 88) slid 1, the whole view covered (86, 260) slid 1 (want 214, 104, not slid)
+    // (LB3b's last case and KC1's pulsing ring now carry two bands that cover every slid spot, so they still have no free
+    // spot at all and still pin the least covering corner; both seen red again 2026-11-19 under their own mutations. Their old
+    // inputs are the order's cases here.)
+    {
+      const n = 4, ax = Float32Array.of(200, 203, 197, 204), ay = Float32Array.of(150, 152, 154, 148);
+      const w = new Float32Array(n).fill(100), h = new Float32Array(n).fill(48);
+      const box = [60, 160, 300, 60];
+      const run = () => {
+        const outX = new Float32Array(n), outY = new Float32Array(n), slid = new Uint8Array(n);
+        placeLabels(n, ax, ay, w, h, 400, 300, outX, outY, 1, Float32Array.of(box[0]), Float32Array.of(box[1]), Float32Array.of(box[2]), Float32Array.of(box[3]), slid);
+        return { at: Array.from(outX, (x, i) => [x, outY[i], 100, 48]), slid: Array.from(slid) };
+      };
+      const lb5 = run(), lb5Again = run();
+      const overlapping = lb5.at.some((p, i) => lb5.at.some((q, j) => j > i && fb12Over(p, q)));
+      const onBox = lb5.at.filter((p) => fb12Over(p, box)).length;
+      const inView = lb5.at.every((p) => p[0] >= 0 && p[1] >= 0 && p[0] + p[2] <= 400 && p[1] + p[3] <= 300);
+      const fixed = lb5.at[0][0] === 214 && lb5.at[0][1] === 88 && lb5.at[1][0] === 89 && lb5.at[1][1] === 90;
+      const slidTo = lb5.at[2][0] === 211 && lb5.at[2][1] === 28 && lb5.at[3][0] === 90 && lb5.at[3][1] === 38;
+      // One label at (200, 150), 100 × 32, among the boxes given: where it went and whether it slid.
+      const single = (boxes: number[][]) => {
+        const outX = new Float32Array(1), outY = new Float32Array(1), slid = new Uint8Array(1), col = (k: number) => Float32Array.from(boxes, (b) => b[k]);
+        placeLabels(1, Float32Array.of(200), Float32Array.of(150), Float32Array.of(100), Float32Array.of(32), 400, 300, outX, outY, boxes.length, col(0), col(1), col(2), col(3), slid);
+        return [outX[0], outY[0], slid[0]];
+      };
+      const kcOld = kcBoxes(8, [[200, 150, 22]], [1], [[214, 60, 186, 50]]);
+      const order = [
+        ['LB3b\'s old case', single([[60, 90, 300, 30], [214, 164, 100, 32], [181, 192, 20, 20]]), [214, 196, 1]],
+        ['KC1\'s old case', single(Array.from({ length: kcOld.n }, (_, i) => [kcOld.bx[i], kcOld.by[i], kcOld.bw[i], kcOld.bh[i]])), [86, 88, 1]],
+        ['the whole view covered', single([[0, 0, 400, 300]]), [214, 104, 0]],
+      ] as const;
+      const orderBad = order.filter(([, got, want]) => got.join() !== want.join());
+      ok('playback B3 [LB5]: four three-line labels on arrows a few pixels apart, with a target\'s box over the lower corners: the two with a free corner take it as always, the other two slide up clear; no overlap, nothing on the target, all in view, the slid ones flagged; the corners are tried in turn at each step, upper ones slid up, lower ones down, the earliest winning a tie',
+         LABEL_SLIDE_STEPS === 6 && !overlapping && onBox === 0 && inView && fixed && slidTo && lb5.slid.join() === '0,0,1,1' && JSON.stringify(lb5) === JSON.stringify(lb5Again) && orderBad.length === 0,
+         `${lb5.at.map((p) => `(${p[0]}, ${p[1]})`).join(' ')}; overlapping ${overlapping}, ${onBox} on the target's box, in view ${inView}, first two as the corner search puts them ${fixed}, slid ones at (211, 28) and (90, 38) ${slidTo}; slid ${lb5.slid.join(',')} (want 0,0,1,1); ` +
+         `the order: ${order.map(([name, got, want]) => `${name} (${got[0]}, ${got[1]}) slid ${got[2]}${got.join() === want.join() ? '' : ` (want ${want[0]}, ${want[1]}${want[2] ? '' : ', not slid'})`}`).join(', ')}`);
+    }
+
+    // [LB7] A jet's label keeps off the other jets' arrows and their rings. Two labels (100 × 32) on arrows at (200, 150) and
+    // (250, 120), each arrow with a square 18 px each way round it to keep clear: #1's up-right spot (214…314 × 104…136) lies
+    // over #2's arrow (232…268 × 102…138), so #1 goes up-left (86, 104); #2 takes its up-right spot (264, 74). Its own arrow
+    // never counts against a label: one label whose own square is 60 px each way still goes up-right (214, 104). Without the
+    // squares the old answer stands (#1 up-right (214, 104)).
+    // Mutation proofs (seen red 2026-11-19): labels.ts placeLabels ignoring the squares (`const anchors = keepR ? n : 0` →
+    // `const anchors = 0`):
+    //   FAIL playback B3 [LB7]: … with the arrows kept clear (214, 104) (264, 58) (want (86, 104) (264, 74)); its own square only (214, 104) (want 214, 104); without the squares (214, 104) (264, 58) (want #1 at (214, 104))
+    // and a label's own square counted (the `j === i ||` test dropped):
+    //   FAIL playback B3 [LB7]: … with the arrows kept clear (86, 88) (264, 58) (want (86, 104) (264, 74)); its own square only (214, 56) (want 214, 104); …
+    {
+      const two = (keep?: number[]) => {
+        const outX = new Float32Array(2), outY = new Float32Array(2);
+        placeLabels(2, Float32Array.of(200, 250), Float32Array.of(150, 120), Float32Array.of(100, 100), Float32Array.of(32, 32), 400, 300, outX, outY,
+          0, undefined, undefined, undefined, undefined, undefined, keep ? Float32Array.from(keep) : undefined);
+        return `(${outX[0]}, ${outY[0]}) (${outX[1]}, ${outY[1]})`;
+      };
+      const kept = two([18, 18]), bare = two();
+      const ownX = new Float32Array(1), ownY = new Float32Array(1);
+      placeLabels(1, Float32Array.of(200), Float32Array.of(150), Float32Array.of(100), Float32Array.of(32), 400, 300, ownX, ownY, 0, undefined, undefined, undefined, undefined, undefined, Float32Array.of(60));
+      const own = `${ownX[0]}, ${ownY[0]}`;
+      ok('playback B3 [LB7]: a jet\'s label keeps off the other jets\' arrows and rings (another corner when one is clear) and never off its own',
+         kept === '(86, 104) (264, 74)' && own === '214, 104' && bare.startsWith('(214, 104)'),
+         `with the arrows kept clear ${kept} (want (86, 104) (264, 74)); its own square only (${own}) (want 214, 104); without the squares ${bare} (want #1 at (214, 104))`);
+    }
 
     // ── Every jet's frag cloud and the clock's re-base (source.ts: fragAt; playClock.ts: shiftRange).
 
@@ -10869,7 +10957,8 @@ void (async () => {
       // SA-6's 176 and the dashed SA-8's 32 and the radar's chords (every other one when dashed, 512 at most); nothing at all
       // with everything off. A radar's range is detection, so it is never "inside": a point in both the radar's ring and the
       // SA-6 picks the SA-6; with the SA-6 off nothing is picked (only this tells a missing radar skip). The radar is a 1L13
-      // placed 190 nm west of TGT1, on 270°, where the dev fixture's radar is to go so the two stay one fixture: the four-ship's
+      // placed 190 nm west of TGT1, on 270°, exactly where the dev fixture's radar is (the harness's ?ewr=1, dev/fixture.ts,
+      // which screenshot check 26 draws), so the two are one fixture: the four-ship's
       // drawn area runs 15 nm west to 40 nm east and 12.5 nm south to 27.5 nm north of the target, so its 200 nm range reaches
       // only the part of it near the target (a dome), and the SA-6 (192 nm from it) lies inside its range.
       // Mutation proofs (seen red 2026-11-18): domes.ts pickInside `d.ewr || !mask[i] ||` → `!mask[i] ||` (no radar skip):
@@ -11262,6 +11351,193 @@ void (async () => {
         // The mission the list hands the view still carries none of its own (L4); the threats ride beside it.
         ok('playback B3 [L5]: the press keeps only the threats the planner may see (switches as they stand) and every row with an altitude, whole; a mission with hidden threats gives playback exactly what the same mission without them does by both doors, down to the domes, rows and notes; the Admin switches bring them',
            bad.length === 0, bad.join('; ') || `press 2, 3, 3 and 5 of 5 by the switches; 5 doors/arms identical (${want.length} characters); both switches on: 5`);
+      }
+
+      // [LB4] A jet's third label line while it is inside an envelope: an active SA-6 "◎ inside SA-6 Gainful", the same one
+      // suppressed "inside SA-6 Gainful (suppressed)", a Hawk (no NATO name, so its own name) "◎ inside MIM-23 Hawk"; the label's
+      // line 3 is built and measured once while the dome stays (its words built once in 50 calls: line3Builds 1), again for each
+      // other dome (a dome with another status is another object: 3 after the three), and empty outside.
+      // A radar's words: "Tall Rack · detection range 200 nm" for the 1L13, "Flat Face · detection range 86 nm" for the P-19.
+      // What it does not hold: line3Builds counts the inside line's builds only, so a string built in line 3 merely to tell
+      // whether the dome changed (a status template made on every call, with insideLine untouched) would leave it green.
+      // Mutation proof for the builds (seen red 2026-11-19): labels.ts line3 rebuilding on every call (`if (dome !== this.d3)` → `if (true)`):
+      //   FAIL playback B3 [LB4]: … line 3: "◎ inside SA-6 Gainful" the same 50 times true, measured 50, built 51; suppressed "inside SA-6 Gainful (suppressed)", the Hawk "◎ inside MIM-23 Hawk", measured 52 in all (want 1, then 3), built 53 (want 1, then 3); outside ""
+      // Mutation proofs (seen red 2026-11-18): labels.ts insideLine without the status (`` `inside ${d.label} (${d.status})` `` →
+      // `` `inside ${d.label}` ``):
+      //   FAIL playback B3 [LB4]: … the suppressed SA-6: "inside SA-6 Gainful" (want "inside SA-6 Gainful (suppressed)"); line 3: "◎ inside SA-6 Gainful" the same 50 times true, measured 1; suppressed "inside SA-6 Gainful", the Hawk "◎ inside MIM-23 Hawk", measured 3 in all
+      // and ewrTagText reading the range in metres (`d.enu.radius_nm` → `d.enu.radius_m`):
+      //   FAIL playback B3 [LB4]: … the 1L13's words: "Tall Rack · detection range 370400 nm" (want "Tall Rack · detection range 200 nm"); the P-19's words: "Flat Face · detection range 370400 nm" (want "Flat Face · detection range 86 nm")
+      {
+        const set = sceneDomes(straight([tmSa6, tmThreat('lb4-hawk', 'hawk', 10, 6), tmThreat('lb4-1l13', 'ewr1l13', 270, 190)]), s4Pb.frame, s4Box);
+        const sa6 = set.domes.find((d) => d.systemId === 'sa6'), hawk = set.domes.find((d) => d.systemId === 'hawk'), radar = set.domes.find((d) => d.systemId === 'ewr1l13');
+        const bad: string[] = [];
+        if (!sa6 || !hawk || !radar) bad.push(`domes ${set.domes.map((d) => d.systemId)} (want the SA-6, the Hawk and the 1L13)`);
+        else {
+          const sa6Down = { ...sa6, status: 'suppressed' as const, active: false };
+          const cases: [string, string, string][] = [
+            ['the active SA-6', insideLine(sa6), '◎ inside SA-6 Gainful'],
+            ['the suppressed SA-6', insideLine(sa6Down), 'inside SA-6 Gainful (suppressed)'],
+            ['the Hawk', insideLine(hawk), '◎ inside MIM-23 Hawk'],
+            ['the 1L13\'s words', ewrTagText(radar), 'Tall Rack · detection range 200 nm'],
+            ['the P-19\'s words', ewrTagText({ label: 'Flat Face', enu: { ...radar.enu, radius_nm: 86 } }), 'Flat Face · detection range 86 nm'],
+          ];
+          for (const [name, got, want] of cases) if (got !== want) bad.push(`${name}: ${JSON.stringify(got)} (want ${JSON.stringify(want)})`);
+          // Line 3 through the label's own words: built and measured once per dome and status.
+          const text = new LabelText('#1', 'Viper 1-1');
+          let measured = 0;
+          const measure = (s: string) => { measured++; return s.length * 7; };
+          const first = text.line3(sa6);
+          let same = true;
+          for (let i = 0; i < 50; i++) {
+            same &&= text.line3(sa6) === first;
+            text.width(3, measure);
+          }
+          const afterSame = measured, builtSame = text.line3Builds;
+          const down = text.line3(sa6Down);
+          text.width(3, measure);
+          const other = text.line3(hawk);
+          text.width(3, measure);
+          text.width(3, measure);
+          const builtThree = text.line3Builds;
+          const none = text.line3(undefined);
+          if (!same || first !== '◎ inside SA-6 Gainful' || afterSame !== 1 || down !== 'inside SA-6 Gainful (suppressed)' || other !== '◎ inside MIM-23 Hawk' || measured !== 3 || none !== '' ||
+              builtSame !== 1 || builtThree !== 3)
+            bad.push(`line 3: "${first}" the same 50 times ${same}, measured ${afterSame}, built ${builtSame}; suppressed "${down}", the Hawk "${other}", measured ${measured} in all (want 1, then 3), built ${builtThree} (want 1, then 3); outside "${none}"`);
+        }
+        ok('playback B3 [LB4]: a jet inside an envelope reads "◎ inside SA-6 Gainful" (active) or "inside SA-6 Gainful (suppressed)", a system with no NATO name by its own name, built once per dome and status; a radar\'s ring reads "Tall Rack · detection range 200 nm"',
+           bad.length === 0, bad.join('; ') || 'five sentences word for word; line 3 measured once per dome and status');
+      }
+
+      // [SH6] The Show menu's threat list knows only the threats the planner may see. A plan whose threats were all hidden by its
+      // author reads exactly as a plan with none ("No threats in this plan.", no group, no row), whether its threats came through
+      // the press or slipped past it straight to the dome builder; the four-ship's list is the SA-6 under SAM, the SA-8 under
+      // SHORAD and the P-19 under "Early warning" (with the sentence that it covers the drawn area), and nothing in it names the
+      // SA-11 or says anything is hidden; with the planner's Settings switch for hidden threats on at the press the SA-11 appears
+      // under SAM, counted ("(1)"), and is switched on as the menu opens. No threat data at all: "No threat data in this plan."
+      // Mutation proofs (seen red 2026-11-18): domes.ts sceneDomes' rows counted from the list handed in (TM3's mutation: `row.threats++;`
+      // out of the loop over what the builder returns, and the rows made from `t.visible` after it):
+      //   FAIL playback B3 [SH6]: … all hidden, handed straight to the dome builder: {"groups":[{"group":"SAM","heading":"SAM","rows":[{"systemId":"sa11","text":"SA-11 Gadfly · 9K37 Buk (1)","defaultOn":true}]}]} (want the same as a plan with none: {"empty":"No threats in this plan.","groups":[]})
+      //   (with [TM3] red beside it)
+      // and launch.ts threatsAtPress deaf to the switches it is given (`isThreatVisible(t, reveal)` → `isThreatVisible(t, { onPlanner: false, onMap: false })`):
+      //   FAIL playback B3 [SH6]: … the planner's switch on: SAM rows ["sa6"] (want sa11 and sa6), the SA-11 reads undefined, switched on at opening ["sa6","sa8"] (want the SA-11 among them)
+      //   (with [L5] red beside it)
+      {
+        const menuOf = (t: SceneThreats | undefined) => threatMenuOf(sceneDomes(t, s4Pb.frame, s4Box).systems, t !== undefined);
+        const none = menuOf(press([]));
+        const hiddenPressed = menuOf(press([tmSa11]));
+        const hiddenStraight = menuOf(straight([tmSa11]));
+        const four = menuOf(press([tmSa6, tmSa8, tmSa11, tmP19]));
+        const revealedSet = sceneDomes(press([tmSa6, tmSa8, tmSa11, tmP19], { onPlanner: true, onMap: false }), s4Pb.frame, s4Box);
+        const revealed = threatMenuOf(revealedSet.systems, true);
+        const noData = menuOf(undefined);
+        const bad: string[] = [];
+        const noneWant = JSON.stringify({ empty: NO_THREATS, groups: [] });
+        if (JSON.stringify(none) !== noneWant || NO_THREATS !== 'No threats in this plan.') bad.push(`a plan with no threats: ${JSON.stringify(none)} (want ${noneWant})`);
+        for (const [name, m] of [['all hidden, through the press', hiddenPressed], ['all hidden, handed straight to the dome builder', hiddenStraight]] as const) {
+          if (JSON.stringify(m) !== JSON.stringify(none)) bad.push(`${name}: ${JSON.stringify(m)} (want the same as a plan with none: ${JSON.stringify(none)})`);
+        }
+        const fourWant = JSON.stringify({ groups: [
+          { group: 'SAM', heading: 'SAM', rows: [{ systemId: 'sa6', text: 'SA-6 Gainful · 2K12 Kub (1)', defaultOn: true }] },
+          { group: 'SHORAD', heading: 'SHORAD', rows: [{ systemId: 'sa8', text: 'SA-8 Gecko · 9K33 Osa (1)', defaultOn: true }] },
+          { group: 'EWR', heading: 'Early warning', rows: [{ systemId: 'p19', text: 'Flat Face · P-19 Danube (1)', note: 'The whole drawn area is inside its detection range: no ring to draw.', defaultOn: false }] },
+        ] });
+        if (JSON.stringify(four) !== fourWant) bad.push(`the four-ship: ${JSON.stringify(four)} (want ${fourWant})`);
+        if (/SA-11|Gadfly|Buk|hidden|probable|location unknown/i.test(JSON.stringify(four))) bad.push('the four-ship\'s list names the hidden SA-11 or says something is hidden');
+        const samRows = revealed.groups.find((g) => g.group === 'SAM')?.rows.map((r) => r.systemId) ?? [];
+        const openOn = initShow(revealedSet.systems).threatsOn;
+        const sa11Text = revealed.groups.find((g) => g.group === 'SAM')?.rows.find((r) => r.systemId === 'sa11')?.text;
+        if (samRows.join() !== 'sa11,sa6' || sa11Text !== 'SA-11 Gadfly · 9K37 Buk (1)' || !openOn.includes('sa11'))
+          bad.push(`the planner's switch on: SAM rows ${JSON.stringify(samRows)} (want sa11 and sa6), the SA-11 reads ${JSON.stringify(sa11Text)}, switched on at opening ${JSON.stringify(openOn)} (want the SA-11 among them)`);
+        if (JSON.stringify(noData) !== JSON.stringify({ empty: NO_THREAT_DATA, groups: [] }) || NO_THREAT_DATA !== 'No threat data in this plan.') bad.push(`no threat data: ${JSON.stringify(noData)}`);
+        const heads = THREAT_GROUPS.map((g) => THREAT_GROUP_HEADINGS[g]).join('|');
+        if (heads !== 'SAM|SHORAD|AAA|MANPADS|Early warning|Other') bad.push(`group headings ${heads}`);
+        ok('playback B3 [SH6]: the Show menu\'s threat list names and counts only what the planner may see: a plan with every threat hidden reads exactly as a plan with none, the four-ship lists the SA-6, SA-8 and P-19 under their headings and nothing of the SA-11, the Settings switch brings the SA-11 in, counted and on; no data says so',
+           bad.length === 0, bad.join('; ') || `none and all-hidden alike (${noneWant}); four-ship 3 groups; switch on: SAM ${samRows.join(', ')}`);
+      }
+
+      // [SH7] One road in for the threats: of every file under src/components/playback/ (its subfolders too) and
+      // src/lib/playbackScene/, only launch.ts imports a store (the mission store, the UI store, the saved-file store or any
+      // other) or the planner's visibility rule (threatVisibility); and no app module that the others import reads one at
+      // first hand either. So what playback draws, lists and counts is only what the press handed over, through the same
+      // rule as the planner's lists; nothing in the view or the scene can read a hidden threat straight from the plan.
+      // The playback library (src/lib/playback/, which every playback file imports) is held too: none of its files reads either
+      // store, and only its threats.ts uses the visibility rule (as a filter, the press's own). Code only (comments are
+      // stripped), every import form (from, import() with quotes or backticks, require()), with or without a .js/.ts ending or
+      // a folder's /index.
+      // Mutation proofs (seen red 2026-11-19): `import { useMissionStore } from '../../stores/missionStore';` added to PlaybackView.tsx:
+      //   FAIL playback B3 [SH7]: … 65 files; readers ["src/components/playback/PlaybackView.tsx","src/components/playback/launch.ts"] (want only launch.ts); the pattern catches every import form true
+      // and `import { useMissionStore } from '../../stores/missionStore';` added to src/lib/playback/threats.ts:
+      //   FAIL playback B3 [SH7]: … the library's readers {"src/lib/playback/threats.ts":["../../stores/missionStore","../threatVisibility"]} (want only threats.ts, with the visibility rule alone); …
+      // Seen red 2026-11-19 for the wider road, `import { useLocalMissionStore } from '../../stores/localMissionStore';` added to PlaybackView.tsx:
+      //   FAIL playback B3 [SH7]: … 65 files; readers ["src/components/playback/PlaybackView.tsx","src/components/playback/launch.ts"] (want only launch.ts); …
+      // and for the step further, `import * as m from '../../lib/missionFile';` added to PlaybackView.tsx:
+      //   FAIL playback B3 [SH7]: … read at second hand {"src/components/playback/PlaybackView.tsx → src/lib/missionFile.ts":["../stores/localMissionStore","../stores/missionStore","../stores/settingsStore"]} (want none); …
+      {
+        const files: string[] = [];
+        const walk = (dir: string, into: string[]) => {
+          for (const e of readdirSync(dir, { withFileTypes: true })) {
+            const p = `${dir}/${e.name}`;
+            if (e.isDirectory()) walk(p, into);
+            else if (/\.tsx?$/.test(e.name)) into.push(p);
+          }
+        };
+        walk('src/components/playback', files);
+        walk('src/lib/playbackScene', files);
+        const libFiles: string[] = [];
+        walk('src/lib/playback', libFiles);
+        const code = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+        const specs = (s: string) => [...code(s).matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"`]([^'"`]+)['"`]/g)].map((m) => m[1]);
+        // Any store module counts, not only the two named: the saved-file store (localMissionStore) also holds the whole plan.
+        const road = /(?:^|\/)(?:stores\/[A-Za-z0-9_.-]+?|threatVisibility)(?:\.[cm]?[jt]sx?|\/index(?:\.[jt]sx?)?)?$/;
+        const isRoad = (s: string) => road.test(s);
+        const readers = files.filter((f) => specs(readFileSync(f, 'utf8')).some(isRoad));
+        const libReaders: Record<string, string[]> = {};
+        for (const f of libFiles) {
+          const hit = specs(readFileSync(f, 'utf8')).filter(isRoad);
+          if (hit.length) libReaders[f] = hit;
+        }
+        const libOk = JSON.stringify(libReaders) === JSON.stringify({ 'src/lib/playback/threats.ts': ['../threatVisibility'] });
+        // One step further: an app module outside these folders that a playback file (launch.ts aside) or a library file
+        // imports must not read a store or the rule either, or it would be a road round the press (src/lib/missionFile.ts
+        // reads both stores, say). Relative and '@/' imports are followed one level, to a .ts, .tsx or folder index file.
+        const scanned = new Set([...files, ...libFiles]);
+        const resolveSpec = (from: string, s: string): string | undefined => {
+          let base: string;
+          if (s.startsWith('@/')) base = `src/${s.slice(2)}`;
+          else if (s.startsWith('.')) {
+            const parts = from.split('/').slice(0, -1);
+            for (const seg of s.split('/')) {
+              if (seg === '..') parts.pop();
+              else if (seg !== '.') parts.push(seg);
+            }
+            base = parts.join('/');
+          } else return undefined;
+          base = base.replace(/\.[cm]?[jt]sx?$/, '');
+          return [`${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`].find((p) => existsSync(p));
+        };
+        const secondHand: Record<string, string[]> = {};
+        for (const f of [...files, ...libFiles]) {
+          if (f === 'src/components/playback/launch.ts') continue;
+          for (const s of specs(readFileSync(f, 'utf8'))) {
+            if (isRoad(s)) continue; // counted above
+            const m = resolveSpec(f, s);
+            if (!m || scanned.has(m)) continue;
+            const hit = specs(readFileSync(m, 'utf8')).filter(isRoad);
+            if (hit.length) (secondHand[`${f} → ${m}`] ??= []).push(...hit);
+          }
+        }
+        // The follower itself works: it resolves both kinds of import, and it would see missionFile's stores.
+        const followerWorks = resolveSpec('src/components/playback/PlaybackView.tsx', '../../lib/missionFile') === 'src/lib/missionFile.ts'
+          && specs(readFileSync('src/lib/missionFile.ts', 'utf8')).some(isRoad) && resolveSpec('src/components/playback/PlaybackView.tsx', '@/lib/strike') === 'src/lib/strike.ts';
+        const followed = Object.keys(secondHand).length === 0 && followerWorks;
+        const caught = ["import { useUiStore } from '../../stores/uiStore';", "const m = await import('../../stores/missionStore');", "import { isThreatVisible } from '../../lib/threatVisibility';",
+          "import { useUiStore } from '../../stores/uiStore.js';", "const m = await import(`../../stores/missionStore`);", "import { isThreatVisible } from '../../lib/threatVisibility/index';",
+          "import { useLocalMissionStore } from '../../stores/localMissionStore';", "import { useMissionStore } from '@/stores/missionStore';"]
+          .every((s) => specs(s).some(isRoad));
+        ok('playback B3 [SH7]: only launch.ts, of every playback file, reads a store or the visibility rule, and of the playback library only threats.ts uses the rule (no store); no app module they import reads either: the press is the one road a threat takes into playback',
+           readers.join() === 'src/components/playback/launch.ts' && files.length > 20 && libOk && libFiles.length > 10 && caught && followed,
+           `${files.length} files; readers ${JSON.stringify(readers)} (want only launch.ts); ${libFiles.length} library files; the library's readers ${JSON.stringify(libReaders)} (want only threats.ts, with the visibility rule alone); ` +
+           `read at second hand ${JSON.stringify(secondHand)} (want none); the follower resolves imports and sees missionFile's stores ${followerWorks}; the pattern catches every import form ${caught}`);
       }
     } catch (e) {
       ok('playback B3 [threat data]: the section ran without throwing', false, String((e as Error)?.stack ?? e));
@@ -12049,7 +12325,7 @@ void (async () => {
       const bt2Ctx = {
         t: 0, dt: 0, source: s4Src, camera: new PerspectiveCamera(50, 1400 / 900, 1, 1e6), viewW: 1400, viewH: 900, dpr: 1,
         ground: 'flat', groundVersion: 0, heightAt: () => 0, watched: 0, attackColours: 'watched', focusPxPerM: 1, speed: 1,
-        labels: true, actionPoints: 'coming', impact: true, again: false,
+        labels: true, actionPoints: 'coming', impact: true, again: false, domeMask: new Uint8Array(0), inside: new Int16Array(2).fill(-1),
       } as FrameCtx;
       const bt2Pose = newSceneBombPose();
       const bt2Out = new Float32Array((s4Src.bombCapacity(0) + 1) * 3);
@@ -12883,7 +13159,7 @@ void (async () => {
         const rv5Ctx = {
           t: s4Timing.jets[0].release_s, dt: 1 / 60, source: s4Src, camera: rv5Cam, viewW: 1000, viewH: 600, dpr: 1,
           ground: 'flat', groundVersion: 0, heightAt: () => 0, watched: 0, attackColours: 'watched', focusPxPerM: 1, speed: 1,
-          labels: true, actionPoints: 'always', impact: true, again: false,
+          labels: true, actionPoints: 'always', impact: true, again: false, domeMask: new Uint8Array(0), inside: new Int16Array(4).fill(-1),
         } as FrameCtx;
         const rv5Alphas = () => new Map(rv5Layer.debugLabels().callouts.map((c) => [c.key, c.alpha]));
         for (let f = 0; f < 60; f++) rv5Layer.afterCamera!(rv5Ctx);
@@ -12915,6 +13191,102 @@ void (async () => {
            rv5Bad.length === 0, rv5Bad.join('; ') || `${rv5Up.size} callouts at 1 before and after both nudges; ${rv5Fresh.size} new callouts at ${[...rv5Fresh.values()][0]?.toFixed(3)} after one frame of the other strike`);
       } finally {
         (globalThis as { document?: unknown }).document = rv5Doc;
+      }
+
+      // [LB6] An early-warning radar's words keep off the words and discs on the picture, and no more than that. The real label
+      // layer (a stand-in 2D canvas, as RV5), the four-ship with #1 watched, a radar switched on whose one tag point is laid where
+      // its words fall just inside a callout plate placed with Action points Always:
+      // - Always: the plate is there, so the radar's words are left out (placed false).
+      // - Then Off: the plates are gone, so the words are placed, exactly as on a fresh open with Off (the plates' last spots
+      //   must not block them after they have gone).
+      // - As they come, at a moment no callout shows, with the words laid over one of #1's action-point discs: left out (the
+      //   words never cover a disc that is on).
+      // Mutation proofs (seen red 2026-11-19): scene/labelLayer.ts `cPlaced.fill(0)` taken out of the Off branch:
+      //   FAIL playback B3 [LB6]: … Off after Always: left out at (545.4, 215.3); a fresh open with Off: placed at (545.4, 215.3) (want both placed, the same)
+      // and the action-point discs taken out of coversWords (its disc loop run over none):
+      //   FAIL playback B3 [LB6]: … As they come at -68.5 s, the words over the disc at (685.4, 245.9): placed, 0 callouts (want left out, none)
+      {
+        const lb6Doc = (globalThis as { document?: unknown }).document;
+        const lb6G = new Proxy({}, { get: (_t, k) => (k === 'measureText' ? () => ({ width: 50 }) : () => undefined), set: () => true });
+        (globalThis as { document?: unknown }).document = {
+          createElement: () => ({ setAttribute() {}, dataset: {}, style: {}, getContext: () => lb6G, remove() {}, width: 0, height: 0 }),
+        };
+        try {
+          const W = 1000, H = 600, GAP = 4; // LABEL_GAP_PX: the radar's words start this far right of its point
+          const cam = new PerspectiveCamera(45, W / H, 1, 1e6);
+          cam.position.set(0, 20000, 20000);
+          cam.lookAt(0, 0, 0);
+          cam.updateMatrixWorld();
+          const jets = [0, 1, 2, 3].map((k) => ({ jet: k, colour: '#ffffff', pose: { agl_ft: 0, msl_ft: 0, tas_kt: 0 }, jetPosition: () => undefined, bombPosition: () => undefined }));
+          // The targets' discs behind the camera (off the picture), so only the plates and the discs can be what the words meet.
+          const layerOf = (src: typeof s4Src) => createLabelLayer({
+            host: { appendChild() {} } as never as HTMLElement, source: src, targets: { markTop: () => new Vector3(0, 50, 1e6) } as never, jets: jets as never, impacts: [], bag: new DisposeBag(),
+          });
+          const ctxOf = (src: typeof s4Src, mode: 'always' | 'off' | 'coming', t: number) => ({
+            t, dt: 1 / 60, source: src, camera: cam, viewW: W, viewH: H, dpr: 1, ground: 'flat', groundVersion: 0, heightAt: () => 0, watched: 0, attackColours: 'watched',
+            focusPxPerM: 1, speed: 1, labels: true, actionPoints: mode, impact: true, again: false, domeMask: Uint8Array.of(1), inside: new Int16Array(4).fill(-1),
+          } as FrameCtx);
+          // The ground point (1 m up, where the layer stands a radar's point) under a canvas pixel.
+          const groundAt = (sx: number, sy: number) => {
+            const a = new Vector3((sx / W) * 2 - 1, 1 - (sy / H) * 2, -1).unproject(cam), b = new Vector3((sx / W) * 2 - 1, 1 - (sy / H) * 2, 1).unproject(cam);
+            return a.clone().lerp(b, (a.y - 1) / (a.y - b.y));
+          };
+          // A radar whose ring has one point, there: its words stand right of it.
+          const radarAt = (p: Vector3): SceneDome => ({
+            threatId: 'lb6-ewr', systemId: 'ewr1l13', group: 'EWR', ewr: true, label: 'Tall Rack', status: 'active', active: true, dashed: false,
+            x: p.x - 370400, z: p.z, radius_m: 370400, height_m: 0, ringPoints: 1, enu: { radius_nm: 200 },
+          }) as never as SceneDome;
+          const frames = (layer: ReturnType<typeof layerOf>, ctx: FrameCtx, n: number) => { for (let f = 0; f < n; f++) layer.afterCamera!(ctx); };
+          const tRel = s4Timing.jets[0].release_s;
+          const bad: string[] = [];
+          // Where the plates go with Always (a source with no radar places them the same: the radar's words are placed last).
+          const probe = layerOf(s4Src);
+          frames(probe, ctxOf(s4Src, 'always', tRel), 60);
+          const plate = probe.debugLabels().callouts.find((c) => c.placed);
+          probe.dispose();
+          if (!plate) bad.push('no callout plate placed with Always');
+          else {
+            const srcA = sceneSourceFrom(s4Pb, s4Timing, PATH_STEP_S, { domes: [radarAt(groundAt(plate.x - GAP + 1, plate.y + plate.h / 2))] });
+            const lA = layerOf(srcA), cA = ctxOf(srcA, 'always', tRel);
+            frames(lA, cA, 60);
+            const always = lA.debugLabels().ewr[0];
+            cA.actionPoints = 'off';
+            frames(lA, cA, 1);
+            const off = lA.debugLabels().ewr[0];
+            lA.dispose();
+            const lF = layerOf(srcA);
+            frames(lF, ctxOf(srcA, 'off', tRel), 1);
+            const fresh = lF.debugLabels().ewr[0];
+            lF.dispose();
+            const fmt = (e?: { placed: boolean; x: number; y: number }) => (e ? `${e.placed ? 'placed' : 'left out'} at (${e.x.toFixed(1)}, ${e.y.toFixed(1)})` : 'none');
+            if (!always || always.placed) bad.push(`Always, the words on the plate at (${plate.x.toFixed(1)}, ${plate.y.toFixed(1)}): ${fmt(always)} (want left out)`);
+            if (!off || !off.placed || !fresh || !fresh.placed || off.x !== fresh.x || off.y !== fresh.y) bad.push(`Off after Always: ${fmt(off)}; a fresh open with Off: ${fmt(fresh)} (want both placed, the same)`);
+          }
+          // As they come: a moment with no callout showing, the words over one of #1's discs.
+          let disc: { x: number; y: number } | undefined, tQuiet = NaN;
+          for (const t of [s4Timing.jets[0].release_s - 60, s4Timing.jets[0].release_s - 45, s4Timing.jets[0].release_s - 30, s4Timing.jets[0].release_s + 30]) {
+            const l = layerOf(s4Src);
+            frames(l, ctxOf(s4Src, 'coming', t), 60);
+            const d = l.debugLabels();
+            l.dispose();
+            const m = d.markers.find((q) => q.x > 40 && q.x < W - 120 && q.y > 20 && q.y < H - 20);
+            if (d.callouts.length === 0 && m) { disc = m; tQuiet = t; break; }
+          }
+          if (!disc) bad.push('no moment with discs and no callout');
+          else {
+            const srcB = sceneSourceFrom(s4Pb, s4Timing, PATH_STEP_S, { domes: [radarAt(groundAt(disc.x - GAP - 10, disc.y))] });
+            const lB = layerOf(srcB);
+            frames(lB, ctxOf(srcB, 'coming', tQuiet), 60);
+            const d = lB.debugLabels();
+            lB.dispose();
+            const e = d.ewr[0];
+            if (d.callouts.length !== 0 || !e || e.placed) bad.push(`As they come at ${tQuiet.toFixed(1)} s, the words over the disc at (${disc.x.toFixed(1)}, ${disc.y.toFixed(1)}): ${e ? (e.placed ? 'placed' : 'left out') : 'none'}, ${d.callouts.length} callouts (want left out, none)`);
+          }
+          ok('playback B3 [LB6]: a radar\'s words are left out where a callout plate or an action-point disc is, and placed again once Action points is Off, as on a fresh open',
+             bad.length === 0, bad.join('; ') || `over the plate: left out with Always, placed with Off as on a fresh open; over a disc with As they come at ${tQuiet.toFixed(1)} s: left out`);
+        } finally {
+          (globalThis as { document?: unknown }).document = lb6Doc;
+        }
       }
 
       // [RV7] Apply only when a time changed, at the thousandth of a second Apply writes: a two-ship planned at 0 and 30 s;

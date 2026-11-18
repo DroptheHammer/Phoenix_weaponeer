@@ -3057,6 +3057,11 @@ async function checkShowKeys(page) {
  * (buttons [499,53,1012,79], 411 px clear of a title as short as the harness's; a title cut at its 40% limit, 410 px, still
  * leaves 77 px). Proven red 2026-11-18 by one temporary edit to ViewToolbar.tsx, the Side view button's entry taken out:
  *   STEP FAIL 31 Show open: panel inside the picture, buttons clear of the title and of the frame-time box (1024x768) — canvas [0,45,1024,579], panel [724,85,1012,555], buttons missing, title [12,53,88,77], frame-time [787,551,1012,571]
+ * Run on the four-ship too, whose threat list makes the panel taller than the picture at both sizes, so it must scroll inside it.
+ * Proven red there 2026-11-18 by one temporary edit to ui.ts, `max-h-[calc(100%-3rem)]` taken out of MENU_PANEL:
+ *   STEP FAIL 31 Show open: panel inside the picture, buttons clear of the title and of the frame-time box (1400x900-strike4) — canvas [0,45,1400,657], panel [1100,85,1388,725], buttons [875,53,1388,79], title [12,53,72,77], frame-time [1163,629,1388,649]
+ *   STEP FAIL 31 … (1024x768-strike4) — canvas [0,45,1024,509], panel [724,85,1012,725], buttons [499,53,1012,79], title [12,53,72,77], frame-time [787,481,1012,501]
+ * (green: panel [1100,85,1388,649] and [724,85,1012,501], scrolling.)
  */
 async function checkToolbarFit(page, tag, w, h) {
   await pbEval(page, async () => {
@@ -3355,6 +3360,12 @@ async function spreadMoment(page) {
  *   STEP FAIL 10 every jet of the four-ship drawn, each in its seat's colour (1400x900-strike4) — 4 jets; t -1.2 (arrows 89 px apart at the closest); #1 at 872,354: 188 px; #2 at 784,341: 0 px; #3 at 704,387: 0 px; #4 at 623,439: 0 px (need 70)
  *   STEP FAIL 10 … (1024x768-strike4) — …; #1 at 641,293: 185 px; #2 at 575,283: 0 px; #3 at 515,318: 0 px; #4 at 454,357: 0 px (need 70)
  * and by the arrow-shrink edit above (at a floor of 40 then: #2 34, #3 37, #4 23 px, red).
+ *
+ * The four-ship opens with its threats on, and at the spread moment every jet flies inside the SA-6, so each arrow here also
+ * has the white ring round it (the ring is never what is counted: white passes no seat colour test). This step does not hold
+ * whether the ring is drawn under the arrow or over it: the counts pass either way (check 16 holds the draw order, read off
+ * the meshes). Measured again 2026-11-19 so: 159 / 117 /
+ * 157 / 128 px at 1400×900, 162 / 114 / 150 / 133 at 1024×768; the floor of 70 stands.
  */
 const SEAT_MIN = 70;
 async function checkFourArrows(page, tag) {
@@ -3382,38 +3393,105 @@ async function checkFourArrows(page, tag) {
 }
 
 /**
- * Check 11 (four jets): every jet's label. At the spread moment: four labels, none overlapping, their
- * first lines "#1 Viper 1-1" … "#4 Viper 1-4" (one each), each with its altitude and speed; Show ›
- * Labels unticked, four one-line labels; ticked again, two lines each.
+ * Check 11 (four jets): every jet's label, with the four-ship's threats on as it opens (every jet flies inside the SA-6 at
+ * the spread moment, so every label carries its third line). At the spread moment: four labels, their first lines "#1
+ * Viper 1-1" … "#4 Viper 1-4" (one each), each with its altitude and speed and then "◎ inside SA-6 Gainful" (three lines);
+ * Show › Labels unticked, four two-line labels (the name and the inside line: a warning is not switched off with the
+ * numbers); ticked again, three lines each. Each time: no two labels overlap, none covers a target's disc or tag (at least
+ * one target is in the picture, so that test tests something), none covers another jet's arrow with its ring (the square
+ * round the arrow's point, half the ring's outer radius as the scene reports it, never less than 14 px), and every plate
+ * lies wholly inside the picture. At 1024×768 the four three-line labels do not fit round the arrows' corners, so at least
+ * one slides clear (listed as "slid"); each slid label's leader is seen on the label canvas, in the jet's colour, at 3 or
+ * more 1 px steps along the line from its arrow to its plate.
  *
  * Proven red 2026-11-15 by one temporary edit to scene/createScene.ts, the label layer given only the
  * first jet layer (`jets: jets.slice(0, 1)`):
  *   STEP FAIL 11 four jets' labels: one each, none overlapping; Labels off leaves one line each (1400x900-strike4) — on: 1 labels [#1 Viper 1-1], lines 2, overlapping false; off: 1 labels, lines 1; on again: lines 2
  *   STEP FAIL 11 … (1024x768-strike4) — the same
+ * The same edit again 2026-11-19, with the threats on:
+ *   STEP FAIL 11 four jets' labels with the threats on: … (1400x900-strike4) — on: 1 labels [#1 Viper 1-1], lines 3, last lines ["◎ inside SA-6 Gainful"], overlapping false, on a target 0, outside the picture 0, slid none; off: 1 labels [#1 Viper 1-1], lines 2, …; on again: 1 labels [#1 Viper 1-1], lines 3, …
+ *   STEP FAIL 11 … (1024x768-strike4) — the same
+ * and by one temporary edit to labels.ts, no sliding (`LABEL_SLIDE_STEPS = 6` → `0`): the four three-line labels overlap at 1024×768:
+ *   STEP FAIL 11 four jets' labels with the threats on: … (1024x768-strike4) — on: 4 labels [#1 Viper 1-1 | #2 Viper 1-2 | #3 Viper 1-3 | #4 Viper 1-4], lines 3/3/3/3, last lines ["◎ inside SA-6 Gainful"], overlapping true, on a target 0, outside the picture 0, slid none; off: …, overlapping false, …; on again: …, overlapping true, …
+ * (green 2026-11-19: no overlap at either size; at 1024×768 #4's label slides clear with Labels on.)
+ * The labels kept off the other jets' arrows, seen red 2026-11-19 with the label layer handing placeLabels no squares (its
+ * last argument, `jKeepR`, left out), at both sizes:
+ *   STEP FAIL 11 … (1400x900-strike4) — on: …, on another jet's arrow 0, …; off: …, on another jet's arrow 1, …
+ *   STEP FAIL 11 … (1024x768-strike4) — on: 4 labels […], lines 3/3/3/3, …, overlapping false, on a target 0 (of 2 targets in the picture), on another jet's arrow 1, outside the picture 0, slid #4; off: …, on another jet's arrow 1, …; on again: …, on another jet's arrow 1, …; rings #1 18.2, #2 18.2, #3 18.2, #4 18.2; leaders #4 inked at 6 of 30 steps (want 3 or more each)
+ * The leaders, seen red 2026-11-19 with the leader loop drawing nothing (`continue;` as its first line):
+ *   STEP FAIL 11 … (1024x768-strike4) — on: …, slid #3; …; leaders #3 inked at 0 of 45 steps (want 3 or more each)
+ * And no sliding (`LABEL_SLIDE_STEPS = 0`) again with the squares in, the same day:
+ *   STEP FAIL 11 … (1024x768-strike4) — on: 4 labels […], lines 3/3/3/3, …, overlapping true, on a target 0 (of 2 targets in the picture), on another jet's arrow 0, outside the picture 0, slid none; …; leaders none (nothing slid) (want 3 or more each)
+ * (green 2026-11-19 with the squares: nothing slides at 1400×900; at 1024×768 #3's label slides down clear of #4's arrow,
+ * its leader inked at 27 of 45 steps.)
  */
 async function checkFourLabels(page, tag) {
   await spreadMoment(page);
   await settle(page, 300);
-  const on = await pbEval(page, () => __pb.debugLabels());
+  const cv = await canvasBox(page);
+  const read = () => pbEval(page, () => __pb.debugLabels());
+  const on = await read();
   await shot(page, `${tag}-11-four-labels`);
   await page.getByRole('button', { name: 'Show ▾' }).click();
   const box = page.getByRole('checkbox', { name: /^Labels/ });
   await box.click();
+  await page.getByRole('button', { name: 'Show ▾' }).click(); // shut, so the panel lies over nothing it reads
   await settle(page, 300);
-  const off = await pbEval(page, () => __pb.debugLabels());
+  const off = await read();
+  await shot(page, `${tag}-11-four-labels-off`);
+  await page.getByRole('button', { name: 'Show ▾' }).click();
   await box.click();
-  await settle(page, 300);
-  const back = await pbEval(page, () => __pb.debugLabels());
   await page.getByRole('button', { name: 'Show ▾' }).click(); // shut it again
+  await settle(page, 300);
+  const back = await read();
+  // Each slid label's leader, as drawn on the label layer's own canvas (the 3D under it does not count): along the line from
+  // the arrow's point to the plate's nearest corner, the pixels that carry the jet's colour (an anti-aliased 1 px line: some
+  // ink, its colour within 60 a channel; any of the 3 × 3 round each 1 px step along it).
+  const leaders = await page.evaluate((jets) => {
+    const c = document.querySelector('canvas[data-labels]');
+    const g = c && c.getContext('2d');
+    if (!g) return null;
+    const s = c.width / c.clientWidth;
+    const img = g.getImageData(0, 0, c.width, c.height);
+    const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    return jets.filter((l) => l.slid).map((l) => {
+      const cx = l.ax - l.x < l.x + l.w - l.ax ? l.x : l.x + l.w, cy = l.ay - l.y < l.y + l.h - l.ay ? l.y : l.y + l.h;
+      const want = hex(l.colour), len = Math.hypot(cx - l.ax, cy - l.ay);
+      let inked = 0, steps = 0;
+      for (let t = 2; t < len - 2; t++, steps++) {
+        const px = l.ax + ((cx - l.ax) * t) / len, py = l.ay + ((cy - l.ay) * t) / len;
+        let hit = false;
+        for (let dy = -1; dy <= 1 && !hit; dy++) for (let dx = -1; dx <= 1 && !hit; dx++) {
+          const x = Math.round(px * s) + dx, y = Math.round(py * s) + dy;
+          if (x < 0 || y < 0 || x >= c.width || y >= c.height) continue;
+          const o = (y * c.width + x) * 4;
+          hit = img.data[o + 3] > 40 && Math.abs(img.data[o] - want[0]) <= 60 && Math.abs(img.data[o + 1] - want[1]) <= 60 && Math.abs(img.data[o + 2] - want[2]) <= 60;
+        }
+        if (hit) inked++;
+      }
+      return { key: l.key, inked, steps };
+    });
+  }, back.jets);
+  const inside = '◎ inside SA-6 Gainful';
   const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const overlaps = (ls) => ls.some((a, i) => ls.some((b, j) => j > i && overlap(a, b)));
+  const onTargets = (d) => d.jets.filter((l) => d.targets.some((t) => overlap(l, { x: t.box[0], y: t.box[1], w: t.box[2], h: t.box[3] }))).length;
+  const outside = (d) => d.jets.filter((l) => l.x < -0.5 || l.y < -0.5 || l.x + l.w > cv.w + 0.5 || l.y + l.h > cv.h + 0.5).length;
+  // Each other jet's arrow with its ring: the square round the arrow's point, half the ring's outer radius as the scene
+  // reports it for that jet, and never less than half the arrow's usual 28 px.
+  const rings = await pbEval(page, () => __pb.moments.jets.map((j, k) => ({ key: `#${j.seat + 1}`, r: Math.max(14, __pb.inside(k)?.haloPx ?? 0) })));
+  const ringOf = (key) => rings.find((x) => x.key === key)?.r ?? 14;
+  const onArrows = (d) => d.jets.filter((l) => d.jets.some((m) => m !== l && overlap(l, { x: m.ax - ringOf(m.key), y: m.ay - ringOf(m.key), w: 2 * ringOf(m.key), h: 2 * ringOf(m.key) }))).length;
   const firsts = (ls) => ls.map((l) => l.lines[0]).sort().join(' | ');
   const want = '#1 Viper 1-1 | #2 Viper 1-2 | #3 Viper 1-3 | #4 Viper 1-4';
-  step(`11 four jets' labels: one each, none overlapping; Labels off leaves one line each (${tag})`,
-    on.jets.length === 4 && firsts(on.jets) === want && on.jets.every((l) => l.lines.length === 2) && !overlaps(on.jets) &&
-      off.jets.length === 4 && off.jets.every((l) => l.lines.length === 1) && firsts(off.jets) === want &&
-      back.jets.length === 4 && back.jets.every((l) => l.lines.length === 2),
-    `on: ${on.jets.length} labels [${firsts(on.jets)}], lines ${on.jets.map((l) => l.lines.length).join('/')}, overlapping ${overlaps(on.jets)}; off: ${off.jets.length} labels, lines ${off.jets.map((l) => l.lines.length).join('/')}; on again: lines ${back.jets.map((l) => l.lines.length).join('/')}`);
+  const good = (d, lines) => d.jets.length === 4 && firsts(d.jets) === want && d.jets.every((l) => l.lines.length === lines && l.lines[lines - 1] === inside) &&
+    !overlaps(d.jets) && d.targets.length >= 1 && onTargets(d) === 0 && onArrows(d) === 0 && outside(d) === 0;
+  const fmt = (d) => `${d.jets.length} labels [${firsts(d.jets)}], lines ${d.jets.map((l) => l.lines.length).join('/')}, last lines ${JSON.stringify([...new Set(d.jets.map((l) => l.lines[l.lines.length - 1]))])}, ` +
+    `overlapping ${overlaps(d.jets)}, on a target ${onTargets(d)} (of ${d.targets.length} targets in the picture), on another jet's arrow ${onArrows(d)}, outside the picture ${outside(d)}, slid ${d.jets.filter((l) => l.slid).map((l) => l.key).join(',') || 'none'}`;
+  step(`11 four jets' labels with the threats on: one each, three lines with the inside line, none overlapping, on a target or on another jet's arrow, all inside the picture; Labels off leaves the name and the inside line (${tag})`,
+    good(on, 3) && good(off, 2) && good(back, 3) && !!leaders && leaders.every((x) => x.inked >= 3) && (!tag.startsWith('1024x768') || leaders.length >= 1),
+    `on: ${fmt(on)}; off: ${fmt(off)}; on again: ${fmt(back)}; rings ${rings.map((x) => `${x.key} ${x.r.toFixed(1)}`).join(', ')}; ` +
+    `leaders ${leaders ? leaders.map((x) => `${x.key} inked at ${x.inked} of ${x.steps} steps`).join(', ') || 'none (nothing slid)' : 'no canvas'} (want 3 or more each)`);
 }
 
 /**
@@ -3549,13 +3627,28 @@ async function checkAttackColours(page, tag) {
  *   STEP FAIL 52 the other jets' bombs: … (1400x900-strike4-watch2) — times as the check expects; at -4.5: jet 0 r 10 alpha 0.75; #1's bomb at 836,321: 11 white px (need under 3); #2's own bomb at 819,307: 38 (need 12); All jets: jet 0 r 11 alpha 1; Watched jet: jet 0 r 10 alpha 0.75; #1's seat button: jet 0 r 11 alpha 1
  *   STEP FAIL 52 … (1024x768-strike4-watch2) — … #1's bomb at 616,262: 8 white px (need under 3); #2's own bomb at 603,251: 34 (need 12); …
  * The ring half of 52 (the colour code and the watch changing the ring's size) goes red with 51b's labelLayer edit above.
+ * The four-ship's threats are switched off while it counts (the white ring round an arrow inside an active envelope sits by
+ * the jet at the release); what was on is read first and put back in a `finally`. The same edit again 2026-11-19, so set up:
+ *   STEP FAIL 52 … (1400x900-strike4-watch2) — times as the check expects; at -4.5: jet 0 r 10 alpha 0.75; #1's bomb at 836,321: 11 white px (need under 3); #2's own bomb at 819,307: 39 (need 12); …
+ *   STEP FAIL 52 … (1024x768-strike4-watch2) — …; #1's bomb at 616,262: 8 white px (need under 3); #2's own bomb at 603,251: 35 (need 12); …
  */
 const OTHER_PATCH = 10;
 async function checkBombOthers(page, tag) {
   const T = -4.5;
   const m = await pbEval(page, () => __pb.moments.jets.map((j) => ({ release: j.release, impact: j.impact })));
   const setup = m[0].release < T && T < m[0].impact && m[1].release > T;
-  await pbEval(page, () => { __pb.pause(); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); });
+  // The four-ship's threats are switched off while this counts white pixels: every jet flies inside the SA-6 here, and the
+  // white ring round an arrow inside an active envelope (check 16's) sits by the jet at the release, right where its bomb is
+  // read. What was switched on is read first and put back afterwards, whatever happens in between.
+  const threatsWere = await pbEval(page, () => __pb.show().threatsOn);
+  try {
+    await checkBombOthersAt(page, tag, T, m, setup);
+  } finally {
+    await pbEval(page, (ids) => __pb.setThreats(ids), threatsWere);
+  }
+}
+async function checkBombOthersAt(page, tag, T, m, setup) {
+  await pbEval(page, () => { __pb.pause(); __pb.setThreats([]); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); });
   const at = async (t) => {
     await pbEval(page, (tt) => __pb.seek(tt), t);
     await settle(page, 300);
@@ -5524,7 +5617,10 @@ const notesCount = (page, text) => page.waitForFunction((t) => (document.querySe
  *   STEP FAIL 76 the notes are folded under a button, … — …; the scene's threat domes at opening ["h-sa6","h-sa8","h-sa11"] (want ["h-sa6","h-sa8"]: not the hidden SA-11, not the P-19 that covers the area); …; after a time was typed and applied the scene's threat domes ["h-sa6","h-sa8","h-sa11"] (want …); …
  * - notes.ts LEGEND_NOTE ending "… written beside it. Some are hidden." (a note that says something is hidden):
  *   STEP FAIL 76 the notes are folded under a button, … — …; the page names the hidden SA-11: false; says anything is hidden: true (want neither); …
- *   (the word "SA-11" half of that arm cannot go red yet: nothing draws or lists a threat by name until the threat list is in the Show menu, and then it will)
+ * Proven red 2026-11-19 for the word "SA-11" (that arm reads the page with the Show panel open, whose threat list names every
+ * threat it lists) by one temporary edit to dev/fixture.ts, the planner's switch for hidden threats always on at the press
+ * (`onPlanner: !!threatOpts.reveal` → `onPlanner: true`; a run of this page alone):
+ *   STEP FAIL 76 the notes are folded under a button, … (1400x900-strike4) — …; the scene's threat domes at opening ["h-sa6","h-sa8","h-sa11"] (want ["h-sa6","h-sa8"]: …); …; the page, the threat list open, names the hidden SA-11: true; says anything is hidden: false (want neither); …
  */
 async function checkNotes(page, tag, w, h) {
   await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
@@ -5587,12 +5683,16 @@ async function checkNotes(page, tag, w, h) {
   // The domes do not move with the times: the scene's source, made again for the new times, carries the same two.
   const domesAfter = await sceneDomeIds(page);
   note(JSON.stringify(domesAfter) === JSON.stringify(wantDomes), `after a time was typed and applied the scene's threat domes ${JSON.stringify(domesAfter)} (want ${JSON.stringify(wantDomes)})`);
-  // Nothing on the page names the threat the author hid or says that anything is hidden (the notes are open, so their words are on it).
+  // Nothing on the page names the threat the author hid or says that anything is hidden: read with the notes open and the
+  // Show panel open (its threat list names every threat it lists), so both lists' words are on it; the panel is shut after.
+  await openShow(page);
+  await settle(page, 200);
   const said = await page.evaluate(() => {
     const text = (document.querySelector('[role="dialog"]')?.textContent || '');
-    return { sa11: /SA-11|Gadfly|Buk/.test(text), hidden: /hidden|\bhid\b|probable|location unknown/i.test(text) };
+    return { sa11: /SA-11|Gadfly|Buk/.test(text), hidden: /hidden|\bhid\b|probable|location unknown/i.test(text), list: !!document.querySelector('#pb-show [data-threats]') };
   });
-  note(!said.sa11 && !said.hidden, `the page names the hidden SA-11: ${said.sa11}; says anything is hidden: ${said.hidden} (want neither)`);
+  await shutShow(page);
+  note(said.list && !said.sa11 && !said.hidden, `the page, the threat list ${said.list ? 'open' : 'not found'}, names the hidden SA-11: ${said.sa11}; says anything is hidden: ${said.hidden} (want neither)`);
   // Show › Whole run-in widens the time bar to before the IP, and the start note must then say so; off, the ordinary words are back.
   const startText = async () => (await notesState(page)).list?.notes.find((n) => n.key === 'start')?.text;
   await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'wholeRunIn', on: true } }));
@@ -5658,6 +5758,686 @@ async function checkNotesLone(page, tag) {
       JSON.stringify(L.notes.map((n) => [n.key, n.tone, n.text])) === JSON.stringify([['push', 'info', NOTE_PUSH], ['start', 'info', startWant], ['agl', 'info', NOTE_AGL]]) && L.heads.length === 0 && s.theater >= 1,
     `folded "${folded.toggle ? folded.toggle.text : 'no button'}" amber ${folded.toggle ? folded.toggle.amber : '—'}; open ${L ? JSON.stringify(L.notes.map((n) => n.key)) : 'no list'}; Whole run-in ${whole ? 'on' : 'off'}, the start note ${JSON.stringify(L?.notes.find((n) => n.key === 'start')?.text)} (want ${JSON.stringify(startWant)}); the planner's warning in view ${s.theater}×`);
   await notesToggle(page).click(); // folded again, for the checks after
+}
+
+// ── The threats (Show › Threats, the envelopes, the ring round a jet inside one, a radar's ring).
+
+/** The Show panel's threat list as the page shows it: each group's heading and rows (switch state, words, the row's note), or its one line. */
+const threatSection = (page) => page.evaluate(() => {
+  const s = document.querySelector('#pb-show [data-threats]');
+  if (!s) return null;
+  const empty = s.querySelector('[data-threats-empty]');
+  return {
+    text: (s.textContent || '').trim(),
+    empty: empty ? (empty.textContent || '').trim() : null,
+    groups: [...s.querySelectorAll('[data-threat-group]')].map((g) => ({
+      group: g.getAttribute('data-threat-group'),
+      heading: (g.firstElementChild?.textContent || '').trim(),
+      rows: [...g.querySelectorAll('[data-threat-row]')].map((r) => {
+        const words = [...r.querySelectorAll(':scope > span > span')].map((e) => (e.textContent || '').trim());
+        return { id: r.getAttribute('data-threat-row'), checked: !!r.querySelector('input')?.checked, text: words[0] ?? null, note: words[1] ?? null };
+      }),
+    })),
+  };
+});
+const showButton = (page) => page.getByRole('button', { name: 'Show ▾' });
+/** Open the Show panel if it is shut. */
+async function openShow(page) {
+  if ((await showButton(page).getAttribute('aria-expanded')) !== 'true') await showButton(page).click();
+  await page.waitForSelector('#pb-show', { timeout: 10000 });
+}
+/** Shut the Show panel if it is open. */
+async function shutShow(page) {
+  if ((await showButton(page).getAttribute('aria-expanded')) === 'true') await showButton(page).click();
+}
+/** Wait until the scene draws exactly `n` domes (or give up quietly after a while: the check then reads what is there). */
+const domesDrawn = (page, n) => page.waitForFunction((k) => __pb.domeCount() === k, n, { timeout: 15000, polling: 100 }).catch(() => {});
+const domeIds = (page) => pbEval(page, () => (__pb.domes()?.domes ?? []).filter((d) => d.on).map((d) => d.threatId));
+/** Every segment the dome layer has laid, all four looks together (−1 before a scene exists). */
+const domeTotal = (d) => (d ? d.looks.active + d.looks.activeDashed + d.looks.idle + d.looks.idleDashed : -1);
+/** The threat envelopes' line colours and widths (domes.ts DOME_ACTIVE and DOME_IDLE, sceneStyle.ts DOME_ACTIVE_PX and DOME_IDLE_PX). */
+const DOME_ACTIVE_HEX = '#ef4444', DOME_IDLE_HEX = '#9ca3af', DOME_ACTIVE_W = 2, DOME_IDLE_W = 1.5;
+/**
+ * The idle envelopes' grey (DOME_IDLE, 156,163,175) as drawn over the ground: nearly neutral, a touch of blue. None of the drape's
+ * three colours, its hillshade or the navy background passes (each is 40 or more apart across its channels).
+ */
+const idleGreyLike = (p) => Math.max(p[0], p[1], p[2]) - Math.min(p[0], p[1], p[2]) <= 30 && p[2] >= p[0] && p[0] >= 110 && p[0] <= 205;
+/**
+ * The first moment, from the time bar's start on in 2 s steps, at which a jet (any, or only `jet`) is inside the envelope of
+ * threat `threatId` (the scene's own inside test, with the systems switched on as they stand): { t, jet }, or null.
+ */
+async function insideMoment(page, threatId, jet) {
+  return pbEval(page, ([id, only]) => {
+    const s = __pb.snapshot(), n = __pb.moments.jets.length;
+    for (let t = s.start; t <= s.end; t += 2) {
+      __pb.seek(t);
+      for (let k = 0; k < n; k++) {
+        if (only !== undefined && only !== null && k !== only) continue;
+        if (t > __pb.moments.jets[k].impact) continue;
+        if (__pb.inside(k)?.threatId === id) return { t, jet: k };
+      }
+    }
+    return null;
+  }, [threatId, jet ?? null]);
+}
+/** The first moment #1 is inside the SA-6's envelope (insideMoment), or null. */
+const insideSa6Moment = async (page) => (await insideMoment(page, 'h-sa6', 0))?.t ?? null;
+/**
+ * White pixels (every channel above 235) within 20 px of jet `jet`'s arrow (default #1), with the 2D overlay hidden: the ring
+ * round it. `white` is −1 when the arrow is not on screen, so a "no ring" reading must also ask for 0 or more.
+ */
+async function haloPixels(page, name, jet = 0) {
+  await overlay(page, false);
+  try {
+    await settle(page, 300);
+    const p = await pbEval(page, (k) => __pb.project(k, 'jet'), jet);
+    if (!p) return { at: null, white: -1 };
+    const img = await shot(page, name);
+    const white = patch(img, [Math.round(p[0]), Math.round(p[1])], 20).filter((q) => q[0] > 235 && q[1] > 235 && q[2] > 235).length;
+    return { at: p.map(Math.round), white };
+  } finally {
+    await overlay(page, true);
+  }
+}
+/**
+ * The ring round jet `jet`'s arrow against the arrow itself, with the 2D overlay hidden. All on screen, CSS pixels, from the
+ * arrow's middle: `halfPx`, half the distance between the arrow's nose and tail projected (from its mesh: its middle ± half
+ * its drawn length along its nose); `sidePx`, the arrow's half length as it would be seen side on (a point half its drawn
+ * length off its middle along the camera's right, projected: the most of it any view can show, as from straight above);
+ * `innerPx`, the ring's inner radius as the scene laid it (the metres read off its geometry, laid off the arrow's middle
+ * along the camera's right, the plane the ring faces, and projected the same way), and `outerPx` from the scene's own ratio
+ * of its outer radius to its inner one. Of 32 points round the arrow's middle, how many have a white pixel within 1 px:
+ * `white` at the band's middle radius, `insideWhite` at 0.93 of its inner radius (just inside the band, where nothing white
+ * belongs: there the arrow is not, so a band laid wider inward than the scene says lights them). `radii` (a reading's
+ * `innerPx` and `outerPx`) samples those radii instead of the ring's own: the reading without a ring, as a control.
+ */
+async function ringRoundArrow(page, name, jet = 0, radii = null) {
+  await overlay(page, false);
+  try {
+    await settle(page, 300);
+    const g = await pbEval(page, (k) => {
+      const a = __pb.arrow(k), ins = __pb.inside(k), c = __pb.project(k, 'jet'), cam = __pb.camera();
+      if (!a || !ins || !c || !cam) return null;
+      const h = a.length_m / 2, [x, y, z] = a.position, [nx, ny, nz] = a.nose;
+      const nose = __pb.projectPoint(x + nx * h, -(z + nz * h), y + ny * h), tail = __pb.projectPoint(x - nx * h, -(z - nz * h), y - ny * h);
+      // The camera's right (it never rolls): level, square to where it looks.
+      const dx = cam.target.x - cam.x, dz = cam.target.z - cam.z, l = Math.hypot(dx, dz);
+      const rx = l > 1e-6 ? -dz / l : 1, rz = l > 1e-6 ? dx / l : 0;
+      const off = (m) => __pb.projectPoint(x + rx * m, -(z + rz * m), y);
+      return { c, nose, tail, side: off(h), inner: ins.haloInnerM > 0 ? off(ins.haloInnerM) : null, haloPx: ins.haloPx, haloInnerPx: ins.haloInnerPx, halo: ins.halo, dome: ins.threatId ?? null };
+    }, jet);
+    if (!g || !g.nose || !g.tail || !g.side) return { halfPx: NaN, sidePx: NaN, innerPx: 0, outerPx: 0, white: -1, insideWhite: -1, halo: false, at: null };
+    const img = await shot(page, name);
+    const dist = (p) => Math.hypot(p[0] - g.c[0], p[1] - g.c[1]);
+    const halfPx = Math.hypot(g.nose[0] - g.tail[0], g.nose[1] - g.tail[1]) / 2, sidePx = dist(g.side);
+    const innerPx = radii ? radii.innerPx : g.inner ? dist(g.inner) : 0;
+    const outerPx = radii ? radii.outerPx : g.haloInnerPx > 0 ? innerPx * (g.haloPx / g.haloInnerPx) : 0;
+    const whiteAt = (r) => {
+      let n = 0;
+      for (let i = 0; i < 32; i++) {
+        const a = (2 * Math.PI * i) / 32, q = [Math.round(g.c[0] + r * Math.cos(a)), Math.round(g.c[1] + r * Math.sin(a))];
+        if (patch(img, q, 1).some((p) => p[0] > 235 && p[1] > 235 && p[2] > 235)) n++;
+      }
+      return n;
+    };
+    const white = outerPx > 0 ? whiteAt((innerPx + outerPx) / 2) : 0, insideWhite = innerPx > 0 ? whiteAt(0.93 * innerPx) : 0;
+    return { halfPx, sidePx, innerPx, outerPx, white, insideWhite, halo: g.halo, at: g.c.map(Math.round), dome: g.dome };
+  } finally {
+    await overlay(page, true);
+  }
+}
+/**
+ * Each switched-on dome's ground ring as the page shows it, with the 2D overlay hidden: of its ring points (the dome layer's own
+ * read-back, the middles of laid ring segments) on screen, how many have a red pixel (`red`) and how many a grey one (`grey`,
+ * idleGreyLike) within 2 px. Keyed by threat; for every dome, on or off (the points are where its ring is laid when on).
+ */
+async function domeColours(page, name, points) {
+  await overlay(page, false);
+  try {
+    await settle(page, 300);
+    const img = await shot(page, name);
+    const out = {};
+    for (const [id, pts] of Object.entries(points)) {
+      const scr = await pbEval(page, (ps) => ps.map((p) => __pb.projectPoint(p[0], -p[2], p[1])), pts);
+      const cv = await canvasBox(page);
+      const on = scr.filter((q) => q && q[0] > cv.l + 3 && q[0] < cv.l + cv.w - 3 && q[1] > cv.t + 3 && q[1] < cv.t + cv.h - 3);
+      out[id] = {
+        shown: on.length,
+        red: on.filter((q) => patch(img, q.map(Math.round), 2).some(redLike)).length,
+        grey: on.filter((q) => patch(img, q.map(Math.round), 2).some(idleGreyLike)).length,
+      };
+    }
+    return out;
+  } finally {
+    await overlay(page, true);
+  }
+}
+
+/**
+ * Check 33: the Show menu's threat list on the four-ship (an SA-6, an SA-8 and a P-19 early-warning radar the planner may see,
+ * and an SA-11 its author hid). Opened, it lists under "SAM" the SA-6 ("SA-6 Gainful · 2K12 Kub (1)") switched on, under
+ * "SHORAD" the SA-8 switched on, and under "Early warning" the P-19 ("Flat Face · P-19 Danube (1)") switched off, with the
+ * sentence that the whole drawn area is inside its detection range; nothing on the panel names the SA-11 or says anything is
+ * hidden, and there is no line counting threats whose place is unknown. The scene draws the SA-6's and the SA-8's domes; None
+ * (the real button) switches every row off and the scene draws none; All switches every row on and the scene draws the same
+ * two (the P-19's range covers the area, so it has no ring); its own box brings the SA-8 alone back. The lines the dome layer
+ * has laid follow each time, read off its buffers: 208 segments as opened and after All (the SA-6's 176 and the dashed SA-8's
+ * 32), none after None, 32 with the SA-8 alone. By keyboard: Tab from the Show button reaches the SA-6's box, Space switches
+ * it off (the SA-8's 32 segments alone are laid) and on again (208).
+ *
+ * Proven red 2026-11-18 by one temporary edit to PlaybackView.tsx, the session opened without the threat rows (`show: initShow(domeSet.systems)` →
+ * `show: initShow()`):
+ *   STEP FAIL 33 Show › Threats lists the systems the planner may see by kind, … (1400x900-strike4) — as opened: [{"group":"SAM","heading":"SAM","rows":[{"id":"sa6","checked":false,"text":"SA-6 Gainful · 2K12 Kub (1)","note":null}]},{"group":"SHORAD",…"checked":false…},{"group":"EWR",…"checked":false…}]; the panel names the SA-11: false; says anything is hidden or unknown: false (want neither); domes drawn as opened: 0 [] (want the SA-6 and the SA-8); None: 0 domes drawn, boxes [false,false,false]; All: 0 domes drawn (the P-19 covers the area: no ring), boxes [false,false,false]; the SA-8's own box: [] drawn (want the SA-8 alone)
+ *   STEP FAIL 33 … (1024x768-strike4) — the same
+ * Proven red 2026-11-19 for the laid lines by one temporary edit to scene/domeLayer.ts, maskChanged() emptied (the lines never
+ * laid again when a system is switched):
+ *   STEP FAIL 33 Show › Threats lists the systems the planner may see by kind, … (1400x900-strike4) — …; domes drawn as opened: 2 ["h-sa6","h-sa8"], 208 segments laid (want the SA-6 and the SA-8, 208); None: 0 domes drawn, 208 segments laid (want 0), boxes [false,false,false]; All: 2 domes drawn (the P-19 covers the area: no ring), 208 segments laid (want 208), boxes [true,true,true]; the SA-8's own box: ["h-sa8"] drawn, 208 segments laid (want the SA-8 alone, 32); keyboard: Tab reached the SA-6's box after 12; Space: ["h-sa8"] drawn, 208 laid, box clear, clock still (want the SA-8 alone, 32, clear, still); Space again: ["h-sa6","h-sa8"], 208 laid, box ticked (want both, 208, ticked)
+ */
+async function checkThreatMenu(page, tag) {
+  await pbEval(page, () => __pb.pause());
+  await domesDrawn(page, 2);
+  const parts = [];
+  let ok = true;
+  const note = (good, text) => { ok = ok && good; parts.push(text); };
+  await openShow(page);
+  await settle(page);
+  await shot(page, `${tag}-33-threat-list`);
+  const s = await threatSection(page);
+  const panelText = await page.evaluate(() => (document.querySelector('#pb-show')?.textContent || ''));
+  const want = [
+    { group: 'SAM', heading: 'SAM', rows: [{ id: 'sa6', checked: true, text: 'SA-6 Gainful · 2K12 Kub (1)', note: null }] },
+    { group: 'SHORAD', heading: 'SHORAD', rows: [{ id: 'sa8', checked: true, text: 'SA-8 Gecko · 9K33 Osa (1)', note: null }] },
+    { group: 'EWR', heading: 'Early warning', rows: [{ id: 'p19', checked: false, text: 'Flat Face · P-19 Danube (1)', note: 'The whole drawn area is inside its detection range: no ring to draw.' }] },
+  ];
+  note(!!s && s.empty === null && JSON.stringify(s.groups) === JSON.stringify(want), `as opened: ${s ? JSON.stringify(s.groups) : 'no threat list'}`);
+  const leak = { sa11: /SA-11|Gadfly|Buk/.test(panelText), hidden: /hidden|\bhid\b|probable|location unknown/i.test(panelText) };
+  note(!leak.sa11 && !leak.hidden, `the panel names the SA-11: ${leak.sa11}; says anything is hidden or unknown: ${leak.hidden} (want neither)`);
+  const laid = async () => domeTotal(await pbEval(page, () => __pb.domes()));
+  const opened = { count: await pbEval(page, () => __pb.domeCount()), ids: await domeIds(page), laid: await laid() };
+  note(opened.count === 2 && opened.ids.join() === 'h-sa6,h-sa8' && opened.laid === 208, `domes drawn as opened: ${opened.count} ${JSON.stringify(opened.ids)}, ${opened.laid} segments laid (want the SA-6 and the SA-8, 208)`);
+  await page.getByRole('button', { name: 'Hide every threat' }).click();
+  await domesDrawn(page, 0);
+  const noneRows = (await threatSection(page))?.groups.flatMap((g) => g.rows.map((r) => r.checked)) ?? [];
+  const noneCount = await pbEval(page, () => __pb.domeCount()), noneLaid = await laid();
+  note(noneCount === 0 && noneLaid === 0 && noneRows.length === 3 && noneRows.every((c) => !c), `None: ${noneCount} domes drawn, ${noneLaid} segments laid (want 0), boxes ${JSON.stringify(noneRows)}`);
+  await page.getByRole('button', { name: 'Show every threat' }).click();
+  await domesDrawn(page, 2);
+  const allRows = (await threatSection(page))?.groups.flatMap((g) => g.rows.map((r) => r.checked)) ?? [];
+  const allCount = await pbEval(page, () => __pb.domeCount()), allLaid = await laid();
+  note(allCount === 2 && allLaid === 208 && allRows.length === 3 && allRows.every((c) => c), `All: ${allCount} domes drawn (the P-19 covers the area: no ring), ${allLaid} segments laid (want 208), boxes ${JSON.stringify(allRows)}`);
+  await page.getByRole('button', { name: 'Hide every threat' }).click();
+  await domesDrawn(page, 0);
+  await page.locator('#pb-show [data-threat-row="sa8"] input').click();
+  await domesDrawn(page, 1);
+  const sa8Only = await domeIds(page), sa8Laid = await laid();
+  note(sa8Only.join() === 'h-sa8' && sa8Laid === 32, `the SA-8's own box: ${JSON.stringify(sa8Only)} drawn, ${sa8Laid} segments laid (want the SA-8 alone, 32)`);
+  await pbEval(page, () => __pb.setThreats(['sa6', 'sa8'])); // as the menu opens
+  await domesDrawn(page, 2);
+  // By keyboard: from the Show button, Tab until the SA-6's box has the focus; Space switches it off, and on again.
+  await page.focus('[role="dialog"] button[aria-controls="pb-show"]');
+  const onSa6 = () => pbEval(page, () => !!document.activeElement?.closest('#pb-show [data-threat-row="sa6"]') && document.activeElement.tagName === 'INPUT');
+  let tabs = 0, reached = false;
+  for (; tabs < 40 && !reached; tabs++) {
+    await page.keyboard.press('Tab');
+    reached = await onSa6();
+  }
+  let keyOff = null, keyOn = null;
+  if (reached) {
+    await page.keyboard.press(' ');
+    await domesDrawn(page, 1);
+    keyOff = { ids: await domeIds(page), laid: await laid(), checked: await page.locator('#pb-show [data-threat-row="sa6"] input').isChecked(), playing: await pbEval(page, () => __pb.snapshot().playing) };
+    await page.keyboard.press(' ');
+    await domesDrawn(page, 2);
+    keyOn = { ids: await domeIds(page), laid: await laid(), checked: await page.locator('#pb-show [data-threat-row="sa6"] input').isChecked() };
+  }
+  note(reached && !!keyOff && keyOff.ids.join() === 'h-sa8' && keyOff.laid === 32 && !keyOff.checked && !keyOff.playing && !!keyOn && keyOn.ids.join() === 'h-sa6,h-sa8' && keyOn.laid === 208 && keyOn.checked,
+    `keyboard: Tab reached the SA-6's box ${reached ? `after ${tabs}` : 'never'}; Space: ${keyOff ? `${JSON.stringify(keyOff.ids)} drawn, ${keyOff.laid} laid, box ${keyOff.checked ? 'ticked' : 'clear'}, clock ${keyOff.playing ? 'playing' : 'still'}` : '—'} (want the SA-8 alone, 32, clear, still); ` +
+      `Space again: ${keyOn ? `${JSON.stringify(keyOn.ids)}, ${keyOn.laid} laid, box ${keyOn.checked ? 'ticked' : 'clear'}` : '—'} (want both, 208, ticked)`);
+  await pbEval(page, () => { __pb.pause(); __pb.setThreats(['sa6', 'sa8']); }); // as the menu opens, for the checks after
+  await domesDrawn(page, 2);
+  await shutShow(page);
+  step(`33 Show › Threats lists the systems the planner may see by kind, weapons on and the radar off, and None, All and each box switch what the scene draws (${tag})`, ok, parts.join('; '));
+}
+
+/**
+ * Check 16: the four-ship's envelopes in the scene, and #1 inside one. The scene draws two domes (the SA-6 and the SA-8: the
+ * SA-11 its author hid is not in the scene's source at all, and the P-19's range covers the drawn area, so it is no dome),
+ * laid as the layer's buffers hold them: the SA-6 active, 176 segments with a cage, the SA-8 suppressed and planned, its ring
+ * alone, dashed, 32 segments; 208 in all. They are seen, not only counted: at Home, the 2D overlay hidden, at least
+ * RING_RED_MIN of the SA-6's ring points (the layer's own read-back) have red within 2 px and RING_GREY_MIN of the SA-8's have
+ * grey; with every threat off, none. At the first moment #1 is inside the SA-6 (an active, solid envelope): the scene's
+ * inside test names the SA-6, a white ring is drawn round #1's arrow (white pixels round it in Chase, the 2D overlay hidden)
+ * and #1's label carries the words "◎ inside SA-6 Gainful"; with every threat switched off there is no ring (0 to 5 white
+ * pixels, and the arrow found), no words and the test names none. The ring's draw order, read off the meshes, puts it after
+ * the posts and before the bomb's outline, the bomb and the arrow (it has no depth test, so that order alone keeps its white
+ * off them). Chase then zoomed in as far as it goes: the arrow is drawn at its real size, far larger than HALO_PX, and the
+ * ring's inner radius as the scene laid it (read off its geometry, measured on screen) is at least the arrow's half length,
+ * both as seen (nose and tail projected) and side on (the most any view shows of it); its band is white and just inside
+ * the band nothing is; and at the same pose with every threat off, the band's points are not white (so the white was the
+ * ring's, not the ground's). Last, the SA-8 alone switched on: at the first moment a jet is inside it, the
+ * test names it, the jet's label ends "inside SA-8 Gecko (suppressed)" (with Labels off too) and no white ring is drawn.
+ * "Switched off" here is `__pb.setThreats`, one Show › Threats switch at a time through the session, as the boxes would (the
+ * menu's own None and boxes are check 33's).
+ *
+ * Proven red 2026-11-18 by one temporary edit to scene/jetLayer.ts, the ring never shown (`halo.visible = arrow.visible && …` →
+ * `halo.visible = false && …`):
+ *   STEP FAIL 16 the envelopes the planner may see are drawn, and a jet inside an active one has a white ring and says so in words; switched off, neither (1400x900-strike4) — domes drawn 2; the scene's source carries ["h-sa6","h-sa8"] (want the SA-6 and the SA-8, never the SA-11); #1 is first inside the SA-6 at -50.2 s; inside: {"dome":0,"threatId":"h-sa6","halo":false}, 0 white px round the arrow at [700,351] (want 60 or more), label ["#1 Viper 1-1","500ft AGL · 480 KTAS","◎ inside SA-6 Gainful"]; every threat off: {"dome":-1,"halo":false}, 0 white px (want 5 or fewer), label ["#1 Viper 1-1","500ft AGL · 480 KTAS"]
+ *   STEP FAIL 16 … (1024x768-strike4) — … 0 white px round the arrow at [512,277] (want 60 or more) …
+ * (green: 236 white px round the arrow at both sizes, 0 with every threat off.)
+ * Proven red 2026-11-19 for the new arms, each by one temporary edit:
+ * (the three in one run at 1400×900: each arm goes red on its own edit and on no other)
+ * - scene/domeLayer.ts, the envelopes' meshes never shown (`m.visible = false` after they are made):
+ *   STEP FAIL 16 … (1400x900-strike4) — …; seen at Home: the SA-6's ring red at 0 of 8 points on screen (want 4 or more), the SA-8's grey at 0 of 14 (want 5 or more); every threat off: red at 0, grey at 0 (want none); …
+ * - scene/jetLayer.ts, the ring at the fixed HALO_PX size alone (`const outer = (HALO_PX / 2) * wpp`):
+ *   STEP FAIL 16 … — …; Chase zoomed in to 81 m (want under 90): the arrow 46.3 px from its middle to nose and tail, the ring's inner radius 13.9 px (outer 17.0; want at least the arrow's), white at 0 of 32 points round its band (want 16 or more); …
+ * - scene/jetLayer.ts, the ring shown for any envelope (`halo.visible = arrow.visible && inside >= 0`):
+ *   STEP FAIL 16 … — …; the SA-8 alone, #3 first inside it at -50.2 s: inside {"dome":1,"threatId":"h-sa8","halo":true,"haloPx":17}, 250 white px round its arrow at [939,392] (want 0 to 5, no ring), label ["#3 Viper 1-3","500ft AGL · 480 KTAS","inside SA-8 Gecko (suppressed)"], …
+ * (green 2026-11-19 at both sizes: the ring 354 and 275 white px round #1's arrow; zoomed in to 81 m, the arrow 46.3 and 35.1 px
+ * to nose and tail inside a ring of inner radius 87.6 and 66.4 px, white at 32 of 32 points; #3 inside the SA-8, 0 white px.)
+ * Proven red 2026-11-19 for the inner edge, the draw order and the control, each by one temporary edit, at 1400×900:
+ * - scene/jetGeometry.ts, the band wider inward (`RING_INNER = 0.82` → `0.5`; the arm before read the inner radius as 0.82 of
+ *   the outer one and stayed green):
+ *   STEP FAIL 16 … — …; Chase zoomed in to 81 m (want under 90): the arrow 46.3 px from its middle to nose and tail (82.2 side on), the ring's inner radius as laid 53.4 px (outer 106.8; want at least the arrow's, both ways), white at 32 of 32 points round its band (want 16 or more) and at 0 of 32 just inside it (want 2 or fewer); …
+ * - scene/jetLayer.ts, the band laid inward everywhere but at the vertex read back (`side === 0 ? RING_INNER : 1` →
+ *   `side === 0 ? (k === 0 ? RING_INNER : 0.6) : 1`):
+ *   STEP FAIL 16 … — …; … the ring's inner radius as laid 87.6 px (outer 106.8; want at least the arrow's, both ways), white at 32 of 32 points round its band (want 16 or more) and at 31 of 32 just inside it (want 2 or fewer); …
+ * - scene/jetLayer.ts, the ring drawn after the arrows (`halo: 41` → `halo: 61`):
+ *   STEP FAIL 16 … — …; draw order posts 35, ring 61, bomb outline 58, bomb 59, arrow 60 (want the ring after the posts, before the bomb's outline, the bomb and the arrow); …
+ * - scene/jetLayer.ts, the ring round every shown arrow (`halo.visible = arrow.visible && …` → `arrow.visible || (…)`):
+ *   STEP FAIL 16 … — …; every threat off: {"dome":-1,"halo":true,…}, 354 white px (want 0 to 5), …; the same pose with every threat off: white at 32 of the band's 32 points (want 2 or fewer); …
+ * (green: inner radius as laid 87.6 and 66.4 px against the arrow's 46.3 and 35.1 as seen, 82.2 and 62.3 side on; 0 of 32
+ * white just inside the band; the control 0 of 32.)
+ * RING_RED_MIN and RING_GREY_MIN: measured 2026-11-19 at both sizes: the SA-6's ring red at 8 of its 8 points on screen, the
+ * SA-8's grey at 10 of 14, and with every threat off red at 0 and grey at 0. The floors sit at half of what was seen, room for
+ * the software renderer.
+ */
+const RING_RED_MIN = 4, RING_GREY_MIN = 5;
+async function checkThreatInside(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.setThreats(['sa6', 'sa8']); });
+  await domesDrawn(page, 2);
+  const parts = [];
+  let ok = true;
+  const note = (good, text) => { ok = ok && good; parts.push(text); };
+  const count = await pbEval(page, () => __pb.domeCount());
+  const sourceIds = await pbEval(page, () => (__pb.source()?.domes ?? []).map((d) => d.threatId));
+  note(count === 2 && sourceIds.join() === 'h-sa6,h-sa8' && !sourceIds.includes('h-sa11'), `domes drawn ${count}; the scene's source carries ${JSON.stringify(sourceIds)} (want the SA-6 and the SA-8, never the SA-11)`);
+  // Each dome as the layer laid it: the SA-6 active (ring and cage, 176 segments), the SA-8 suppressed and planned (its ring
+  // alone, dashed: 32), 208 in all.
+  const laid = await pbEval(page, () => __pb.domes());
+  const sa6 = laid?.domes.find((d) => d.threatId === 'h-sa6'), sa8 = laid?.domes.find((d) => d.threatId === 'h-sa8');
+  const split = (d) => (d ? `${d.look}, ${d.segments} segments (${d.ring} ring, ${d.cage} cage)` : 'none');
+  note(!!sa6 && sa6.on && sa6.look === 'active' && sa6.segments === 176 && sa6.cage > 0 && !!sa8 && sa8.on && sa8.look === 'idleDashed' && sa8.segments === 32 && sa8.cage === 0 && domeTotal(laid) === 208,
+    `the SA-6 ${split(sa6)} (want active, 176, a cage); the SA-8 ${split(sa8)} (want idleDashed, 32, no cage); ${domeTotal(laid)} in all (want 208)`);
+  // The envelopes are seen, not only counted: at Home, the 2D overlay hidden, red on the SA-6's ring where the layer laid it and
+  // grey on the SA-8's; with every threat off, neither.
+  if (sa6 && sa8) {
+    await pbEval(page, () => __pb.goHome());
+    const points = { 'h-sa6': sa6.ringPoints, 'h-sa8': sa8.ringPoints };
+    const seenOn = await domeColours(page, `${tag}-16-envelopes-on`, points);
+    await pbEval(page, () => __pb.setThreats([]));
+    await domesDrawn(page, 0);
+    const seenOff = await domeColours(page, `${tag}-16-envelopes-off`, points);
+    await pbEval(page, () => __pb.setThreats(['sa6', 'sa8']));
+    await domesDrawn(page, 2);
+    const a = seenOn['h-sa6'], b = seenOn['h-sa8'], a0 = seenOff['h-sa6'], b0 = seenOff['h-sa8'];
+    note(a.red >= RING_RED_MIN && b.grey >= RING_GREY_MIN && a0.red === 0 && b0.grey === 0,
+      `seen at Home: the SA-6's ring red at ${a.red} of ${a.shown} points on screen (want ${RING_RED_MIN} or more), the SA-8's grey at ${b.grey} of ${b.shown} (want ${RING_GREY_MIN} or more); ` +
+        `every threat off: red at ${a0.red}, grey at ${b0.grey} (want none)`);
+  }
+  const t = await insideSa6Moment(page);
+  note(t !== null, `#1 is first inside the SA-6 at ${t === null ? 'no moment' : `${t.toFixed(1)} s`}`);
+  if (t !== null) {
+    await page.getByRole('button', { name: 'Chase #1', exact: true }).click();
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+    const on = await haloPixels(page, `${tag}-16-inside-sa6`);
+    const inOn = await pbEval(page, () => __pb.inside(0));
+    const wordsOn = await pbEval(page, () => (__pb.debugLabels()?.jets.find((j) => j.key === '#1')?.lines ?? []));
+    await pbEval(page, () => __pb.setThreats([]));
+    await domesDrawn(page, 0);
+    const off = await haloPixels(page, `${tag}-16-threats-off`);
+    const inOff = await pbEval(page, () => __pb.inside(0));
+    const wordsOff = await pbEval(page, () => (__pb.debugLabels()?.jets.find((j) => j.key === '#1')?.lines ?? []));
+    note(inOn?.threatId === 'h-sa6' && inOn.halo && on.white >= 60 && wordsOn.includes('◎ inside SA-6 Gainful'),
+      `inside: ${JSON.stringify(inOn)}, ${on.white} white px round the arrow at ${JSON.stringify(on.at)} (want 60 or more), label ${JSON.stringify(wordsOn)}`);
+    // The ring has no depth test, so the draw order alone keeps it under the bombs and the arrows (and over the posts): read
+    // off the meshes, not the layer's table.
+    const o = inOn?.order;
+    note(!!o && o.posts < o.halo && o.halo < o.bombHull && o.bombHull < o.bomb && o.bomb < o.arrow,
+      `draw order ${o ? `posts ${o.posts}, ring ${o.halo}, bomb outline ${o.bombHull}, bomb ${o.bomb}, arrow ${o.arrow}` : 'none'} (want the ring after the posts, before the bomb's outline, the bomb and the arrow)`);
+    note(inOff?.dome === -1 && !inOff.halo && off.white >= 0 && off.white <= 5 && !wordsOff.some((l) => /inside/.test(l)),
+      `every threat off: ${JSON.stringify(inOff)}, ${off.white} white px (want 0 to 5), label ${JSON.stringify(wordsOff)}`);
+    await pbEval(page, () => __pb.setThreats(['sa6', 'sa8']));
+    await domesDrawn(page, 2);
+    // The ring round the arrow close up: Chase zoomed in as far as it goes, where the arrow is drawn at its real size, far
+    // larger than HALO_PX. The ring's inner edge lies outside the arrow (nose and tail projected), and its band is white.
+    const cv = await canvasBox(page);
+    await page.mouse.move(cv.l + cv.w / 2, cv.t + cv.h / 2);
+    // Notch by notch, each one drawn, until the camera stands at Chase's closest (80 m, CHASE_MIN_M) or stops coming closer.
+    // (A scene rebuilt meanwhile, a lost context given back on a busy machine, is waited for rather than read as none.)
+    const camDist = async () => {
+      await waitReady(page).catch(() => {});
+      return pbEval(page, () => { const c = __pb.camera(); return c ? Math.hypot(c.x - c.target.x, c.y - c.target.y, c.z - c.target.z) : NaN; });
+    };
+    let dist = await camDist(), still = 0;
+    for (let i = 0; i < 60 && dist > 82 && still < 6; i++) {
+      await page.mouse.wheel(0, -100);
+      await page.waitForTimeout(80);
+      await settle(page, 60);
+      const d = await camDist();
+      still = d < dist - 0.5 ? 0 : still + 1;
+      dist = d;
+    }
+    await settleIdle(page, 400);
+    dist = await camDist();
+    const ring = await ringRoundArrow(page, `${tag}-16-ring-close`, 0);
+    note(ring.halo && dist < 90 && ring.innerPx >= ring.halfPx && ring.innerPx >= ring.sidePx && ring.white >= 16 && ring.insideWhite >= 0 && ring.insideWhite <= 2,
+      `Chase zoomed in to ${dist.toFixed(0)} m (want under 90): the arrow ${ring.halfPx.toFixed(1)} px from its middle to nose and tail (${ring.sidePx.toFixed(1)} side on), ` +
+        `the ring's inner radius as laid ${ring.innerPx.toFixed(1)} px (outer ${ring.outerPx.toFixed(1)}; want at least the arrow's, both ways), white at ${ring.white} of 32 points round its band (want 16 or more) ` +
+        `and at ${ring.insideWhite} of 32 just inside it (want 2 or fewer)`);
+    // The control: the same pose and the same radii with every threat off (no ring), so white on the band above was the ring's.
+    await pbEval(page, () => __pb.setThreats([]));
+    await domesDrawn(page, 0);
+    const bare = await ringRoundArrow(page, `${tag}-16-ring-close-off`, 0, ring);
+    note(bare.white >= 0 && bare.white <= 2, `the same pose with every threat off: white at ${bare.white} of the band's 32 points (want 2 or fewer)`);
+    await pbEval(page, () => __pb.setThreats(['sa6', 'sa8']));
+    await domesDrawn(page, 2);
+    await pbEval(page, () => __pb.goHome());
+  }
+  // Inside an envelope that is not active (the SA-8, suppressed), with the SA-6 off: the inside test names it, its label says
+  // "inside SA-8 Gecko (suppressed)" (with Labels off too), and no white ring is drawn: the ring is for an active envelope only.
+  await pbEval(page, () => __pb.setThreats(['sa8']));
+  await domesDrawn(page, 1);
+  const m8 = await insideMoment(page, 'h-sa8');
+  if (m8 === null) note(false, 'no jet is ever inside the SA-8');
+  else {
+    await pbEval(page, (tt) => { __pb.goHome(); __pb.seek(tt); }, m8.t);
+    await settle(page, 300);
+    const key = await pbEval(page, (k) => __pb.source().labelOf(k), m8.jet);
+    const px = await haloPixels(page, `${tag}-16-inside-sa8`, m8.jet);
+    const ins = await pbEval(page, (k) => __pb.inside(k), m8.jet);
+    const words = await pbEval(page, (k) => (__pb.debugLabels()?.jets.find((j) => j.key === k)?.lines ?? []), key);
+    await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'labels', on: false } }));
+    await settle(page, 300);
+    const wordsOff = await pbEval(page, (k) => (__pb.debugLabels()?.jets.find((j) => j.key === k)?.lines ?? []), key);
+    await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'labels', on: true } }));
+    const want = 'inside SA-8 Gecko (suppressed)';
+    note(ins?.threatId === 'h-sa8' && !ins.halo && px.white >= 0 && px.white <= 5 && words[words.length - 1] === want && wordsOff.length === 2 && wordsOff[1] === want,
+      `the SA-8 alone, ${key} first inside it at ${m8.t.toFixed(1)} s: inside ${JSON.stringify(ins)}, ${px.white} white px round its arrow at ${JSON.stringify(px.at)} (want 0 to 5, no ring), label ${JSON.stringify(words)}, with Labels off ${JSON.stringify(wordsOff)} (want "${want}" last both times)`);
+  }
+  await pbEval(page, () => { __pb.setThreats(['sa6', 'sa8']); __pb.goHome(); });
+  await domesDrawn(page, 2);
+  step(`16 the envelopes the planner may see are drawn and seen, a jet inside an active one has a white ring round its arrow (close up too) and says so in words, inside a suppressed one the words alone; switched off, neither (${tag})`, ok, parts.join('; '));
+}
+
+/**
+ * Check 26: an early-warning radar on demand (the four-ship with a 1L13 added 190 nm west of TGT1, whose 200 nm ring reaches
+ * into the drawn area, so it is a dome; the P-19's range covers the whole area, so it is not). As opened the scene draws two
+ * domes (the radars are off). Switching the P-19 on adds no segment; switching the 1L13 on draws its ring: red (an active
+ * radar, the red look), all of it ring and none of it cage, and its words "Tall Rack · detection range 200 nm" are beside it
+ * when its point is on screen. At the moment #1 is inside the SA-6, with every system on, the inside test still names the SA-6
+ * (a radar's ring is detection, never "inside"); with the SA-6 off (the radars still on) it names none and no white ring is drawn.
+ *
+ * Proven red 2026-11-18 by one temporary edit to domes.ts, pickInside ignoring the switches (`d.ewr || !mask[i] ||` → `d.ewr ||`):
+ *   STEP FAIL 26 an early-warning radar switched on is its ring alone, … (1400x900-strike4-ewr) — as opened: 2 domes drawn, the 1L13 a dome, off, the P-19 no dome (want 2, a dome switched off, no dome); the P-19 on: 208 segments (as opened 208: it adds none); the 1L13 on: active, 129 segments, 129 on its ring, 0 of cage; 337 segments in all (want 208 + the ring's); its words: "Tall Rack · detection range 200 nm", placed; every system on, at -50.2 s: inside {"dome":0,"threatId":"h-sa6","halo":true} (want the SA-6, never the radar); the SA-6 off: inside {"dome":0,"threatId":"h-sa6","halo":true}, 236 white px round the arrow (want none)
+ * The radar's line and words are also held: its look's material is the active red at the active width (DOME_ACTIVE,
+ * DOME_ACTIVE_PX); at the Home pose its words are there, placed and word for word, and with the 1L13 switched off there are
+ * none; a "no ring" reading of white pixels must also have found the arrow (0 or more: −1 means it was off the picture).
+ * Proven red 2026-11-19, each by one temporary edit (a run of this page alone):
+ * - scene/labelLayer.ts, `ewrPlaced[e] = 1` taken out (the words never placed), in one run with the next but one:
+ *   STEP FAIL 26 … (1400x900-strike4-ewr) — …; its words at Home: "Tall Rack · detection range 200 nm", left out at (362, 290) (want placed, word for word); the 1L13 off: none (want none); …
+ * - scene/labelLayer.ts, the switch test taken out of the words' loop (`!ctx.domeMask[ewrDome[e]] ||` dropped):
+ *   STEP FAIL 26 … (1400x900-strike4-ewr) — …; its words at Home: "Tall Rack · detection range 200 nm", placed at (362, 290) (want placed, word for word); the 1L13 off: "Tall Rack · detection range 200 nm", placed (want none); …
+ * - scene/domeLayer.ts, the looks' materials swapped (`const active = i < 2` → `const active = i >= 2`):
+ *   STEP FAIL 26 … (1400x900-strike4-ewr) — …; the 1L13's line: #9ca3af, 1.5 px (want #ef4444, 2 px); …
+ */
+async function checkRadarRing(page, tag) {
+  await pbEval(page, () => { __pb.pause(); __pb.goHome(); });
+  await domesDrawn(page, 2);
+  const parts = [];
+  let ok = true;
+  const note = (good, text) => { ok = ok && good; parts.push(text); };
+  const total = (d) => (d ? d.looks.active + d.looks.activeDashed + d.looks.idle + d.looks.idleDashed : -1);
+  const opened = await pbEval(page, () => ({ count: __pb.domeCount(), domes: __pb.domes() }));
+  const radarAtOpen = opened.domes?.domes.find((d) => d.threatId === 'h-1l13');
+  const p19Dome = opened.domes?.domes.find((d) => d.threatId === 'h-p19');
+  note(opened.count === 2 && !!radarAtOpen && !radarAtOpen.on && !p19Dome, `as opened: ${opened.count} domes drawn, the 1L13 ${radarAtOpen ? (radarAtOpen.on ? 'on' : 'a dome, off') : 'no dome'}, the P-19 ${p19Dome ? 'a dome' : 'no dome'} (want 2, a dome switched off, no dome)`);
+  await pbEval(page, () => __pb.setThreats(['sa6', 'sa8', 'p19']));
+  await settle(page, 300);
+  const withP19 = await pbEval(page, () => __pb.domes());
+  note(total(withP19) === total(opened.domes) && total(withP19) > 0, `the P-19 on: ${total(withP19)} segments (as opened ${total(opened.domes)}: it adds none)`);
+  await pbEval(page, () => __pb.setThreats(['sa6', 'sa8', 'p19', 'ewr1l13']));
+  await domesDrawn(page, 3);
+  await settleIdle(page, 300);
+  await shot(page, `${tag}-26-radar-on`);
+  const withRadar = await pbEval(page, () => ({ domes: __pb.domes(), labels: __pb.debugLabels() }));
+  const r = withRadar.domes?.domes.find((d) => d.threatId === 'h-1l13');
+  note(!!r && r.on && r.look === 'active' && r.segments > 0 && r.cage === 0 && r.ring === r.segments && total(withRadar.domes) === total(withP19) + r.segments,
+    `the 1L13 on: ${r ? `${r.look}, ${r.segments} segments, ${r.ring} on its ring, ${r.cage} of cage` : 'no dome'}; ${total(withRadar.domes)} segments in all (want ${total(withP19)} + the ring's)`);
+  // Its look's line as the material has it: the red and the width of an active envelope.
+  const look = r && withRadar.domes?.materials ? withRadar.domes.materials[r.look] : null;
+  note(!!look && look.colour === DOME_ACTIVE_HEX && look.width === DOME_ACTIVE_W && look.visible,
+    `the 1L13's line: ${look ? `${look.colour}, ${look.width} px${look.visible ? '' : ', hidden'}` : 'none'} (want ${DOME_ACTIVE_HEX}, ${DOME_ACTIVE_W} px)`);
+  // Its words at the Home pose: there, placed, word for word; with the 1L13 switched off, none.
+  const tag1l13 = withRadar.labels?.ewr.find((e) => e.key === 'h-1l13');
+  await pbEval(page, () => __pb.setThreats(['sa6', 'sa8', 'p19']));
+  await domesDrawn(page, 2);
+  await settle(page, 300);
+  const tagOff = (await pbEval(page, () => __pb.debugLabels()))?.ewr.find((e) => e.key === 'h-1l13');
+  note(!!tag1l13 && tag1l13.placed && tag1l13.text === 'Tall Rack · detection range 200 nm' && !tagOff,
+    `its words at Home: ${tag1l13 ? `${JSON.stringify(tag1l13.text)}, ${tag1l13.placed ? 'placed' : 'left out'} at (${Math.round(tag1l13.x)}, ${Math.round(tag1l13.y)})` : 'none (its point off the picture)'} (want placed, word for word); ` +
+      `the 1L13 off: ${tagOff ? `${JSON.stringify(tagOff.text)}, ${tagOff.placed ? 'placed' : 'left out'}` : 'none'} (want none)`);
+  await pbEval(page, () => __pb.setThreats(['sa6', 'sa8', 'p19', 'ewr1l13']));
+  await domesDrawn(page, 3);
+  const t = await insideSa6Moment(page);
+  if (t === null) note(false, '#1 is never inside the SA-6');
+  else {
+    await page.getByRole('button', { name: 'Chase #1', exact: true }).click();
+    await pbEval(page, (tt) => __pb.seek(tt), t);
+    await settle(page, 300);
+    const all = await pbEval(page, () => __pb.inside(0));
+    await pbEval(page, () => __pb.setThreats(['sa8', 'p19', 'ewr1l13']));
+    await settle(page, 300);
+    const offPx = await haloPixels(page, `${tag}-26-sa6-off`);
+    const off = await pbEval(page, () => __pb.inside(0));
+    note(all?.threatId === 'h-sa6', `every system on, at ${t.toFixed(1)} s: inside ${JSON.stringify(all)} (want the SA-6, never the radar)`);
+    note(off?.dome === -1 && !off.halo && offPx.white >= 0 && offPx.white <= 5, `the SA-6 off: inside ${JSON.stringify(off)}, ${offPx.white} white px round the arrow (want 0 to 5)`);
+  }
+  await pbEval(page, () => { __pb.setThreats(['sa6', 'sa8']); __pb.goHome(); });
+  await domesDrawn(page, 2);
+  step(`26 an early-warning radar switched on is its ring alone, in the red of an active one, inside the drawn area; the P-19 that covers the area adds nothing; a radar is never what a jet is inside (${tag})`, ok, parts.join('; '));
+}
+
+/**
+ * Check 5c (the threats): a rebuilt scene keeps Show's threat choices, Labels off and Action points Always. On the four-ship,
+ * the SA-6 switched off and the P-19 on (so only the SA-8's dome is drawn), Labels off and Always chosen through the session;
+ * the context lost and given back; in the rebuilt scene the same choices stand, it draws the SA-8's dome alone, no jet's label
+ * has its altitude line, every callout showing is at full strength, and as many callouts show as before. The moment read is
+ * one with none of the watched jet's points (its action points, IP, egress end and target) within 3.5 s, so As they come
+ * would show no callout at all there: a rebuilt scene that fell back to As they come shows fewer, and cannot pass by chance.
+ * What is held is what the rebuilt scene has once it has settled; a flicker of the defaults on its very first frame is not
+ * measured.
+ *
+ * Proven red 2026-11-18 by one temporary edit to PlaybackView.tsx, the `scene?.setThreatSystems(show.threatsOn)` effect's deps
+ * `[scene, show.threatsOn]` → `[show.threatsOn]` (a rebuilt scene is not told, and opens with the weapons on):
+ *   STEP FAIL 5c after a rebuild: the threat choices, Labels off and Action points Always are kept (1400x900-strike4) — before: choices {"on":["sa8","p19"],"labels":false,"ap":"always"}, domes ["h-sa8"], 0 of 4 labels with an altitude line, 0 of 8 callouts below full strength; rebuilt true (sceneCreates 2 → 4); after: choices {"on":["sa8","p19"],"labels":false,"ap":"always"}, domes ["h-sa6","h-sa8"], 0 of 4 labels with an altitude line, 0 of 8 callouts below full strength
+ * Proven red 2026-11-19 for the callouts by one temporary edit to PlaybackView.tsx, the Action points effect's deps
+ * `[scene, show.actionPoints]` → `[show.actionPoints]` (a rebuilt scene is not told, and opens As they come):
+ *   STEP FAIL 5c after a rebuild: the threat choices, Labels off and Action points Always are kept (1400x900-strike4) — at -49.2 s, the watched jet's nearest point 9.0 s away; before: choices {"on":["sa8","p19"],"labels":false,"ap":"always"}, domes ["h-sa8"], 0 of 4 labels with an altitude line, 0 of 8 callouts below full strength; rebuilt true (sceneCreates 2 → 4); after: choices {"on":["sa8","p19"],"labels":false,"ap":"always"}, domes ["h-sa8"], 0 of 4 labels with an altitude line, 0 of 0 callouts below full strength (want 8 callouts, as before)
+ */
+async function checkThreatsKept(page, tag) {
+  // A moment of the time bar with none of the watched jet's callout points within 3.5 s (4 s kept, for the fade's edge).
+  const quiet = await pbEval(page, () => {
+    const s = __pb.source(), snap = __pb.snapshot();
+    const marks = [...s.markers(0).map((m) => m.t_s), ...s.labelPoints(0).map((p) => p.t_s)];
+    const tw = s.targetWords(0);
+    if (tw) marks.push(tw.t_s);
+    for (let t = snap.start + 1; t < snap.end; t += 0.5) if (marks.every((m) => Math.abs(m - t) > 4)) return { t, nearest: Math.min(...marks.map((m) => Math.abs(m - t))) };
+    return null;
+  });
+  await pbEval(page, (tq) => {
+    __pb.pause();
+    __pb.setThreats(['sa8', 'p19']);
+    __pb.act({ type: 'show', a: { type: 'labels', on: false } });
+    __pb.act({ type: 'show', a: { type: 'actionPoints', value: 'always' } });
+    __pb.goHome();
+    __pb.seek(tq === null ? __pb.moments.jets[0].release - 5 : tq);
+  }, quiet ? quiet.t : null);
+  await domesDrawn(page, 1);
+  const read = async () => {
+    await settleIdle(page, 300);
+    // A rebuilt scene opens with the callouts faded out and eases them in at the software renderer's few frames a second
+    // (a fade step is capped per frame): give it up to 15 s, then read whatever stands.
+    await page.waitForFunction(() => (__pb.debugLabels()?.callouts ?? []).every((c) => c.alpha >= 1), null, { timeout: 15000, polling: 200 }).catch(() => {});
+    return pbEval(page, () => {
+      const l = __pb.debugLabels();
+      return {
+        show: { on: __pb.show().threatsOn, labels: __pb.show().labels, ap: __pb.show().actionPoints },
+        ids: (__pb.domes()?.domes ?? []).filter((d) => d.on).map((d) => d.threatId),
+        altLines: (l?.jets ?? []).filter((j) => j.lines.some((x) => /ft (AGL|MSL)/.test(x))).length,
+        jets: (l?.jets ?? []).length,
+        callouts: (l?.callouts ?? []).length,
+        dim: (l?.callouts ?? []).filter((c) => c.alpha < 1).length,
+      };
+    });
+  };
+  const was = await read();
+  const b = await loseAndRestore(page);
+  await domesDrawn(page, 1);
+  const now = b.remounted ? await read() : null;
+  const kept = (s) => s && JSON.stringify(s.show) === JSON.stringify({ on: ['sa8', 'p19'], labels: false, ap: 'always' }) && s.ids.join() === 'h-sa8' && s.altLines === 0 && s.callouts > 0 && s.dim === 0;
+  await pbEval(page, () => {
+    __pb.setThreats(['sa6', 'sa8']);
+    __pb.act({ type: 'show', a: { type: 'labels', on: true } });
+    __pb.act({ type: 'show', a: { type: 'actionPoints', value: 'coming' } });
+  });
+  await domesDrawn(page, 2);
+  const fmt = (s) => (s ? `choices ${JSON.stringify(s.show)}, domes ${JSON.stringify(s.ids)}, ${s.altLines} of ${s.jets} labels with an altitude line, ${s.dim} of ${s.callouts} callouts below full strength` : 'not rebuilt');
+  step(`5c after a rebuild: the threat choices, Labels off and Action points Always are kept (${tag})`, !!quiet && kept(was) && b.remounted && kept(now) && now.callouts === was.callouts,
+    `${quiet ? `at ${quiet.t.toFixed(1)} s, the watched jet's nearest point ${quiet.nearest.toFixed(1)} s away` : 'no moment clear of the watched jet\'s points'}; before: ${fmt(was)}; rebuilt ${b.remounted} (sceneCreates ${b.before} → ${b.after}); after: ${fmt(now)}${now && now.callouts !== was.callouts ? ` (want ${was.callouts} callouts, as before)` : ''}`);
+}
+
+/**
+ * Check 40: a plan whose threats were all hidden by its author shows exactly as a plan with none, and the planner's Settings
+ * switch brings them. Three pages of the four-ship: with no threats; with only the SA-11 and a 1L13 its author hid (pressed
+ * with nothing revealed); and with the four threats pressed with the switch for threats hidden on the planner on. The first
+ * two read the same, word for word: the Show panel's threat list ("No threats in this plan.", no row), the whole panel, the
+ * notes (opened), the domes drawn (none) and the scene's source (no dome), every jet's label line for line and the radars'
+ * words at the same moment (from the Home pose, every threat the page lists switched on first, so a leaked radar would
+ * lay its words on the picture), and every aria-label and title in the dialog (the Show panel open); and nothing on the
+ * hidden page names the SA-11 or says anything is hidden. On the third the SA-11 is listed under SAM, counted ("SA-11 Gadfly · 9K37 Buk (1)") and
+ * switched on, and drawn.
+ *
+ * What it proves: the press drops the threat the author hid, end to end, on a real page. The harness hands the plan over the
+ * way the app does (the threats through launch.ts's press with the planner's switches as they stand), and what reaches the
+ * page is compared with a plan that never had the threat: nothing downstream of the press (the dome builder, the menu, the
+ * notes, the labels, the attributes a screen reader reads) can tell the two apart. With the switch on it comes through.
+ *
+ * Proven red 2026-11-18 by one temporary edit to dev/fixture.ts, the four-ship's threats always pressed with the planner's switch
+ * on (`onPlanner: !!threatOpts.reveal` → `onPlanner: true`, as if the hidden page's planner had the switch on):
+ *   STEP FAIL 40 a plan whose threats are all hidden shows exactly as a plan with none (threat list, panel, notes, domes), names nothing hidden, and the planner's Settings switch brings them (1400x900-strike4) — no threats: {"text":"ThreatsNo threats in this plan.","empty":"No threats in this plan.","groups":[]}, 0 domes drawn, source []; all hidden: list {"text":"ThreatsAllNoneSAMSA-11 Gadfly · 9K37 Buk (1)","empty":null,"groups":[{"group":"SAM","heading":"SAM","rows":[{"id":"sa11","checked":true,"text":"SA-11 Gadfly · 9K37 Buk (1)","note":null}]}]}, 1 domes drawn, source ["h-sa11"], notes ["gap-target-1","legend","push","start","agl","warn-h-strike4-3-0"] (want ["gap-target-1","push","start","agl","warn-h-strike4-3-0"]), panel the same false; the hidden page names the SA-11: true; says anything is hidden or unknown: false (want neither); the planner's switch on: … (want the SA-11 listed, counted, on and drawn)
+ * The labels and attributes arm, seen red 2026-11-19 under the same edit:
+ *   STEP FAIL 40 … (1400x900-strike4) — …; all hidden against none: the jets' labels and the radars' words differ: {"jets":["#1: #1 Viper 1-1 / 500ft AGL · 480 KTAS / ◎ inside SA-11 Gadfly","#3: #3 Viper 1-3 / 500ft AGL · 480 KTAS / ◎ inside SA-11 Gadfly"],"ewr":[]} against {"jets":["#1: #1 Viper 1-1 / 500ft AGL · 480 KTAS","#3: #3 Viper 1-3 / 500ft AGL · 480 KTAS"],"ewr":[]}; 103 aria-labels and titles differ: ["Show every threat|","Hide every threat|"]; the hidden page names the SA-11: true; …
+ * The same edit again 2026-11-19, with the hidden 1L13 on the hidden page and every listed threat switched on at Home before
+ * the overlay is read (the radar's words now leak too):
+ *   STEP FAIL 40 … — …; all hidden against none: the jets' labels and the radars' words differ: {"jets":["#1: … / ◎ inside SA-11 Gadfly","#2: … / ◎ inside SA-11 Gadfly","#3: …","#4: …"],"ewr":["h-1l13: Tall Rack · detection range 200 nm"]} against {"jets":[…],"ewr":[]}; …
+ * and the radar half alone, the hidden page's 1L13 not marked hidden in the fixture (its last `true` → `false`; the jets'
+ * labels the same, the radar's words not):
+ *   STEP FAIL 40 … — …; all hidden against none: the jets' labels and the radars' words differ: {"jets":["#1: #1 Viper 1-1 / 500ft AGL · 480 KTAS","#2: #2 Viper 1-2 / 500ft AGL · 480 KTAS","#3: #3 Viper 1-3 / 500ft AGL · 480 KTAS","#4: #4 Viper 1-4 / 500ft AGL · 520 KTAS"],"ewr":["h-1l13: Tall Rack · detection range 200 nm"]} against {"jets":[…the same four…],"ewr":[]}; …
+ * The labels are asked for all four jets on both pages (a floor of two let two labels go missing on both alike); seen red
+ * 2026-11-19 with the label layer given three jets (scene/createScene.ts, `jets` → `jets.slice(0, 3)`):
+ *   STEP FAIL 40 … — …; all hidden against none: the jets' labels and the radars' words the same but 3 labels (want all 4); …
+ */
+async function checkHiddenThreats(browser, base) {
+  const read = async (q) => {
+    const page = q.page;
+    await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
+    await notesCount(page, 'Notes (');
+    await settle(page, 400);
+    await openShow(page);
+    const section = await threatSection(page);
+    const panel = await page.evaluate(() => (document.querySelector('#pb-show')?.textContent || ''));
+    // Every aria-label and title in the dialog, the Show panel open (the words a screen reader and a tooltip give).
+    const attrs = await page.evaluate(() => [...document.querySelectorAll('[role="dialog"], [role="dialog"] [aria-label], [role="dialog"] [title]')]
+      .map((e) => `${e.getAttribute('aria-label') ?? ''}|${e.getAttribute('title') ?? ''}`));
+    await shutShow(page);
+    if ((await notesState(page)).toggle?.open !== 'true') await notesToggle(page).click();
+    await settle(page, 250);
+    const notes = (await notesState(page)).list?.notes ?? [];
+    const dialog = await page.evaluate(() => (document.querySelector('[role="dialog"]')?.textContent || ''));
+    // What the 3D lays on the picture at the same moment: every jet's label, line for line, and the radars' words, from the
+    // Home pose with every threat the page lists switched on first (the radars open switched off), on every page alike: a
+    // hidden radar that leaked would then lay its words on the picture. (The domes drawn are counted before, as the page
+    // opened.)
+    const count = await pbEval(page, () => __pb.domeCount());
+    await pbEval(page, () => { __pb.goHome(); __pb.setThreats(__pb.show()?.threatKeys ?? []); });
+    await settle(page, 300);
+    const overlayWords = await pbEval(page, () => {
+      const l = __pb.debugLabels();
+      return { jets: (l?.jets ?? []).map((j) => `${j.key}: ${j.lines.join(' / ')}`), ewr: (l?.ewr ?? []).map((e) => `${e.key}: ${e.text}`) };
+    });
+    return {
+      section, panel, notes, attrs, overlayWords, count,
+      source: await pbEval(page, () => (__pb.source()?.domes ?? []).map((d) => d.threatId)),
+      leak: { sa11: /SA-11|Gadfly|Buk/.test(dialog + panel + attrs.join(' ') + JSON.stringify(overlayWords)), hidden: /hidden|\bhid\b|probable|location unknown/i.test(dialog + panel + attrs.join(' ') + JSON.stringify(overlayWords)) },
+    };
+  };
+  const pages = {};
+  for (const [name, q] of [['none', 'threats=none'], ['hidden', 'threats=hidden'], ['revealed', 'reveal=1']]) {
+    const p = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&${q}`, 1400, 900);
+    pages[name] = await read(p);
+    await shot(p.page, `1400x900-strike4-40-${name}`);
+    step(`8 no page errors, four-ship threats ${name} (1400x900)`, p.problems.length === 0, p.problems.length ? p.problems.slice(0, 8).join(' | ') : 'none');
+    await p.context.close();
+  }
+  const { none, hidden, revealed } = pages;
+  const parts = [];
+  let ok = true;
+  const note = (good, text) => { ok = ok && good; parts.push(text); };
+  note(none.section?.empty === 'No threats in this plan.' && none.section.groups.length === 0 && none.count === 0 && none.source.length === 0,
+    `no threats: ${JSON.stringify(none.section)}, ${none.count} domes drawn, source ${JSON.stringify(none.source)}`);
+  const same = JSON.stringify(hidden.section) === JSON.stringify(none.section) && hidden.panel === none.panel &&
+    JSON.stringify(hidden.notes) === JSON.stringify(none.notes) && hidden.count === none.count && JSON.stringify(hidden.source) === JSON.stringify(none.source);
+  note(same, `all hidden: ${same ? 'the same threat list, panel, notes, domes and source as with none' : `list ${JSON.stringify(hidden.section)}, ${hidden.count} domes drawn, source ${JSON.stringify(hidden.source)}, notes ${JSON.stringify(hidden.notes.map((n) => n.key))} (want ${JSON.stringify(none.notes.map((n) => n.key))}), panel the same ${hidden.panel === none.panel}`}`);
+  // (At the time bar's start, from the Home pose, all four jets are in the picture.)
+  const sameOverlay = JSON.stringify(hidden.overlayWords) === JSON.stringify(none.overlayWords) && none.overlayWords.jets.length === 4;
+  const diffAttrs = [...new Set([...hidden.attrs.filter((a) => !none.attrs.includes(a)), ...none.attrs.filter((a) => !hidden.attrs.includes(a))])];
+  const sameAttrs = JSON.stringify(hidden.attrs) === JSON.stringify(none.attrs) && none.attrs.length > 10;
+  note(sameOverlay && sameAttrs,
+    `all hidden against none: the jets' labels and the radars' words ${sameOverlay ? `the same (${none.overlayWords.jets.length} labels, ${none.overlayWords.ewr.length} radar words)` : JSON.stringify(hidden.overlayWords) === JSON.stringify(none.overlayWords) ? `the same but ${none.overlayWords.jets.length} labels (want all 4)` : `differ:${JSON.stringify(hidden.overlayWords)} against ${JSON.stringify(none.overlayWords)}`}; ` +
+      `${none.attrs.length} aria-labels and titles ${sameAttrs ? 'the same' : `differ: ${JSON.stringify(diffAttrs)}`}`);
+  note(!hidden.leak.sa11 && !hidden.leak.hidden, `the hidden page names the SA-11: ${hidden.leak.sa11}; says anything is hidden or unknown: ${hidden.leak.hidden} (want neither)`);
+  const sam = revealed.section?.groups.find((g) => g.group === 'SAM')?.rows ?? [];
+  const sa11 = sam.find((r) => r.id === 'sa11');
+  note(!!sa11 && sa11.checked && sa11.text === 'SA-11 Gadfly · 9K37 Buk (1)' && revealed.count === 3 && revealed.source.includes('h-sa11'),
+    `the planner's switch on: SAM rows ${JSON.stringify(sam)}, ${revealed.count} domes drawn, source ${JSON.stringify(revealed.source)} (want the SA-11 listed, counted, on and drawn)`);
+  step('40 a plan whose threats are all hidden shows exactly as a plan with none (threat list, panel, notes, domes), names nothing hidden, and the planner\'s Settings switch brings them (1400x900-strike4)', ok, parts.join('; '));
+}
+
+// The "8 no page errors" steps on the threat pages (here and in check 40) are the same page-error check as the rest; seen red
+// 2026-11-19 with the dome layer writing to the console as it is made (`console.error('mutation: the dome layer complains')` at
+// the top of createDomeLayer; the pages with no threat drawn make no dome layer and stay green):
+//   STEP FAIL 8 no page errors, four-ship threats (1400x900) — console error: mutation: the dome layer complains | …
+//   STEP FAIL 8 no page errors, four-ship threats (1024x768) — console error: mutation: the dome layer complains | …
+//   STEP FAIL 8 no page errors, four-ship with a far radar (1400x900) — console error: mutation: the dome layer complains | …
+//   STEP FAIL 8 no page errors, four-ship threats revealed (1400x900) — console error: mutation: the dome layer complains | …
+async function runThreatChecks(browser, base) {
+  for (const [w, h] of [[1400, 900], [1024, 768]]) {
+    const tag = `${w}x${h}`;
+    const q = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4`, w, h);
+    await checkThreatMenu(q.page, `${tag}-strike4`);
+    await checkThreatInside(q.page, `${tag}-strike4`);
+    // 31 on the four-ship: the Show panel with the threat list is the tallest it gets, and must scroll inside the picture.
+    await checkToolbarFit(q.page, `${tag}-strike4`, w, h);
+    if (w === 1400) await checkThreatsKept(q.page, `${tag}-strike4`);
+    step(`8 no page errors, four-ship threats (${tag})`, q.problems.length === 0, q.problems.length ? q.problems.slice(0, 8).join(' | ') : 'none');
+    await q.context.close();
+  }
+  const r = await openPage(browser, `${base}?tiles=synthetic&fixture=strike4&ewr=1`, 1400, 900);
+  await checkRadarRing(r.page, '1400x900-strike4-ewr');
+  step('8 no page errors, four-ship with a far radar (1400x900)', r.problems.length === 0, r.problems.length ? r.problems.slice(0, 8).join(' | ') : 'none');
+  await r.context.close();
+  await checkHiddenThreats(browser, base);
 }
 
 async function runFragChecks(browser, base) {
@@ -5926,6 +6706,7 @@ async function runLive(browser, base) {
       await runChecks(browser, base);
       await runStrikeChecks(browser, base);
       await runFragChecks(browser, base);
+      await runThreatChecks(browser, base);
     }
   } catch (e) {
     step('run', false, (e && e.stack) || String(e));

@@ -44,10 +44,23 @@
  *   like the callouts, after them, round the flash, and whatever Show › Action
  *   points says: they never cover a callout, a jet's label or a target's disc
  *   and tag, and with no free spot they are left out that frame.
+ * - The words beside each early-warning radar's ring switched on in Show
+ *   ("Tall Rack · detection range 200 nm"), at the ring's point inside the
+ *   drawn area nearest the lead's target, by a dot in the ring's colour. They
+ *   are what tells a radar's ring from a weapon's (with the missing cage), so
+ *   colour is never the only sign; where they would cover other words or an
+ *   action-point disc they are left out that frame, never moved.
  * - Each jet's label beside its arrow: "#1 Viper 1-1" in the jet's colour,
  *   and, with Show › Labels on, its altitude and speed as the planner prints
- *   them. It takes the side of the arrow that leaves a target's disc and tag
- *   uncovered (the jet passes right by its target at release).
+ *   them; whatever Labels says, while the jet is inside a threat's envelope
+ *   switched on in Show, a third line in amber naming it ("◎ inside SA-6
+ *   Gainful"). It takes the side of the arrow that leaves a target's disc and tag
+ *   uncovered (the jet passes right by its target at release), and the other
+ *   jets' arrows with their rings (a label over another jet's arrow hides that
+ *   jet). Where no side is free (jets close together, each with three lines) it
+ *   slides up or down, a line at a time, until it covers nothing, and a thin
+ *   line in the jet's colour, drawn first so every disc and plate lies over it,
+ *   joins it to its arrow.
  *
  * The view's own controls lie over the picture too (the camera buttons along
  * the top right, the strike's name at the top left). The view measures them
@@ -64,10 +77,10 @@
 import { Vector3, type PerspectiveCamera } from 'three';
 import { LABEL_STYLE, MARKER_COLOR } from '../../../lib/attackPicture';
 import {
-  BOMB_RING_EDGE_PX, BOMB_RING_LINE_PX, CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CHROME_BOXES_MAX, CalloutFader,
-  CalloutPlacer, DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, EGRESS_DOT_PX, FLASH_R_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE, LABEL_TEXT,
-  LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, blockKeepClear, bombRingLook, calloutTargets, impactTagLines, letterInk,
-  placeLabels, releasePulse, targetTag, type AttackColours, type BombRingLook, type SceneSource,
+  ARROW_PX, BOMB_RING_EDGE_PX, BOMB_RING_LINE_PX, CALLOUT_FONT, CALLOUT_LEADER, CALLOUT_LEADER_PX, CALLOUT_LINE_PX, CALLOUT_PAD_PX, CALLOUT_STRIPE_PX, CHROME_BOXES_MAX, CalloutFader,
+  CalloutPlacer, DISC_EDGE, DISC_EDGE_PX, DISC_RIM, DISC_RIM_PX, DOME_ACTIVE, DOME_IDLE, EGRESS_DOT_PX, FLASH_R_PX, LABEL_FONT, LABEL_GAP_PX, LABEL_LINE_PX, LABEL_PAD_PX, LABEL_PLATE,
+  LABEL_TEXT, LABEL_WARN, LabelText, MARKER_FONT, MARKER_OTHER_R_PX, MARKER_R_PX, OTHER_MARKER_ALPHA, TARGET_FONT, TARGET_R_PX, blockKeepClear, bombRingLook, calloutTargets,
+  ewrTagPoint, ewrTagText, impactTagLines, letterInk, placeLabels, releasePulse, targetTag, terrainBoxOf, type AttackColours, type BombRingLook, type SceneDome, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
 import type { ImpactLayer } from './impactLayer';
@@ -83,12 +96,21 @@ export interface LabelDebug {
   markers: { key: string; x: number; y: number; r: number }[];
   /** Every callout showing at all (alpha above 0), placed or dropped for want of room; the plate's top left and size. */
   callouts: { key: string; lines: readonly string[]; alpha: number; x: number; y: number; w: number; h: number; placed: boolean }[];
-  /** Each jet's label: its lines as shown, and its plate. */
-  jets: { key: string; lines: string[]; x: number; y: number; w: number; h: number }[];
+  /**
+   * Each jet's label: its lines as shown, its plate, its arrow's point it stands beside, the half size of the square round
+   * that arrow (and its ring) that the other labels keep off, whether it slid away from that row (and has a leader), and
+   * the jet's colour (its first line's and its leader's).
+   */
+  jets: { key: string; lines: string[]; x: number; y: number; w: number; h: number; ax: number; ay: number; keepR: number; slid: boolean; colour: string }[];
   /** The ring round each falling bomb as drawn (a playback jet index, its centre, its radius with the release pulse in it, its alpha). */
   bombs: { jet: number; x: number; y: number; r: number; alpha: number }[];
   /** The words beside each burst showing at all (`impact-<playback jet index>`), placed or dropped for want of room; the plate's top left and size. */
   tags: { key: string; kind: 'impact'; lines: readonly string[]; alpha: number; x: number; y: number; w: number; h: number; placed: boolean }[];
+  /**
+   * The words beside each early-warning radar's ring that is switched on and has its tag point on screen (keyed by its
+   * threat), placed or left out because they would cover other words; the plate's top left and size.
+   */
+  ewr: { key: string; text: string; x: number; y: number; w: number; h: number; placed: boolean }[];
   /** The boxes of the view's own controls as last handed over (setChromeBoxes). */
   chrome: ScreenBox[];
   /** Every box the plates and the jets' labels kept off on the last frame besides the targets': each kept ring's (`ring`, its jet), then each control's. */
@@ -119,6 +141,8 @@ const IP_INK = letterInk(LABEL_STYLE.ipBg);
 const AT_DISC = 0, AT_EGRESS = 1, AT_TARGET = 2;
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+/** Whether two boxes (left, top, width, height) overlap. */
+const overlaps = (x: number, y: number, w: number, h: number, ox: number, oy: number, ow: number, oh: number) => x < ox + ow && x + w > ox && y < oy + oh && y + h > oy;
 
 export function createLabelLayer(o: {
   host: HTMLElement; source: SceneSource; targets: TargetLayer; jets: readonly JetLayer[]; impacts: readonly ImpactLayer[]; bag: DisposeBag;
@@ -156,6 +180,13 @@ export function createLabelLayer(o: {
   const jax = new Float32Array(nJ), jay = new Float32Array(nJ), jw = new Float32Array(nJ), jh = new Float32Array(nJ);
   const jx = new Float32Array(nJ), jy = new Float32Array(nJ), jOf = new Int16Array(nJ);
   const jL2: (string | undefined)[] = new Array(nJ).fill(undefined);
+  // And the third line shown, the envelope the jet is inside (none: undefined).
+  const jL3: (string | undefined)[] = new Array(nJ).fill(undefined);
+  // Whether the label had to slide away from its arrow's row (no corner was free): then a leader joins it to its arrow.
+  const jSlid = new Uint8Array(nJ);
+  // The half size of the square round each shown jet's arrow that the other labels keep off: the white ring when it has
+  // one, else the arrow at its usual size on screen.
+  const jKeepR = new Float32Array(nJ);
   let shownJets = 0;
   // Per jet layer: whether it wears the planner's colour code (set with the discs), and each frame its bomb's ring.
   const jCoded = new Uint8Array(nJ);
@@ -170,6 +201,13 @@ export function createLabelLayer(o: {
   const tagWithW = new Float32Array(nI), tagWithH = new Float32Array(nI), tagWithoutW = new Float32Array(nI), tagWithoutH = new Float32Array(nI);
   const iOn = new Uint8Array(nI), iRadius = new Uint8Array(nI), iPlaced = new Uint8Array(nI);
   const iX = new Float32Array(nI), iY = new Float32Array(nI);
+  // The early-warning radars' words: per radar ring that has a point inside the drawn area, its dome, its words and their
+  // width, and the ring's point they stand beside (worked out once for the open's domes); each frame where they went.
+  let ewrDomes: readonly SceneDome[] | undefined;
+  let ewrDome = new Int16Array(0), ewrText: string[] = [], ewrW = new Float32Array(0), ewrPx = new Float32Array(0), ewrPz = new Float32Array(0);
+  let ewrOn = new Uint8Array(0), ewrPlaced = new Uint8Array(0), ewrX = new Float32Array(0), ewrY = new Float32Array(0), ewrDotX = new Float32Array(0), ewrDotY = new Float32Array(0);
+  // The height each radar's point stands at (1 m over the drawn ground there), read again only when the ground changes.
+  let ewrPy = new Float32Array(0), ewrGround = -1;
 
   // ── Per source, watched jet and Attack colours choice: every jet's discs, the coded jets' egress dots
   // and callouts. A coded jet is the watched one, or every jet with All jets (with one jet, that one).
@@ -214,7 +252,55 @@ export function createLabelLayer(o: {
       tagWithoutW[i] = plateW(tagWithout[i]);
       tagWithoutH[i] = tagWithout[i].length * LABEL_LINE_PX;
     }
+    if (s.domes !== ewrDomes) rememberRadars(s);
     watched = -1; // the discs and callouts are made again for this source
+  }
+
+  /** The radars' words and the point of each ring they stand beside: once for the open's domes (a re-time keeps them). */
+  function rememberRadars(s: SceneSource) {
+    ewrDomes = s.domes;
+    const box = terrainBoxOf(s.bounds);
+    const list: { i: number; text: string; x: number; z: number }[] = [];
+    s.domes.forEach((d, i) => {
+      if (!d.ewr) return;
+      const p = ewrTagPoint(d, box);
+      if (p) list.push({ i, text: ewrTagText(d), x: p.x, z: p.z });
+    });
+    if (g) g.font = LABEL_FONT;
+    ewrDome = Int16Array.from(list, (e) => e.i);
+    ewrText = list.map((e) => e.text);
+    ewrW = Float32Array.from(list, (e) => (g ? g.measureText(e.text).width : 0) + 2 * LABEL_PAD_PX);
+    ewrPx = Float32Array.from(list, (e) => e.x);
+    ewrPz = Float32Array.from(list, (e) => e.z);
+    const n = list.length;
+    ewrOn = new Uint8Array(n);
+    ewrPlaced = new Uint8Array(n);
+    ewrX = new Float32Array(n);
+    ewrY = new Float32Array(n);
+    ewrDotX = new Float32Array(n);
+    ewrDotY = new Float32Array(n);
+    ewrPy = new Float32Array(n);
+    ewrGround = -1;
+  }
+
+  /**
+   * Whether the box (x, y, w, h) covers any words already placed this frame (a jet's label, a blocked box, a callout, the
+   * words at a burst, another radar's) or an action-point disc that is on.
+   */
+  function coversWords(x: number, y: number, bw: number, bh: number, upTo: number): boolean {
+    for (let n = 0; n < shownJets; n++) if (overlaps(x, y, bw, bh, jx[n], jy[n], jw[n], jh[n])) return true;
+    for (let b = 0; b < nBlocked; b++) if (overlaps(x, y, bw, bh, tbx[b], tby[b], tbw[b], tbh[b])) return true;
+    for (let i = 0; i < nCallouts; i++) if (cPlaced[i] && overlaps(x, y, bw, bh, cX[i], cY[i], cW[i], cH[i])) return true;
+    for (let i = 0; i < discPos.length; i++) {
+      if (!discOn[i]) continue;
+      const r = discR[i] + DISC_EDGE_PX + DISC_RIM_PX;
+      if (overlaps(x, y, bw, bh, discX[i] - r, discY[i] - r, 2 * r, 2 * r)) return true;
+    }
+    for (let i = 0; i < nI; i++) {
+      if (iPlaced[i] && overlaps(x, y, bw, bh, iX[i], iY[i], iRadius[i] ? tagWithW[i] : tagWithoutW[i], iRadius[i] ? tagWithH[i] : tagWithoutH[i])) return true;
+    }
+    for (let e = 0; e < upTo; e++) if (ewrPlaced[e] && overlaps(x, y, bw, bh, ewrX[e], ewrY[e], ewrW[e], LABEL_LINE_PX)) return true;
+    return false;
   }
 
   /**
@@ -423,13 +509,19 @@ export function createLabelLayer(o: {
         if (!at || !toScreen(v.copy(at), ctx.camera, ctx)) continue;
         const text = jetText[k];
         const l2 = ctx.labels ? text.line2(jl.pose, ctx.source.altRefOf(jl.jet)) : undefined;
+        // The envelope the jet is inside, whatever Labels says: a warning is not a detail to switch off with the numbers.
+        const di = jl.jet < ctx.inside.length ? ctx.inside[jl.jet] : -1;
+        const l3s = text.line3(di >= 0 ? ctx.source.domes[di] : undefined);
+        const l3 = l3s === '' ? undefined : l3s;
         const n = shownJets++;
         jOf[n] = k;
         jL2[n] = l2;
+        jL3[n] = l3;
         jax[n] = v.x;
         jay[n] = v.y;
-        jw[n] = Math.max(text.width(1, measureLabel), l2 === undefined ? 0 : text.width(2, measureLabel)) + 2 * LABEL_PAD_PX;
-        jh[n] = (l2 === undefined ? 1 : 2) * LABEL_LINE_PX;
+        jKeepR[n] = Math.max(jl.haloPx(), ARROW_PX / 2);
+        jw[n] = Math.max(text.width(1, measureLabel), l2 === undefined ? 0 : text.width(2, measureLabel), l3 === undefined ? 0 : text.width(3, measureLabel)) + 2 * LABEL_PAD_PX;
+        jh[n] = (1 + (l2 === undefined ? 0 : 1) + (l3 === undefined ? 0 : 1)) * LABEL_LINE_PX;
       }
 
       // The rings round the falling bombs: where, how big (the pulse at the release is in it) and how solid.
@@ -453,7 +545,7 @@ export function createLabelLayer(o: {
 
       // What words keep off besides the targets: the coded jets' rings, then the view's own controls.
       nBlocked = blockKeepClear(shownTargets, tbx, tby, tbw, tbh, nJ, bKeep, bx, by, br, nChrome, chX, chY, chW, chH);
-      placeLabels(shownJets, jax, jay, jw, jh, w, h, jx, jy, nBlocked, tbx, tby, tbw, tbh);
+      placeLabels(shownJets, jax, jay, jw, jh, w, h, jx, jy, nBlocked, tbx, tby, tbw, tbh, jSlid, jKeepR);
 
       // Every jet's discs and the coded jets' egress dots.
       showPoints = ctx.actionPoints !== 'off';
@@ -483,6 +575,7 @@ export function createLabelLayer(o: {
       nCandidates = 0;
       if (!showPoints) {
         fader.alpha.fill(0); // switched back on, they fade in afresh
+        cPlaced.fill(0); // and their last spots, unseen now, block nothing (a radar's words test them)
       } else {
         nCandidates = calloutTargets(ctx.t, ctx.speed, ctx.actionPoints, cMark, cJet, nCallouts, fader.alpha, cTarget, cOrder);
         if (fader.step(ctx.dt, cTarget, nCallouts)) ctx.again = true;
@@ -515,7 +608,41 @@ export function createLabelLayer(o: {
         iY[i] = placer.y;
       }
 
+      // The words beside each switched-on radar's ring, last: to the right of the ring's point nearest the lead's target,
+      // and left out (never moved) where they would cover any other words, an action-point disc, or leave the picture.
+      if (ctx.groundVersion !== ewrGround) {
+        for (let e = 0; e < ewrDome.length; e++) ewrPy[e] = ctx.heightAt(ewrPx[e], ewrPz[e]) + 1;
+        ewrGround = ctx.groundVersion;
+      }
+      for (let e = 0; e < ewrDome.length; e++) {
+        ewrOn[e] = 0;
+        ewrPlaced[e] = 0;
+        if (!ctx.domeMask[ewrDome[e]] || !toScreen(v.set(ewrPx[e], ewrPy[e], ewrPz[e]), ctx.camera, ctx) || !inView(v.x, v.y, 0)) continue;
+        ewrOn[e] = 1;
+        ewrDotX[e] = v.x;
+        ewrDotY[e] = v.y;
+        ewrX[e] = v.x + LABEL_GAP_PX;
+        ewrY[e] = v.y - LABEL_LINE_PX / 2;
+        if (ewrX[e] + ewrW[e] > w || ewrY[e] < 0 || ewrY[e] + LABEL_LINE_PX > h || coversWords(ewrX[e], ewrY[e], ewrW[e], LABEL_LINE_PX, e)) continue;
+        ewrPlaced[e] = 1;
+      }
+
       // ── Drawing, bottom to top.
+      // A jet's label slid away from its arrow's row (no corner was free) is joined to its arrow by a thin line in the jet's
+      // own colour, from the arrow to the nearest corner of its plate: which jet a label names never rests on where it
+      // stands. Drawn first, so every disc, tag and plate lies over it and it never crosses a target's name.
+      for (let n = 0; n < shownJets; n++) {
+        if (!jSlid[n]) continue;
+        const cx = jax[n] - jx[n] < jx[n] + jw[n] - jax[n] ? jx[n] : jx[n] + jw[n];
+        const cy = jay[n] - jy[n] < jy[n] + jh[n] - jay[n] ? jy[n] : jy[n] + jh[n];
+        g.beginPath();
+        g.moveTo(jax[n], jay[n]);
+        g.lineTo(cx, cy);
+        g.strokeStyle = o.jets[jOf[n]].colour;
+        g.lineWidth = CALLOUT_LEADER_PX;
+        g.stroke();
+      }
+
       if (showPoints) {
         // In array order: the other jets' small, faint discs first, the coded jets' on top of them.
         for (let i = 0; i < discPos.length; i++) {
@@ -615,8 +742,29 @@ export function createLabelLayer(o: {
       }
       g.globalAlpha = 1;
 
+      // The radars' words: a dot in the ring's own colour on its point, then the plate beside it.
+      for (let e = 0; e < ewrDome.length; e++) {
+        if (!ewrPlaced[e]) continue;
+        const d = ctx.source.domes[ewrDome[e]];
+        g.beginPath();
+        g.arc(ewrDotX[e], ewrDotY[e], EGRESS_DOT_PX + 1, 0, 2 * Math.PI);
+        g.fillStyle = DISC_EDGE;
+        g.fill();
+        g.beginPath();
+        g.arc(ewrDotX[e], ewrDotY[e], EGRESS_DOT_PX, 0, 2 * Math.PI);
+        g.fillStyle = d && d.active ? DOME_ACTIVE : DOME_IDLE;
+        g.fill();
+        g.fillStyle = LABEL_PLATE;
+        g.fillRect(ewrX[e], ewrY[e], ewrW[e], LABEL_LINE_PX);
+        g.font = LABEL_FONT;
+        g.fillStyle = LABEL_TEXT;
+        g.textAlign = 'left';
+        g.textBaseline = 'middle';
+        g.fillText(ewrText[e], ewrX[e] + LABEL_PAD_PX, ewrY[e] + LABEL_LINE_PX / 2 + 0.5);
+      }
+
       for (let n = 0; n < shownJets; n++) {
-        const k = jOf[n], l2 = jL2[n];
+        const k = jOf[n], l2 = jL2[n], l3 = jL3[n];
         g.fillStyle = LABEL_PLATE;
         g.fillRect(jx[n], jy[n], jw[n], jh[n]);
         g.font = LABEL_FONT;
@@ -624,9 +772,15 @@ export function createLabelLayer(o: {
         g.textBaseline = 'middle';
         g.fillStyle = o.jets[k].colour;
         g.fillText(jetText[k].line1, jx[n] + LABEL_PAD_PX, jy[n] + LABEL_LINE_PX / 2 + 0.5);
+        let row = 1;
         if (l2 !== undefined) {
           g.fillStyle = LABEL_TEXT;
-          g.fillText(l2, jx[n] + LABEL_PAD_PX, jy[n] + 1.5 * LABEL_LINE_PX + 0.5);
+          g.fillText(l2, jx[n] + LABEL_PAD_PX, jy[n] + (row + 0.5) * LABEL_LINE_PX + 0.5);
+          row++;
+        }
+        if (l3 !== undefined) {
+          g.fillStyle = LABEL_WARN;
+          g.fillText(l3, jx[n] + LABEL_PAD_PX, jy[n] + (row + 0.5) * LABEL_LINE_PX + 0.5);
         }
       }
     },
@@ -651,8 +805,11 @@ export function createLabelLayer(o: {
       }
       const jets: LabelDebug['jets'] = [];
       for (let n = 0; n < shownJets; n++) {
-        const k = jOf[n], l2 = jL2[n];
-        jets.push({ key: src ? src.labelOf(o.jets[k].jet) : '', lines: l2 === undefined ? [jetText[k].line1] : [jetText[k].line1, l2], x: jx[n], y: jy[n], w: jw[n], h: jh[n] });
+        const k = jOf[n], l2 = jL2[n], l3 = jL3[n];
+        const lines = [jetText[k].line1];
+        if (l2 !== undefined) lines.push(l2);
+        if (l3 !== undefined) lines.push(l3);
+        jets.push({ key: src ? src.labelOf(o.jets[k].jet) : '', lines, x: jx[n], y: jy[n], w: jw[n], h: jh[n], ax: jax[n], ay: jay[n], keepR: jKeepR[n], slid: jSlid[n] === 1, colour: o.jets[k].colour });
       }
       const bombs: LabelDebug['bombs'] = [];
       for (let k = 0; k < nJ; k++) {
@@ -678,7 +835,12 @@ export function createLabelLayer(o: {
         at++;
       }
       for (; at < nBlocked; at++) kept.push({ kind: 'chrome', x: tbx[at], y: tby[at], w: tbw[at], h: tbh[at] });
-      return { targets, markers, callouts, jets, bombs, tags: tagList, chrome, kept };
+      const ewr: LabelDebug['ewr'] = [];
+      for (let e = 0; e < ewrDome.length; e++) {
+        if (!ewrOn[e]) continue;
+        ewr.push({ key: src?.domes[ewrDome[e]]?.threatId ?? '', text: ewrText[e], x: ewrX[e], y: ewrY[e], w: ewrW[e], h: LABEL_LINE_PX, placed: !!ewrPlaced[e] });
+      }
+      return { targets, markers, callouts, jets, bombs, tags: tagList, chrome, kept, ewr };
     },
 
     dispose() {

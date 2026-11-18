@@ -56,11 +56,17 @@
  * - A thin post in the point's colour stands under each action point and the
  *   IP, from the drawn ground up to the point; the discs on top are the label
  *   layer's. The posts go with the discs when Action points is Off.
+ * - While the jet is inside an active threat's envelope (one whose system is switched on in Show), a white ring
+ *   stands round its arrow: sized from the arrow as drawn (an outer radius of about 18 px at the arrow's usual size,
+ *   larger close up), so it clears the arrow's nose and tail (seen from above, the swept wing tips can reach onto the
+ *   band); drawn over the ground and the lines with no depth test (a hill never hides it) but under the bombs and the
+ *   arrows, so its white never paints over one. The jet's label says the same in words, and inside a degraded one says
+ *   it alone.
  * - Nothing here is hazed: the jet must stay visible over the far terrain.
  */
 import {
   BackSide, Color, DoubleSide, DynamicDrawUsage, InstancedInterleavedBuffer, InterleavedBufferAttribute,
-  Matrix4, Mesh, MeshBasicMaterial, Quaternion, Vector3, type Object3D,
+  Matrix4, Mesh, MeshBasicMaterial, Quaternion, Vector3, type BufferAttribute, type Object3D,
 } from 'three';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -69,12 +75,12 @@ import { LABEL_STYLE, LINE_STYLE, MARKER_COLOR } from '../../../lib/attackPictur
 import { PHASES, PHASE_STYLE } from '../../../lib/playback';
 import {
   ARROW_LEN_M, ARROW_PX, BG, BOMB_HULL, BOMB_HULL_OTHER, BOMB_LEN_M, BOMB_PX,
-  BOMB_TRACE_COLOUR, BOMB_TRACE_DASH, BOMB_TRACE_PX, LINE_CASING, OTHER_MARKER_ALPHA, OTHER_SHADE,
+  BOMB_TRACE_COLOUR, BOMB_TRACE_DASH, BOMB_TRACE_PX, HALO_ARROW_K, HALO_COLOUR, HALO_PX, LINE_CASING, OTHER_MARKER_ALPHA, OTHER_SHADE,
   PATH_CASING_PX, PATH_OTHER_PX, PATH_PX, POST_PX, TRAIL_CASING_PX, TRAIL_OTHER_CASING_PX, TRAIL_OTHER_PX, TRAIL_PX, TRAIL_S, bombTraceLine, jetColor, mixHex,
   newSceneBombPose, newSceneJetPose, otherBombHex, screenScale, worldPerPixel, type SceneJetPose, type ScenePhase, type SceneSource,
 } from '../../../lib/playbackScene';
 import type { DisposeBag } from './disposeBag';
-import { arrowGeometry, bombGeometry, bombHullGeometry } from './jetGeometry';
+import { arrowGeometry, bombGeometry, bombHullGeometry, ringGeometry, RING_INNER, RING_SEGMENTS } from './jetGeometry';
 import type { FrameCtx, Layer } from './layer';
 
 /** Trail samples: one every quarter second over TRAIL_S. */
@@ -109,11 +115,14 @@ const MIN_SPEED_MPS = 0.5;
  * coloured stretch of its own line. The other jets' path and trail draw just before the watched
  * jet's, so where they cross the watched jet's colour code lies on top. The bomb's outline draws just
  * before the bomb: it is seen from inside, so the bomb must come after it. The bomb's line draws over
- * the trail and under the posts (which are 35, here and in the target layer).
+ * the trail and under the posts (which are 35, here and in the target layer). The white ring round an arrow inside an
+ * active envelope draws after the posts and the target layer's ring (40) and before every bomb and arrow: it has no
+ * depth test, so whatever draws after it lies on top of it. Its number is its own, not shared with the target's ring, so
+ * which of the two lies on top never rests on the order the layers were made in.
  */
 const ORDER = {
   otherPath: 5, pathCasing: 6, path: 7, otherTrailCasing: 29, otherTrail: 30, trailCasing: 31, trail: 32,
-  trace: 34.5, posts: 35, bombHull: 58, bomb: 59, arrow: 60,
+  trace: 34.5, posts: 35, halo: 41, bombHull: 58, bomb: 59, arrow: 60,
 } as const;
 
 /** Posts under the action points: one per marker kind and the IP, at most. */
@@ -255,6 +264,9 @@ export interface ArrowDebug {
   /** The nose and the up side of the mesh as unit vectors, three.js axes. */
   nose: [number, number, number];
   up: [number, number, number];
+  /** Where the mesh is (its middle, three.js axes) and how long it is drawn now, nose to tail, m (its scale included). */
+  position: [number, number, number];
+  length_m: number;
 }
 
 /** The bomb's line as the layer laid it (for the checks): see JetLayer.debugTrace. */
@@ -263,6 +275,13 @@ export interface BombTraceDebug {
   drawn: number;
   segments: number;
   shown: boolean;
+}
+
+/** The white ring as the layer laid it (for the checks): see JetLayer.debugHalo. */
+export interface HaloDebug {
+  innerM: number;
+  innerPx: number;
+  order: { posts: number; halo: number; bombHull: number; bomb: number; arrow: number };
 }
 
 export interface JetLayer extends Layer {
@@ -280,6 +299,17 @@ export interface JetLayer extends Layer {
   jetPosition(): Vector3 | undefined;
   /** Where the bomb is now, or undefined unless it is falling. */
   bombPosition(): Vector3 | undefined;
+  /** The white ring round the arrow (inside an active threat's envelope) was drawn on the last frame. */
+  haloShown(): boolean;
+  /** That ring's outer radius on screen on the last frame it was laid, CSS pixels (0 while it is not shown). */
+  haloPx(): number;
+  /**
+   * The ring as laid, read back off its own geometry and meshes: its inner radius in metres at the arrow (the band's inner
+   * vertex times the ring's scale) and on screen, CSS pixels (over the metres per pixel it was laid at), both 0 while it is
+   * not shown; and the draw order of the posts, the ring, the bomb's outline, the bomb and the arrow. Allocates, so only
+   * for the checks.
+   */
+  debugHalo(): HaloDebug;
   /** The arrow's nose, up side and roll as its mesh has them now. Allocates, so only for the checks, never per frame. */
   debugArrow(): ArrowDebug;
   /**
@@ -365,7 +395,32 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
   let postsSource: SceneSource | undefined;
   let postsGround = -1;
 
-  const drawn = [...path.meshes, ...trail.meshes, traceLine, postLine, bomb, arrow];
+  // ── The white ring round the arrow while the jet is inside an active threat's envelope (a system switched on in
+  // Show): a flat band facing the camera, its outer radius HALO_ARROW_K times the arrow's drawn half length (HALO_PX / 2
+  // is a floor that never binds while the arrow is drawn at least ARROW_PX long); no depth test, so a hill never hides it,
+  // and drawn before the bombs and the arrows, which lie over it. Its label's third line says the same in words. Shown, placed and sized only after the camera, from this
+  // frame's inside test.
+  const haloGeom = bag.add(ringGeometry());
+  {
+    const a = (haloGeom.getAttribute('position') as BufferAttribute).array as Float32Array;
+    for (let k = 0; k < RING_SEGMENTS; k++) {
+      const ang = (2 * Math.PI * k) / RING_SEGMENTS;
+      for (let side = 0; side < 2; side++) {
+        const r = side === 0 ? RING_INNER : 1, v = (2 * k + side) * 3;
+        a[v] = r * Math.cos(ang);
+        a[v + 1] = r * Math.sin(ang);
+        a[v + 2] = 0;
+      }
+    }
+  }
+  const halo = new Mesh(haloGeom, bag.add(new MeshBasicMaterial({ color: new Color(HALO_COLOUR), side: DoubleSide, depthTest: false, depthWrite: false, fog: false, toneMapped: false })));
+  halo.renderOrder = ORDER.halo;
+  halo.frustumCulled = false;
+  halo.visible = false;
+  // Its outer radius on screen as last laid, CSS pixels, and the metres per pixel at the arrow it was laid at (for the checks).
+  let haloRadiusPx = 0, haloWpp = 0;
+
+  const drawn = [...path.meshes, ...trail.meshes, traceLine, postLine, bomb, arrow, halo];
   o.parent.add(...drawn);
 
   // Scratch, made once: no frame allocates.
@@ -510,6 +565,8 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
       bank_deg: Math.atan2(up.dot(r), up.dot(u)) / D2R,
       nose: [nose.x, nose.y, nose.z],
       up: [up.x, up.y, up.z],
+      position: [arrow.position.x, arrow.position.y, arrow.position.z],
+      length_m: arrow.scale.x * ARROW_LEN_M,
     };
   }
 
@@ -596,6 +653,22 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
       traceMat.dashScale = ctx.focusPxPerM;
       if (arrow.visible) arrow.scale.setScalar(sizeAt(ctx, arrow.position, ARROW_PX, ARROW_LEN_M));
       if (bomb.visible) bomb.scale.setScalar(sizeAt(ctx, bomb.position, BOMB_PX, BOMB_LEN_M));
+      // The ring: only round a shown arrow, and only for an active envelope (a degraded one gets the label's words alone).
+      const inside = jet < ctx.inside.length ? ctx.inside[jet] : -1;
+      halo.visible = arrow.visible && inside >= 0 && ctx.source.domes[inside]?.active === true;
+      haloRadiusPx = 0;
+      if (halo.visible) {
+        halo.position.copy(arrow.position);
+        halo.quaternion.copy(ctx.camera.quaternion);
+        // The outer radius in metres at the arrow: HALO_ARROW_K times half the arrow as drawn (its own scale, just set), so
+        // at every distance the ring clears the arrow's nose and tail. The arrow is never drawn under ARROW_PX, so that is
+        // about 18 px at its usual size; HALO_PX / 2 is only a floor under it, and today it never decides.
+        const wpp = worldPerPixel(ctx.camera.position.distanceTo(arrow.position), ctx.camera.fov, ctx.viewH);
+        const outer = Math.max((HALO_PX / 2) * wpp, (HALO_ARROW_K * arrow.scale.x * ARROW_LEN_M) / 2);
+        halo.scale.setScalar(outer);
+        haloRadiusPx = outer / wpp;
+        haloWpp = wpp;
+      }
     },
 
     setSource(next) {
@@ -604,6 +677,18 @@ export function createJetLayer(o: { source: SceneSource; jet: number; parent: Ob
 
     jetPosition: () => (arrow.visible ? arrow.position : undefined),
     bombPosition: () => (bomb.visible ? bomb.position : undefined),
+    haloShown: () => halo.visible,
+    haloPx: () => (halo.visible ? haloRadiusPx : 0),
+    debugHalo() {
+      const a = (haloGeom.getAttribute('position') as BufferAttribute).array as Float32Array;
+      // Vertex 0 is the band's inner edge at angle 0 (side 0 of segment 0).
+      const innerM = halo.visible ? Math.hypot(a[0], a[1]) * halo.scale.x : 0;
+      return {
+        innerM,
+        innerPx: haloWpp > 0 ? innerM / haloWpp : 0,
+        order: { posts: postLine.renderOrder, halo: halo.renderOrder, bombHull: hull.renderOrder, bomb: bomb.renderOrder, arrow: arrow.renderOrder },
+      };
+    },
     debugArrow,
     debugTrace,
 

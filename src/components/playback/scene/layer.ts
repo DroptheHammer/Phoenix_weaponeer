@@ -50,6 +50,14 @@ export interface FrameCtx {
   actionPoints: ActionPointsMode;
   /** A ring round each falling bomb on the 2D overlay and a flash where it lands (Show › Impact); off leaves the bomb alone. */
   impact: boolean;
+  /** Per threat dome (source.domes), 1 when its system is switched on in Show › Threats, else 0. Written only when the choice changes. */
+  domeMask: Uint8Array;
+  /**
+   * Per flown jet (a playback index), the dome it is inside this frame (an index into source.domes), or −1: only a
+   * weapon's envelope whose system is switched on counts, never an early-warning radar's. Filled after the layers'
+   * update and before the camera moves, so whatever reads it after the camera reads this frame's.
+   */
+  inside: Int16Array;
   /**
    * Set false before the layers update; a layer that is still easing something (a callout fading)
    * sets it true to have one more frame drawn, even while the clock stands still.

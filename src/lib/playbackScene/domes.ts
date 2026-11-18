@@ -376,3 +376,39 @@ export function threatRowNote(r: SceneSystemRow): string | undefined {
   if (ewr && r.drawn > 0) return `Detection range ${r.range_nm} nm: a ground ring`;
   return undefined;
 }
+
+/** The heading over each group of the Show menu's threat list. */
+export const THREAT_GROUP_HEADINGS: Readonly<Record<ThreatGroup, string>> = {
+  SAM: 'SAM', SHORAD: 'SHORAD', AAA: 'AAA', MANPADS: 'MANPADS', EWR: 'Early warning', other: 'Other',
+};
+/** What the threat list says when playback was handed no threat data at all (a plan opened before threats reached it). */
+export const NO_THREAT_DATA = 'No threat data in this plan.';
+/** What it says when the plan has no threat the planner may see. */
+export const NO_THREATS = 'No threats in this plan.';
+
+/** A row's words: "SA-6 Gainful · 2K12 Kub (1)", the system and how many of its threats the planner may see. */
+export const threatRowText = (r: SceneSystemRow): string => `${r.label} (${r.threats})`;
+
+/** The Show menu's threat list as words: one group per kind with threats, its heading and its rows; or the one line that says there are none. */
+export interface ThreatMenu {
+  empty?: string;
+  groups: { group: ThreatGroup; heading: string; rows: { systemId: string; text: string; note?: string; defaultOn: boolean }[] }[];
+}
+
+/**
+ * The threat list from the rows the dome builder made (sceneDomes, already in menu order). It knows only those rows, so a
+ * plan whose threats were all hidden by its author reads exactly as a plan with none: the rows are the same (none), and
+ * so is every word. `threatData` false: playback was handed no threat data at all.
+ */
+export function threatMenuOf(rows: readonly SceneSystemRow[], threatData: boolean): ThreatMenu {
+  if (!threatData) return { empty: NO_THREAT_DATA, groups: [] };
+  if (rows.length === 0) return { empty: NO_THREATS, groups: [] };
+  const groups: ThreatMenu['groups'] = [];
+  for (const group of THREAT_GROUPS) {
+    const mine = rows.filter((r) => r.group === group);
+    if (mine.length) {
+      groups.push({ group, heading: THREAT_GROUP_HEADINGS[group], rows: mine.map((r) => ({ systemId: r.systemId, text: threatRowText(r), note: threatRowNote(r), defaultOn: r.defaultOn })) });
+    }
+  }
+  return { groups };
+}

@@ -64,6 +64,8 @@ export const MENU_PANEL =
 /** A choice's name in the menu, and the line of plain words under it. */
 export const MENU_HEAD = 'font-semibold text-gray-100';
 export const MENU_HINT = 'text-gray-400';
+/** The heading over a group of threat systems inside the menu ("SAM", "Early warning"). */
+export const MENU_SUBHEAD = 'text-[10px] font-semibold uppercase tracking-wide text-gray-400';
 
 /**
  * The rows under the picture share three columns, so the lanes' time axes line

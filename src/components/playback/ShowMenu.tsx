@@ -3,7 +3,12 @@
  * choices about what the picture shows: altitude and speed on the jets'
  * labels, the action points (off, as each jet nears them, or always), the
  * planner's colour code on the watched jet or on every jet, the ring round each
- * falling bomb and the flash where it lands, whether Chase watches the bomb land, and where the time bar starts; the threats join when they are built. The choices
+ * falling bomb and the flash where it lands, whether Chase watches the bomb land, where the time bar starts, and
+ * the threats: one switch per threat system, grouped by kind (SAM, SHORAD, AAA, MANPADS, Early warning, Other),
+ * with All and None, the weapons on and the early-warning radars off as it opens. The list holds only the systems
+ * the planner may see: a threat the mission's author hid is not in playback's data, unless the planner's Settings
+ * switch reveals it, when it counts as any other; so it is neither named nor counted, and a plan whose threats are
+ * all hidden reads exactly as a plan with none. The choices
  * are the pure ShowState (src/lib/playbackScene/show.ts); nothing here is saved.
  *
  * Behaviour:
@@ -22,14 +27,22 @@
  * It renders the button and the panel side by side (a fragment) because the
  * panel is positioned against the picture, not against the toolbar.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { RUN_LEAD_S, type ActionPointsMode, type AttackColours, type ShowAction, type ShowState } from '../../lib/playbackScene';
-import { keepFocus, MENU_HEAD, MENU_HINT, MENU_PANEL, SEG_SMALL, TOGGLE, TOGGLE_OFF, TOGGLE_ON } from './ui';
+import { RUN_LEAD_S, isThreatOn, threatMenuOf, type ActionPointsMode, type AttackColours, type SceneSystemRow, type ShowAction, type ShowState } from '../../lib/playbackScene';
+import { keepFocus, MENU_HEAD, MENU_HINT, MENU_PANEL, MENU_SUBHEAD, SEG_SMALL, TOGGLE, TOGGLE_OFF, TOGGLE_ON } from './ui';
 
 interface ShowMenuProps {
   show: ShowState;
   dispatch(a: ShowAction): void;
+  /**
+   * The threat systems the planner may see, one row each, in menu order (sceneDomes): nothing of a threat the
+   * mission's author hid is among them, so the list neither names nor counts one, unless the planner's Settings switch
+   * reveals it, when it counts as any other.
+   */
+  rows: readonly SceneSystemRow[];
+  /** Playback was handed threat data at all (a plan with no threats still was). */
+  threatData: boolean;
 }
 
 /** The three ways the action points show, in the menu's order, with the line that says what each does. */
@@ -45,8 +58,9 @@ const ATTACK_COLOURS: readonly { value: AttackColours; label: string; hint: stri
   { value: 'all', label: 'All jets', hint: "The planner's colours on every jet; the arrows keep their own colour." },
 ];
 
-export function ShowMenu({ show, dispatch }: ShowMenuProps) {
+export function ShowMenu({ show, dispatch, rows, threatData }: ShowMenuProps) {
   const [open, setOpen] = useState(false);
+  const threats = useMemo(() => threatMenuOf(rows, threatData), [rows, threatData]);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   // Set by the press that opens the panel: a click made with Enter or Space has detail 0, a mouse click has 1 or more.
@@ -200,6 +214,48 @@ export function ShowMenu({ show, dispatch }: ShowMenuProps) {
               <span className={`block ${MENU_HINT}`}>Start the time bar before the IP. Off: {RUN_LEAD_S} s before the first action.</span>
             </span>
           </label>
+          <div role="group" aria-labelledby="pb-show-th" data-threats="">
+            <div className="flex items-baseline justify-between">
+              <span id="pb-show-th" className={MENU_HEAD}>Threats</span>
+              {threats.groups.length > 0 && (
+                <span className="flex gap-1">
+                  <button type="button" onClick={() => dispatch({ type: 'threatsAll' })} onMouseDown={keepFocus} aria-label="Show every threat" className={`${SEG_SMALL} rounded border border-gray-600 text-gray-300 hover:bg-gray-700`}>
+                    All
+                  </button>
+                  <button type="button" onClick={() => dispatch({ type: 'threatsNone' })} onMouseDown={keepFocus} aria-label="Hide every threat" className={`${SEG_SMALL} rounded border border-gray-600 text-gray-300 hover:bg-gray-700`}>
+                    None
+                  </button>
+                </span>
+              )}
+            </div>
+            {threats.empty !== undefined ? (
+              <span className={`block mt-1 ${MENU_HINT}`} data-threats-empty="">{threats.empty}</span>
+            ) : (
+              threats.groups.map((g) => (
+                <div key={g.group} className="mt-1" data-threat-group={g.group}>
+                  <span className={`block ${MENU_SUBHEAD}`}>{g.heading}</span>
+                  {g.rows.map((r) => {
+                    const on = isThreatOn(show, r.systemId);
+                    return (
+                      // A switched-off row is told by its empty box and its dimmer words, not by colour alone.
+                      <label key={r.systemId} className="flex items-start gap-2 cursor-pointer" onMouseDown={keepFocus} data-threat-row={r.systemId}>
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 accent-dcs-accent"
+                          checked={on}
+                          onChange={(e) => dispatch({ type: 'threat', key: r.systemId, on: e.currentTarget.checked })}
+                        />
+                        <span>
+                          <span className={`block ${on ? 'text-gray-100' : 'text-gray-400'}`}>{r.text}</span>
+                          {r.note && <span className={`block ${MENU_HINT}`}>{r.note}</span>}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
     </>

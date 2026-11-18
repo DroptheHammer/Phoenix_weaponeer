@@ -51,7 +51,8 @@ export function SidePanel({ scene, pb, timing, jet, seat, callsign, colour }: Si
   const pictureRef = useRef<HTMLCanvasElement>(null);
   const dotsRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const side = pb.jets[jet]?.side;
+  // Every flown jet has its side profile (the view hands over only a flown jet's index).
+  const side = pb.jets[jet].side;
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -67,17 +68,28 @@ export function SidePanel({ scene, pb, timing, jet, seat, callsign, colour }: Si
   // The card's own picture, again whenever its box or its jet changes.
   useEffect(() => {
     const canvas = pictureRef.current;
-    if (!canvas || !side || size.w === 0 || size.h === 0) return;
+    if (!canvas || size.w === 0 || size.h === 0) return;
     const ctx = sizeCanvas(canvas, size.w, size.h);
     if (ctx) drawSideProfile(ctx, side, { x: 0, y: 0, w: size.w, h: size.h });
   }, [side, size]);
 
-  // The dots: once now, then after every frame the scene works out. The listener is made afresh whenever the times,
-  // the jet or the box change, so it always reads the times as they stand.
+  // The dots' canvas is sized only when its box changes: a time dragged on a lane hands over new times at every step,
+  // and resizing the canvas each time would clear and reallocate it for nothing.
   useEffect(() => {
     const canvas = dotsRef.current;
-    if (!canvas || !side || size.w === 0 || size.h === 0) return;
-    const ctx = sizeCanvas(canvas, size.w, size.h);
+    if (canvas && size.w > 0 && size.h > 0) sizeCanvas(canvas, size.w, size.h);
+  }, [size]);
+  // The times as they stand, read by the painter at each frame: a re-time reaches the scene as a new source, whose
+  // next frame paints the dots with these.
+  const timingRef = useRef(timing);
+  timingRef.current = timing;
+
+  // The dots: once now, then after every frame the scene works out. The listener is made afresh whenever the jet or the
+  // box change; the times it reads through the ref above.
+  useEffect(() => {
+    const canvas = dotsRef.current;
+    if (!canvas || size.w === 0 || size.h === 0) return;
+    const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const map: SideMap = sideMapping(side, { x: 0, y: 0, w: size.w, h: size.h });
     const dots = newSideDots();
@@ -87,7 +99,7 @@ export function SidePanel({ scene, pb, timing, jet, seat, callsign, colour }: Si
     const inside = (x: number, y: number, r: number) => x > -r && x < w + r && y > -r && y < h + r;
     const paint = (t_s: number) => {
       ctx.clearRect(0, 0, w, h);
-      sideDotsInto(dots, pb, timing, jet, t_s, map, scratch);
+      sideDotsInto(dots, pb, timingRef.current, jet, t_s, map, scratch);
       if (dots.bomb.visible && inside(dots.bomb.x, dots.bomb.y, SIDE_BOMB_R_PX)) {
         ctx.fillStyle = SIDE_INK;
         ctx.beginPath();
@@ -117,13 +129,12 @@ export function SidePanel({ scene, pb, timing, jet, seat, callsign, colour }: Si
     };
     paint(scene.clock.time);
     return scene.onDraw(paint);
-  }, [scene, pb, timing, jet, side, size, seat, colour]);
+  }, [scene, pb, jet, side, size, seat, colour]);
 
   return (
     <div ref={wrapRef} data-side-view="" className={`absolute inset-0 ${SIDE_BG}`}>
       <canvas ref={pictureRef} data-side-picture="" role="img" aria-label={`${seat}'s side view, as on the card`} className="absolute inset-0" style={{ width: size.w, height: size.h }} />
       <canvas ref={dotsRef} data-side-dots="" aria-hidden className="absolute inset-0 pointer-events-none" style={{ width: size.w, height: size.h }} />
-      {!side && <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">No side view for this jet</div>}
       <div className="absolute bottom-2 left-3 max-w-[60%] pointer-events-none text-xs text-gray-700">{sideCaption(seat, callsign)}</div>
     </div>
   );

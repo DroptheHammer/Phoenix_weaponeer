@@ -182,6 +182,27 @@ export const CALLOUT_LEADER_PX = 1;
 export const LABEL_FONT = '12px ui-sans-serif, system-ui, sans-serif';
 export const LABEL_PLATE = 'rgba(26,26,46,0.85)';
 export const LABEL_TEXT = '#e5e7eb';
+/** The line of a jet's label that names the threat envelope it is inside: amber on the dark plate. */
+export const LABEL_WARN = '#fcd34d';
+
+/**
+ * Threat envelopes, as the map draws their circles (DOME_ACTIVE red for an active threat, DOME_IDLE grey for the rest,
+ * in domes.ts): an active one a ring on the ground with a wire cage over it, any other the ring alone, dashed for a
+ * planning assumption. Line widths, CSS pixels: the active ones a little heavier, so the two read apart by more than
+ * their colour.
+ */
+export const DOME_ACTIVE_PX = 2;
+export const DOME_IDLE_PX = 1.5;
+/**
+ * The white ring round the arrow of a jet inside an active envelope (its label's third line says the same in words). Its
+ * outer radius is HALO_ARROW_K times half the arrow's drawn length, so its band clears the arrow's nose and tail at every
+ * distance (the swept wing tips, farther out than the half length, can reach onto it seen from above; the arrow is drawn
+ * over it): about 18 px at the arrow's usual ARROW_PX, larger close up (in Chase, or zoomed in). HALO_PX, CSS pixels
+ * across, is a floor under that; since the arrow is never drawn shorter than ARROW_PX, it never decides today.
+ */
+export const HALO_PX = 34;
+export const HALO_ARROW_K = 1.3;
+export const HALO_COLOUR = '#ffffff';
 /** A label plate's line height and its padding, CSS pixels, and the gap between a disc and its plate. */
 export const LABEL_LINE_PX = 16;
 export const LABEL_PAD_PX = 4;

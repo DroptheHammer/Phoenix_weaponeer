@@ -21,7 +21,13 @@
  * off the ground drawn under it, where the time bar starts, the push time, what
  * the stripes mean, what Apply just said, which threat envelopes there are and
  * which are not drawn). The threats the planner may see come with the launch and
- * are laid out once per open (nothing draws them yet; the notes count them). Fits
+ * are laid out once per open as envelopes in the map's looks, one switch per
+ * threat system in Show (weapons on, early-warning radars off as it opens; a
+ * radar switched on is its ground ring with its detection range beside it); a
+ * jet inside an active envelope gets a white ring round its arrow, and its label
+ * names the envelope. A threat the mission's author hid is not in playback's
+ * data, so nothing here draws, lists or counts it, unless the planner's Settings
+ * switch reveals it, when it counts as any other. Fits
  * a 1024×768 window. The overlay around it has the title bar and
  * the Close button. While the playhead is on a frag warning, a chip over the
  * picture names it, also at 16×. The words the 3D lays on the picture keep off
@@ -40,7 +46,7 @@
  * Attack colours whether the planner's colour code is on the watched jet only
  * or on every jet; Show › Impact whether each falling bomb has a ring round it;
  * Show › Watch the bomb land whether Chase turns to the watched jet's bomb as it
- * falls and lands.
+ * falls and lands; Show › Threats which threat systems are drawn.
  *
  * Every flown jet is drawn. One of them is watched: the jet the editor had
  * selected, else the first one flown, and the seat buttons beside the lanes
@@ -98,7 +104,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { buildStrikePlayback, dangerZones, playbackBounds, playbackInputFromMission, retime, type PlaybackInput, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
   APPLY_WORDS, applyShift, applyStatusLines, axisFraction, cardOrder, conflictBands, DRAG_PATH_STEP_S, editorOffsets, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks,
-  buildNotes, markerMoments, noteFactsFrom, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneDomes, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer,
+  buildNotes, initShow, markerMoments, noteFactsFrom, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneDomes, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer,
   terrainBoxOf, zoneBands,
   type Axis, type CameraMode, type DomeSet, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TargetGap, type TileSource, type ViewMode,
 } from '../../lib/playbackScene';
@@ -183,10 +189,11 @@ function buildView(launch: PlaybackLaunch | undefined): Built {
  * behind it unless it is not in the picture when the time bar starts, then Home in Orbit.
  */
 function openSession(built: BuiltOk): Session {
-  const { pb, timing, source, launch } = built;
+  const { pb, timing, source, launch, domeSet } = built;
   const seat = initSession(pb, launch.jetId).watched;
   const range = playRange(pb, timing, false);
-  return initSession(pb, launch.jetId, { mode: openingMode(source, range, pb.members[seat]?.jet ?? 0) });
+  // The Show menu as it opens: its threat list is the open's rows, with the weapons switched on and the radars off.
+  return initSession(pb, launch.jetId, { mode: openingMode(source, range, pb.members[seat]?.jet ?? 0), show: initShow(domeSet.systems) });
 }
 
 /**
@@ -487,6 +494,10 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   useEffect(() => {
     scene?.setBombCam(show.bombCam);
   }, [scene, show.bombCam]);
+  // The threat systems switched on: their envelopes, the ring round a jet inside one and a radar's ring and words.
+  useEffect(() => {
+    scene?.setThreatSystems(show.threatsOn);
+  }, [scene, show.threatsOn]);
   // The side view covers the whole picture: the scene draws nothing while it is up (and everything again after), and a
   // rebuilt scene is told too.
   useEffect(() => {
@@ -570,7 +581,10 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
         {scene && (
           // A wrapper with no box of its own (the toolbar still lies over the whole picture), there to find its buttons by.
           <div ref={toolbarRef} className="contents">
-            <ViewToolbar scene={scene} show={show} dispatch={actShow} mode={session.mode} seat={source.labelOf(watchedJet)} onMode={pickView} />
+            <ViewToolbar
+              scene={scene} show={show} dispatch={actShow} mode={session.mode} seat={source.labelOf(watchedJet)} onMode={pickView}
+              threatRows={built.domeSet.systems} threatData={built.launch.threats !== undefined}
+            />
           </div>
         )}
         {import.meta.env.DEV && scene && <FrameTime scene={scene} reTime={reTimeMs} />}
