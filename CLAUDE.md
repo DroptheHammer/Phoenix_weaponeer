@@ -239,7 +239,7 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
-### STATE 2026-11-18 01:45 UTC: READ THIS FIRST
+### STATE 2026-11-18 03:10 UTC: READ THIS FIRST
 
 Work resumed on 2026-11-17 and is running. **Where this block and anything
 below it disagree, this block is right.** Memory
@@ -255,21 +255,31 @@ screenshot steps; start-up JS 634,551 (ceiling 635,049). "Playback look 6"
 and "Playback look 7" are in `Other Items/v040-builds/`; the user has seen 6
 and is going through it. Not started: stages 16, 17, 18a, 18b, 20.
 
-**Redesign, `v040-shell`: local tip is far ahead of GitHub and NOT PUSHED.**
-The branch was moved twice onto the playback branch's tip (now `9bb4d37`), so
-pushing it means replacing the copy on GitHub, and that needs the user's yes
-(asked, not answered). GitHub still has the old line at `87df2c9`. On this
-Mac, in `.claude/worktrees/shell`: the design foundation is complete (dialog
-keyboard behaviour and the proof stage included; `docs/DESIGN_SYSTEM.md` is
-the guide), and the front page's stages S1 to S6 are built and reviewed: the
-new front page with its load box and recent-mission cards, and the new
-flight chooser. geo-check 1,326; start-up JS 654,284; stylesheet 69,218;
-offline cache 1,706,415. A tidy stage for eight small review findings was
-running when this was written. "Shell look 1" (the foundation only) is in
-`Other Items/v040-builds/`; a second copy with the new screens comes after
-the tidy stage. Next after that: the app shell's first two stages, then the
-flight overview. **If the Mac is lost before the push, everything since
-`87df2c9` on this branch is lost with it.**
+**Redesign: the work is on GitHub as `v040-shell-rebased`, tip `44c9872`.**
+The local branch is still called `v040-shell` (working copy
+`.claude/worktrees/shell`). It was moved twice onto the playback branch's tip
+(now `9bb4d37`), so pushing it under its own name means replacing GitHub's
+`v040-shell` (the old line, `87df2c9`), and that needs the user's yes (asked,
+not answered). Until then each new tip is pushed to the new name, which
+replaces nothing: `git push origin v040-shell:refs/heads/v040-shell-rebased`.
+After his yes: replace `v040-shell`, delete `v040-shell-rebased`.
+
+Built and reviewed, in order: the design foundation (`docs/DESIGN_SYSTEM.md`
+is the guide), the front page with its load box and recent-mission cards, the
+flight chooser, the new header with its File menu, and the Flight overview,
+the screen every load now lands on (jets and loadouts, the threats near the
+target or any waypoint picked, a map framed on them). A check holds the
+planner's Threats panel to saying nothing about hidden threats. geo-check
+1,352; start-up JS 662,530 (ceiling 675,830); stylesheet 73,195 (76,695);
+offline cache 1,747,068 (1,764,068). "Shell look 1", "2" and "3" are in
+`Other Items/v040-builds/`; 3 has the header and the overview.
+
+Running when this was written: six more stages in one run (small fixes; the
+planner's icon rail, floating side panel and map controls; the Legend as a
+button in the map's corner, which is the user's own request; the phone's
+bars and sheet; three small dialogs; a screenshot proof). After it: read
+each diff, bring the three ceilings down, build "Shell look 4", and put the
+whole redesign in front of the user before anything merges to `main`.
 
 **Sources.** The user ruled that a real-world military manual carrying a
 distribution restriction or an export-control notice is never a source here
@@ -290,7 +300,8 @@ Papers: `Other Items/v040-work/b3/BUILD_SPEC_S13_SIGHT_MILS.md` (ruling 14)
 and `F5E_GAME_SIDE_MEANING.md`.
 
 **Waiting on the user, one at a time:** the yes to replace the redesign
-branch on GitHub; the F-5E card question; his remarks on look 6 and look 7
+branch on GitHub (tidiness only, now that the work is there under the new
+name); the F-5E card question; his remarks on look 6 and look 7
 (three calls he can overrule: only the watched jet draws a bomb line; the
 blast ring shows through hills; the old spacing rule kept as a choice) and
 on the redesign copies; then the three "Sources" decisions above.
