@@ -84,7 +84,8 @@ export const W = {
   attack: 'Attack',
   planned: 'Planned',
   noAttack: 'No attack',
-  noAG: 'No A-G stores',
+  // Spelled out, as the table above says it: no bare abbreviations on screen.
+  noAG: 'No air-to-ground stores',
   noAttackYet: 'No attack planned yet',
   estimated: 'ESTIMATED',
   estimatedNoteStrong: 'ESTIMATED:',

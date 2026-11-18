@@ -41,7 +41,7 @@ const SYNTHETIC = { latitude: 10, longitude: 20, accuracy: 12 };
   const step = (s) => console.log(`STEP ${s}`);
 
   await page.goto(base);
-  await page.getByRole('button', { name: '📍 Strike near me' }).click();
+  await page.getByRole('button', { name: 'Strike near me' }).click();
   await page.getByText(/Move the map to put the crosshair/).waitFor({ timeout: 15000 });
   step(`location found: ${(await page.getByText(/you are the blue dot/).innerText()).trim()}`);
   await page.waitForTimeout(800);

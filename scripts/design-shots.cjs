@@ -356,11 +356,28 @@ const box = (locator) => locator.evaluate((el) => {
   return [r.left, r.top, r.right, r.bottom];
 });
 
+/**
+ * The first screen, settled: the front page with its load box, or, in a copy from before the front page,
+ * the old landing with its "Import FragOrders" button. Either copy can be the "before" one, so both are read.
+ * Resolves to true for the front page.
+ */
+async function firstScreen(page) {
+  const front = page.getByRole('heading', { name: 'Load a mission' });
+  await front.or(page.getByRole('button', { name: 'Import FragOrders' })).first().waitFor();
+  return (await front.count()) > 0;
+}
+
+/** Load the synthetic mission as far as the flight picker, whose own button reads "Import Mission". */
 async function importMission(page) {
-  await page.getByRole('button', { name: 'Import FragOrders' }).click();
-  await page.getByRole('button', { name: 'From JSON' }).click();
-  await page.getByPlaceholder('Or paste FragOrders JSON here...').fill(fixture);
-  await page.getByRole('button', { name: 'Parse JSON' }).click();
+  if (await firstScreen(page)) {
+    await page.getByPlaceholder('Paste a FragOrders link').fill(fixture);
+    await page.getByRole('button', { name: 'Load', exact: true }).click();
+  } else {
+    await page.getByRole('button', { name: 'Import FragOrders' }).click();
+    await page.getByRole('button', { name: 'From JSON' }).click();
+    await page.getByPlaceholder('Or paste FragOrders JSON here...').fill(fixture);
+    await page.getByRole('button', { name: 'Parse JSON' }).click();
+  }
   await page.getByRole('button', { name: 'Import Mission' }).waitFor();
 }
 
@@ -371,7 +388,7 @@ async function appRun(browser, base, size) {
   const m = { widths: {} };
   try {
     await page.goto(base);
-    await page.getByRole('button', { name: 'Import FragOrders' }).waitFor();
+    await firstScreen(page);
     shots.landing = await picture(page);
     m.widths.landing = await widths(page);
 

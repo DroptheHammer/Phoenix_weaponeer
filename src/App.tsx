@@ -1,11 +1,16 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { platform } from "@platform";
 import { useMissionStore } from "./stores/missionStore";
 import { useTheaterStore, useTheaterInfo } from "./stores/theaterStore";
 import { useProfileStore } from "./stores/profileStore";
 import { useUiStore } from "./stores/uiStore";
 import { useVisibleMission } from "./hooks/useVisibleMission";
-import { FragOrdersImport } from "./components/import";
+import { FragOrdersPreview } from "./components/import/FragOrdersPreview";
+import { Modal } from "./components/common/Modal";
+import { FrontPage } from "./components/landing/FrontPage";
+import { W } from "./components/landing/words";
+import { adoptSavedMission } from "./lib/landing/platformBindings";
+import type { LoadOutcome } from "./lib/landing/loadRouter";
 import { MapView } from "./components/map/MapView";
 import { WaypointList } from "./components/waypoints/WaypointList";
 import { ThreatList } from "./components/threats/ThreatList";
@@ -15,8 +20,6 @@ import { KneeboardPreview } from "./components/kneeboard/KneeboardPreview";
 import { UnsavedChangesDialog } from "./components/mission/UnsavedChangesDialog";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { useSettingsStore } from "./stores/settingsStore";
-import { RecentMissions } from "./components/mission/RecentMissions";
-import { MyMissions } from "./components/mission/MyMissions";
 import { PhoneShell, type PhoneMenuItem, type PhoneTab } from "./components/phone/PhoneShell";
 import { useIsPhone } from "./hooks/useIsPhone";
 import { flushAutosave, isAutosaved, useAutosave } from "./stores/localMissionStore";
@@ -43,6 +46,12 @@ interface Aircraft {
 }
 
 type PanelType = 'waypoints' | 'threats' | 'flight' | 'attacks' | 'kneeboards';
+
+/** What fills the window: the front page (always, with no mission), or the planner's map. */
+type Screen = 'front' | 'map';
+
+/** The "Choose your flight" dialog's Escape while the "Unsaved changes" dialog stands over it. */
+const noop = () => {};
 
 /**
  * "Strike near me" needs the phone's GPS, so it is a web-build feature; the
@@ -71,8 +80,14 @@ function App() {
   const [fuzeOptions, setFuzeOptions] = useState<Map<string, FuzeOption[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showImportModal, setShowImportModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // The front page shows whenever no mission is open, and also when the planner goes back to it with one open.
+  const [screen, setScreen] = useState<Screen>('front');
+  // Where "Open now" on the front page goes back to: the screen the planner left for it.
+  const [returnTo, setReturnTo] = useState<Exclude<Screen, 'front'>>('map');
+  // A FragOrders link or file the load box has read: "Choose your flight" is open over the front page.
+  const [chooser, setChooser] = useState<{ data: FragOrdersData; via: 'link' | 'link-payload' | 'cli-export' } | null>(null);
+  const loadField = useRef<HTMLInputElement>(null);
   const [showStrikeNearMe, setShowStrikeNearMe] = useState(false);
   const [activePanel, setActivePanel] = useState<PanelType | null>(null);
   const mapPick = useUiStore((state) => state.mapPick);
@@ -84,11 +99,22 @@ function App() {
   // The web build keeps every mission in this browser as it changes ("My missions").
   useAutosave(platform.isWeb);
 
-  const handleFragOrdersImport = (data: FragOrdersData, groupIndex: number) => {
-    importFromFragOrders(data, groupIndex);
+  const shown: Screen = mission ? screen : 'front';
+  const typeOf = useMemo(() => new Map(threats.map((t) => [t.id, t.threat_type])), [threats]);
+
+  // Every load lands on the map, with no panel open and the display filter cleared.
+  const afterLoad = () => {
+    setActivePanel(null);
     resetDisplayFilter();
-    setShowImportModal(false);
-    setActivePanel(null); // Close any open panel after import
+    setFileMsg(null);
+    setScreen('map');
+  };
+
+  // To the front page with the mission kept: remember where the planner was, for the "Open now" card.
+  const toFront = () => {
+    if (shown !== 'front') setReturnTo(shown);
+    setScreen('front');
+    requestAnimationFrame(() => loadField.current?.focus());
   };
 
   /**
@@ -160,8 +186,40 @@ function App() {
     if (result.status === 'ok') {
       setActivePanel(null);
       resetDisplayFilter();
+      setScreen('map');
     }
     reportFileResult(result, 'Opened');
+  };
+
+  // What the front page's load box read. A FragOrders mission opens "Choose your flight" and replaces nothing
+  // yet; a saved mission is adopted at once, after the unsaved-changes guard, exactly as Open adopts one.
+  const handleOutcome = (outcome: Exclude<LoadOutcome, { kind: 'error' }>) => {
+    if (outcome.kind === 'fragorders') {
+      setChooser({ data: outcome.data, via: outcome.via });
+      return;
+    }
+    guardUnsaved('open another mission', () => {
+      adoptSavedMission(outcome.mission, outcome.path);
+      afterLoad();
+    });
+  };
+
+  // The guard runs with "Choose your flight" still open, and it stays mounted until the import runs, so
+  // Cancel in "Unsaved changes" comes back to it with the flight still chosen.
+  const handleChooserImport = (groupIndex: number) => {
+    const current = chooser;
+    if (!current) return;
+    guardUnsaved('import a new mission', () => {
+      importFromFragOrders(current.data, groupIndex);
+      setChooser(null);
+      afterLoad();
+    });
+  };
+
+  // Back from "Choose your flight": the front page as it was, the link or text still in the box.
+  const closeChooser = () => {
+    setChooser(null);
+    requestAnimationFrame(() => loadField.current?.focus());
   };
 
   const handleOpen = () => {
@@ -191,9 +249,9 @@ function App() {
     });
   };
 
-  const handleImportClick = () => {
-    guardUnsaved('import a new mission', () => setShowImportModal(true));
-  };
+  // Import (desktop header) and "Load a mission" (phone menu) go to the front page's load box. Nothing is
+  // replaced yet, so no guard here: the guard runs when a load is about to replace the open mission.
+  const handleImportClick = () => toFront();
 
   const handleCloseMission = () => {
     guardUnsaved('close this mission', () => {
@@ -201,6 +259,7 @@ function App() {
       resetDisplayFilter();
       setActivePanel(null);
       setFileMsg(null);
+      setScreen('front');
     });
   };
 
@@ -292,16 +351,14 @@ function App() {
 
   const handleStrikeNearMeCreated = (created: Mission) => {
     loadMission(created);
-    resetDisplayFilter();
     setShowStrikeNearMe(false);
-    setActivePanel(null);
-    setFileMsg(null);
+    afterLoad();
   };
 
   const handleNewMission = () => {
     guardUnsaved('start a new mission', () => {
       createMission("New Mission", "caucasus");
-      resetDisplayFilter();
+      afterLoad();
     });
   };
 
@@ -409,11 +466,12 @@ function App() {
     <>
       {showSettings && <SettingsModal aircraft={aircraft} onClose={() => setShowSettings(false)} />}
 
-      {showImportModal && (
-        <FragOrdersImport
-          onClose={() => setShowImportModal(false)}
-          onImport={handleFragOrdersImport}
-        />
+      {/* Before the "Unsaved changes" dialog, on purpose: a dialog drawn later stands on top, and that one must
+          stand over this one, which stays open under it and ignores Escape until it is answered. */}
+      {chooser && (
+        <Modal title={W.chooseTitle} widthClass="w-[min(720px,calc(100vw-48px))]" onClose={pendingAction ? noop : closeChooser}>
+          <FragOrdersPreview data={chooser.data} onBack={closeChooser} onImport={handleChooserImport} />
+        </Modal>
       )}
 
       {showStrikeNearMe && (
@@ -438,37 +496,22 @@ function App() {
     </>
   );
 
-  // A thumb-sized target on a phone.
-  const startPad = isPhone ? 'py-3' : 'py-2';
-  const startButtons = (
-    <>
-      <button
-        onClick={handleNewMission}
-        className={`bg-dcs-accent hover:bg-red-600 text-white px-6 ${startPad} rounded-lg transition-colors`}
-      >
-        Create New Mission
-      </button>
-      <button
-        onClick={handleImportClick}
-        className={`bg-dcs-blue hover:bg-blue-600 text-white px-6 ${startPad} rounded-lg transition-colors`}
-      >
-        Import FragOrders
-      </button>
-      <button
-        onClick={handleOpen}
-        className={`bg-dcs-blue hover:bg-blue-600 text-white px-6 ${startPad} rounded-lg transition-colors`}
-      >
-        {platform.isWeb ? 'Open .json File' : 'Open Saved Mission'}
-      </button>
-      {STRIKE_NEAR_ME_AVAILABLE && (
-        <button
-          onClick={handleStrikeNearMe}
-          className={`bg-sky-800 hover:bg-sky-700 text-white px-6 ${startPad} rounded-lg transition-colors`}
-        >
-          📍 Strike near me
-        </button>
-      )}
-    </>
+  const frontPage = (
+    <FrontPage
+      phone={isPhone}
+      web={platform.isWeb}
+      openMission={mission}
+      onOutcome={handleOutcome}
+      onContinue={() => setScreen(returnTo)}
+      onOpenFile={handleOpenRecent}
+      onOpenLocal={handleOpenLocal}
+      onNewMission={handleNewMission}
+      onStrikeNearMe={STRIKE_NEAR_ME_AVAILABLE ? handleStrikeNearMe : undefined}
+      aircraft={aircraft}
+      typeOf={typeOf}
+      busy={chooser !== null}
+      loadFieldRef={loadField}
+    />
   );
 
   // In the browser "Save" hands over a file, so it says so.
@@ -477,7 +520,7 @@ function App() {
   // ---- Phone layout (web build only) ----
 
   if (isPhone) {
-    const phoneTabs: PhoneTab<PanelType>[] = mission
+    const phoneTabs: PhoneTab<PanelType>[] = mission && shown === 'map'
       ? [
           { id: 'waypoints', label: 'Route', badge: String(mission.waypoints.length) },
           { id: 'threats', label: 'Threats', badge: String(visibleMission?.threats.length ?? 0) },
@@ -486,33 +529,40 @@ function App() {
           { id: 'kneeboards', label: 'Cards' },
         ]
       : [];
-    const phoneMenu: PhoneMenuItem[] = [
-      { label: 'New mission', onClick: handleNewMission },
-      { label: 'Import FragOrders', onClick: handleImportClick },
-      { label: 'Open .json file', onClick: handleOpen },
-      ...(STRIKE_NEAR_ME_AVAILABLE ? [{ label: '📍 Strike near me', onClick: handleStrikeNearMe }] : []),
-      ...(mission
-        ? [
-            { label: 'Export .json', onClick: () => void handleSaveAs() },
-            { label: 'Close mission', onClick: handleCloseMission },
-          ]
-        : []),
-      { label: 'Settings', onClick: () => setShowSettings(true) },
-    ];
+    // The front page holds the load box, so its menu leads with what the page has not got; the map's menu
+    // leads with the way back to the load box.
+    const strikeItem = STRIKE_NEAR_ME_AVAILABLE ? [{ label: W.strikeNearMe, onClick: handleStrikeNearMe }] : [];
+    const settingsItem = { label: 'Settings', onClick: () => setShowSettings(true) };
+    const phoneMenu: PhoneMenuItem[] = shown === 'front'
+      ? [
+          { label: W.createNew, onClick: handleNewMission },
+          ...strikeItem,
+          ...(mission ? [{ label: 'Close mission', onClick: handleCloseMission }] : []),
+          settingsItem,
+        ]
+      : [
+          { label: W.heroTitle, onClick: handleImportClick },
+          { label: W.createNew, onClick: handleNewMission },
+          ...strikeItem,
+          { label: 'Export .json', onClick: () => void handleSaveAs() },
+          { label: 'Close mission', onClick: handleCloseMission },
+          settingsItem,
+        ];
 
     return (
       <>
         <PhoneShell<PanelType>
-          title={mission?.name ?? 'Phoenix Weaponeer'}
+          title={mission && shown === 'map' ? mission.name : 'Phoenix Weaponeer'}
           dirty={Boolean(mission && isDirty)}
           menu={phoneMenu}
           message={fileMsg}
           onDismissMessage={() => setFileMsg(null)}
-          banner={mission ? unverifiedBanner : undefined}
-          tabs={mission ? phoneTabs : undefined}
+          // Only over the map: on the front page it would cover the page's own lines.
+          banner={shown === 'map' ? unverifiedBanner : undefined}
+          tabs={shown === 'map' ? phoneTabs : undefined}
           activeTab={activePanel}
           onTab={setActivePanel}
-          panel={activePanel ? renderPanel(activePanel) : undefined}
+          panel={activePanel && shown === 'map' ? renderPanel(activePanel) : undefined}
           hidePanel={Boolean(mapPick)}
           fullTabs={['kneeboards']}
         >
@@ -520,14 +570,10 @@ function App() {
             <p className="text-center text-gray-400 py-12">Loading…</p>
           ) : error ? (
             <p className="text-center text-red-400 py-12 px-4">Error: {error}</p>
-          ) : mission ? (
+          ) : shown === 'map' ? (
             <div className="absolute inset-0">{mapView}</div>
           ) : (
-            <div className="h-full overflow-y-auto px-4 py-6" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
-              <p className="text-gray-400 text-sm mb-4 text-center">DCS attack planning and kneeboard cards</p>
-              <div className="flex flex-col gap-3 max-w-md mx-auto">{startButtons}</div>
-              <MyMissions onOpen={handleOpenLocal} />
-            </div>
+            <div className="absolute inset-0 flex flex-col">{frontPage}</div>
           )}
         </PhoneShell>
         {dialogs}
@@ -537,8 +583,10 @@ function App() {
 
   // ---- Desktop layout (and the web build on a large screen) ----
 
+  // The front page fills the window under the header and scrolls on its own; the map keeps its own layout.
+  const onFront = shown === 'front' && !loading && !error;
   return (
-    <div className="min-h-screen bg-dcs-dark text-white">
+    <div className={onFront ? 'flex h-screen flex-col bg-dcs-dark text-white' : 'min-h-screen bg-dcs-dark text-white'}>
       <header className="bg-dcs-navy px-4 py-3 shadow-lg flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Phoenix Weaponeer</h1>
@@ -616,6 +664,9 @@ function App() {
         </div>
       </header>
 
+      {onFront ? (
+        <main className="flex min-h-0 flex-1 flex-col">{frontPage}</main>
+      ) : (
       <main className="p-6">
         {loading ? (
           <div className="text-center py-12">
@@ -710,47 +761,9 @@ function App() {
               </div>
             )}
           </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="text-center py-8">
-              <p className="text-gray-400 mb-4">No mission loaded</p>
-              <div className="flex gap-4 justify-center">{startButtons}</div>
-              {platform.isWeb ? <MyMissions onOpen={handleOpenLocal} /> : <RecentMissions onOpen={handleOpenRecent} />}
-            </div>
-
-            <div className="grid grid-cols-2 gap-6">
-              <div className="bg-dcs-navy rounded-lg p-4">
-                <h3 className="font-medium mb-3 text-dcs-accent">Threat Database ({threats.length})</h3>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {threats.map((threat) => (
-                    <div key={threat.id} className="bg-dcs-dark rounded p-2 text-sm">
-                      <span className="font-medium">{threat.name}</span>
-                      {threat.nato_designation && (
-                        <span className="text-gray-400 ml-2">({threat.nato_designation})</span>
-                      )}
-                      <span className="text-gray-500 ml-2">
-                        {threat.threat_type} - {threat.max_range_nm}nm
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-dcs-navy rounded-lg p-4">
-                <h3 className="font-medium mb-3 text-dcs-accent">Aircraft Database ({aircraft.length})</h3>
-                <div className="space-y-2">
-                  {aircraft.map((ac) => (
-                    <div key={ac.id} className="bg-dcs-dark rounded p-2 text-sm">
-                      <span className="font-medium">{ac.name}</span>
-                      <span className="text-gray-400 ml-2">({ac.dcs_module_name})</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        ) : null}
       </main>
+      )}
 
       {dialogs}
     </div>

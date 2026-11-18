@@ -52,18 +52,16 @@ fs.mkdirSync(out, { recursive: true });
   step(`layout: ${phone ? 'phone' : 'desktop'} ${w}x${h}`);
 
   await page.goto(base);
-  await page.getByRole('button', { name: 'Import FragOrders' }).waitFor({ timeout: 15000 });
-  step('landing loaded');
+  await page.getByRole('heading', { name: 'Load a mission' }).waitFor({ timeout: 15000 });
+  step('front page loaded');
   await shot('01-landing');
 
-  await page.getByRole('button', { name: 'Import FragOrders' }).click();
-  await page.getByRole('button', { name: 'From JSON' }).click();
-  await page.getByPlaceholder('Or paste FragOrders JSON here...').fill(fixture);
-  await page.getByRole('button', { name: 'Parse JSON' }).click();
-  await page.getByRole('button', { name: 'Import Mission' }).waitFor({ timeout: 10000 });
+  await page.getByPlaceholder('Paste a FragOrders link').fill(fixture);
+  await page.getByRole('button', { name: 'Load', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Choose your flight' }).waitFor({ timeout: 10000 });
   step('import preview shown');
   await shot('02-import-preview');
-  await page.getByRole('button', { name: 'Import Mission' }).click();
+  await page.getByRole('button', { name: /^Import / }).click();
   await page.getByRole('button', { name: /^Threats/ }).waitFor();
   step('mission imported');
   await page.waitForTimeout(1500); // map tiles
@@ -170,23 +168,24 @@ fs.mkdirSync(out, { recursive: true });
   const savedJson = JSON.parse(fs.readFileSync(saved, 'utf8'));
   step(`exported ${download.suggestedFilename()} with ${savedJson.waypoints.length} waypoints, ${savedJson.threats.length} threats`);
 
-  // Closing loses nothing: the mission was autosaved to "My missions".
+  // Closing loses nothing: the mission was autosaved, and the front page lists it under "Recent missions".
   await fileAction('Close', 'Close mission');
-  await page.getByText('My missions').waitFor({ timeout: 10000 });
+  await page.getByRole('heading', { name: 'Recent missions' }).waitFor({ timeout: 10000 });
   const listed = await page.getByRole('button', { name: new RegExp(savedJson.name) }).count();
-  step(`closed; My missions lists "${savedJson.name}": ${listed > 0}`);
+  step(`closed; Recent missions lists "${savedJson.name}": ${listed > 0}`);
   await shot('05a-my-missions');
   await page.getByRole('button', { name: new RegExp(savedJson.name) }).first().click();
   await page.getByRole('button', { name: /^Threats/ }).waitFor({ timeout: 10000 });
-  step('reopened from My missions');
+  step('reopened from Recent missions');
   // Closed at once on purpose: closing mid-zoom used to throw `_leaflet_pos`
   // from Leaflet's zoom-end timer (fixed by map/ZoomTimerGuard).
   await fileAction('Close', 'Close mission');
 
-  await page.getByRole('button', { name: 'Open .json File' }).waitFor();
+  // The front page's load box reads a saved mission too.
+  await page.getByRole('button', { name: 'Choose file' }).waitFor();
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser', { timeout: 10000 }),
-    page.getByRole('button', { name: 'Open .json File' }).click(),
+    page.getByRole('button', { name: 'Choose file' }).click(),
   ]);
   await chooser.setFiles(saved);
   await page.getByRole('button', { name: /^Threats/ }).waitFor({ timeout: 10000 });

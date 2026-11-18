@@ -916,6 +916,8 @@ ok('X1 the recent cards and their pictures never look at the reveal setting',
   noReveal.length === 2 && offenders(['revealHidden', 'useUiStore'], noReveal).length === 0, offenders(['revealHidden', 'useUiStore'], noReveal).join());
 // Red when: any other file under src/lib/landing/ imports '@platform' (`import { platform } from '@platform';` added to missionSummary.ts).
 // Seen: FAIL X1 only platformBindings reaches the platform  src/lib/landing/missionSummary.ts,src/lib/landing/platformBindings.ts
+// Red when: a front page component imports it too (`import { platform } from '@platform';` added to src/components/landing/LoadBox.tsx).
+// Seen: FAIL X1 only platformBindings reaches the platform  src/lib/landing/platformBindings.ts,src/components/landing/LoadBox.tsx
 const importsPlatform = sources.filter(({ text }) => /['"]@platform['"]/.test(text)).map(({ file }) => file);
 ok('X1 only platformBindings reaches the platform', importsPlatform.length === 1 && importsPlatform[0].endsWith('/platformBindings.ts'), importsPlatform.join());
 // The two modules that are plain maths and text stay free of the app: the picture's planner takes only the basemap

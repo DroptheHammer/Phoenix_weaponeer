@@ -48,11 +48,11 @@ function pngSize(file) {
 
   // ---- Seed: import and plan attacks at desktop size ----
   await page.goto(base);
-  await page.getByRole('button', { name: 'Import FragOrders' }).click();
-  await page.getByRole('button', { name: 'From JSON' }).click();
-  await page.getByPlaceholder('Or paste FragOrders JSON here...').fill(fixture);
-  await page.getByRole('button', { name: 'Parse JSON' }).click();
-  await page.getByRole('button', { name: 'Import Mission' }).click();
+  await page.getByRole('heading', { name: 'Load a mission' }).waitFor({ timeout: 15000 });
+  await page.getByPlaceholder('Paste a FragOrders link').fill(fixture);
+  await page.getByRole('button', { name: 'Load', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Choose your flight' }).waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: /^Import / }).click();
   await page.getByRole('button', { name: /^Attacks/ }).waitFor();
   step('mission imported');
 

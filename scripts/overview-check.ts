@@ -387,6 +387,9 @@ ok('E1 today, yesterday, this year, another year, nothing',
     '/Missions/STRIKE.JSON': new TextEncoder().encode(exportText),
     '/Missions/huge.json': 'too-large',
     '/Missions/folder.json': 'not-a-file',
+    // The read command checks the name again itself and answers 'not-json' if it is not a .json; the name test
+    // here catches that first, so only a reader that disagrees with it can send this back.
+    '/Missions/odd.json': 'not-json',
     '/Missions/locked.json': 'Permission denied (os error 13)',
   };
   const readCalls: string[] = [];
@@ -440,16 +443,19 @@ ok('E1 today, yesterday, this year, another year, nothing',
         !readCalls.includes('/Missions/card.png') && readCalls.includes('/Missions/STRIKE.JSON') && upper.kind === 'fragorders',
       JSON.stringify({ png, read: readCalls.includes('/Missions/card.png') }));
 
-    const [huge, folder, locked] = await Promise.all([byPath('/Missions/huge.json'), byPath('/Missions/folder.json'), byPath('/Missions/locked.json')]);
+    const [huge, folder, oddName, locked] = await Promise.all([byPath('/Missions/huge.json'), byPath('/Missions/folder.json'), byPath('/Missions/odd.json'), byPath('/Missions/locked.json')]);
     // Red when (loadRouter READ_REFUSALS): the `['too-large', 'too-large']` entry is deleted.
     // Seen: FAIL P1 the read command's refusals reach the planner in the load box's own words, never as its codes; any other failure keeps its own words  {"huge":{"kind":"error","message":"Couldn't read that file — too-large"},...
     // Red when (loadRouter READ_REFUSALS): the `['not-a-file', 'not-a-mission-file']` entry is deleted.
     // Seen: FAIL P1 the read command's refusals reach the planner in the load box's own words, never as its codes; any other failure keeps its own words  {"huge":{...,"reason":"too-large"},"folder":{"kind":"error","message":"Couldn't read that file — not-a-file"},...
+    // Red when (loadRouter READ_REFUSALS): the `['not-json', 'not-a-mission-file']` entry maps to another reason, `['not-json', 'too-large']`.
+    // Seen: FAIL P1 the read command's refusals reach the planner in the load box's own words, never as its codes; any other failure keeps its own words  {...,"oddName":{"kind":"error","message":"That's too large to be a mission (the limit is 25 MB).","reason":"too-large"},...
     ok('P1 the read command\'s refusals reach the planner in the load box\'s own words, never as its codes; any other failure keeps its own words',
       huge.kind === 'error' && huge.reason === 'too-large' && huge.message === REFUSAL_MESSAGES['too-large'] &&
         folder.kind === 'error' && folder.reason === 'not-a-mission-file' && folder.message === REFUSAL_MESSAGES['not-a-mission-file'] &&
+        oddName.kind === 'error' && oddName.reason === 'not-a-mission-file' && oddName.message === REFUSAL_MESSAGES['not-a-mission-file'] &&
         locked.kind === 'error' && locked.message === "Couldn't read that file — Permission denied (os error 13)",
-      JSON.stringify({ huge, folder, locked }));
+      JSON.stringify({ huge, folder, oddName, locked }));
   })().catch((e) => ok('P1 the file-by-path checks ran without throwing', false, String((e as Error)?.stack ?? e)));
 }
 
