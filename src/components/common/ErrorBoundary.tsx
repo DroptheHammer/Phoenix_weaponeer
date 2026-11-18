@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { saveMissionAs } from '../../lib/missionFile';
 import { useMissionStore } from '../../stores/missionStore';
+import { Button } from '../ui/Button';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -61,13 +62,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           </pre>
           {saveMsg && <p className="text-sm text-gray-300 break-words">{saveMsg}</p>}
           <div className="flex justify-end gap-3">
-            <button onClick={this.tryAgain} className="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:text-white hover:border-gray-400 transition-colors">
+            <Button variant="outline" onClick={this.tryAgain}>
               Try again
-            </button>
+            </Button>
             {hasMission && (
-              <button onClick={this.saveCopy} disabled={saving} className="px-4 py-2 rounded-lg bg-dcs-accent hover:bg-red-600 disabled:opacity-50 transition-colors">
+              <Button variant="primary" onClick={this.saveCopy} busy={saving}>
                 {saving ? 'Saving…' : 'Save a copy…'}
-              </button>
+              </Button>
             )}
           </div>
         </div>

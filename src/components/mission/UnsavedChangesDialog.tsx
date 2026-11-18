@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal } from '../common/Modal';
+import { Button } from '../ui/Button';
 import { saveMission } from '../../lib/missionFile';
 
 interface UnsavedChangesDialogProps {
@@ -52,27 +53,15 @@ export function UnsavedChangesDialog({
       )}
 
       <div className="flex justify-end gap-3">
-        <button
-          onClick={onCancel}
-          disabled={saving}
-          className="px-4 py-2 rounded-lg bg-dcs-blue hover:bg-blue-600 disabled:opacity-50 transition-colors"
-        >
+        <Button variant="quiet" onClick={onCancel} disabled={saving}>
           Cancel
-        </button>
-        <button
-          onClick={onProceed}
-          disabled={saving}
-          className="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:text-white hover:border-gray-400 disabled:opacity-50 transition-colors"
-        >
+        </Button>
+        <Button variant="outline" onClick={onProceed} disabled={saving}>
           Discard
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-4 py-2 rounded-lg bg-dcs-accent hover:bg-red-600 disabled:opacity-50 transition-colors"
-        >
+        </Button>
+        <Button variant="primary" onClick={handleSave} busy={saving}>
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

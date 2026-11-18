@@ -583,3 +583,22 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   ok('SH38 the phone\'s map header is given the same place the planner\'s bar names ("Nevada (NTTR)", "Real world"), worked out once',
      placeOnce && placeToPhone && placeToDesktop, `worked out once ${placeOnce}, given to the phone header ${placeToPhone}, named in the planner's bar ${placeToDesktop}`);
 }
+
+// ─── The small dialogs' buttons ──────────────────────────────────────────────────────────
+{
+  // The unsaved-changes dialog, the update banner and the error screen draw their buttons with the shared Button, so they have the same
+  // colours, sizes and focus look as every other button and not a blue or accent button of their own. These three are read as source:
+  // a dialog drawn into the page's body and the banner's waiting state cannot be rendered without a browser.
+  // Red when: UpdateBanner's Reload goes back to a hand-made `<button … className="… bg-dcs-accent …">` (or any of the three files to `bg-dcs-blue` / `bg-dcs-accent`);
+  // or a file draws a plain `<button` of its own, in any colour; or a file loses its Button import.
+  // Seen: FAIL SH24 the unsaved-changes, update and error dialogs' buttons are the shared Button (no hand-made button of their own, blue, accent or any other colour)  src/components/common/UpdateBanner.tsx
+  //         (Reload put back as `<button … className="px-3 py-2 rounded-lg bg-dcs-accent hover:bg-red-600 font-medium">`)
+  //       FAIL SH24 …  src/components/mission/UnsavedChangesDialog.tsx   (Discard as a plain `<button … className="px-4 py-2 rounded-lg bg-red-600">`: no blue or accent class, so the plain button alone turns it red)
+  //       FAIL SH24 …  src/components/common/ErrorBoundary.tsx   (the import changed to `'../ui/ButtonX'`)
+  const small = ['src/components/mission/UnsavedChangesDialog.tsx', 'src/components/common/UpdateBanner.tsx', 'src/components/common/ErrorBoundary.tsx'];
+  const raw = small.filter((f) => {
+    const src = read(f);
+    return /bg-dcs-(blue|accent)\b/.test(src) || /<button\b/.test(src) || !/from ['"][./]+ui\/Button['"]/.test(src);
+  });
+  ok('SH24 the unsaved-changes, update and error dialogs\' buttons are the shared Button (no hand-made button of their own, blue, accent or any other colour)', raw.length === 0, raw.join(', '));
+}
