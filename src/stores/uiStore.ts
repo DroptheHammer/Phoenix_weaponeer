@@ -77,6 +77,14 @@ interface UiState extends DisplayFilter, Selection {
    */
   kneeboardMap: boolean;
   setKneeboardMap: (on: boolean) => void;
+  /**
+   * The desktop map's Legend box is open. Closed when the app starts; then it stays as the
+   * planner left it for the rest of the session, across New, Open, Import and Close (it is
+   * how the planner likes the screen, not part of a mission). Never saved. The phone's
+   * Layers button keeps its own open state, as before.
+   */
+  legendOpen: boolean;
+  setLegendOpen: (open: boolean) => void;
   selectAttack: (id: string | null) => void;
   /** Select a threat and ask the map to fly to it. */
   selectThreat: (id: string | null) => void;
@@ -130,6 +138,10 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   kneeboardMap: true,
   setKneeboardMap: (on) => set({ kneeboardMap: on }),
+
+  // Not part of emptyFilter, so Show all and the reset on New/Open/Import/Close leave it as it is.
+  legendOpen: false,
+  setLegendOpen: (open) => set({ legendOpen: open }),
 
   selectAttack: (id) => set({ selectedAttackId: id, selectedThreatId: null }),
   selectThreat: (id) => set({ selectedThreatId: id, selectedAttackId: null, focusThreatId: id }),

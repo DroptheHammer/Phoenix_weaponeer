@@ -19,6 +19,11 @@ import { plannerRailItems, phoneTabItems, PANEL_TITLES } from '../src/components
 import { MapZoom } from '../src/components/map/MapZoom';
 import { MapCredit, MAP_CREDIT } from '../src/components/map/MapCredit';
 import { PlannerShell } from '../src/components/shell/PlannerShell';
+import { LayersButton, LegendBox, LegendContent, LegendDock, selectAnythingHidden } from '../src/components/map/MapLegend';
+import { useUiStore } from '../src/stores/uiStore';
+import { visibleMission } from '../src/lib/threatVisibility';
+import type { Attack, ThreatInstance } from '../src/types';
+import type { FlightMember } from '../src/types/flight.types';
 import { readTokens } from './tokens.mjs';
 
 const ok = (name: string, cond: boolean, detail = '') => {
@@ -277,10 +282,12 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
      Object.values(back).every(Boolean), `opens ${back.opens}, back link ${back.link}, File row ${back.row}, overview bar ${back.overviewBar}`);
 
   const mapView = read('src/components/map/MapView.tsx');
-  // Red when: `attributionControl={false}` is taken out of MapView (Leaflet's own credit would be drawn beside the app's).
+  // Red when: `attributionControl={false}` is taken out of MapView (Leaflet's own credit would be drawn beside the app's); or the
+  // phone chrome's `<MapZoom` is taken out (the Layers button may stand first in that block, nothing else may).
   // Seen: FAIL SH8 Leaflet's own zoom and attribution are off; MapView draws the app's zoom and credit on a phone  attribution off false; Leaflet zoom false
+  //       FAIL SH8 …  attribution off true; Leaflet zoom false   (the phone's zoom renamed away)
   ok('SH8 Leaflet\'s own zoom and attribution are off; MapView draws the app\'s zoom and credit on a phone',
-     /attributionControl=\{false\}/.test(mapView) && /zoomControl=\{false\}/.test(mapView) && !/<ZoomControl/.test(mapView) && /\{isPhone && \(\s*<>\s*<MapZoom[\s\S]*?<MapCredit/.test(mapView),
+     /attributionControl=\{false\}/.test(mapView) && /zoomControl=\{false\}/.test(mapView) && !/<ZoomControl/.test(mapView) && /\{isPhone && \(\s*<>\s*(?:<LayersButton[^>]*\/>\s*)?<MapZoom[\s\S]*?<MapCredit/.test(mapView),
      `attribution off ${/attributionControl=\{false\}/.test(mapView)}; Leaflet zoom ${/<ZoomControl/.test(mapView)}`);
 
   // Red when: MAP_CREDIT becomes '© Map data'.
@@ -317,4 +324,143 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   ok('SH23 the side panel slides in on its first showing only: the slide class hangs on `entering`, which the end of the slide and a map pick clear (a source check: the slide itself is CSS)',
      shown.includes('motion-safe:animate-sheet-in') && /entering && ['"]motion-safe:animate-sheet-in['"]/.test(sheet) && /onAnimationEnd=\{settle\}/.test(sheet) && /if \(hidden\) setEntering\(false\)/.test(sheet),
      `slide class drawn ${shown.includes('motion-safe:animate-sheet-in')}; hangs on entering ${/entering && ['"]motion-safe:animate-sheet-in['"]/.test(sheet)}`);
+}
+
+// ─── The Legend ──────────────────────────────────────────────────────────────────────────
+{
+  const resetUi = () => {
+    useUiStore.getState().resetFilter();
+    useUiStore.getState().setLegendOpen(false);
+  };
+  // Red when: `legendOpen: false` is added to emptyFilter in uiStore.ts (with `as DisplayFilter`, so it compiles: Open, Import and Close would shut it); or
+  // the store starts with `legendOpen: true`.
+  // Seen: FAIL SH11 the Legend starts closed and stays as the planner left it through New, Open, Import, Close and Show all  starts closed true, kept false   (in emptyFilter)
+  //       FAIL SH11 …  starts closed false, kept true   (the store starting open; SH12 goes red with it)
+  // The initial state is read before anything else in this run could have set the flag.
+  const startsClosed = useUiStore.getInitialState().legendOpen === false;
+  resetUi();
+  useUiStore.getState().setLegendOpen(true);
+  useUiStore.getState().resetFilter();
+  useUiStore.getState().showAll();
+  const kept = useUiStore.getState().legendOpen;
+  resetUi();
+  ok('SH11 the Legend starts closed and stays as the planner left it through New, Open, Import, Close and Show all', startsClosed && kept === true, `starts closed ${startsClosed}, kept ${kept}`);
+
+  const member = (id: string, callsign: string) => ({ id, callsign, position: 1, role: 'wingman', aircraftId: 'f16c', loadout: [] }) as unknown as FlightMember;
+  const attack = (id: string, attackerId: string) => ({ id, attackerId }) as unknown as Attack;
+  const threat = (id: string, source: 'mission' | 'planning', flags: { hiddenOnPlanner?: boolean; hiddenOnMap?: boolean } = {}) => ({ id, source, ...flags }) as unknown as ThreatInstance;
+  const props = { attacks: [attack('a1', 'm1')], flightMembers: [member('m1', 'Testcall 1-1')], threats: [threat('t1', 'mission'), threat('t2', 'planning'), threat('t3', 'planning')] };
+  // A store-connected component renders its store's initial state on the server (zustand 5), so the open and filtered
+  // looks go through LegendBox, which takes them as props; LegendDock, connected, is rendered once to prove the app
+  // starts with the Legend closed.
+  const content = createElement(LegendContent, props);
+  const dock = html(createElement(LegendDock, props));
+  const closed = html(createElement(LegendBox, { open: false, filtered: false, onOpenChange: noop }, content));
+  const open = html(createElement(LegendBox, { open: true, filtered: false, onOpenChange: noop }, content));
+  const filtered = html(createElement(LegendBox, { open: false, filtered: true, onOpenChange: noop }, content));
+  // Red when: LegendBox's `open ? 'w-legend' : 'min-w-dock'` becomes `'w-legend'`; or uiStore starts with `legendOpen: true`; or
+  // `aria-controls={open ? 'map-legend-body' : undefined}` becomes `aria-controls="map-legend-body"` (it would name a body that is not there).
+  // Seen: FAIL SH12 closed (as the app starts), the Legend is one button …  <section aria-label="Legend" class="rounded-ui-lg border border-line-strong bg-surface-float shadow-ui-2 pointer-events-auto flex min-h-0 shrink flex-col-reverse overflow-hidden w-legend"><button type…   (the width)
+  //       FAIL SH12 …  <section aria-label="Legend" class="… overflow-hidden min-w-dock"><button ty…   (the store starting open, or aria-controls always set)
+  ok('SH12 closed (as the app starts), the Legend is one button ("Legend", aria-expanded false, no aria-controls), the rail\'s width, on the floating material, with no key or filters drawn',
+     dock === closed && closed.includes('aria-expanded="false"') && !closed.includes('aria-controls') && />Legend</.test(closed) && closed.includes('min-w-dock') && closed.includes('bg-surface-float')
+       && !closed.includes('id="map-legend-body"') && !closed.includes('Mission ('),
+     closed.slice(0, 200));
+  // Red when: LegendBox's `flex-col-reverse` becomes `flex-col` (the button would jump to the top of the box).
+  // Seen: FAIL SH13 open, it is one box --legend-w wide, its button at the bottom, …  <section aria-label="Legend" class="rounded-ui-lg border border-line-strong bg-surface-float shadow-ui-2 pointer-events-auto flex min-h-0 shrink flex-col overflow-hidden w-legend"><button type="button…
+  ok('SH13 open, it is one box --legend-w wide, its button at the bottom, the key and the Attacks, Threats and Route filters above it, scrolling inside',
+     open.includes('aria-expanded="true"') && open.includes('aria-controls="map-legend-body"') && open.includes('w-legend') && open.includes('flex-col-reverse') && open.includes('id="map-legend-body"') && open.includes('overflow-y-auto')
+       && open.includes('Testcall 1-1 · 1 attack') && open.includes('Route &amp; waypoints') && open.includes('>Target<') && open.includes('>Bullseye<'),
+     open.slice(0, 200));
+  // Red when: the `· filtered` span is taken out of LegendBox.
+  // Seen: FAIL SH14 with a layer hidden, the closed button says "Legend · filtered" in words  <section aria-label="Legend" class="rounded-ui-lg border border-line-strong bg-surface-float shadow-ui-2 pointer-events-auto flex min-h-0 shrink flex-col-reverse overflow-hidden min-w-dock"><button ty…
+  ok('SH14 with a layer hidden, the closed button says "Legend · filtered" in words', filtered.includes('· filtered') && filtered.includes('title="Some layers are hidden"'), filtered.slice(0, 200));
+  // Red when: App passes `threats={mission.threats}` to <LegendDock>.
+  // Seen: FAIL SH15 the threat counts are the threats the Legend is given, and App gives it the visible mission's (author-hidden ones only if revealed in Settings › Admin)  Mission (1) Planning (2)   (App's line; the counts alone stay as they were)
+  const counted = html(content);
+  const app = read('src/App.tsx');
+  ok('SH15 the threat counts are the threats the Legend is given, and App gives it the visible mission\'s (author-hidden ones only if revealed in Settings › Admin)',
+     counted.includes('Mission (1)') && counted.includes('Planning (2)') && /<LegendDock[^>]*threats=\{visibleMission\?\.threats \?\? \[\]\}/.test(app) && !/<LegendDock[^>]*mission\.threats/.test(app),
+     `${/Mission \(\d+\)/.exec(counted)?.[0]} ${/Planning \(\d+\)/.exec(counted)?.[0]}`);
+
+  // The closed button says "filtered" when anything the Legend can filter is off, so the answer has to follow every one of its
+  // filters: a jet, a flight, the mission's threats, the planning threats, and the route.
+  const store = useUiStore.getState();
+  const selectAnythingHiddenNow = () => selectAnythingHidden(useUiStore.getState());
+  const wasHidden = (act: () => void) => {
+    resetUi();
+    act();
+    const hidden = selectAnythingHiddenNow();
+    useUiStore.getState().showAll();
+    return hidden && !selectAnythingHiddenNow();
+  };
+  const filters: [string, () => void][] = [
+    ['a jet', () => store.toggleAttacker('m1')],
+    ['a flight', () => store.toggleFlight(['m1', 'm2'])],
+    ['the mission threats', () => store.toggleThreatSource('mission')],
+    ['the planning threats', () => store.toggleThreatSource('planning')],
+    ['the route', () => store.toggleRoute()],
+  ];
+  const noticed = filters.map(([name, act]) => `${name} ${wasHidden(act)}`);
+  const startsPlain = !selectAnythingHiddenNow();
+  resetUi();
+  // Red when: selectAnythingHidden's `|| s.routeHidden` is taken out (a hidden route would leave the button saying nothing).
+  // Seen: FAIL SH30 the closed Legend says "filtered" for every filter it has (a jet, a flight, the mission threats, the planning threats, the route), and Show all clears it  starts plain true; a jet true, a flight true, the mission threats true, the planning threats true, the route false
+  ok('SH30 the closed Legend says "filtered" for every filter it has (a jet, a flight, the mission threats, the planning threats, the route), and Show all clears it',
+     startsPlain && noticed.every((line) => line.endsWith('true')), `starts plain ${startsPlain}; ${noticed.join(', ')}`);
+
+  // Every filter the old Legend had is still there, ticked as the store says and wired to the same store action, and "Show all"
+  // is offered only when something is hidden (a source check: a checkbox's click needs a browser, and web-smoke presses them).
+  const legendSrc = read('src/components/map/MapLegend.tsx');
+  const wired = {
+    boxes: count(open, /type="checkbox"/g) === 5,
+    flight: /checked=\{hiddenCount === 0\} indeterminate=\{hiddenCount > 0 && hiddenCount < memberIds\.length\} onChange=\{\(\) => toggleFlight\(memberIds\)\}/.test(legendSrc),
+    jet: /checked=\{!hiddenAttackerIds\.includes\(m\.id\)\} onChange=\{\(\) => toggleAttacker\(m\.id\)\}/.test(legendSrc),
+    mission: /checked=\{!hiddenThreatSources\.includes\('mission'\)\} onChange=\{\(\) => toggleThreatSource\('mission'\)\}/.test(legendSrc),
+    planning: /checked=\{!hiddenThreatSources\.includes\('planning'\)\} onChange=\{\(\) => toggleThreatSource\('planning'\)\}/.test(legendSrc),
+    route: /<TriCheckbox checked=\{!routeHidden\} onChange=\{toggleRoute\} \/>/.test(legendSrc),
+    showAll: /\{anythingHidden && \(\s*<div[^>]*>\s*<Button variant="text" onClick=\{showAll\}>\s*Show all\s*<\/Button>/.test(legendSrc) && !/Show all/.test(open),
+  };
+  // Red when: the planning threats' `toggleThreatSource('planning')` becomes `toggleThreatSource('mission')`; or the route's box is taken out.
+  // Seen: FAIL SH31 every filter the old Legend had is still there and wired to the same store action: …  boxes true, flight true, jet true, mission true, planning false, route true, Show all when something is hidden true   (planning wired to the mission threats)
+  //       FAIL SH31 …  boxes false, flight true, jet true, mission true, planning true, route false, Show all when something is hidden true   (the route's box taken out)
+  ok('SH31 every filter the old Legend had is still there and wired to the same store action: a flight, a jet, the mission and planning threats, the route, and Show all only while something is hidden',
+     Object.values(wired).every(Boolean),
+     `boxes ${wired.boxes}, flight ${wired.flight}, jet ${wired.jet}, mission ${wired.mission}, planning ${wired.planning}, route ${wired.route}, Show all when something is hidden ${wired.showAll}`);
+
+  // Threats the mission author hid are never listed or counted. The Legend counts what it is given, so this feeds it the way
+  // the app does (the visible mission) and proves a hidden threat leaves no trace in what it draws, and a revealed one counts.
+  const hiddenFixture = [threat('h1', 'mission'), threat('h2', 'mission', { hiddenOnPlanner: true }), threat('h3', 'mission', { hiddenOnMap: true }), threat('h4', 'planning')];
+  const withoutHidden = hiddenFixture.filter((t) => t.id === 'h1' || t.id === 'h4');
+  const none = { onPlanner: false, onMap: false };
+  const legendFor = (threats: ThreatInstance[]) => html(createElement(LegendContent, { ...props, threats }));
+  const asTheAppFeeds = (reveal: { onPlanner: boolean; onMap: boolean }) => legendFor(visibleMission({ threats: hiddenFixture }, reveal).threats);
+  const unrevealed = asTheAppFeeds(none);
+  const same = unrevealed === legendFor(visibleMission({ threats: withoutHidden }, none).threats);
+  const counts = [unrevealed, asTheAppFeeds({ onPlanner: true, onMap: false }), asTheAppFeeds({ onPlanner: true, onMap: true })].map((text) => /Mission \((\d+)\)/.exec(text)?.[1]).join(',');
+  // Red when: the Legend's `Mission ({missionThreatCount})` becomes `Mission ({threats.length})` (the planning threat is counted as a mission one).
+  // Seen: FAIL SH32 a threat the mission author hid leaves no trace in the Legend (it reads the same as for a mission without it), and a revealed one counts like any other  same as the mission without them true; mission counts 2,3,4 (want 1,2,3)   (SH15 goes red with it)
+  ok('SH32 a threat the mission author hid leaves no trace in the Legend (it reads the same as for a mission without it), and a revealed one counts like any other',
+     same && counts === '1,2,3' && /Planning \(1\)/.test(unrevealed), `same as the mission without them ${same}; mission counts ${counts} (want 1,2,3)`);
+
+  // The desktop draws its Legend once, in the planner's left column; the phone's Layers button is MapView's own and is given
+  // the same visible threats. Shut, the Layers button is one button; open, its panel is a dialog named "Layers".
+  const mapViewSrc = read('src/components/map/MapView.tsx');
+  const layers = html(createElement(LayersButton, props));
+  const mapViewTag = app.slice(Math.max(0, app.indexOf('<MapView')), Math.max(0, app.indexOf('/>', app.indexOf('<MapView'))));
+  const phoneLegend = {
+    once: count(app, /<LegendDock\b/g) === 1 && /legend=\{<LegendDock\b/.test(app) && !/<MapLegend\b/.test(mapViewSrc) && !/import \{ MapLegend \}/.test(mapViewSrc),
+    shut: layers.includes('aria-expanded="false"') && />Layers</.test(layers) && !layers.includes('role="dialog"') && layers.includes('font-sans') && layers.includes('top-3'),
+    panel: /role="dialog"\s+aria-label="Layers"/.test(legendSrc) && /<div\s+className="pointer-events-auto min-h-0 w-\[min\(var\(--legend-w\),calc\(100vw-1\.5rem\)\)\]/.test(legendSrc),
+    first: /\{isPhone && \(\s*<>\s*<LayersButton attacks=\{attacks\} flightMembers=\{flightMembers\} threats=\{threats\} \/>\s*<MapZoom/.test(mapViewSrc),
+    visible: /threats=\{visibleMission\?\.threats \?\? \[\]\}/.test(mapViewTag) && !/threats=\{mission\.threats\}/.test(mapViewTag),
+  };
+  // Red when: App's `<MapView … threats={visibleMission?.threats ?? []}` becomes `threats={mission.threats}` (the phone's Layers panel would count the hidden ones); or
+  // MapView draws `<MapLegend … />` again (a second Legend on the desktop); or the panel loses its `min-h-0` (it runs past the map's bottom).
+  // Seen: FAIL SH33 the desktop draws its Legend once, in the planner's left column; …  Legend once true, shut true, panel true, first true, visible threats false   (App's MapView given mission.threats)
+  //       FAIL SH33 …  Legend once false, shut true, panel true, first true, visible threats true   (a `<MapLegend … />` line put back)
+  //       FAIL SH33 …  Legend once true, shut true, panel false, first true, visible threats true   (`min-h-0` taken out of the panel)
+  ok('SH33 the desktop draws its Legend once, in the planner\'s left column; the phone\'s Layers button is the first thing in MapView\'s phone chrome, shut it is one button, open its panel is a dialog named "Layers" that fits the map, and it is given the visible threats',
+     Object.values(phoneLegend).every(Boolean),
+     `Legend once ${phoneLegend.once}, shut ${phoneLegend.shut}, panel ${phoneLegend.panel}, first ${phoneLegend.first}, visible threats ${phoneLegend.visible}`);
 }

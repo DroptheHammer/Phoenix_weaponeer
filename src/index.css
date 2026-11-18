@@ -49,7 +49,7 @@ body {
 }
 
 /* The map keeps today's look. Leaflet sets its own font inside .leaflet-container,
-   but the labels, legend and crosshair bar sit beside it in a wrapper that carries
+   but the labels and crosshair bar sit beside it in a wrapper that carries
    `font-map` (MapView, AttackPreviewMap): the old font stack, ordinary digits. */
 .font-map,
 .legacy-ui,

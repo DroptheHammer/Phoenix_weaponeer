@@ -28,7 +28,7 @@
 //                  header or the panel buttons (their box and 60 px round it, for their shadow) or
 //                  moved by at most 4 of 255 in each channel; on the phone, only in the top bar and
 //                  the tab bar. The markers sit where they sat (the map framed the route the same).
-//             HS2  the app's text is in the bundled Figtree, and the map's legend and Leaflet keep
+//             HS2  the app's text is in the bundled Figtree, and the map's wrapper and Leaflet keep
 //                  their own font and ordinary digits.
 //             HS3  every font comes from the app itself, and the only hosts contacted are the local
 //                  server and the map tile server.
@@ -431,9 +431,13 @@ async function appRun(browser, base, size) {
       figtree: document.fonts.check('600 15px "Figtree Variable"'),
       leaflet: getComputedStyle(document.querySelector('.leaflet-container')).fontFamily,
     }));
-    // The legend: a box on the desktop map, the Layers button on a phone. Both sit in the map's font-map wrapper.
-    const legend = phone ? page.getByRole('button', { name: 'Layers' }) : page.getByRole('button', { name: /Legend/ }).locator('xpath=..');
-    m.legend = await legend.evaluate((el) => ({ font: getComputedStyle(el).fontFamily, digits: getComputedStyle(el).fontVariantNumeric }));
+    // The map's own wrapper (Leaflet's container sits directly in it, in every copy), where the attack labels are drawn. The Legend and
+    // the phone's Layers button used to sit in it too, but they are app chrome now and take the app's font like the rail does, so
+    // the wrapper itself is what keeps the map's own font and ordinary digits.
+    m.legend = await page.locator('.leaflet-container').first().evaluate((el) => {
+      const wrapper = el.parentElement;
+      return { font: getComputedStyle(wrapper).fontFamily, digits: getComputedStyle(wrapper).fontVariantNumeric };
+    });
     if (phone) {
       m.bars = [await box(page.locator('header').first()), await box(page.locator('nav').last())];
     } else {
@@ -512,9 +516,12 @@ async function runApp(browser) {
       // Red when: ` font-map` is taken off the map's wrapper in MapView.tsx.
       // Seen: STEP FAIL HS2 fonts: … (1400x900) — body "Figtree Variable", … (Figtree loaded true); legend "Figtree Variable", "Segoe UI", …
       //       / digits tabular-nums (before Inter, system-ui, Avenir, Helvetica, Arial, sans-serif); leaflet …   (and the same at 390x844)
-      step(`HS2 fonts: the app's text in Figtree, the map's legend and Leaflet in their own font with ordinary digits (${tag})`,
+      // Since the Legend moved out of the wrapper into the app's own chrome, the wrapper itself is what is read. That measure, run alone
+      // on a web build with ` font-map` taken off the wrapper, gives font "Figtree Variable", "Segoe UI", … / digits tabular-nums at both
+      // sizes (and Inter, system-ui, … / normal with it on); the whole script was not re-run.
+      step(`HS2 fonts: the app's text in Figtree, the map's wrapper and Leaflet in their own font with ordinary digits (${tag})`,
         /^"?Figtree Variable"?/.test(a.m.fonts.body) && a.m.fonts.figtree && a.m.legend.font === b.m.legend.font && a.m.legend.digits === 'normal' && a.m.fonts.leaflet === b.m.fonts.leaflet,
-        `body ${a.m.fonts.body} (Figtree loaded ${a.m.fonts.figtree}); legend ${a.m.legend.font} / digits ${a.m.legend.digits} (before ${b.m.legend.font}); leaflet ${a.m.fonts.leaflet} (before ${b.m.fonts.leaflet})`);
+        `body ${a.m.fonts.body} (Figtree loaded ${a.m.fonts.figtree}); map wrapper ${a.m.legend.font} / digits ${a.m.legend.digits} (before ${b.m.legend.font}); leaflet ${a.m.fonts.leaflet} (before ${b.m.fonts.leaflet})`);
 
       // HS3: no font from anywhere but the app; no host but the app and the tile server.
       // Red when: index.css starts with `@import url(https://fonts.googleapis.com/css2?family=Figtree);`.

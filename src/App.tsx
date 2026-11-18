@@ -37,6 +37,7 @@ import type { FileMenuItem } from "./components/shell/FileMenu";
 import { flightGroupOf } from "./lib/callsign";
 import type { Map as LeafletMap } from "leaflet";
 import { PlannerShell } from "./components/shell/PlannerShell";
+import { LegendDock } from "./components/map/MapLegend";
 import { PANEL_TITLES, plannerRailItems, type PanelType, type RailCounts } from "./components/shell/railItems";
 
 interface ThreatSystem {
@@ -870,7 +871,8 @@ function App() {
             // click, so the click can land anywhere, including where the panel normally sits.
             hidePanel={Boolean(mapPick)}
             banner={unverifiedBanner || undefined}
-            legend={null}
+            // The visible mission's threats: ones the mission author hid are not counted here unless revealed in Settings › Admin.
+            legend={<LegendDock attacks={mission.attacks} flightMembers={mission.flightMembers} threats={visibleMission?.threats ?? []} />}
           />
         ) : null}
       </main>

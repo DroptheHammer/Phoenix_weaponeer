@@ -9,7 +9,7 @@ import { Fragment, useMemo, useEffect, useRef, useState } from 'react';
 import { AttackProfileOverlay } from './AttackProfileOverlay';
 import { AttackLabelLayer } from './AttackLabelLayer';
 import { CustomIpMarker } from './CustomIpMarker';
-import { MapLegend } from './MapLegend';
+import { LayersButton } from './MapLegend';
 import { MapZoom } from './MapZoom';
 import { MapCredit } from './MapCredit';
 import { buildAttackPicture, pictureFitPoints } from '../../lib/attackPicture';
@@ -593,13 +593,11 @@ export function MapView({
         </div>
       )}
 
-      {/* Map legend — doubles as the display filter control */}
-      <MapLegend attacks={attacks} flightMembers={flightMembers} threats={threats} />
-
-      {/* A phone's map chrome: zoom bottom left, the credit bottom right. The desktop draws its
-          own in PlannerShell. */}
+      {/* A phone's map chrome: Layers (the legend and display filter) top right, zoom bottom
+          left, the credit bottom right. The desktop draws its own in PlannerShell. */}
       {isPhone && (
         <>
+          <LayersButton attacks={attacks} flightMembers={flightMembers} threats={threats} />
           <MapZoom map={map} className="absolute bottom-3 left-[max(0.75rem,var(--safe-left))] z-[1000]" />
           <MapCredit className="absolute bottom-2 right-[max(0.5rem,var(--safe-right))] z-[1000] max-w-[calc(100%-6rem)]" />
         </>

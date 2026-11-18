@@ -180,7 +180,23 @@ fs.mkdirSync(out, { recursive: true });
     step(`layers panel closes on an outside tap: ${!(await page.getByRole('dialog', { name: 'Layers' }).isVisible())}`);
     await page.getByRole('button', { name: /^Threats/ }).click();
   } else {
-    step(`desktop legend shown: ${await page.getByRole('button', { name: /Legend/ }).isVisible()}`);
+    // The desktop Legend is one small button at the map's bottom-left corner, shut as the app starts. Open it, switch the
+    // route off, shut it with Escape (the button then says "filtered"), open it again, Show all puts the route back.
+    const legendButton = page.getByRole('button', { name: /^Legend/ });
+    step(`desktop legend shown: ${await legendButton.isVisible()}; shut as the app starts: ${(await legendButton.getAttribute('aria-expanded')) === 'false'}`);
+    await legendButton.click();
+    const route = page.getByRole('checkbox', { name: /Route/ });
+    await route.uncheck();
+    await shot('04d-legend');
+    const polylines = await page.locator('.leaflet-overlay-pane path[stroke-dasharray="5, 10"]').count();
+    await page.keyboard.press('Escape');
+    const shutNow = (await legendButton.getAttribute('aria-expanded')) === 'false';
+    const words = (await legendButton.innerText()).replace(/\s+/g, ' ').trim();
+    step(`legend: route hidden (dashed route lines left: ${polylines}); Escape shut it: ${shutNow}; the shut button reads "${words}"`);
+    await legendButton.click();
+    await page.getByRole('button', { name: 'Show all' }).click();
+    step(`legend: Show all put the route back: ${await route.isChecked()}`);
+    await legendButton.click();
   }
 
   // Export = a download of the mission JSON, which Open must read back.
