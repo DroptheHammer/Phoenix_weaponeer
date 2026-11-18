@@ -30,6 +30,9 @@ import { MISSION_FILE_GONE, openLocalMission, openMission, openMissionAt, saveMi
 import type { FragOrdersData, DbWeapon, FuzeOption, Mission } from "./types";
 import { StrikeNearMe } from "./components/mission/StrikeNearMe";
 import { isRealWorld } from "./lib/strikeNearMe";
+import { AppBar, AppBarPrimary, BackLink, HeaderWhere, type AppBarProps } from "./components/shell/AppBar";
+import type { FileMenuItem } from "./components/shell/FileMenu";
+import { flightGroupOf } from "./lib/callsign";
 
 interface ThreatSystem {
   id: string;
@@ -80,9 +83,6 @@ const FlightChooser = lazy(() =>
  * desktop app, with no GPS and a squadron's real missions, leaves it out.
  */
 const STRIKE_NEAR_ME_AVAILABLE = platform.isWeb;
-
-const toolbarButton =
-  'px-3 py-1.5 rounded-lg text-sm font-medium bg-dcs-blue hover:bg-blue-600 transition-colors';
 
 function App() {
   const { mission, isDirty, createMission, loadMission, closeMission, importFromFragOrders, updateThreat, moveAttackCustomIp, focusAttackId, setFocusAttackId } =
@@ -614,91 +614,89 @@ function App() {
 
   // ---- Desktop layout (and the web build on a large screen) ----
 
-  // The front page fills the window under the header and scrolls on its own; the map keeps its own layout.
+  // ---- The header (AppBar): what it says on each screen ----
+  const dirtyWords = platform.isWeb ? 'Not exported' : 'Unsaved changes';
+  const place = mission ? (isRealWorld(mission) ? 'Real world' : theaterInfo?.display_name ?? '') : '';
+  const flightName = mission?.flightMembers[0] ? flightGroupOf(mission.flightMembers[0].callsign) : '';
+  // The planner's way back to the Flight overview (a back link and a File row). There is no
+  // overview screen yet, so neither is drawn until this is set.
+  const openOverview: (() => void) | undefined = undefined;
+  const openItem: FileMenuItem = { id: 'open', label: 'Open', sub: platform.isWeb ? 'Open a .json file' : 'Open a saved mission', icon: 'folder', onSelect: handleOpen };
+  // Import goes to the front page's load box (handleImportClick), which replaces nothing until a load runs.
+  const importItem: FileMenuItem = { id: 'import', label: 'Import', sub: 'Load a FragOrders link or file', icon: 'drop', onSelect: handleImportClick };
+  // In the browser every save is a fresh download, so Save As would be the same as Save.
+  const saveAsItems: FileMenuItem[] = platform.isWeb ? [] : [{ id: 'save-as', label: 'Save As', sub: 'Save a copy under a new name', icon: 'save', onSelect: () => void handleSaveAs() }];
+  const closeItem: FileMenuItem = { id: 'close', label: 'Close', sub: 'Close this mission', icon: 'close', onSelect: handleCloseMission };
+  // A file message on a screen with no "where" line (the front page).
+  const fileStatus = fileMsg ? (
+    <p role="status" title={fileMsg} className={`m-0 min-w-0 truncate text-ui-small ${fileMsg.startsWith('Error') ? 'font-semibold text-warn' : 'text-ink-2'}`}>
+      {fileMsg}
+    </p>
+  ) : undefined;
+
+  const barShared = {
+    onSettings: () => setShowSettings(true),
+    // Full screen on macOS hides the window's own buttons, and not every pilot knows Cmd+Q.
+    // `exit_app` quits outright (lib.rs lets it through), so the unsaved-changes guard runs
+    // here first. A web page is closed like any other tab (no Quit).
+    onQuit: platform.isWeb ? undefined : () => guardUnsaved('quit', () => platform.quit()),
+  };
+  const bar: AppBarProps =
+    shown === 'map' && mission
+      ? {
+          ...barShared,
+          lead: (
+            <>
+              {openOverview ? <BackLink label="Flight overview" onClick={openOverview} /> : null}
+              <HeaderWhere
+                title={mission.name}
+                dirty={isDirty}
+                fullTitle={isDirty ? `${mission.name} (${dirtyWords.toLowerCase()})` : mission.name}
+                sub={
+                  place || isDirty ? (
+                    <>
+                      {/* On a narrow window the place goes first; the unsaved words never go. */}
+                      {place ? <span className="max-[959px]:hidden">{place}{isDirty ? ' · ' : ''}</span> : null}
+                      {isDirty ? dirtyWords : null}
+                    </>
+                  ) : undefined
+                }
+                subTitle={[place, isDirty ? dirtyWords : ''].filter(Boolean).join(' · ')}
+                status={fileMsg}
+              />
+            </>
+          ),
+          primary: (
+            <AppBarPrimary
+              icon="save"
+              label={saveLabel}
+              title={platform.isWeb ? 'Download the mission as a .json file' : 'Save (Cmd/Ctrl+S)'}
+              onClick={() => void handleSave()}
+              disabled={!isDirty}
+            />
+          ),
+          fileItems: [
+            ...(openOverview ? [{ id: 'overview', label: 'Flight overview', sub: flightName ? `Jets, loadouts and threats for ${flightName}` : 'Jets, loadouts and threats', icon: 'flight' as const, onSelect: openOverview }] : []),
+            ...saveAsItems,
+            openItem,
+            importItem,
+            closeItem,
+          ],
+        }
+      : // The front page: a mission kept open behind it can still be closed from here.
+        { ...barShared, lead: fileStatus, fileItems: mission ? [openItem, importItem, closeItem] : [openItem, importItem] };
+
+  // The front page fills the window under the header and scrolls on its own; on the map screen the
+  // planner fills it edge to edge.
   const onFront = shown === 'front' && !loading && !error;
   return (
-    <div className={onFront ? 'flex h-screen flex-col bg-dcs-dark text-white' : 'min-h-screen bg-dcs-dark text-white'}>
-      <header className="bg-dcs-navy px-4 py-3 shadow-lg flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Phoenix Weaponeer</h1>
-          <p className="text-gray-400 text-sm">DCS Mission Planning Tool</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {fileMsg && (
-            <span
-              className={`text-sm ${fileMsg.startsWith('Error') ? 'text-red-400' : 'text-gray-400'}`}
-            >
-              {fileMsg}
-            </span>
-          )}
-
-          {mission && (
-            <span className="text-sm text-gray-300 max-w-[16rem] truncate" title={mission.name}>
-              {mission.name}
-              {/* Unsaved-work indicator. */}
-              {isDirty && <span className="text-dcs-accent ml-1">&#9679;</span>}
-            </span>
-          )}
-
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowSettings(true)} className={toolbarButton} title="Settings">
-              ⚙ Settings
-            </button>
-            <button onClick={handleOpen} className={toolbarButton}>
-              Open
-            </button>
-            {/*
-              Import used to exist only on the no-mission landing screen, so
-              once a mission was loaded there was no way back to it.
-            */}
-            <button onClick={handleImportClick} className={toolbarButton}>
-              Import
-            </button>
-            {mission && (
-              <>
-                <button
-                  onClick={handleSave}
-                  disabled={!isDirty}
-                  className={`${toolbarButton} disabled:opacity-40 disabled:hover:bg-dcs-blue`}
-                  title={platform.isWeb ? 'Download the mission as a .json file' : 'Save (Cmd/Ctrl+S)'}
-                >
-                  {saveLabel}
-                </button>
-                {/* In the browser every save is a fresh download, so Save As would be the same button. */}
-                {!platform.isWeb && (
-                  <button onClick={handleSaveAs} className={toolbarButton}>
-                    Save As
-                  </button>
-                )}
-                <button onClick={handleCloseMission} className={toolbarButton}>
-                  Close
-                </button>
-              </>
-            )}
-            {/*
-              Full screen on macOS hides the window's own buttons, and not every
-              pilot knows Cmd+Q. `exit_app` quits outright (lib.rs lets it
-              through), so the unsaved-changes guard runs here first. A web
-              page is closed like any other tab.
-            */}
-            {!platform.isWeb && (
-              <button
-                onClick={() => guardUnsaved('quit', () => platform.quit())}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-300 border border-gray-600 hover:bg-gray-700 hover:text-white transition-colors"
-                title="Quit Phoenix Weaponeer"
-              >
-                Quit
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
+    <div className="flex h-screen flex-col bg-dcs-dark text-white">
+      <AppBar {...bar} />
 
       {onFront ? (
         <main className="flex min-h-0 flex-1 flex-col">{frontPage}</main>
       ) : (
-      <main className="p-6">
+      <main className={shown === 'map' ? 'relative flex min-h-0 flex-1 flex-col' : 'p-6'}>
         {loading ? (
           <div className="text-center py-12">
             <p className="text-gray-400">Loading database...</p>
@@ -708,7 +706,7 @@ function App() {
             <p className="text-red-400">Error: {error}</p>
           </div>
         ) : mission ? (
-          <div className="relative h-[calc(100vh-120px)]">
+          <div className="relative min-h-0 flex-1">
             {/* Map - always visible as background */}
             <div className="absolute inset-0">{mapView}</div>
 

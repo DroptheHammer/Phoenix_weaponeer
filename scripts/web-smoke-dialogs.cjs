@@ -104,7 +104,7 @@ const TABS = 30;
   step('mission imported');
 
   // ---- Settings: a small dialog ----
-  await walk('Settings', page.getByRole('button', { name: '⚙ Settings' }), page.getByRole('dialog', { name: 'Settings' }));
+  await walk('Settings', page.getByRole('button', { name: 'Settings', exact: true }), page.getByRole('dialog', { name: 'Settings' }));
 
   // ---- The attack editor: the full-size dialog, with its map ----
   await page.getByRole('button', { name: /^Attacks/ }).click();

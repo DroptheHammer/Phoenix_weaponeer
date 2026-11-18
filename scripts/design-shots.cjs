@@ -369,8 +369,9 @@ async function firstScreen(page) {
 
 /**
  * Load the synthetic mission as far as the flight picker, whose own button reads "Import Viper 1" (the flight's
- * name), or "Import Mission" in a copy from before "Choose your flight" was rebuilt. The header's own Import button
- * has no word after it, and the old landing's "Import FragOrders" is left out, so the pattern finds only the picker's.
+ * name), or "Import Mission" in a copy from before "Choose your flight" was rebuilt. The header's own Import (a row
+ * of its File menu, or in an older copy a button) has no word after it, and the old landing's "Import FragOrders" is
+ * left out, so the pattern finds only the picker's.
  */
 const IMPORT_PICKED = /^Import (?!FragOrders)/;
 async function importMission(page) {
@@ -435,7 +436,8 @@ async function appRun(browser, base, size) {
       m.widths.panel = await widths(page);
       await page.getByRole('button', { name: /^Waypoints \(/ }).click();
 
-      await page.getByRole('button', { name: '⚙ Settings' }).click();
+      // The header's Settings button: named "Settings" since the one 48 px header, "⚙ Settings" in a copy from before it.
+      await page.getByRole('button', { name: 'Settings', exact: true }).or(page.getByRole('button', { name: '⚙ Settings', exact: true })).first().click();
       await page.getByRole('dialog', { name: 'Settings' }).waitFor();
       shots.settings = await picture(page);
       m.widths.settings = await widths(page);

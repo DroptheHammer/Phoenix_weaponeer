@@ -45,8 +45,13 @@ fs.mkdirSync(out, { recursive: true });
     if (phone) {
       await page.getByRole('button', { name: 'Menu' }).click();
       await page.getByRole('menuitem', { name: menuItem }).click();
-    } else {
+    } else if (desktopButton === 'Export .json') {
+      // The planner's one filled button (Save, "Export .json" in the browser).
       await page.getByRole('button', { name: desktopButton, exact: true }).click();
+    } else {
+      // Everything else is under the header's File menu.
+      await page.getByRole('button', { name: 'File', exact: true }).click();
+      await page.getByRole('menuitem', { name: desktopButton, exact: true }).click();
     }
   };
   step(`layout: ${phone ? 'phone' : 'desktop'} ${w}x${h}`);

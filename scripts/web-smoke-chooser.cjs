@@ -84,13 +84,14 @@ const phone = +w < 768 || +h < 500;
     await page.getByRole('button', { name: 'Load', exact: true }).click();
     await chooser.waitFor({ timeout: 10000 });
   };
-  /** The header's Import (desktop) or the menu's "Load a mission" (phone): back to the front page, mission kept. */
+  /** Import in the header's File menu (desktop) or the menu's "Load a mission" (phone): back to the front page, mission kept. */
   const toFrontPage = async () => {
     if (phone) {
       await page.getByRole('button', { name: 'Menu' }).click();
       await page.getByRole('menuitem', { name: 'Load a mission' }).click();
     } else {
-      await page.getByRole('button', { name: 'Import', exact: true }).click();
+      await page.getByRole('button', { name: 'File', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Import', exact: true }).click();
     }
   };
   /** Press Import in the chooser: with the autosave refused, "Unsaved changes" opens. */
