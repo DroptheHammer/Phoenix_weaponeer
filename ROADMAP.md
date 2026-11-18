@@ -232,6 +232,14 @@ waypoint list on 2026-10-03).
 ## Shipped
 
 ### Unreleased (0.4.0 branch)
+- **New app frame** (2026-11-18, part of the 0.4.0 redesign). One 48 px header
+  on every desktop screen, with a red button for the screen's main action where
+  it has one (Save in the planner, Open the map on the Flight overview) and
+  Open, Import and Close under File; the planner's panels
+  open from an icon rail into a floating side panel; the Legend is one small
+  button at the map's bottom-left corner, shut until you open it; on the phone
+  the bars are navy and the tabs are icons. Described in
+  `docs/DESIGN_SYSTEM.md`.
 - **New lettering and dialogs** (2026-11-17, the first part of the 0.4.0
   redesign). The app's text is set in Figtree and its monospace text in
   JetBrains Mono, both bundled, so they work offline. Scrollbars, drop-downs

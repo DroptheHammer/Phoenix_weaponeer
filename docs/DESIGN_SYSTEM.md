@@ -16,11 +16,12 @@ that have none yet are listed as open at the end of "Dialogs".
 | Tailwind's theme, which reads the tokens | `tailwind.config.js` |
 | The building blocks | `src/components/ui/*.tsx` (one file each) |
 | The dialog's keyboard rules | `src/components/ui/dialogKeys.ts`, used by `src/components/common/Modal.tsx` |
+| The app shell: the header, the File menu, the planner's rail, side panel, zoom, credit and Legend, the phone's bars and sheet | `src/components/shell/`, `src/components/map/MapZoom.tsx`, `MapCredit.tsx`, `MapLegend.tsx`, `src/components/phone/` (see "The app shell") |
 | A page that shows every block in every state | `ui-gallery.html` + `src/components/ui/dev/` (dev server only) |
-| Checks on the sources | `scripts/design-check.tsx`, `scripts/ui-check.tsx` (both run first by `npm run geo-check`) |
+| Checks on the sources | `scripts/design-check.tsx`, `scripts/ui-check.tsx`, `scripts/shell-check.tsx` (all run first by `npm run geo-check`) |
 | Checks on the built app | `scripts/style-check.mjs` (CSS, fonts, offline cache), `scripts/bundle-check.mjs` (start-up JavaScript) |
 | Ceilings | `scripts/style-budget.json`, `scripts/bundle-budget.json` |
-| Browser runs | `scripts/design-shots.cjs`, `scripts/web-smoke-dialogs.cjs`, `scripts/playback-shots.cjs`, `scripts/web-smoke*.cjs` |
+| Browser runs | `scripts/design-shots.cjs`, `scripts/shell-shots.cjs`, `scripts/web-smoke-dialogs.cjs`, `scripts/playback-shots.cjs`, `scripts/web-smoke*.cjs` |
 
 ## Tokens
 
@@ -57,8 +58,9 @@ against them reads `var(--c-navy)` wherever it is.
   map: change the map, then the copy.
 - **Spacing is Tailwind's own 4 px scale**; `--sp-*` mirror it (DS4), so a
   utility and a variable always agree.
-- **Phone values are tokens, not components.** One block at the end of
-  `tokens.css`, under the query `(max-width: 767px), (max-height: 500px)`
+- **Phone values are tokens, not components.** One block in `tokens.css`, right
+  after the main block (the measures a screen adds follow it, "Adding a token"
+  below), under the query `(max-width: 767px), (max-height: 500px)`
   (the same text as `PHONE_QUERY` in `src/hooks/useIsPhone.ts` and the phone
   rules in `index.css`; DS20 keeps the three equal), sets `--tap-sm` 44,
   `--fs-compact` 15, `--bar` 44, `--check` 22, `--field` 56, `--menu-w` 264,
@@ -87,7 +89,14 @@ does not have: `surface-*`, `ink`, `ink-2`, `ink-3`, `accent`, `info`, `warn`,
 `track`, `data-*`; type `text-ui-caption` ... `text-ui-display`; radii
 `rounded-ui-xs` ... `rounded-ui-xl`, `rounded-pill`; shadows `shadow-ui-1`,
 `shadow-ui-2`, `shadow-ui-up`, `shadow-halo`; sizes `tap`, `tap-sm`, `btn-sm`,
-`btn-lg`, `tag`, `bar-btn`, `chip`, `rail-btn`, `tab`, `rail`, `badge`.
+`btn-lg`, `tag`, `bar-btn`, `chip`, `rail-btn`, `tab`, `rail`, `badge`, and the
+shell's `bar` (the header, `--bar`), `dock` (the planner's left column,
+`--dock-w`), `legend` (`--legend-w`), `menu` (`--menu-w`) and `inset`
+(`--inset`, the gap round the planner's floating boxes); two line heights,
+`leading-where-title` and `leading-where-sub` (the header's two lines); and the
+`animate-sheet-in` animation (the keyframes `sheet-in`, the side panel sliding
+in over `--t-panel`). The planner's side-panel width, `--panel-w`, has no
+Tailwind key: the grid reads it as `var(--panel-w)`.
 
 The app's old names (`dcs-dark`, `dcs-darker`, `dcs-navy`, `dcs-blue`,
 `dcs-accent`) still build, with opacity, from the same tokens. Forms that use
@@ -291,12 +300,132 @@ Open, small, for the next change that touches `Modal`:
 - (By design, not open: the first Tab in a dialog lands on the header's close
   button, because it comes first in page order.)
 
+## The app shell
+
+The frame every screen sits in: one header, the planner's rail, side panel and
+map controls, the Legend, and the phone's bars and sheet. The blocks live in
+`src/components/shell/` (`AppBar`, `FileMenu`, `railItems`, `PlannerShell`,
+`PanelSheet`), `src/components/map/` (`MapZoom`, `MapCredit`, `MapLegend`) and
+`src/components/phone/` (`PhoneShell`, `BottomSheet`). They hold no mission
+logic: `App.tsx` decides what goes in each slot.
+
+**The header** (`AppBar`). One bar, 48 px (`h-bar`), edge to edge, the same on
+the front page, the Flight overview and the planner. On a phone `PhoneShell`
+draws its own 45 px bar instead (below). Left: the app's mark and name, then,
+after a divider, `lead` (where you are: a `BackLink`, then a `HeaderWhere`, a
+title line over a smaller line; or a file message). Right: `primary`, the one
+filled button of the screen (Save in the planner, "Open the map" on the
+overview; the front page has none), then File, Settings and Quit as quiet
+buttons. Quit is the desktop app's only. Every button keeps its name and
+tooltip when its word goes, and the words go in a set order as the window
+narrows: the filled button's under 520 px wide, the back link's under 900, the
+place in the small line under 960, the app's name under 1100, the quiet
+buttons' under 1280. The words for work not yet saved ("Unsaved changes", and
+"Not exported" in the browser, where every save is a download) never go: the
+red dot beside the title is never the only sign. A file message ("Saved: …",
+"Error: …", an error in amber) replaces the small line until the next action.
+
+**File** (`FileMenu`) opens a list of two-line rows from its own button. Each
+screen has its own list. The planner's: Flight overview, Save As (desktop
+only), Open, Import, Close; its filled button is Save. The Flight overview's,
+and the front page's while a mission is open: Save ("Export .json" in the
+browser), Save As (desktop only), Open, Import, Close. The front page with no
+mission: Open, Import. Opening puts the keyboard on the first row; arrow keys,
+Home and End move; Escape shuts it from wherever the keyboard is and gives it
+back to File; Tab shuts it; a press anywhere outside shuts it. A row shuts the
+menu before it runs, so a dialog it opens never meets an open menu. It is not
+shared with the Flight overview's waypoint list: that list picks one
+waypoint, this one runs commands, and each is built and checked on its own,
+with the same three behaviours.
+
+**The planner's frame** (`PlannerShell`). The map is the page: it fills the
+window under the header, edge to edge, and everything else floats over it in
+one grid inset 12 px (`--inset`) from the edges. The grid lets clicks through;
+only the floating boxes take them. Three columns:
+
+- the left column, `--dock-w` (96 px): the rail at the top and the Legend at
+  the bottom;
+- the middle: the unverified-map or real-world notice at the top centre, the
+  zoom at the top right, the map credit at the bottom right;
+- the side panel, `--panel-w` (34% of the width, 380 to 520 px), only while a
+  panel is open. The zoom therefore moves left by the panel's width when a
+  panel opens. Under 900 px wide (the web build on a tablet held upright) the
+  panel covers the other two columns, inside the same inset, rather than
+  leaving a sliver of map.
+
+The rail is one `Tabs variant="rail"`: an icon over a word, the count as a
+badge, the open panel's button in the accent, and a line under Attacks ("1
+hidden") while the Legend hides a jet. Its buttons are named by `stackedName`
+("Waypoints (5)", "Attacks (2 · 1 hidden)"), so a screen reader hears the word
+first. It counts only the threats the planner may see. The side panel
+(`PanelSheet`) has a fixed head (the panel's name and "Close panel") and a
+body that scrolls. It slides in once, when it opens from closed (180 ms, and
+only where motion is allowed); switching panels keeps the same element; a map
+pick hides it without unmounting it, so an open attack editor survives; "Close
+panel" gives the keyboard back to the rail button that opened it. The map
+draws no Leaflet zoom or credit of its own: `MapZoom` (two 44 px buttons) and
+`MapCredit` ("© OpenStreetMap contributors", plain text, because the tiles'
+licence asks for it) are the app's, on the desktop and the phone alike.
+
+**The Legend** (`MapLegend`). Desktop: shut, one small "Legend" button at the
+map's bottom-left corner, under the rail; the app starts with it shut. Open,
+one box from that corner upward, `--legend-w` (224 px) wide: the key, then
+Attacks (only while a jet has an attack), Threats and Route, as tall as its
+content or the room under the rail, whichever is less, and it scrolls inside.
+It never meets the rail, the zoom, the credit or the panel. Open or shut is
+kept for the session (`uiStore.legendOpen`) through New, Open, Import, Close
+and Show all, and is never saved with a mission. Escape inside it shuts it and
+puts the keyboard on its button; a click elsewhere does not. A shut Legend with
+a layer switched off reads "Legend · filtered". Its counts are the visible
+mission's. The phone has no Legend box: a "Layers" button 12 px from the map's
+top and right opens the same contents in a panel 8 px under it, which stops at
+least 20 px above the map's bottom and scrolls, and shows a dot ("some layers
+hidden") while a filter is on.
+
+**The phone** (`PhoneShell`, `BottomSheet`). A top bar of 45 px with the title
+over a smaller second line (on the map the place, then "Not exported" while
+there is work not yet downloaded; on the Flight overview "Not exported" comes
+first, because a phone cuts that line at its right end), a back arrow where a
+screen has one, the dot named "unsaved changes", and a Menu button whose list
+has an icon on every row. A bar of five icon tabs at the foot, 69 px and clear
+of the home bar, the open one in the accent, the count a badge. A tab opens
+its panel as a bottom sheet over the map, half height or full: the 96 x 44
+handle switches them by touch, Enter or Space, and the close button is 44 px.
+The zoom is at the bottom left and the credit at the bottom right.
+
+**The stack.** What is drawn over what, by `z-index`. A new floating box takes
+its layer from this table; it does not invent one.
+
+| Layer | z | What |
+|---|---|---|
+| The map and what is drawn on it | 0 to 900 | the map, its markers and popups, the attack labels (900) |
+| The planner's floating boxes | 1000 | rail, Legend, zoom, credit, notice and side panel (the one grid) |
+| The header | 1100 | the File menu hangs from it, so it is over the map and over an open panel |
+| The attack list's "Copy to" menu | 1300 | drawn straight into the page rather than into the panel, so it is over the header and the panel it opens from, and under dialogs |
+| Dialogs | 2000 | every `Modal`, the flight chooser, the 3D playback: they cover the header |
+| The full-screen kneeboard card | 2100 | over a dialog |
+| The update banner | 3000 | over everything |
+
+On a phone the notice banner on the map is 1050, the bottom sheet 1100, the
+message strip under the top bar 1150, the top bar and the tab bar 1200, and the
+menu 1300.
+
+**Held by:** `scripts/shell-check.tsx` (SH1 to SH38, in `npm run geo-check`:
+the names, the header and the File menu's lists and keys, the rail, the
+panel's frame and slide, the zoom and credit, the Legend's looks and its
+filters, the phone's bars, and that no shell file words or counts a threat the
+mission author hid), and `scripts/shell-shots.cjs`, the browser run below.
+Not covered: the planner with an attack (the synthetic mission has none, so
+the Legend's Attacks set and the rail's "1 hidden" are in no picture); the
+desktop app's own webview and Windows; a phone in the hand. The Quit button
+exists only in the desktop app, so the browser run never sees it.
+
 ## Checks and how to run them
 
-`npm run geo-check` runs `design-check.tsx` and `ui-check.tsx` first. Each check
-has a `// Red when:` line (the one change that turns it red) and a `// Seen:`
-line (the failure it printed) beside it. A new check is seen failing once
-before it is kept.
+`npm run geo-check` runs `design-check.tsx`, `ui-check.tsx` and
+`shell-check.tsx` first. Each check has a `// Red when:` line (the one change
+that turns it red) and a `// Seen:` line (the failure it printed) beside it. A
+new check is seen failing once before it is kept.
 
 | Check | Holds |
 |---|---|
@@ -309,6 +438,7 @@ before it is kept.
 | DS14, DS15, DS18 | the blocks' markup and states; `nextSelection`; the dialog's contract, heights and `tabindex` |
 | DS19, DS20, DS22 | no blanket motion rule; the phone block; the quantity colour |
 | DS23, DS24 | the dialog on top; Tab staying inside |
+| SH1 to SH38 (`shell-check.tsx`) | the app shell: the rail's names, the header and the File menu, the rail's counts, the side panel's frame and slide, the zoom and credit, the Legend, the phone's bars and sheet (see "The app shell") |
 | X4, X9 (`landing-ui-check.tsx`) | the map's marker code is pinned; `tall:` and `short:` are height queries and the width variants still build |
 | UI1, X3, X8 (`landing-ui-check.tsx`) | the jet card's quantity colour, amber unknown stores and ESTIMATED tag; no raw colour in `src/components/landing/` or in the flight chooser; no comment there points at a git-ignored file, and no width query stands in for a height rule |
 | UI3, UI3b, X2, X2b (`landing-ui-check.tsx`) | the flight chooser names only threats the planner may see and reads as for no threats when all are hidden, the link's notice included; no front-page, chooser, overview or Threats-panel file reads or words a hidden-threat count; the Threats panel, drawn with hidden threats in the mission, lists and counts only what the planner may see, and each Settings switch shows its own kind |
@@ -346,6 +476,25 @@ playwright-core folder) and `CHROME_PATH` (a Chromium binary), or falls back to
   chooser. Cancel comes back to the chooser with the flight still chosen, one
   Escape closes only "Unsaved changes", the next closes the chooser, and Discard
   imports.
+- **The shell**, at four desktop window sizes and two phone sizes, on the web
+  build (it serves the build itself and loads the synthetic mission through the
+  front page, so no real mission is needed):
+  ```
+  npm run build:web && node scripts/shell-shots.cjs dist-web <screenshotDir>
+  ```
+  It measures the header on the front page, the Flight overview and the planner
+  (1400 x 900, 1024 x 768, and the web build's smallest desktop layouts,
+  768 x 1024 and 768 x 501); the rail's names and its lit button; that Leaflet's
+  own zoom and credit are gone; the Legend shut and open with the side panel
+  shut and open (it sits at the map's bottom-left corner and meets nothing; under
+  900 px wide an open panel covers the map); Escape in the Legend and "Legend ·
+  filtered"; File's rows and keys on every screen; closing the panel putting the
+  keyboard back on its rail button; that the File menu hangs over an open
+  panel and a dialog covers the header (the stack above); and, on a phone
+  (390 x 844, and 844 x 390 held sideways), the bars, Layers, the sheet and its
+  handle, and the menu. It writes a picture of every state and prints one PASS
+  or FAIL line per check (98 PASS when this was written). Tiles are blocked, so
+  the map is plain and repeatable.
 - **Before and after**, the whole proof of a change to the look:
   ```
   node scripts/design-shots.cjs --before <tree> --out <dir>
