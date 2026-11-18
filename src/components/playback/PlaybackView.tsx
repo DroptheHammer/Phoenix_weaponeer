@@ -19,7 +19,10 @@
  * credits) with a folded list of notes opened from a button on the credits line: what
  * playback assumed and could not show (a jet it does not fly, a target planned
  * off the ground drawn under it, where the time bar starts, the push time, what
- * the stripes mean, what Apply just said). Fits a 1024×768 window. The overlay around it has the title bar and
+ * the stripes mean, what Apply just said, which threat envelopes there are and
+ * which are not drawn). The threats the planner may see come with the launch and
+ * are laid out once per open (nothing draws them yet; the notes count them). Fits
+ * a 1024×768 window. The overlay around it has the title bar and
  * the Close button. While the playhead is on a frag warning, a chip over the
  * picture names it, also at 16×. The words the 3D lays on the picture keep off
  * the camera buttons and the strike's name, whose boxes are measured here.
@@ -92,11 +95,12 @@
  * after 5 s without it, offers Try again).
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { buildStrikePlayback, dangerZones, playbackInputFromMission, retime, type PlaybackInput, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
+import { buildStrikePlayback, dangerZones, playbackBounds, playbackInputFromMission, retime, type PlaybackInput, type StrikePlayback, type StrikeTiming } from '../../lib/playback';
 import {
   APPLY_WORDS, applyShift, applyStatusLines, axisFraction, cardOrder, conflictBands, DRAG_PATH_STEP_S, editorOffsets, initSession, isDirty, jetColor, laneAxis, laneBands, laneMarks,
-  buildNotes, markerMoments, noteFactsFrom, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer, zoneBands,
-  type Axis, type CameraMode, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TargetGap, type TileSource, type ViewMode,
+  buildNotes, markerMoments, noteFactsFrom, openingMode, PATH_STEP_S, planOffsets, playRange, renumbered, renumberedText, sceneDomes, sceneSourceFrom, seatConflictTitle, seatInConflict, sessionReducer,
+  terrainBoxOf, zoneBands,
+  type Axis, type CameraMode, type DomeSet, type GroundMode, type SceneSource, type Session, type SessionAction, type ShowAction, type TargetGap, type TileSource, type ViewMode,
 } from '../../lib/playbackScene';
 import type { PlaybackScene, TerrainStatus } from './scene/createScene';
 import { tauriTiles } from './terrain/tauriTiles';
@@ -141,6 +145,8 @@ const RESTORE_WAIT_MS = 5000;
 
 type BuiltOk = {
   ok: true; launch: PlaybackLaunch; pb: StrikePlayback; timing: StrikeTiming; source: SceneSource; title: string;
+  /** The threats the planner may see as domes and menu rows, made once per open: they do not move with the times. */
+  domeSet: DomeSet;
   /** What breaks a tie in time over target on the cards, in seat order: the editor's, or worked out here from the saved plan. */
   tie?: PlaybackLaunch['tie'];
 };
@@ -160,11 +166,13 @@ function buildView(launch: PlaybackLaunch | undefined): Built {
       return { ok: false, message: `This attack can't be flown in 3D yet.${why ? ` ${why}` : ''}` };
     }
     const timing = retime(pb);
-    const source = sceneSourceFrom(pb, timing);
+    // The threats the planner may see, laid out against the box the terrain is built from (the same box, from the same bounds).
+    const domeSet = sceneDomes(launch.threats, pb.frame, terrainBoxOf(playbackBounds(pb)));
+    const source = sceneSourceFrom(pb, timing, PATH_STEP_S, { domes: domeSet.domes });
     // A lone attack from the list is "Viper 1-1 · attack #3", so its number does not read as a second seat number.
     const lone = from && !input.strikeId ? from.mission.attacks.find((a) => a.id === input.jets[0]?.id) : undefined;
     const title = launch.title ?? (lone ? `${input.jets[0].callsign ?? 'Attack'} · attack #${lone.sequenceNumber}` : input.name);
-    return { ok: true, launch, pb, timing, source, title, tie: launch.tie ?? (from && cardTie(from.mission, pb.members.map((m) => m.id))) };
+    return { ok: true, launch, pb, timing, source, title, domeSet, tie: launch.tie ?? (from && cardTie(from.mission, pb.members.map((m) => m.id))) };
   } catch (e) {
     return { ok: false, message: 'The playback could not be worked out from this plan.', detail: e instanceof Error ? e.message : String(e) };
   }
@@ -259,7 +267,8 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   const source = useMemo(() => {
     if (timing === built.timing && !dragging) return built.source;
     const t0 = devNow();
-    const s = sceneSourceFrom(pb, timing, dragging ? DRAG_PATH_STEP_S : PATH_STEP_S);
+    // The domes are the open's, not the times': every source made here carries the very same array.
+    const s = sceneSourceFrom(pb, timing, dragging ? DRAG_PATH_STEP_S : PATH_STEP_S, { domes: built.domeSet.domes });
     reTime.current.source = devNow() - t0;
     return s;
   }, [built, pb, timing, dragging]);
@@ -412,7 +421,10 @@ function PlaybackStage({ built, software, onClose, bindTogglePlay, tiles, onScen
   // The notes under the picture: what this view assumed and could not show, at the times as they stand. What Apply just
   // said stands at the top of them until the times next change.
   const zoneCount = useMemo(() => lanes.reduce((n, l) => n + l.zones.length, 0), [lanes]);
-  const notes = useMemo(() => buildNotes(noteFactsFrom(pb, timing, { gaps, zones: zoneCount, applied: statusLines })), [pb, timing, gaps, zoneCount, statusLines]);
+  const notes = useMemo(
+    () => buildNotes(noteFactsFrom(pb, timing, { gaps, zones: zoneCount, applied: statusLines, wholeRunIn: show.wholeRunIn, threats: built.domeSet })),
+    [pb, timing, gaps, zoneCount, statusLines, show.wholeRunIn, built.domeSet],
+  );
   // DEV: nothing to report until the times have been changed once.
   const reTimeMs = useCallback(() => {
     const ms = reTime.current.timing + reTime.current.source + reTime.current.scene;

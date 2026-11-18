@@ -10,6 +10,7 @@ import { useProfileStore } from '../../stores/profileStore';
 import { copyAttackTo } from '../../lib/copyAttack';
 import { InfoButton } from '../common/InfoButton';
 import { PlayStrikeButton } from '@playback';
+import type { PlaybackSystemRow } from '../playback/types';
 import type { AttackProfileType, DbWeapon, FuzeOption, Attack, Strike } from '../../types';
 
 const PROFILE_LABELS: Record<AttackProfileType, string> = {
@@ -38,7 +39,7 @@ interface AttackListProps {
   fuzeOptions: Map<string, FuzeOption[]>;
   aircraft: Aircraft[];
   /** Threat ranges, so auto-build can pick an egress away from the nearest one */
-  threatSystems?: Array<{ id: string; max_range_nm: number }>;
+  threatSystems?: PlaybackSystemRow[];
   onAttackSaved?: () => void;
 }
 
@@ -191,7 +192,7 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                       <span className="text-gray-400"> · {target?.name ?? 'no target'} · {item.members.length} jets · {item.strike.spacing_s} s spacing</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
-                      <PlayStrikeButton variant="text" title="Watch the strike fly in 3D" fromMission={{ subject: { strikeId: item.strike.id }, weapons }} />
+                      <PlayStrikeButton variant="text" title="Watch the strike fly in 3D" fromMission={{ subject: { strikeId: item.strike.id }, weapons, systems: threatSystems }} />
                       <button onClick={() => handleEditAttack(item.members[0])} className="text-gray-400 hover:text-blue-400 px-2 py-1" title="Edit the whole strike">
                         Edit
                       </button>
@@ -282,7 +283,7 @@ export function AttackList({ weapons, fuzeOptions, aircraft, threatSystems, onAt
                 <div className="flex items-center gap-2">
                   {/* A strike's jets are played from the strike's header. Strafe, LALD and standoff are not flown in 3D. */}
                   {!strikeBadge && !['high_angle_strafe', 'low_angle_low_drag', 'standoff'].includes(attack.profileType) && (
-                    <PlayStrikeButton variant="text" title="Watch this attack fly in 3D" fromMission={{ subject: { attackId: attack.id }, weapons }} />
+                    <PlayStrikeButton variant="text" title="Watch this attack fly in 3D" fromMission={{ subject: { attackId: attack.id }, weapons, systems: threatSystems }} />
                   )}
                   {(mission?.flightMembers.length ?? 0) > 1 && (
                     <CopyMenu

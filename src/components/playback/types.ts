@@ -3,6 +3,7 @@
  * both builds can import this file without pulling in any playback code.
  */
 import type { PlaybackInput, PlaybackSubject } from '../../lib/playback';
+import type { SceneThreats } from '../../lib/playbackScene/domes';
 import type { DbWeapon, Mission } from '../../types';
 import type { FragRule } from '../../types/strike.types';
 import type { EditorLaunchArgs } from './launch';
@@ -21,8 +22,8 @@ export interface PlaybackLaunch {
   /** From the attack editor: the jets built from its drafts as they stand. */
   input?: PlaybackInput;
   /**
-   * From the attack list: the saved plan (without its threats: nothing in playback draws them yet, and a
-   * threat the mission's author hid must not cross into the view) and the strike or attack to play.
+   * From the attack list: the saved plan (without its threats: the ones the planner may see come as `threats`,
+   * so a threat the mission's author hid cannot cross into the view by this road) and the strike or attack to play.
    */
   fromMission?: { mission: Mission; subject: PlaybackSubject; weapons: DbWeapon[] };
   /** What the title plate over the 3D view says: the strike's name, or the lone jet's callsign. Left out: the input's own name. */
@@ -39,6 +40,25 @@ export interface PlaybackLaunch {
    * will number differently after an Apply. Left out for the attack list's: the view works it out from the plan.
    */
   tie?: (readonly [number, number])[];
+  /**
+   * The threats and threat systems the planner may see as the press found them, and the reveal switches then.
+   * Threats the mission's author hid are not in it unless the planner revealed them, so a mission with hidden
+   * threats gives playback exactly what the same mission without them gives. Left out: no threat data.
+   */
+  threats?: SceneThreats;
+}
+
+/**
+ * A threat system row as the planner's lists and editor carry them (the database's own fields, snake_case), as loosely as
+ * they are typed there. A row with no finite maximum altitude cannot be drawn and is left out at the press.
+ */
+export interface PlaybackSystemRow {
+  id: string;
+  max_range_nm: number;
+  max_altitude_ft?: number;
+  threat_type?: string;
+  name?: string;
+  nato_designation?: string | null;
 }
 
 /** A launch from the attack editor: it always carries its jets. */
@@ -63,8 +83,8 @@ export interface PlayStrikeButtonProps {
    * the plan: playback still opens and says so.
    */
   build?: () => PlaybackLaunch | undefined;
-  /** The attack list's way: the strike or attack of the saved plan to play, and the weapon table. */
-  fromMission?: { subject: PlaybackSubject; weapons: DbWeapon[] };
+  /** The attack list's way: the strike or attack of the saved plan to play, the weapon table, and the threat systems. */
+  fromMission?: { subject: PlaybackSubject; weapons: DbWeapon[]; systems?: readonly PlaybackSystemRow[] };
 }
 
 /**

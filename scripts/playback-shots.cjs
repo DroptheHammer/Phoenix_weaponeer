@@ -5447,6 +5447,12 @@ const NOTE_DRAWING_HEAD = 'Drawing checks, for whoever built the plan:';
 const NOTE_HATCH_TIME = "Hatched amber on the time bar and the lanes: times when a jet would be over the target inside another jet's frag (est.).";
 const NOTE_SKIP_BURST = "#2 isn't flown in 3D. Its target waypoint is missing. Its time still counts, but its jet and its bomb aren't checked for blast.";
 const NOTE_APPLIED = 'Applied to the plan: the cards now use these times. To take it back, close playback and press Undo (⌘Z / Ctrl+Z), once for each Apply.';
+// The four-ship's threats (an SA-6 and an SA-8 to draw, a P-19 radar whose range covers the whole drawn area, and an SA-11 the author hid).
+const NOTE_EWR = 'Early-warning radars (1) are off at first: their rings are detection range, not a weapon envelope. Show turns them on.';
+const NOTE_LEGEND = 'Threat envelopes: cage = active, ground ring only = degraded, suppressed, destroyed or unknown; dashed = planning assumption, solid = mission intel. Red and grey as on the map. An early-warning radar you switch on is a ground ring with its detection range written beside it.';
+const NOTE_START_WHOLE = "The time bar starts at the beginning of the run-in, before the IP: Show › Whole run-in is on. Switch it off to start it 10 s before the first jet's first action.";
+/** The threat domes the scene's own source carries (the threat ids), or null before a scene is up. */
+const sceneDomeIds = (page) => pbEval(page, () => { const s = __pb.source(); return s ? s.domes.map((d) => d.threatId) : null; });
 
 /**
  * The notes as the page shows them: the button's words and state, and while the list is open each note's key, tone and
@@ -5478,17 +5484,26 @@ const notesCount = (page, text) => page.waitForFunction((t) => (document.querySe
 
 /**
  * Check 76 (the notes, on the four-ship handed over as the attack list hands one over, with the theater note): the notes
- * are folded under a button on the credits line, which reads "⚠ Notes (5) ▸" (amber: one note asks for
+ * are folded under a button on the credits line, which reads "⚠ Notes (7) ▸" (amber: one note asks for
  * attention) and is the only sign of them while folded, the planner's own theater warning staying in view outside them.
  * The scene's own report of the ground (TGT2 is planned 1,200 ft above the ground drawn under it: #3's target) is the
- * first note, then the push time, the start of the time bar, the altitudes, and last, under their heading, the planner's
- * own drawing check for #3's climb line; there is no hatching note on the blast rule (the jets are 10 s apart). Pressed, the
- * list opens ("▾", aria-expanded, the list's id on aria-controls) inside the window and no taller than 96 px (it scrolls);
- * Space on the focused button shuts it and does not start the clock, Enter opens it again. A time typed for #2 and applied
- * to the plan puts the sentence Apply says at the top of the list (6 notes); a time changed after it takes it away (5).
+ * first note, then the two about the four-ship's threats (the P-19 early-warning radar is off at first, and what the
+ * threat envelopes the picture will draw look like), then the push time, the start of the time bar, the altitudes, and last,
+ * under their heading, the planner's own drawing check for #3's climb line; there is no hatching note on the blast rule (the
+ * jets are 10 s apart). Pressed, the list opens ("▾", aria-expanded, the list's id on aria-controls) inside the window and no
+ * taller than 96 px (it scrolls); Space on the focused button shuts it and does not start the clock, Enter opens it again. A
+ * time typed for #2 and applied to the plan puts the sentence Apply says at the top of the list (8 notes); a time changed
+ * after it takes it away (7).
+ *
+ * The threats the planner may see are what the scene is given: its own source carries the domes of the SA-6 and the SA-8 and
+ * of nothing else (not the SA-11 the mission's author hid, which lies inside the drawn area and would show if it crossed; not
+ * the P-19, whose range covers the whole drawn area, so it has no ring), at opening and after a time has been typed (the
+ * domes do not move with the times); no word on the page says "SA-11" or that anything is hidden; and with Show › Whole
+ * run-in on the start note says the time bar starts before the IP (the ordinary words are untrue then), and with it off the
+ * ordinary words are back.
  *
  * Measured green 2026-11-17: the list is 96 px tall (88 px with the heading left out), inside the window at both sizes; at
- * 1024×768 it ends at 760.
+ * 1024×768 it ends at 760. (With the two threat notes it holds seven and scrolls: the page reads them all, scrolled or not.)
  *
  * Proven red 2026-11-17, each by one temporary edit (a run of this page alone):
  * - createScene.ts, the scene's report of the targets taken out (`opts.onTargets?.(…)` → `void targetGaps;`):
@@ -5497,31 +5512,48 @@ const notesCount = (page, text) => page.waitForFunction((t) => (document.querySe
  *   STEP FAIL 76 the notes are folded under a button, … — …; pressed: "⚠ Notes (5) ▾" true; 5 notes ["gap-target-1","push","start","agl","warn-h-strike4-3-0"], order ["gap-target-1","push","start","agl","warn-h-strike4-3-0"], texts word for word, tones […], heading [], box 16,804–1384,892 88 px tall …
  * - PlaybackOverlay.tsx, OWN_SPACE without `button` (Space on any button plays the clock instead of pressing it):
  *   STEP FAIL 76 the notes are folded under a button, … — …; Space on the button: still open, clock playing; Enter: shut; after Apply: "⚠ Notes (6) ▸"; first note none, the rest none; times changed again: "⚠ Notes (5) ▸", notes none
+ *   (the counts in these three are from before the four-ship carried threats)
+ * Proven red 2026-11-18 for the threat arms, each by one temporary edit (a run of this page alone):
+ * - PlaybackView.tsx buildView, the launch's threats not given to the dome builder (`sceneDomes(launch.threats, …)` → `sceneDomes(undefined, …)`):
+ *   STEP FAIL 76 the notes are folded under a button, … — as opened: "⚠ Notes (5) ▸", …; the scene's threat domes at opening [] (want ["h-sa6","h-sa8"]: not the hidden SA-11, not the P-19 that covers the area); pressed: "⚠ Notes (5) ▾" true; 5 notes ["gap-target-1","push","start","agl","warn-h-strike4-3-0"], …; after a time was typed and applied the scene's threat domes [] (want ["h-sa6","h-sa8"]); …
+ * - PlaybackView.tsx, the source made again for new times given no domes (`{ domes: built.domeSet.domes }` taken off that `sceneSourceFrom` call; the opening source, made in buildView, still has them, so only this arm is red):
+ *   STEP FAIL 76 the notes are folded under a button, … — …; the scene's threat domes at opening ["h-sa6","h-sa8"] (want …); …; after a time was typed and applied the scene's threat domes [] (want ["h-sa6","h-sa8"]); …
+ * - PlaybackView.tsx, Show's start choice not handed to the notes (`wholeRunIn: show.wholeRunIn, ` taken out of the `noteFactsFrom` call):
+ *   STEP FAIL 76 the notes are folded under a button, … — …; Show › Whole run-in on: the start note says "The time bar starts 10 s before the first jet's first action. Show › Whole run-in starts it before the IP." (want the run-in wording); off: "The time bar starts 10 s before …" (want the ordinary words)
+ * - dev/fixture.ts, the four-ship's threats pressed with both switches on (`{ onPlanner: false, onMap: false }` → `{ onPlanner: true, onMap: true }`, so the SA-11 the author hid gets through):
+ *   STEP FAIL 76 the notes are folded under a button, … — …; the scene's threat domes at opening ["h-sa6","h-sa8","h-sa11"] (want ["h-sa6","h-sa8"]: not the hidden SA-11, not the P-19 that covers the area); …; after a time was typed and applied the scene's threat domes ["h-sa6","h-sa8","h-sa11"] (want …); …
+ * - notes.ts LEGEND_NOTE ending "… written beside it. Some are hidden." (a note that says something is hidden):
+ *   STEP FAIL 76 the notes are folded under a button, … — …; the page names the hidden SA-11: false; says anything is hidden: true (want neither); …
+ *   (the word "SA-11" half of that arm cannot go red yet: nothing draws or lists a threat by name until the threat list is in the Show menu, and then it will)
  */
 async function checkNotes(page, tag, w, h) {
   await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
-  await notesCount(page, 'Notes (5)');
+  await notesCount(page, 'Notes (7)');
   await settle(page, 300);
   const parts = [];
   let ok = true;
   const note = (good, text) => { ok = ok && good; parts.push(text); };
 
   const folded = await notesState(page);
-  note(!!folded.toggle && folded.toggle.text === '⚠ Notes (5) ▸' && folded.toggle.open === 'false' && folded.toggle.amber && folded.toggle.controls === 'pb-notes' && folded.list === null && folded.theater >= 1,
+  note(!!folded.toggle && folded.toggle.text === '⚠ Notes (7) ▸' && folded.toggle.open === 'false' && folded.toggle.amber && folded.toggle.controls === 'pb-notes' && folded.list === null && folded.theater >= 1,
     `as opened: ${folded.toggle ? `"${folded.toggle.text}", aria-expanded ${folded.toggle.open}, amber ${folded.toggle.amber}, controls ${folded.toggle.controls}` : 'no button'}; list ${folded.list ? 'showing' : 'folded'}; the planner's own warning in view ${folded.theater}×`);
+  // The threats the planner may see are what the scene was given: the SA-6 and the SA-8 and nothing else.
+  const wantDomes = ['h-sa6', 'h-sa8'];
+  const domesAtOpen = await sceneDomeIds(page);
+  note(JSON.stringify(domesAtOpen) === JSON.stringify(wantDomes), `the scene's threat domes at opening ${JSON.stringify(domesAtOpen)} (want ${JSON.stringify(wantDomes)}: not the hidden SA-11, not the P-19 that covers the area)`);
 
   await notesToggle(page).click();
   await settle(page, 250);
   const open = await notesState(page);
   const L = open.list;
-  const wantKeys = ['gap-target-1', 'push', 'start', 'agl', 'warn-h-strike4-3-0'];
+  const wantKeys = ['gap-target-1', 'ewr', 'legend', 'push', 'start', 'agl', 'warn-h-strike4-3-0'];
   // A note that asks for attention starts with the ⚠ the page puts there.
-  const wantText = [NOTE_GAP, NOTE_PUSH, NOTE_START, NOTE_AGL, NOTE_DRAWING];
-  const wantTones = ['warn', 'info', 'info', 'info', 'info'];
+  const wantText = [NOTE_GAP, NOTE_EWR, NOTE_LEGEND, NOTE_PUSH, NOTE_START, NOTE_AGL, NOTE_DRAWING];
+  const wantTones = ['warn', 'info', 'info', 'info', 'info', 'info', 'info'];
   const textOk = !!L && L.notes.every((n, i) => n.text === (wantTones[i] === 'warn' ? `⚠ ${wantText[i]}` : wantText[i]));
-  note(!!L && open.toggle.text === '⚠ Notes (5) ▾' && open.toggle.open === 'true' && L.id === open.toggle.controls && JSON.stringify(L.notes.map((n) => n.key)) === JSON.stringify(wantKeys) &&
+  note(!!L && open.toggle.text === '⚠ Notes (7) ▾' && open.toggle.open === 'true' && L.id === open.toggle.controls && JSON.stringify(L.notes.map((n) => n.key)) === JSON.stringify(wantKeys) &&
       JSON.stringify(L.notes.map((n) => n.tone)) === JSON.stringify(wantTones) && textOk &&
-      JSON.stringify(L.order) === JSON.stringify(['gap-target-1', 'push', 'start', 'agl', 'head', 'warn-h-strike4-3-0']) && JSON.stringify(L.heads) === JSON.stringify([NOTE_DRAWING_HEAD]) &&
+      JSON.stringify(L.order) === JSON.stringify(['gap-target-1', 'ewr', 'legend', 'push', 'start', 'agl', 'head', 'warn-h-strike4-3-0']) && JSON.stringify(L.heads) === JSON.stringify([NOTE_DRAWING_HEAD]) &&
       L.box.l >= 0 && L.box.r <= w + 0.5 && L.box.b <= h + 0.5 && L.box.h <= 97 && open.theater >= 1,
     `pressed: ${open.toggle ? `"${open.toggle.text}" ${open.toggle.open}` : 'no button'}; ${L ? `${L.notes.length} notes ${JSON.stringify(L.notes.map((n) => n.key))}, order ${JSON.stringify(L.order)}, texts ${textOk ? 'word for word' : JSON.stringify(L.notes.map((n) => n.text))}, tones ${JSON.stringify(L.notes.map((n) => n.tone))}, heading ${JSON.stringify(L.heads)}, box ${Math.round(L.box.l)},${Math.round(L.box.t)}–${Math.round(L.box.r)},${Math.round(L.box.b)} ${L.box.h.toFixed(0)} px tall (want ≤ 96, inside ${w}x${h})` : 'no list'}`);
   await shot(page, `${tag}-76-notes-open`);
@@ -5545,26 +5577,45 @@ async function checkNotes(page, tag, w, h) {
   await page.locator('[role="dialog"] [data-apply]').click();
   await settle(page, 400);
   const after = await notesState(page);
-  note(!!after.list && after.toggle.text === '⚠ Notes (6) ▾' && after.list.notes[0].key === 'apply-0' && after.list.notes[0].text === NOTE_APPLIED && after.list.notes[0].tone === 'info' &&
+  note(!!after.list && after.toggle.text === '⚠ Notes (8) ▾' && after.list.notes[0].key === 'apply-0' && after.list.notes[0].text === NOTE_APPLIED && after.list.notes[0].tone === 'info' &&
       JSON.stringify(after.list.notes.slice(1).map((n) => n.key)) === JSON.stringify(wantKeys),
     `after Apply: ${after.toggle ? `"${after.toggle.text}"` : 'no button'}; first note ${after.list ? JSON.stringify(`${after.list.notes[0].key}: ${after.list.notes[0].text.slice(0, 50)}…`) : 'none'}, the rest ${after.list ? JSON.stringify(after.list.notes.slice(1).map((n) => n.key)) : 'none'}`);
   await typeTime(2, 30);
   const changed = await notesState(page);
-  note(!!changed.list && changed.toggle.text === '⚠ Notes (5) ▾' && JSON.stringify(changed.list.notes.map((n) => n.key)) === JSON.stringify(wantKeys),
+  note(!!changed.list && changed.toggle.text === '⚠ Notes (7) ▾' && JSON.stringify(changed.list.notes.map((n) => n.key)) === JSON.stringify(wantKeys),
     `times changed again: ${changed.toggle ? `"${changed.toggle.text}"` : 'no button'}, notes ${changed.list ? JSON.stringify(changed.list.notes.map((n) => n.key)) : 'none'}`);
-  step(`76 the notes are folded under a button, say what playback assumed and could not show, word for word, and carry what Apply says until the times change (${tag})`, ok, parts.join('; '));
+  // The domes do not move with the times: the scene's source, made again for the new times, carries the same two.
+  const domesAfter = await sceneDomeIds(page);
+  note(JSON.stringify(domesAfter) === JSON.stringify(wantDomes), `after a time was typed and applied the scene's threat domes ${JSON.stringify(domesAfter)} (want ${JSON.stringify(wantDomes)})`);
+  // Nothing on the page names the threat the author hid or says that anything is hidden (the notes are open, so their words are on it).
+  const said = await page.evaluate(() => {
+    const text = (document.querySelector('[role="dialog"]')?.textContent || '');
+    return { sa11: /SA-11|Gadfly|Buk/.test(text), hidden: /hidden|\bhid\b|probable|location unknown/i.test(text) };
+  });
+  note(!said.sa11 && !said.hidden, `the page names the hidden SA-11: ${said.sa11}; says anything is hidden: ${said.hidden} (want neither)`);
+  // Show › Whole run-in widens the time bar to before the IP, and the start note must then say so; off, the ordinary words are back.
+  const startText = async () => (await notesState(page)).list?.notes.find((n) => n.key === 'start')?.text;
+  await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'wholeRunIn', on: true } }));
+  await settle(page, 300);
+  const startWhole = await startText();
+  await pbEval(page, () => __pb.act({ type: 'show', a: { type: 'wholeRunIn', on: false } }));
+  await settle(page, 300);
+  const startBack = await startText();
+  note(startWhole === NOTE_START_WHOLE && startBack === NOTE_START, `Show › Whole run-in on: the start note says ${JSON.stringify(startWhole)} (want the run-in wording); off: ${JSON.stringify(startBack)} (want the ordinary words)`);
+  step(`76 the notes are folded under a button, say what playback assumed and could not show, word for word, and carry what Apply says until the times change; the threats the planner may see reach the scene and the hidden one does not (${tag})`, ok, parts.join('; '));
 }
 
 /**
  * Check 76 on the spacing rule (the four-ship saved with it, jets 10 s apart): the hatching note is there, in the spacing
- * rule's words, between the gap and the push time; on the blast rule's page above there is none.
+ * rule's words, after the two about the threats and before the push time; on the blast rule's page above there is none.
  *
  * Proven red 2026-11-17 by one temporary edit to notes.ts, the hatching note left out (`if (f.hatch) notes.push(` → `if (false) notes.push(`):
  *   STEP FAIL 76 on the spacing rule the hatching note says what the amber stripes are, in that rule's words (1400x900-strike4) — "⚠ Notes (5) ▾"; notes ["gap-target-1","push","start","agl","warn-h-strike4-3-0"]; hatching none
+ *   (the counts and keys in that line are from before the four-ship carried threats: now 8 notes, with "ewr" and "legend" after the gap)
  */
 async function checkNotesTime(page, tag) {
   await pbEval(page, () => { __pb.pause(); __pb.seek(__pb.snapshot().start); });
-  await notesCount(page, 'Notes (6)');
+  await notesCount(page, 'Notes (8)');
   await settle(page, 300);
   if ((await notesState(page)).toggle?.open !== 'true') await notesToggle(page).click();
   await settle(page, 250);
@@ -5572,7 +5623,7 @@ async function checkNotesTime(page, tag) {
   const keys = s.list ? s.list.notes.map((n) => n.key) : [];
   const hatch = s.list?.notes.find((n) => n.key === 'hatch');
   step(`76 on the spacing rule the hatching note says what the amber stripes are, in that rule's words (${tag})`,
-    s.toggle?.text === '⚠ Notes (6) ▾' && JSON.stringify(keys) === JSON.stringify(['gap-target-1', 'hatch', 'push', 'start', 'agl', 'warn-h-strike4-3-0']) && hatch?.text === NOTE_HATCH_TIME && hatch.tone === 'info',
+    s.toggle?.text === '⚠ Notes (8) ▾' && JSON.stringify(keys) === JSON.stringify(['gap-target-1', 'ewr', 'legend', 'hatch', 'push', 'start', 'agl', 'warn-h-strike4-3-0']) && hatch?.text === NOTE_HATCH_TIME && hatch.tone === 'info',
     `${s.toggle ? `"${s.toggle.text}"` : 'no button'}; notes ${JSON.stringify(keys)}; hatching ${hatch ? JSON.stringify(hatch.text) : 'none'}`);
 }
 
@@ -5580,11 +5631,16 @@ async function checkNotesTime(page, tag) {
  * Check 76 on the lone pop-up (handed over as the editor hands one over, with the theater note): "Notes (3) ▸" in grey
  * (nothing asks for attention), and once open exactly the push time, the start of the time bar and the altitudes, word
  * for word; no gap, no stripes, no jet left out and no drawing check; the theater note in view outside the list.
+ * The start note is the one for Show's choice at that moment (the checks before this one on the page leave Show › Whole run-in
+ * on, so it reads the run-in wording there), so the page's own Show state is read and the words must match it.
  *
  * (The push note shown for a jet with no card push is geo-check's to hold, N4.)
  *
  * Proven red 2026-11-17 by one temporary edit to StatusNotes.tsx, the button amber whatever the notes say (`attention` made `true`):
  *   STEP FAIL 76 a lone jet has three plain notes, a grey button, and its theater warning stays in view (1400x900) — folded "⚠ Notes (3) ▸" amber true; open ["push","start","agl"]; the planner's warning in view 1×
+ * Proven red 2026-11-18 for the start note by one temporary edit to PlaybackView.tsx, Show's start choice not handed to the notes
+ * (`wholeRunIn: show.wholeRunIn, ` taken out of the `noteFactsFrom` call; a run of the lone chain alone at 1024×768):
+ *   STEP FAIL 76 a lone jet has three plain notes, … (1024x768) — …; Whole run-in on, the start note "The time bar starts 10 s before the first jet's first action. Show › Whole run-in starts it before the IP." (want "The time bar starts at the beginning of the run-in, before the IP: Show › Whole run-in is on. Switch it off to start it 10 s before the first jet's first action."); …
  */
 async function checkNotesLone(page, tag) {
   await pbEval(page, () => { __pb.pause(); });
@@ -5594,10 +5650,13 @@ async function checkNotesLone(page, tag) {
   await settle(page, 250);
   const s = await notesState(page);
   const L = s.list;
+  // The start note follows Show's choice of where the time bar starts, whatever the checks before this one left it at.
+  const whole = await pbEval(page, () => __pb.show().wholeRunIn);
+  const startWant = whole ? NOTE_START_WHOLE : NOTE_START;
   step(`76 a lone jet has three plain notes, a grey button, and its theater warning stays in view (${tag})`,
     !!folded.toggle && folded.toggle.text === 'Notes (3) ▸' && !folded.toggle.amber && folded.list === null && folded.theater >= 1 && !!L && s.toggle.text === 'Notes (3) ▾' &&
-      JSON.stringify(L.notes.map((n) => [n.key, n.tone, n.text])) === JSON.stringify([['push', 'info', NOTE_PUSH], ['start', 'info', NOTE_START], ['agl', 'info', NOTE_AGL]]) && L.heads.length === 0 && s.theater >= 1,
-    `folded "${folded.toggle ? folded.toggle.text : 'no button'}" amber ${folded.toggle ? folded.toggle.amber : '—'}; open ${L ? JSON.stringify(L.notes.map((n) => n.key)) : 'no list'}; the planner's warning in view ${s.theater}×`);
+      JSON.stringify(L.notes.map((n) => [n.key, n.tone, n.text])) === JSON.stringify([['push', 'info', NOTE_PUSH], ['start', 'info', startWant], ['agl', 'info', NOTE_AGL]]) && L.heads.length === 0 && s.theater >= 1,
+    `folded "${folded.toggle ? folded.toggle.text : 'no button'}" amber ${folded.toggle ? folded.toggle.amber : '—'}; open ${L ? JSON.stringify(L.notes.map((n) => n.key)) : 'no list'}; Whole run-in ${whole ? 'on' : 'off'}, the start note ${JSON.stringify(L?.notes.find((n) => n.key === 'start')?.text)} (want ${JSON.stringify(startWant)}); the planner's warning in view ${s.theater}×`);
   await notesToggle(page).click(); // folded again, for the checks after
 }
 

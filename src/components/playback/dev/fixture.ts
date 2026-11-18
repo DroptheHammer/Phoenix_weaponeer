@@ -46,6 +46,14 @@
  * back (the checks pass a recorder), and from the editor's what the cards go
  * by when two jets share a time.
  *
+ * The four-ship also carries four threats, handed over through the launch's own
+ * press (launch.ts threatsAtPress, nothing revealed): an SA-6 (active, from the
+ * mission) 3 nm north-east of TGT1, an SA-8 (suppressed, a planning assumption)
+ * 4 nm west-north-west, a P-19 early-warning radar 8 nm east, whose range covers
+ * the whole drawn area so it has no ring to draw, and an SA-11 the mission's
+ * author hid, 5 nm south-south-west, which must reach nothing: it is inside the
+ * drawn area, so a leak would show.
+ *
  * `rule` is the frag rule the strike is saved with ('burst' or 'time'); left
  * out, the strike says nothing and the app's own default applies.
  */
@@ -60,10 +68,11 @@ import { saveStrikeTo } from '../../../lib/strike';
 import { assignFlanks, newJet } from '../../../lib/strikeDraft';
 import { buildStrikePlayback, playbackInputFromMission, retime, strikeEvents, type PlaybackInput } from '../../../lib/playback';
 import { firstActionTau, playRange } from '../../../lib/playbackScene';
-import type { Attack, DbWeapon, DeliveryProfile, Mission, Strike, Waypoint } from '../../../types';
+import type { Attack, DbWeapon, DeliveryProfile, Mission, Strike, ThreatInstance, Waypoint } from '../../../types';
 import type { FragRule } from '../../../types/strike.types';
 import type { BlastMeaning } from '../../../types/weapon.types';
-import type { EditorLaunch, PlaybackLaunch } from '../types';
+import { threatsAtPress } from '../launch';
+import type { EditorLaunch, PlaybackLaunch, PlaybackSystemRow } from '../types';
 
 export const TARGET = { lat: 37.15, lon: -116.83 };
 export const TARGET_ELEVATION_FT = 4000;
@@ -171,6 +180,21 @@ function strikeMission(tgt2: { coordinates: { lat: number; lon: number }; elevat
   } as unknown as Mission;
 }
 
+/** The reference data's threat systems, every field kept, as the planner's lists carry them. */
+const threatSystems = (reference as unknown as { threat_systems: PlaybackSystemRow[] }).threat_systems;
+
+/** The four-ship's threats: an SA-6 and an SA-8 to draw, a P-19 that covers the area, and an SA-11 the mission's author hid. */
+export function strikeThreats(): ThreatInstance[] {
+  const at = (id: string, systemId: string, bearing: number, nm: number, status: ThreatInstance['status'], source: ThreatInstance['source'], hidden = false): ThreatInstance =>
+    ({ id, systemId, position: calculateDestination(TARGET, bearing, nm), status, source, ...(hidden ? { hiddenOnPlanner: true } : {}) });
+  return [
+    at('h-sa6', 'sa6', 45, 3, 'active', 'mission'),
+    at('h-sa8', 'sa8', 300, 4, 'suppressed', 'planning'),
+    at('h-sa11', 'sa11', 200, 5, 'active', 'mission', true),
+    at('h-p19', 'p19', 90, 8, 'active', 'mission'),
+  ];
+}
+
 type Seat = { who: string; target: string; profile: string; tot: number; weapon?: string };
 /** `trail`: every jet flown on the lead's side (the planner's own per-jet choice), so jets on one target share an axis. */
 type StrikeOptions = { ip?: Strike['ip']; rule?: FragRule; trail?: boolean };
@@ -268,10 +292,12 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
   // Every member in seat order, skipped ones included, so a seat number names the same member as the card.
   const ids = [...input.jets.map((j) => ({ id: j.id, label: j.label })), ...(input.skipped ?? []).map((j) => ({ id: j.id, label: j.label }))];
   const seat = watch ?? (fixture === 'late' ? 2 : 1);
+  // The four-ship's threats, through the press as the planner's with nothing revealed (so the hidden SA-11 is not among them).
+  const threats = fixture === 'strike4' ? { threats: threatsAtPress(strikeThreats(), threatSystems, { onPlanner: false, onMap: false }) } : {};
   if ((fixture === 'strike4' || fixture === 'dive4' || fixture === 'ridge' || fixture === 'trail') && door !== 'editor') {
     return {
       fromMission: { mission: planned, subject: { strikeId: strikeIdOf(fixture) }, weapons }, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes,
-      apply: record && { to: 'mission', write: record },
+      apply: record && { to: 'mission', write: record }, ...threats,
     };
   }
   // What the editor would hand over for a strike it had open: a way to write the times back (here, to the
@@ -283,7 +309,7 @@ export function harnessFixtureLaunch(fixture: HarnessFixture, notes: string[] = 
     return [planned.flightMembers.find((f) => f.id === attack.attackerId)?.position ?? 9, attack.sequenceNumber];
   });
   // A strike's title is its name.
-  return { input, title: input.name, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes, apply: record && { to: 'editor', write: record }, tie };
+  return { input, title: input.name, jetId: ids.find((j) => j.label === `#${seat}`)?.id, notes, apply: record && { to: 'editor', write: record }, tie, ...threats };
 }
 
 /** The moments the screenshot checks seek to, on the strike clock (built the same way PlaybackView builds them). */

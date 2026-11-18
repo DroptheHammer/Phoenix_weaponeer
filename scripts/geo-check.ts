@@ -198,7 +198,13 @@ import { aimWeight, lookDirection, AIM_IN_WALL_S, AIM_HOLD_WALL_S, AIM_OUT_WALL_
 import { targetLook, TARGET_MAX_UP_DEG } from '../src/lib/playbackScene';
 import { sideMapping, sideX, sideY, newSideDots, newSideScratch, sideDotsInto, sideCaption, SIDE_INK, SIDE_PAPER, type SideMap } from '../src/lib/playbackScene';
 import { harnessLaunch, harnessFixtureLaunch, harnessMoments, SOLO_FIXTURES, type SoloFixture } from '../src/components/playback/dev/fixture';
-import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes } from '../src/components/playback/launch';
+import { playbackLaunchFromEditor, playbackLaunchFromMission, theaterNotes, threatsAtPress } from '../src/components/playback/launch';
+import type { PlaybackSystemRow } from '../src/components/playback/types';
+import {
+  sceneDomes, groupOf, THREAT_GROUPS, systemLabel, ringCover, domeSegmentCount, domeSegmentsInto, insideDomeAt, domeMaskInto, pickInside, ewrTagPoint, threatRowNote,
+  MAX_DOMES, DOME_ACTIVE, DOME_IDLE, EWR_SEG_M, EWR_RING_MAX_SEGS, START_NOTE_WHOLE, ewrNote, outsideNote, cappedNote, LEGEND_NOTE, threatFactsOf,
+  type SceneDome, type SceneThreats, type SceneSystem, type SceneSystemRow, type DomeSet,
+} from '../src/lib/playbackScene';
 import { editorBurstReadout } from '../src/components/playback/fragEditor';
 import { cardTie } from '../src/components/playback/cardTie';
 import { groundNote, REAL_GROUND_NOTE } from '../src/components/playback/StatusNotes';
@@ -9309,6 +9315,8 @@ void (async () => {
     //   FAIL playback B3 [CT1]: … through their outlines  quiet text (a seat not flown, the all-clear line) 2.09 (text, want 4.5)
     // BOX_EDGE '#6b7280' → '#4b5563' (the edge that shows a time box's shape, one step too dark), seen red 2026-11-15 (LS2 goes red with it):
     //   FAIL playback B3 [CT1]: … through their outlines  time box and Reset edge 2.09 (graphic, want 3)
+    // domes.ts DOME_IDLE '#9CA3AF' → '#4B5563' (the grey ring on the picture's dark, 2026-11-18; [D7] and the map check go red with it):
+    //   FAIL playback B3 [CT1]: … through their outlines  a threat ring that is not active, on the picture's dark 2.24 (graphic, want 3)
     const tailwindNavy = /'dcs-navy':\s*'(#[0-9a-fA-F]{6})'/.exec(readFileSync('tailwind.config.js', 'utf8'))?.[1];
     const colour = (css: string) => parseColour(css)!;
     type Ct1 = { id: string; kind: 'graphic' | 'text'; fg: string; bg: string };
@@ -9341,6 +9349,10 @@ void (async () => {
         { id: `${k} chip`, kind: 'graphic', fg: MARKER_COLOR[k], bg: PANEL },
         { id: `${k} letters on its chip`, kind: 'text', fg: CHIP_TEXT[k], bg: MARKER_COLOR[k] },
       ]),
+      // A threat's ring in the 3D picture, in the map's status colours, over the picture's own dark (not the panel): an early-warning
+      // radar's ring is all the 3D draws of one, so these two are what a pilot sees it by (D7 holds the same two, and prints pale land).
+      { id: 'an active threat ring on the picture\'s dark', kind: 'graphic', fg: DOME_ACTIVE, bg: BG },
+      { id: 'a threat ring that is not active, on the picture\'s dark', kind: 'graphic', fg: DOME_IDLE, bg: BG },
     ];
     const ct1 = ct1Pairs.map((p) => ({ ...p, worst: Math.min(...VISIONS.map((v) => ratio(colour(p.fg), colour(p.bg), v))) }));
     const ct1Bad = ct1.filter((p) => p.worst < CONTRAST_FLOOR[p.kind]);
@@ -10650,6 +10662,610 @@ void (async () => {
     if (l4None !== undefined) l4Bad.push('a launch with no plan open');
     ok('playback B3 [L4]: the list\'s Play hands over the saved plan without its threats, the strike or attack and the weapons; Apply only for a strike and into the plan; the row\'s attack to watch; the theater notes; nothing with no plan open',
        l4Bad.length === 0, l4Bad.join('; ') || 'plan as saved, 0 of 1 threats; strike: Apply to the plan, row: none, watching b3-2; notes 1; no plan: no launch');
+
+    // ─── Threat data (domes.ts, launch.ts threatsAtPress): the threats the planner may see reach playback at the press
+    // as domes and menu rows, and nothing in playback knows of a threat the mission's author hid. Nothing is drawn yet; the
+    // notes count what is here. The fixture is the four-ship's: an SA-6 (active, from the mission) 3 nm on 045° from TGT1,
+    // an SA-8 (suppressed, a planning assumption) 4 nm on 300°, an SA-11 the author hid 5 nm on 200° (inside the drawn area,
+    // so a leak would draw), and a P-19 radar 8 nm on 090° whose range covers the whole drawn area. Each check carries its
+    // mutation proof (2026-11-18): one temporary edit to the real module, geo-check run, the FAIL line copied (shortened
+    // with …), the edit restored.
+    try {
+      const NM = 1852;
+      const NO_REVEAL = { onPlanner: false, onMap: false }, ALL_REVEALED = { onPlanner: true, onMap: true };
+      const refSystems = (JSON.parse(readFileSync('crates/core/data/reference.json', 'utf8')) as { threat_systems: PlaybackSystemRow[] }).threat_systems;
+      const sceneSystems = refSystems as SceneSystem[];
+      const tmThreat = (id: string, systemId: string, brg: number, nm: number, status = 'active', source = 'mission', flags: object = {}) =>
+        ({ id, systemId, position: calculateDestination(tgt, brg, nm), status, source, ...flags }) as never as ThreatInstance;
+      const tmSa6 = tmThreat('tm-sa6', 'sa6', 45, 3), tmSa8 = tmThreat('tm-sa8', 'sa8', 300, 4, 'suppressed', 'planning');
+      const tmSa11 = tmThreat('tm-sa11', 'sa11', 200, 5, 'active', 'mission', { hiddenOnPlanner: true }), tmP19 = tmThreat('tm-p19', 'p19', 90, 8);
+      const s4Box = terrainBoxOf(s4Src.bounds);
+      const press = (threats: ThreatInstance[], reveal = NO_REVEAL) => threatsAtPress(threats, refSystems, reveal);
+      /** Handed straight to the dome builder, as a threat that slipped past the press would be. */
+      const straight = (visible: ThreatInstance[], reveal = NO_REVEAL): SceneThreats => ({ visible, systems: sceneSystems, reveal });
+      const rowLine = (set: DomeSet) => set.systems.map((r) => `${r.systemId}/${r.group}/${r.label}/${r.threats}/${r.drawn}/${r.covers}/${r.beyond}/${r.capped}/${r.defaultOn ? 'on' : 'off'}`);
+      const crowd = () => [
+        ...Array.from({ length: 70 }, (_, i) => tmThreat(`crowd-${String(i).padStart(2, '0')}`, 'sa8', (i * 37) % 360, 0.5 + 0.2 * i)),
+        tmThreat('far-north', 'sa8', 0, 100),
+        // Just south of the box (12.5 nm south of the target, the SA-8's range 6 nm): out of reach by about a nm, while the same
+        // distance north is inside the box. Only a check that has the ground south of the target answer differently from the
+        // ground north of it can tell a north taken the wrong way.
+        tmThreat('far-south', 'sa8', 180, 19.5),
+      ];
+
+      // [TM1] Where a radar's ring lies against the drawn area: in a box 60 km each way, a radar 8 nm out with 86 nm of range
+      // has the whole box inside its range (covers); one 150 nm out (its centre outside the box) with 220 nm covers too; one
+      // 120 nm north with 130 nm reaches only part of it (drawn); one 400 nm out with 200 nm never reaches it (beyond); a
+      // ring through exactly one corner touches the box (drawn) and one a metre short does not (beyond). All four sides.
+      // Mutation proof (seen red 2026-11-18): domes.ts ringCover judged from the box's middle only (`Math.hypot(nearE, nearN) > radius_m`
+      // → `Math.hypot(e_m, n_m) > radius_m`, the centre's distance from the middle):
+      //   FAIL playback B3 [TM1]: … through one corner (the circle touches it): beyond (want drawn); …
+      // and ringCover given its north negated on the way in (`const n_m = -n_m0;` as its first line): every case on the symmetric box
+      // still passes, the lopsided box's five discriminating cases do not:
+      //   FAIL playback B3 [TM1]: … lopsided box: 50 km south, range 20 km: drawn (want beyond); lopsided box: 90 km north, range 50 km: beyond (want drawn); lopsided box: 40 km north, range 120 km: drawn (want covers); lopsided box: 40 km south, range 120 km: covers (want drawn); lopsided box: 60 km north of the target, range 5 km: beyond (want drawn)
+      {
+        const box: TerrainBox = { west_m: -60000, east_m: 60000, south_m: -60000, north_m: 60000 };
+        const cases: [string, number, number, number, string][] = [
+          ['8 nm out, range 86 nm', 8 * NM, 0, 86 * NM, 'covers'],
+          ['150 nm out (centre outside the box), range 220 nm', 150 * NM, 0, 220 * NM, 'covers'],
+          ['120 nm north, range 130 nm', 0, 120 * NM, 130 * NM, 'drawn'],
+          ['120 nm south, range 130 nm', 0, -120 * NM, 130 * NM, 'drawn'],
+          ['120 nm west, range 130 nm', -120 * NM, 0, 130 * NM, 'drawn'],
+          ['120 nm east, range 130 nm', 120 * NM, 0, 130 * NM, 'drawn'],
+          ['400 nm out, range 200 nm', 400 * NM, 0, 200 * NM, 'beyond'],
+          ['400 nm south-west, range 200 nm', -400 * NM, -400 * NM, 200 * NM, 'beyond'],
+          ['through one corner (the circle touches it)', 90000, 100000, 50000, 'drawn'],
+          ['a metre short of that corner', 90000, 100000, 49999, 'beyond'],
+          ['in the middle, range 20 km', 0, 0, 20000, 'drawn'],
+        ];
+        // A box with more ground north of its middle than south (20 km south, 100 km north, 60 km each way east and west), so a
+        // north taken the wrong way gives another answer: a radar 50 km south is out of reach of a 20 km ring, and the same
+        // radar 50 km north would sit inside the box.
+        const lopsided: TerrainBox = { west_m: -60000, east_m: 60000, south_m: -20000, north_m: 100000 };
+        const lopsidedCases: [string, number, number, number, string][] = [
+          ['lopsided box: 50 km south, range 20 km', 0, -50000, 20000, 'beyond'],
+          ['lopsided box: 50 km south, range 35 km', 0, -50000, 35000, 'drawn'],
+          ['lopsided box: 90 km north, range 50 km', 0, 90000, 50000, 'drawn'],
+          ['lopsided box: 40 km north, range 120 km', 0, 40000, 120000, 'covers'],
+          ['lopsided box: 40 km south, range 120 km', 0, -40000, 120000, 'drawn'],
+          ['lopsided box: 200 km north, range 90 km', 0, 200000, 90000, 'beyond'],
+          ['lopsided box: 60 km north of the target, range 5 km', 0, 60000, 5000, 'drawn'],
+        ];
+        const bad = [...cases.map((c) => [c, box] as const), ...lopsidedCases.map((c) => [c, lopsided] as const)]
+          .filter(([[, e, n, R, want], b]) => ringCover(e, n, R, b) !== want)
+          .map(([[name, e, n, R, want], b]) => `${name}: ${ringCover(e, n, R, b)} (want ${want})`);
+        ok('playback B3 [TM1]: a radar\'s ring against the drawn area: covers when every corner is inside its range, beyond when the nearest point is out of it, drawn otherwise (a ring through one corner is drawn); north is north (a box with more ground north than south)',
+           bad.length === 0, bad.join('; ') || `${cases.length + lopsidedCases.length} cases`);
+      }
+
+      // [TM2] A radar's ring: only a ring that is drawn becomes a dome (covers and beyond are counted in the row), every vertex of
+      // it inside the drawn area at the range from its centre (± 0.5 m) and 1 m over the drawn ground, at most 512 chords, and
+      // on a ring that leaves the box on a diagonal the chords still cover the part inside: an 86 nm ring 68 km off-centre on the
+      // diagonal of a 60 nm box has 720 chords inside at 2,002 points, which the ring's own point count cuts to 512 or fewer
+      // while the chords still cover at least 95% of the arc in the box (a ring cut by keeping the first 512 chords covers 71%).
+      // The same ring along an axis has 492 chords and keeps its 2,002 points. A planning radar is dashed: every other chord.
+      // The tag goes on the ring's vertex inside the box nearest the lead's target.
+      // Mutation proof (seen red 2026-11-18): domes.ts ringPointsFor's `for (let pass = 0; …)` loop taken out (no reduction) and
+      // domeSegmentsInto's radar loop given `if (kept >= EWR_RING_MAX_SEGS) break;` (the first 512 chords kept):
+      //   FAIL playback B3 [TM2]: … the diagonal ring: 512 chords cover 70.9% of the arc inside the box (want 95% or more); the diagonal ring was not cut down (2002 points); dashed: 256 of 720 chords (want 360), …
+      // and ewrTagPoint's `let bestD = Infinity;` → `-Infinity` with `dist < bestD` → `dist > bestD` (the farthest vertex, not the nearest):
+      //   FAIL playback B3 [TM2]: … the tag is at (110856.6, 98296.6) but the nearest vertex inside the box is (-64725.4, 64352.4)
+      {
+        const frame = s4Pb.frame;
+        const box: TerrainBox = { west_m: -60 * NM, east_m: 60 * NM, south_m: -60 * NM, north_m: 60 * NM };
+        const radar = (id: string, e: number, n: number, systemId = 'p19', source = 'mission') =>
+          ({ id, systemId, position: fromLocal(frame, e, n), status: 'active', source }) as never as ThreatInstance;
+        const build = (threats: ThreatInstance[]) => sceneDomes(straight(threats), frame, box);
+        const inBox = (x: number, z: number, slack = 0) => x >= box.west_m - slack && x <= box.east_m + slack && -z >= box.south_m - slack && -z <= box.north_m + slack;
+        // Independent of the code under test: how many chords of an n-point ring have both ends inside the box.
+        const chordsIn = (d: SceneDome, n: number) => {
+          let k = 0;
+          for (let i = 0; i < n; i++) {
+            const a = (2 * Math.PI * i) / n, b = (2 * Math.PI * ((i + 1) % n)) / n;
+            if (inBox(d.x + d.radius_m * Math.cos(a), d.z + d.radius_m * Math.sin(a)) && inBox(d.x + d.radius_m * Math.cos(b), d.z + d.radius_m * Math.sin(b))) k++;
+          }
+          return k;
+        };
+        const diag = build([radar('diag', 68000 * Math.SQRT1_2, 68000 * Math.SQRT1_2)]);
+        const axis = build([radar('axis', 68000, 0)]);
+        const cover = build([radar('cover', 0, 0)]);
+        const away = build([radar('away', 300 * NM, 0)]);
+        const bad: string[] = [];
+        const d45 = diag.domes[0], dAx = axis.domes[0];
+        const seen: string[] = [];
+        const rimY = (x: number, z: number) => 0.01 * x - 0.02 * z;
+        const arcInBox = (d: SceneDome) => {
+          const N = 360000;
+          let k = 0;
+          for (let i = 0; i < N; i++) if (inBox(d.x + d.radius_m * Math.cos((2 * Math.PI * i) / N), d.z + d.radius_m * Math.sin((2 * Math.PI * i) / N))) k++;
+          return (k / N) * 2 * Math.PI * d.radius_m;
+        };
+        if (!d45 || !dAx) bad.push('a ring that reaches the box is not a dome');
+        for (const [name, d] of [['the diagonal ring', d45], ['the axis ring', dAx]] as const) {
+          if (!d) continue;
+          const out = new Float32Array(6 * domeSegmentCount(d));
+          const wrote = domeSegmentsInto(d, 0, rimY, box, out, 0) / 6;
+          let worstR = 0, worstY = 0, outside = 0, chords = 0;
+          for (let s = 0; s < wrote; s++) {
+            for (const e of [0, 3]) {
+              const x = out[6 * s + e], y = out[6 * s + e + 1], z = out[6 * s + e + 2];
+              worstR = Math.max(worstR, Math.abs(Math.hypot(x - d.x, z - d.z) - d.radius_m));
+              worstY = Math.max(worstY, Math.abs(y - (rimY(x, z) + 1)));
+              if (!inBox(x, z, 0.5)) outside++;
+            }
+            chords += Math.hypot(out[6 * s + 3] - out[6 * s], out[6 * s + 5] - out[6 * s + 2]);
+          }
+          const arc = arcInBox(d);
+          if (wrote > EWR_RING_MAX_SEGS || wrote === 0) bad.push(`${name}: ${wrote} chords (want 1 to ${EWR_RING_MAX_SEGS})`);
+          if (outside || worstR > 0.5 || worstY > 0.1) bad.push(`${name}: ${outside} vertices outside the box, worst range error ${worstR.toFixed(2)} m, worst height error ${worstY.toFixed(2)} m`);
+          if (chords < 0.95 * arc || chords > arc * 1.0001) bad.push(`${name}: ${wrote} chords cover ${((100 * chords) / arc).toFixed(1)}% of the arc inside the box (want 95% or more)`);
+          seen.push(`${name}: ${d.ringPoints} points, ${wrote} chords, ${((100 * chords) / arc).toFixed(1)}% of the arc`);
+        }
+        // The fixtures are the cases the claims above are about.
+        if (d45 && chordsIn(d45, Math.min(4096, Math.ceil((2 * Math.PI * d45.radius_m) / EWR_SEG_M))) !== 720) bad.push(`the diagonal ring has ${chordsIn(d45, Math.min(4096, Math.ceil((2 * Math.PI * d45.radius_m) / EWR_SEG_M)))} chords inside at its unreduced size (want 720)`);
+        if (d45 && d45.ringPoints >= Math.ceil((2 * Math.PI * d45.radius_m) / EWR_SEG_M)) bad.push(`the diagonal ring was not cut down (${d45.ringPoints} points)`);
+        if (dAx && (chordsIn(dAx, dAx.ringPoints) !== 492 || dAx.ringPoints !== Math.ceil((2 * Math.PI * dAx.radius_m) / EWR_SEG_M))) bad.push(`the axis ring: ${chordsIn(dAx, dAx.ringPoints)} chords inside at ${dAx.ringPoints} points (want 492 at 2,002, no cut)`);
+        // Covers and beyond: counted in the row, no dome.
+        if (cover.domes.length !== 0 || cover.systems[0]?.covers !== 1 || cover.systems[0]?.drawn !== 0) bad.push(`a ring that covers the box: ${cover.domes.length} domes, row ${rowLine(cover)}`);
+        if (away.domes.length !== 0 || away.systems[0]?.beyond !== 1 || away.systems[0]?.drawn !== 0) bad.push(`a ring out of reach: ${away.domes.length} domes, row ${rowLine(away)}`);
+        // Dashed: every other chord of the ones kept.
+        const dashedSet = build([radar('dash', 68000 * Math.SQRT1_2, 68000 * Math.SQRT1_2, 'p19', 'planning')]);
+        const dd = dashedSet.domes[0];
+        if (dd && d45) {
+          const outD = new Float32Array(6 * domeSegmentCount(dd));
+          const kept = chordsIn(dd, dd.ringPoints);
+          const wroteD = domeSegmentsInto(dd, 0, rimY, box, outD, 0) / 6;
+          if (!dd.dashed || wroteD !== Math.ceil(kept / 2) || domeSegmentCount(dd) !== EWR_RING_MAX_SEGS / 2 || domeSegmentCount(d45) !== EWR_RING_MAX_SEGS) bad.push(`dashed: ${wroteD} of ${kept} chords (want ${Math.ceil(kept / 2)}), buffers ${domeSegmentCount(dd)} and ${domeSegmentCount(d45)} (want ${EWR_RING_MAX_SEGS / 2} and ${EWR_RING_MAX_SEGS})`);
+        } else bad.push('a planning radar gave no dome');
+        // The tag: the nearest vertex inside the box to the lead's target.
+        if (d45) {
+          let want: { x: number; z: number } | undefined, wantD = Infinity;
+          for (let i = 0; i < d45.ringPoints; i++) {
+            const a = (2 * Math.PI * i) / d45.ringPoints, x = d45.x + d45.radius_m * Math.cos(a), z = d45.z + d45.radius_m * Math.sin(a);
+            if (inBox(x, z) && Math.hypot(x, z) < wantD) { wantD = Math.hypot(x, z); want = { x, z }; }
+          }
+          const got = ewrTagPoint(d45, box);
+          if (!got || !want || Math.hypot(got.x - want.x, got.z - want.z) > 1e-6) bad.push(`the tag is at (${got?.x.toFixed(1)}, ${got?.z.toFixed(1)}) but the nearest vertex inside the box is (${want?.x.toFixed(1)}, ${want?.z.toFixed(1)})`);
+          if (ewrTagPoint({ ...d45, ringPoints: 0 }, box) !== undefined) bad.push('a ring with no points has a tag');
+        }
+        ok('playback B3 [TM2]: a drawn radar ring has every vertex inside the box, at its range and 1 m over the ground, at most 512 chords whose total covers at least 95% of the arc inside the box even on the diagonal (720 chords cut down), covers and beyond give no dome, a planning ring is dashed, and the tag is at the vertex nearest the target',
+           bad.length === 0, bad.join('; ') || seen.join('; '));
+      }
+
+      // [TM3] The menu's rows are made from what the dome builder returned: on the four-ship's threats, one row for the SA-6
+      // ("SA-6 Gainful · 2K12 Kub", a SAM, 1 threat, 1 drawn, on), one for the SA-8 ("SA-8 Gecko · 9K33 Osa", a SHORAD), one for the
+      // P-19 ("Flat Face · P-19 Danube", an early-warning radar, 1 threat, 0 drawn, 1 that covers the area, off at first), in that
+      // order. A hidden SA-11 and a hidden P-19 handed straight in are neither rows nor counted (the same two with their switch
+      // on are, so the check can see them), and two radars that share a NATO name ("Tall Rack") have two different labels.
+      // Mutation proof (seen red 2026-11-18): domes.ts sceneDomes' `row.threats++;` taken out of the loop over what the builder
+      // returns and made `for (const th of t.visible) { const s = systems.get(th.systemId); if (s) rowOf(s, groupOf(s.threat_type)).threats++; }` after it
+      // (rows counted from the list that was handed in):
+      //   FAIL playback B3 [TM3]: … the hidden SA-11 and P-19 handed straight in: rows sa11/SAM/SA-11 Gadfly · 9K37 Buk/1/0/0/0/0/on | sa6/SAM/SA-6 Gainful · 2K12 Kub/1/1/0/0/0/on | sa8/SHORAD/… | p19/EWR/Flat Face · P-19 Danube/2/0/1/0/0/off; domes tm-sa6,tm-sa8 (want the same three rows)
+      {
+        const wantRows = ['sa6/SAM/SA-6 Gainful · 2K12 Kub/1/1/0/0/0/on', 'sa8/SHORAD/SA-8 Gecko · 9K33 Osa/1/1/0/0/0/on', 'p19/EWR/Flat Face · P-19 Danube/1/0/1/0/0/off'];
+        const pressed = sceneDomes(press([tmSa6, tmSa8, tmSa11, tmP19]), s4Pb.frame, s4Box);
+        const hiddenP19 = tmThreat('tm-p19-hidden', 'p19', 100, 6, 'active', 'mission', { hiddenOnPlanner: true });
+        const slipped = sceneDomes(straight([tmSa6, tmSa8, tmSa11, tmP19, hiddenP19]), s4Pb.frame, s4Box);
+        const shown = sceneDomes(straight([tmSa6, tmSa8, tmSa11, tmP19, hiddenP19], { onPlanner: true, onMap: false }), s4Pb.frame, s4Box);
+        const twin = sceneDomes(straight([tmThreat('tm-r1', 'ewr1l13', 10, 10), tmThreat('tm-r2', 'ewr55g6', 20, 10)]), s4Pb.frame, s4Box);
+        const bad: string[] = [];
+        if (rowLine(pressed).join('|') !== wantRows.join('|')) bad.push(`the four-ship's threats: ${rowLine(pressed).join(' | ')} (want ${wantRows.join(' | ')})`);
+        if (rowLine(slipped).join('|') !== wantRows.join('|') || slipped.domes.some((d) => d.threatId.includes('sa11') || d.threatId.includes('hidden')))
+          bad.push(`the hidden SA-11 and P-19 handed straight in: rows ${rowLine(slipped).join(' | ')}; domes ${slipped.domes.map((d) => d.threatId)} (want the same three rows)`);
+        if (!rowLine(shown).some((l) => l.startsWith('sa11/')) || !rowLine(shown).some((l) => l.startsWith('p19/EWR/Flat Face · P-19 Danube/2/')))
+          bad.push(`with the planner's switch on the same two are not seen: ${rowLine(shown).join(' | ')}`);
+        const labels = twin.systems.map((r) => r.label);
+        if (labels.length !== 2 || new Set(labels).size !== 2 || !labels.every((l) => l.startsWith('Tall Rack')) || twin.domes.some((d) => d.label !== 'Tall Rack'))
+          bad.push(`two radars sharing a NATO name: labels ${JSON.stringify(labels)}, dome labels ${JSON.stringify(twin.domes.map((d) => d.label))} (want two different row labels; the dome's own is the NATO name)`);
+        const groups = [groupOf('SAM'), groupOf('SHORAD'), groupOf('AAA'), groupOf('MANPADS'), groupOf('EWR'), groupOf('sam'), groupOf(undefined), groupOf('')].join();
+        if (groups !== 'SAM,SHORAD,AAA,MANPADS,EWR,other,other,other' || THREAT_GROUPS.join() !== 'SAM,SHORAD,AAA,MANPADS,EWR,other') bad.push(`groups ${groups}`);
+        if (systemLabel({ id: 'x', max_range_nm: 1, max_altitude_ft: 1 }) !== 'x' || systemLabel({ id: 'x', max_range_nm: 1, max_altitude_ft: 1, name: 'Same', nato_designation: 'Same' }) !== 'Same' ||
+            systemLabel({ id: 'x', max_range_nm: 1, max_altitude_ft: 1, nato_designation: null, name: 'Hawk' }) !== 'Hawk') bad.push('a label with only an id, equal names or no NATO name');
+        ok('playback B3 [TM3]: the menu\'s rows come from what the dome builder returned: the four-ship\'s SA-6, SA-8 and P-19 in group order with their counts and defaults, a hidden SA-11 and P-19 handed straight in are neither rows nor counted, two radars sharing a NATO name have different labels',
+           bad.length === 0, bad.join('; ') || rowLine(pressed).join(' | '));
+      }
+
+      // [TM4] The mask and the inside test: with the SA-6 off its domes have mask 0; the lines the layer would draw come to the
+      // SA-6's 176 and the dashed SA-8's 32 and the radar's chords (every other one when dashed, 512 at most); nothing at all
+      // with everything off. A radar's range is detection, so it is never "inside": a point in both the radar's ring and the
+      // SA-6 picks the SA-6; with the SA-6 off nothing is picked (only this tells a missing radar skip). The radar is a 1L13
+      // placed 190 nm west of TGT1, on 270°, where the dev fixture's radar is to go so the two stay one fixture: the four-ship's
+      // drawn area runs 15 nm west to 40 nm east and 12.5 nm south to 27.5 nm north of the target, so its 200 nm range reaches
+      // only the part of it near the target (a dome), and the SA-6 (192 nm from it) lies inside its range.
+      // Mutation proofs (seen red 2026-11-18): domes.ts pickInside `d.ewr || !mask[i] ||` → `!mask[i] ||` (no radar skip):
+      //   FAIL playback B3 [TM4]: … SA-6 off: picks dome 2 (want none) …
+      // and `d.ewr || !mask[i] ||` → `d.ewr ||` (the mask ignored):
+      //   FAIL playback B3 [TM4]: … SA-6 off: picks dome 0 (want none) …
+      {
+        const radar = tmThreat('tm-1l13', 'ewr1l13', 270, 190);
+        const set = sceneDomes(straight([tmSa6, tmSa8, radar]), s4Pb.frame, s4Box);
+        const bad: string[] = [];
+        const domes = set.domes;
+        const iSa6 = domes.findIndex((d) => d.systemId === 'sa6'), iSa8 = domes.findIndex((d) => d.systemId === 'sa8'), iRadar = domes.findIndex((d) => d.systemId === 'ewr1l13');
+        if (domes.length !== 3 || iSa6 < 0 || iSa8 < 0 || iRadar < 0) bad.push(`domes ${domes.map((d) => d.systemId)} (want the SA-6, the SA-8 and the radar)`);
+        else {
+          const mask = new Uint8Array(domes.length);
+          const baseY = new Float32Array(domes.length);
+          const flat = (_x: number, _z: number) => 0;
+          const radarChords = (() => {
+            const d = domes[iRadar];
+            let k = 0;
+            for (let i = 0; i < d.ringPoints; i++) {
+              const a = (2 * Math.PI * i) / d.ringPoints, b = (2 * Math.PI * ((i + 1) % d.ringPoints)) / d.ringPoints;
+              const ok1 = (an: number) => { const x = d.x + d.radius_m * Math.cos(an), z = d.z + d.radius_m * Math.sin(an); return x >= s4Box.west_m && x <= s4Box.east_m && -z >= s4Box.south_m && -z <= s4Box.north_m; };
+              if (ok1(a) && ok1(b)) k++;
+            }
+            return k;
+          })();
+          const written = (on: string[]) => {
+            domeMaskInto(domes, on, mask);
+            const buf = new Float32Array(6 * (176 + 176 + 512));
+            let o = 0;
+            domes.forEach((d, i) => { if (mask[i]) o += domeSegmentsInto(d, baseY[i], flat, s4Box, buf, o); });
+            return o / 6;
+          };
+          const sa6Dome = domes[iSa6], sa8Dome = domes[iSa8];
+          if (!sa6Dome.active || sa6Dome.dashed || domeSegmentCount(sa6Dome) !== 176 || !sa8Dome.dashed || domeSegmentCount(sa8Dome) !== 32) bad.push('the SA-6 is not the solid active cage or the SA-8 not the dashed ground ring');
+          const all = written(['sa6', 'sa8', 'ewr1l13']), want = 176 + 32 + radarChords;
+          if (all !== want || radarChords < 1 || radarChords > EWR_RING_MAX_SEGS) bad.push(`everything on: ${all} segments (want ${want}: 176 + 32 + the radar's ${radarChords} chords)`);
+          const noSa6 = written(['sa8', 'ewr1l13']);
+          if (noSa6 !== 32 + radarChords || mask[iSa6] !== 0 || mask[iSa8] !== 1 || mask[iRadar] !== 1) bad.push(`the SA-6 off: ${noSa6} segments (want ${32 + radarChords}), mask ${Array.from(mask)}`);
+          if (written([]) !== 0 || Array.from(mask).some((m) => m !== 0)) bad.push('everything off still has segments or mask');
+          // The inside test. A point 100 m up and 2 nm east of the SA-6's centre is inside the SA-6 and the radar's ring, and
+          // outside the SA-8 (whose range reaches the SA-6's centre but not this far).
+          const px = sa6Dome.x + 2 * NM, pz = sa6Dome.z, py = 100;
+          if (insideDomeAt(sa8Dome, 0, px, py, pz)) bad.push('the fixture point is inside the SA-8, so the pick below would be the SA-8\'s');
+          if (!insideDomeAt(domes[iRadar], 0, px, py, pz)) bad.push('the fixture point is not inside the radar\'s ring, so the test below could not tell a missing skip');
+          domeMaskInto(domes, ['sa6', 'sa8', 'ewr1l13'], mask);
+          const withAll = pickInside(domes, baseY, mask, px, py, pz);
+          domeMaskInto(domes, ['sa8', 'ewr1l13'], mask);
+          const sa6Off = pickInside(domes, baseY, mask, px, py, pz);
+          if (withAll !== iSa6) bad.push(`everything on: picks dome ${withAll} (want the SA-6, ${iSa6})`);
+          if (sa6Off !== -1) bad.push(`SA-6 off: picks dome ${sa6Off} (want none)`);
+        }
+        ok('playback B3 [TM4]: the mask switches a system\'s domes off, the lines drawn come to each dome\'s count (the SA-6 176, the dashed SA-8 32, a radar\'s chords), and a radar is never picked as the dome a jet is inside, with or without its own switch',
+           bad.length === 0, bad.join('; ') || `${domes.length} domes: SA-6 ${iSa6}, SA-8 ${iSa8}, radar ${iRadar}`);
+      }
+
+      // [TM5] The menu row's second line, word for word, the first that applies: a radar whose range covers the whole area (all, then
+      // some), threats beyond the area (all, then some), weapons past the 64 nearest, a radar's ring that is drawn; nothing for a
+      // weapon with everything drawn. On the four-ship the P-19's row says it covers the area and the SA-6's says nothing.
+      // Mutation proof (seen red 2026-11-18): domes.ts threatRowNote's two sentences `no ring to draw.` and `nothing to draw.` swapped:
+      //   FAIL playback B3 [TM5]: … a radar, all of it covers the area: "Beyond the drawn area: nothing to draw." (want "The whole drawn area is inside its detection range: no ring to draw."); a radar, all beyond: "The whole drawn area is inside its detection range: no ring to draw." (want "Beyond the drawn area: nothing to draw."); …
+      {
+        const row = (o: Partial<SceneSystemRow>): SceneSystemRow => ({ systemId: 'x', group: 'SAM', label: 'X', range_nm: 13, threats: 1, drawn: 0, covers: 0, beyond: 0, capped: 0, defaultOn: true, ...o });
+        const cases: [string, SceneSystemRow, string | undefined][] = [
+          ['a radar, all of it covers the area', row({ group: 'EWR', threats: 1, covers: 1, defaultOn: false }), 'The whole drawn area is inside its detection range: no ring to draw.'],
+          ['a radar, two of three cover it', row({ group: 'EWR', threats: 3, covers: 2, drawn: 1, defaultOn: false }), '2 cover the whole drawn area: no ring for those.'],
+          ['a radar, all beyond', row({ group: 'EWR', threats: 2, beyond: 2, defaultOn: false }), 'Beyond the drawn area: nothing to draw.'],
+          ['a weapon, all beyond', row({ threats: 2, beyond: 2 }), 'Beyond the drawn area: nothing to draw.'],
+          ['a weapon, one of three beyond', row({ threats: 3, beyond: 1, drawn: 2 }), '1 beyond the drawn area'],
+          ['a radar, one beyond, one drawn', row({ group: 'EWR', threats: 2, beyond: 1, drawn: 1, range_nm: 86, defaultOn: false }), '1 beyond the drawn area'],
+          ['a weapon, six past the 64 nearest', row({ threats: 70, drawn: 64, capped: 6 }), `6 not drawn: only the ${MAX_DOMES} nearest the lead's target are.`],
+          ['a radar with a ring drawn', row({ group: 'EWR', threats: 1, drawn: 1, range_nm: 86, defaultOn: false }), 'Detection range 86 nm: a ground ring'],
+          ['a weapon with everything drawn', row({ threats: 2, drawn: 2 }), undefined],
+        ];
+        const bad = cases.filter(([, r0, want]) => threatRowNote(r0) !== want).map(([name, r0, want]) => `${name}: ${JSON.stringify(threatRowNote(r0))} (want ${JSON.stringify(want)})`);
+        const four = sceneDomes(press([tmSa6, tmSa8, tmSa11, tmP19]), s4Pb.frame, s4Box);
+        const fourNotes = four.systems.map((r) => threatRowNote(r));
+        if (JSON.stringify(fourNotes) !== JSON.stringify([undefined, undefined, 'The whole drawn area is inside its detection range: no ring to draw.'])) bad.push(`the four-ship's rows say ${JSON.stringify(fourNotes)}`);
+        ok('playback B3 [TM5]: each menu row\'s second line says the right thing in the right words: a radar that covers the area, threats beyond it, weapons not drawn past the 64 nearest, a radar\'s drawn ring, and nothing for a weapon that is all drawn',
+           bad.length === 0, bad.join('; ') || `${cases.length} cases and the four-ship's three rows`);
+      }
+
+      // [D1] A hidden threat handed straight to the dome builder gives no dome unless its switches are on (one hidden on the
+      // planner needs that switch, one hidden on the map the other, one hidden both ways both), and a threat nobody hid is
+      // always a dome: the builder applies the planner's visibility rule itself, so one that slipped past the press is not drawn.
+      // Mutation proof (seen red 2026-11-18): domes.ts sceneDomes' `threatDomes(t.visible, t.systems, t.reveal, frame)` →
+      // `threatDomes(t.visible, t.systems, { onPlanner: true, onMap: true }, frame)`:
+      //   FAIL playback B3 [D1]: … the SA-11 hidden on the planner, nothing revealed: 1 domes (want 0); the same with the map switch only: 1 domes (want 0); an SA-8 hidden on the map, nothing revealed: 1 domes (want 0); …
+      //   (with [TM3] red beside it: its hidden SA-11 and P-19 handed straight in are drawn)
+      {
+        const bothHid = tmThreat('d1-both', 'sa11', 200, 5, 'active', 'mission', { hiddenOnPlanner: true, hiddenOnMap: true });
+        const mapHid = tmThreat('d1-map', 'sa8', 120, 4, 'active', 'mission', { hiddenOnMap: true });
+        const count = (t: ThreatInstance, reveal: typeof NO_REVEAL) => sceneDomes(straight([t], reveal), s4Pb.frame, s4Box).domes.length;
+        const planner = { onPlanner: true, onMap: false }, map = { onPlanner: false, onMap: true };
+        const cases: [string, ThreatInstance, typeof NO_REVEAL, number][] = [
+          ['the SA-11 hidden on the planner, nothing revealed', tmSa11, NO_REVEAL, 0],
+          ['the same with the planner switch on', tmSa11, planner, 1],
+          ['the same with the map switch only', tmSa11, map, 0],
+          ['an SA-8 hidden on the map, nothing revealed', mapHid, NO_REVEAL, 0],
+          ['the same with the planner switch only', mapHid, planner, 0],
+          ['the same with the map switch on', mapHid, map, 1],
+          ['an SA-11 hidden both ways, one switch on', bothHid, planner, 0],
+          ['the same with the other switch', bothHid, map, 0],
+          ['the same with both', bothHid, ALL_REVEALED, 1],
+          ['an SA-6 nobody hid, nothing revealed', tmSa6, NO_REVEAL, 1],
+        ];
+        const bad = cases.filter(([, t, reveal, want]) => count(t, reveal) !== want).map(([name, t, reveal, want]) => `${name}: ${count(t, reveal)} domes (want ${want})`);
+        ok('playback B3 [D1]: a hidden threat handed straight to the dome builder gives no dome unless its own switches are on (planner, map, or both for one hidden both ways); one nobody hid is always a dome',
+           bad.length === 0, bad.join('; ') || `${cases.length} cases`);
+      }
+
+      // [D3] The four looks follow the threat, not the system: a dome has a cage only when its threat is active (not degraded,
+      // suppressed, destroyed or unknown), and is dashed only when it is a planning assumption (a threat from the mission is
+      // solid); the group, the label (NATO name, else the name) and the three.js axes (x east, z = −north) come with it.
+      // Mutation proof (seen red 2026-11-18): domes.ts sceneDomes `active: td.status === 'active'` → `active: td.status !== 'destroyed'`:
+      //   FAIL playback B3 [D3]: … degraded/mission: active true, dashed false (want false, false); degraded/planning: active true, dashed true (want false, true); suppressed/mission: …
+      //   (with [D4] and [TM4] red beside it: they build their domes from the same rule)
+      {
+        const bad: string[] = [];
+        let looks = 0;
+        for (const status of ['active', 'degraded', 'suppressed', 'destroyed', 'unknown']) {
+          for (const source of ['mission', 'planning']) {
+            const t = tmThreat('d3', 'sa6', 45, 3, status, source);
+            const set = sceneDomes(straight([t]), s4Pb.frame, s4Box);
+            const d = set.domes[0];
+            looks++;
+            if (!d) { bad.push(`${status}/${source}: no dome`); continue; }
+            if (d.active !== (status === 'active') || d.dashed !== (source === 'planning') || d.status !== status) bad.push(`${status}/${source}: active ${d.active}, dashed ${d.dashed} (want ${status === 'active'}, ${source === 'planning'})`);
+            const want = toLocal(s4Pb.frame, t.position);
+            if (!near(d.x, want.e_m) || !near(d.z, -want.n_m) || !near(d.radius_m, 13 * NM) || !near(d.height_m, 46000 * FT_TO_M) || d.group !== 'SAM' || d.ewr || d.systemId !== 'sa6' || d.threatId !== 'd3' || d.ringPoints !== 0 || d.label !== 'SA-6 Gainful')
+              bad.push(`${status}/${source}: x ${d.x.toFixed(1)} z ${d.z.toFixed(1)} radius ${d.radius_m.toFixed(1)} height ${d.height_m.toFixed(1)} group ${d.group} label ${d.label}`);
+          }
+        }
+        const hawk = sceneDomes(straight([tmThreat('d3-hawk', 'hawk', 10, 2)]), s4Pb.frame, s4Box).domes[0];
+        const hawkName = refSystems.find((s) => s.id === 'hawk')?.name;
+        if (!hawkName || hawk?.label !== hawkName) bad.push(`a system with no NATO name is labelled ${hawk?.label} (want its own name, ${hawkName})`);
+        ok('playback B3 [D3]: a dome has a cage only when its threat is active and is dashed only when it is a planning assumption, in all ten combinations of status and source, with its place, size, group and label; a system with no NATO name is labelled by its own',
+           bad.length === 0, bad.join('; ') || `${looks} looks`);
+      }
+
+      // [D4] A weapon's lines: a solid active dome is 176 segments (the ground ring 64, two arcs of the cage 32 each, a latitude
+      // ring 48), a dashed one 88, a solid idle one 64, a dashed 32 (every other segment of each piece dropped). Written into a
+      // buffer, the ground ring lies 1 m over the drawn ground at the range from the centre, each arc point is as high over the
+      // base as the dome is at that distance from its centre (the library's own domeHeightAt_m), and the latitude ring is 0.6 of
+      // the way up at 0.8 of the range, where the dome's surface is.
+      // Mutation proof (seen red 2026-11-18): domes.ts the latitude ring's `LATITUDE_RADIUS = 0.8` → `0.6`:
+      //   FAIL playback B3 [D4]: … the latitude ring is 0.60 of the range from the centre (want 0.80), off its height by 0.000 m
+      {
+        const bad: string[] = [];
+        const rimY = (x: number, z: number) => 5 + 0.004 * x + 0.003 * z;
+        const baseY = 123.4;
+        const make = (status: string, source: string) => sceneDomes(straight([tmThreat('d4', 'sa6', 45, 3, status, source)]), s4Pb.frame, s4Box).domes[0];
+        const counts = ([['active', 'mission', 176], ['active', 'planning', 88], ['suppressed', 'mission', 64], ['suppressed', 'planning', 32]] as const).map(([status, source, want]) => {
+          const d = make(status, source);
+          const out = new Float32Array(6 * (domeSegmentCount(d) + 4));
+          const wrote = domeSegmentsInto(d, baseY, rimY, s4Box, out, 0);
+          if (domeSegmentCount(d) !== want || wrote !== 6 * want) bad.push(`${status}/${source}: count ${domeSegmentCount(d)}, wrote ${wrote / 6} segments (want ${want})`);
+          return `${status}/${source} ${want}`;
+        });
+        const d = make('active', 'mission');
+        const out = new Float32Array(6 * 176);
+        domeSegmentsInto(d, baseY, rimY, s4Box, out, 0);
+        const seg = (s: number) => ({ a: [out[6 * s], out[6 * s + 1], out[6 * s + 2]], b: [out[6 * s + 3], out[6 * s + 4], out[6 * s + 5]] });
+        const horiz = (p: number[]) => Math.hypot(p[0] - d.x, p[2] - d.z);
+        const worst = { rimR: 0, rimY: 0, arcH: 0, arcAxis: 0, latR: 0, latY: 0 };
+        for (let s = 0; s < 64; s++) for (const p of [seg(s).a, seg(s).b]) {
+          worst.rimR = Math.max(worst.rimR, Math.abs(horiz(p) - d.radius_m));
+          worst.rimY = Math.max(worst.rimY, Math.abs(p[1] - (rimY(p[0], p[2]) + 1)));
+        }
+        for (let s = 64; s < 128; s++) for (const p of [seg(s).a, seg(s).b]) {
+          // On the dome's own ellipse everywhere, and at the library's height away from the rim (there its height changes
+          // faster than the buffer's float32 positions can follow: a millimetre of range is metres of height).
+          worst.arcH = Math.max(worst.arcH, 1e4 * Math.abs((horiz(p) / d.radius_m) ** 2 + ((p[1] - baseY) / d.height_m) ** 2 - 1));
+          if (horiz(p) < 0.95 * d.radius_m) worst.arcH = Math.max(worst.arcH, Math.abs(p[1] - baseY - domeHeightAt_m(d.enu, horiz(p))));
+          // Each arc stays on one axis through the centre: the first on the east-west line, the second on the north-south line.
+          worst.arcAxis = Math.max(worst.arcAxis, s < 96 ? Math.abs(p[2] - d.z) : Math.abs(p[0] - d.x));
+        }
+        for (let s = 128; s < 176; s++) for (const p of [seg(s).a, seg(s).b]) {
+          worst.latR = Math.max(worst.latR, Math.abs(horiz(p) - 0.8 * d.radius_m));
+          worst.latY = Math.max(worst.latY, Math.abs(p[1] - (baseY + 0.6 * d.height_m)));
+        }
+        if (worst.rimR > 0.05 || worst.rimY > 0.05) bad.push(`the ground ring is off its range by ${worst.rimR.toFixed(3)} m, off 1 m over the ground by ${worst.rimY.toFixed(3)} m`);
+        if (worst.arcH > 0.1 || worst.arcAxis > 0.05) bad.push(`the cage's arcs are off the dome's height by ${worst.arcH.toFixed(3)} m, off their axis by ${worst.arcAxis.toFixed(3)} m`);
+        if (worst.latR > 0.05 || worst.latY > 0.1) bad.push(`the latitude ring is ${(horiz(seg(128).a) / d.radius_m).toFixed(2)} of the range from the centre (want 0.80), off its height by ${worst.latY.toFixed(3)} m`);
+        // Dashed: the segments kept are every other one, starting with the first.
+        const dd = make('active', 'planning');
+        const od = new Float32Array(6 * 88);
+        domeSegmentsInto(dd, baseY, rimY, s4Box, od, 0);
+        const ang = (x: number, z: number) => ((Math.atan2(z - dd.z, x - dd.x) + 2 * Math.PI) % (2 * Math.PI)) / ((2 * Math.PI) / 64);
+        const starts = [0, 1, 2, 3].map((s) => ang(od[6 * s], od[6 * s + 2]));
+        if (starts.some((a, i) => Math.min((a - 2 * i + 64) % 64, 64 - ((a - 2 * i + 64) % 64)) > 0.01)) bad.push(`a dashed ground ring starts its segments at ${starts.map((a) => (a % 64).toFixed(2))} 64ths of the circle (want 0, 2, 4, 6)`);
+        // Written where asked: a buffer with an offset keeps what is before it.
+        const pre = new Float32Array(6 * 70);
+        pre[5] = 7;
+        const n = domeSegmentsInto(make('suppressed', 'mission'), baseY, rimY, s4Box, pre, 6);
+        if (n !== 6 * 64 || pre[5] !== 7 || pre[6] === 0) bad.push(`with an offset: wrote ${n / 6} segments, the one before kept ${pre[5]}`);
+        ok('playback B3 [D4]: a weapon\'s lines: 176, 88, 64 and 32 segments for active/idle, solid/dashed; the ground ring 1 m over the drawn ground at the range, the cage\'s arcs on the dome\'s own height, the latitude ring 0.6 up at 0.8 of the range, a dashed piece every other segment',
+           bad.length === 0, bad.join('; ') || `${counts.join(', ')}; worst error ring ${worst.rimR.toFixed(3)} m, arcs ${worst.arcH.toFixed(3)} m, latitude ${worst.latR.toFixed(3)} m`);
+      }
+
+      // [D5] The inside test is the library's own, with one change on purpose: on a 20 × 20 grid across the dome at heights from
+      // under its base to over its top, at every point at or over the base insideDomeAt equals the library's insideDome (the
+      // base given as the dome's ground); a point under the base but over the footprint counts as inside, because the map and
+      // the card call a jet inside on range alone and a site on a ridge can shoot down into the valley. pickInside prefers an
+      // active dome to one that is not, then the smaller; it skips a dome whose switch is off.
+      // Mutation proofs (seen red 2026-11-18): domes.ts insideDomeAt `Math.hypot(x - d.x, z - d.z)` → `Math.hypot(x - d.x, z + d.z)` (north taken the wrong way):
+      //   FAIL playback B3 [D5]: … under the base but over the footprint at (-19545, -150, -8624): insideDomeAt says false (want true); …; under the base but over the footprint at (-19545, -150, 3896): insideDomeAt says true (want false); …
+      // and `return r <= d.radius_m && y - baseY <= domeHeightAt_m(d.enu, r);` → `return r <= d.radius_m && y >= baseY && y - baseY <= domeHeightAt_m(d.enu, r);`:
+      //   FAIL playback B3 [D5]: … under the base but over the footprint at (-19545, -150, -8624): insideDomeAt says false (want true); under the base but over the footprint at (-19545, -150, -5494): insideDomeAt says false (want true); …
+      {
+        const bad: string[] = [];
+        const d = sceneDomes(straight([tmSa6]), s4Pb.frame, s4Box).domes[0];
+        const baseY = 150;
+        const R = d.radius_m, H = d.height_m;
+        let inside = 0, outside = 0, under = 0, checked = 0;
+        for (const y of [baseY - 300, baseY + 0.2 * H, baseY + 0.6 * H, baseY + 1.05 * H]) {
+          for (let ix = 0; ix < 20; ix++) for (let iz = 0; iz < 20; iz++) {
+            const x = d.x + (ix - 9.5) * R * 0.13, z = d.z + (iz - 9.5) * R * 0.13;
+            const mine = insideDomeAt(d, baseY, x, y, z);
+            const lib = insideDome({ ...d.enu, base_up_m: baseY }, x, -z, y);
+            const r2 = Math.hypot(x - d.x, z - d.z);
+            checked++;
+            if (y >= baseY) {
+              if (mine !== lib) bad.push(`at (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)}) the library says ${lib} and insideDomeAt says ${mine}`);
+              if (lib) inside++; else outside++;
+            } else {
+              under++;
+              if (mine !== r2 <= R) bad.push(`under the base but over the footprint at (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)}): insideDomeAt says ${mine} (want ${r2 <= R})`);
+            }
+          }
+        }
+        if (inside < 20 || outside < 20 || under < 100) bad.push(`the grid is not telling: ${inside} points inside, ${outside} outside, ${under} under the base`);
+        // The pick: nested domes at one centre, a large active one, a smaller one that is not active, a small active one.
+        const big = { ...d, threatId: 'big', radius_m: 10000, active: true, enu: { ...d.enu, radius_m: 10000 } };
+        const idle = { ...d, threatId: 'idle', radius_m: 5000, active: false, enu: { ...d.enu, radius_m: 5000 } };
+        const small = { ...d, threatId: 'small', radius_m: 4000, active: true, enu: { ...d.enu, radius_m: 4000 } };
+        const radar = { ...d, threatId: 'radar', ewr: true, group: 'EWR' as const, radius_m: 2000, active: true, enu: { ...d.enu, radius_m: 2000 } };
+        const set = [idle, big, small, radar];
+        const zeros = new Float32Array(4), on = new Uint8Array([1, 1, 1, 1]);
+        const pickId = (domes: SceneDome[], mask: Uint8Array, b = new Float32Array(domes.length)) => domes[pickInside(domes, b, mask, d.x + 100, 50, d.z)]?.threatId ?? 'none';
+        const order = [pickId(set, on, zeros), pickId([idle, big], new Uint8Array([1, 1])), pickId([idle], new Uint8Array([1])), pickId(set, new Uint8Array([1, 1, 0, 1])), pickId(set, new Uint8Array([0, 0, 0, 0]))];
+        if (order.join() !== 'small,big,idle,big,none') bad.push(`the pick: ${order.join()} (want small, big, idle, big, none)`);
+        ok('playback B3 [D5]: insideDomeAt equals the library\'s insideDome at every grid point at or over the base and counts a point under the base but over the footprint as inside; pickInside prefers an active dome, then the smaller, and skips a switched-off one and a radar',
+           bad.length === 0, bad.length ? bad.slice(0, 4).join('; ') : `${checked} points (${inside} inside, ${outside} outside, ${under} under the base); the pick ${order.join()}`);
+      }
+
+      // [D6] A weapon whose ring misses the drawn area is counted, not drawn (one 100 nm north of the box and one just south of
+      // it), and at most the 64 nearest the lead's target are drawn, the rest counted: 70 SA-8s 0.5 to 14.3 nm out, the one far
+      // north and the one 19.5 nm south give 64 domes (the nearest, nearest first), 6 capped and 2 outside, in the SA-8's row
+      // (72 threats, 64 drawn, 2 beyond, 6 capped). The one in the south is there for north's sake: it is out of reach of the box
+      // by about a nautical mile, and the same distance north would be inside the box, so a north taken the wrong way, in the
+      // box test or in what is handed to it, draws it (and the far north one, 100 nm either way, could not tell).
+      // Mutation proofs (seen red 2026-11-18): domes.ts sceneDomes' `} else if (cover === 'beyond') {` → `} else if (false) {` (a weapon whose ring misses the area is drawn like the rest):
+      //   FAIL playback B3 [D6]: … outside 0, capped 8 (want 2 and 6); row sa8/SHORAD/SA-8 Gecko · 9K33 Osa/72/64/0/0/8/on (want sa8/SHORAD/SA-8 Gecko · 9K33 Osa/72/64/0/2/6/on)
+      //   (with [N8] red beside it: its outside note is gone. Turning the test round, `cover !== 'beyond'`, is red here too, but it also empties every
+      //   later check of this section, which then stops at the first dome it cannot find.)
+      // and sceneDomes' `ringCover(td.e_m, td.n_m, td.radius_m, box)` → `ringCover(td.e_m, -td.n_m, td.radius_m, box)` (north handed over the wrong way):
+      //   FAIL playback B3 [D6]: … outside 1, capped 7 (want 2 and 6); row sa8/SHORAD/SA-8 Gecko · 9K33 Osa/72/64/0/1/7/on (want sa8/SHORAD/SA-8 Gecko · 9K33 Osa/72/64/0/2/6/on)
+      // and ringCover given its north negated on the way in (`const n_m = -n_m0;` as its first line, the parameter renamed `n_m0`):
+      //   FAIL playback B3 [D6]: … outside 1, capped 7 (want 2 and 6); row sa8/SHORAD/SA-8 Gecko · 9K33 Osa/72/64/0/1/7/on (want sa8/SHORAD/SA-8 Gecko · 9K33 Osa/72/64/0/2/6/on)
+      //   (with [TM1] red beside it, on its lopsided box: lopsided box: 50 km south, range 20 km: drawn (want beyond); … 90 km north, range 50 km: beyond (want drawn); …)
+      {
+        const bad: string[] = [];
+        const set = sceneDomes(straight(crowd()), s4Pb.frame, s4Box);
+        const want = Array.from({ length: 64 }, (_, i) => `crowd-${String(i).padStart(2, '0')}`);
+        // The fixture, worked out apart from the code under test: the southern one is out of reach of the box, its mirror image
+        // (the same east, the north the other way) is inside it.
+        const south = toLocal(s4Pb.frame, crowd().find((t) => t.id === 'far-south')!.position);
+        const gap_m = s4Box.south_m - south.n_m - 6 * NM;
+        const mirrorInside = south.e_m >= s4Box.west_m && south.e_m <= s4Box.east_m && -south.n_m >= s4Box.south_m && -south.n_m <= s4Box.north_m;
+        if (!(gap_m > 0) || !mirrorInside) bad.push(`the fixture: the southern SA-8's ring is ${gap_m.toFixed(0)} m short of the box (want over 0) and its mirror image is ${mirrorInside ? 'inside' : 'outside'} the box (want inside)`);
+        if (set.domes.map((d) => d.threatId).join() !== want.join()) bad.push(`${set.domes.length} domes (want 64, the nearest 64 nearest first): ${set.domes.slice(0, 3).map((d) => d.threatId)}…`);
+        if (set.outside !== 2 || set.capped !== 6) bad.push(`outside ${set.outside}, capped ${set.capped} (want 2 and 6)`);
+        if (rowLine(set).join() !== 'sa8/SHORAD/SA-8 Gecko · 9K33 Osa/72/64/0/2/6/on') bad.push(`row ${rowLine(set)} (want sa8/SHORAD/SA-8 Gecko · 9K33 Osa/72/64/0/2/6/on)`);
+        if (set.domes.some((d) => d.threatId === 'far-north')) bad.push('the dome north of the box is drawn');
+        if (set.domes.some((d) => d.threatId === 'far-south')) bad.push('the dome just south of the box is drawn');
+        const exactly = sceneDomes(straight(crowd().slice(0, 64)), s4Pb.frame, s4Box);
+        if (exactly.domes.length !== 64 || exactly.capped !== 0 || exactly.outside !== 0) bad.push(`64 threats: ${exactly.domes.length} domes, capped ${exactly.capped}`);
+        ok('playback B3 [D6]: a weapon ring that misses the drawn area is dropped and counted, and only the 64 nearest the lead\'s target are drawn, nearest first, the rest counted (70 near ones, one far north and one just south: 64 domes, 6 capped, 2 outside)',
+           bad.length === 0, bad.join('; ') || `64 domes, capped 6, outside 2; ${rowLine(set)}`);
+      }
+
+      // [D7] The rings' colours are the map's and stand off the 3D view's dark background (BG) in the three visions (3:1, as
+      // every graphic in the picture): red for an active threat, grey for the rest. Against pale land (the card's cream) they
+      // are printed, not held.
+      // Mutation proof (seen red 2026-11-18): domes.ts `DOME_IDLE = '#9CA3AF'` → `'#4B5563'` (the map check goes red with it):
+      //   FAIL playback B3 [D7]: … the idle ring 2.24 against the 3D view's dark (3:1 wanted); the map no longer colours a threat's circle the way the rings do
+      {
+        const bad: string[] = [];
+        const worst = (c: string, bg: string) => Math.min(...VISIONS.map((v) => ratio(parseColour(c)!, parseColour(bg)!, v)));
+        const printed: string[] = [];
+        for (const [name, c] of [['active ring', DOME_ACTIVE], ['idle ring', DOME_IDLE]] as const) {
+          const dark = worst(c, BG);
+          if (dark < CONTRAST_FLOOR.graphic) bad.push(`the ${name} ${dark.toFixed(2)} against the 3D view's dark (${CONTRAST_FLOOR.graphic}:1 wanted)`);
+          printed.push(`${name} ${dark.toFixed(2)} on the dark, ${worst(c, LAND_REF).toFixed(2)} on pale land`);
+        }
+        const map = readFileSync('src/components/map/MapView.tsx', 'utf8');
+        if (!map.includes(`threat.status === 'active' ? '${DOME_ACTIVE}' : '${DOME_IDLE}'`)) bad.push('the map no longer colours a threat\'s circle the way the rings do');
+        ok('playback B3 [D7]: the threat rings are the map\'s red and grey and stand off the 3D view\'s dark background by 3:1 in all three visions (pale land printed, not held)',
+           bad.length === 0, bad.join('; ') || printed.join('; '));
+      }
+
+      // [S6] The domes do not move with the times: every source made for one open carries the very array it was given, whatever
+      // the delays and the path step (a layer can then tell by identity that nothing changed), and a source given none carries
+      // one shared empty array.
+      // Mutation proof (seen red 2026-11-18): source.ts `domes: extras.domes ?? NO_DOMES` → `domes: extras.domes ? [...extras.domes] : NO_DOMES`:
+      //   FAIL playback B3 [S6]: … the first source carries a copy of the domes; a re-timed source carries a copy of the domes
+      {
+        const domes = sceneDomes(press([tmSa6, tmSa8, tmSa11, tmP19]), s4Pb.frame, s4Box).domes;
+        const a = sceneSourceFrom(s4Pb, s4Timing, PATH_STEP_S, { domes });
+        const b = sceneSourceFrom(s4Pb, retime(s4Pb, { [s4Pb.jets[1].id]: 60 }), DRAG_PATH_STEP_S, { domes });
+        const none1 = sceneSourceFrom(s4Pb, s4Timing), none2 = sceneSourceFrom(s4Pb, retime(s4Pb, { [s4Pb.jets[2].id]: -30 }));
+        const bad: string[] = [];
+        if (a.domes !== domes) bad.push('the first source carries a copy of the domes');
+        if (b.domes !== domes) bad.push('a re-timed source carries a copy of the domes');
+        if (none1.domes.length !== 0 || none1.domes !== none2.domes) bad.push('sources given no domes do not share one empty array');
+        if (domes.length !== 2) bad.push(`${domes.length} domes (want the SA-6 and the SA-8)`);
+        ok('playback B3 [S6]: every source made for one open carries the very array of domes it was given, at any delays and path step; a source given none carries one shared empty array',
+           bad.length === 0, bad.join('; ') || `2 domes, one array across ${[a, b].length} sources`);
+      }
+
+      // [L5] The threats reach playback at the press as the planner may see them, and nothing in playback knows of one the mission's
+      // author hid. The press keeps a threat only if every hide flag it has is revealed (nothing revealed: 2 of 5; the planner's switch only: 3;
+      // the map's only: 3; both: 5) and every row with a finite maximum altitude, the rows themselves (the p19 row says EWR, the
+      // sa6 row carries its NATO name). And the mission-with-hidden-threats gives playback exactly what the same mission without them
+      // does, by both doors (the attack list, from the whole plan in the store; the editor, from its own filtered view and also from the whole
+      // plan it was never filtered of), down to the domes, the menu's rows and the notes made from them; with the Admin switches on the five come.
+      // Mutation proofs (seen red 2026-11-18): launch.ts threatsAtPress `visible: threats.filter((t) => isThreatVisible(t, reveal)),` → `visible: [...threats],`:
+      //   FAIL playback B3 [L5]: … nothing revealed: visible l5-a,l5-e,l5-hp,l5-hm,l5-hb (want l5-a,l5-e); nothing revealed: a threat the rule refuses is in, or the switches are not the ones given; …
+      // → `visible: threats.filter((t) => !t.hiddenOnPlanner),` (the planner's flag only, so the one hidden on the map comes through):
+      //   FAIL playback B3 [L5]: … nothing revealed: visible l5-a,l5-e,l5-hm (want l5-a,l5-e); …; the planner's switch only: visible l5-a,l5-e,l5-hm (want l5-a,l5-e,l5-hp); …
+      // and `systems: systems.filter((s): s is SceneSystem => Number.isFinite(s.max_altitude_ft)),` → `systems: systems.filter(…).map((s) => ({ id: s.id, max_range_nm: s.max_range_nm, max_altitude_ft: s.max_altitude_ft! })),`:
+      //   FAIL playback B3 [L5]: … the rows are not the planner's own rows, every one with an altitude and none without (27 of 27); a row lost its type or its NATO name
+      //   (with [TM3], [TM5] and [S6] red beside it: without the types every system is "other" and no row says anything)
+      {
+        const mk = (threats: ThreatInstance[]) => ({ ...strike4, threats }) as Mission;
+        const l5A = tmThreat('l5-a', 'sa6', 45, 3), l5E = tmThreat('l5-e', 'p19', 90, 8);
+        const l5HP = tmThreat('l5-hp', 'sa11', 200, 5, 'active', 'mission', { hiddenOnPlanner: true });
+        const l5HM = tmThreat('l5-hm', 'sa8', 300, 4, 'suppressed', 'planning', { hiddenOnMap: true });
+        const l5HB = tmThreat('l5-hb', 'sa2', 150, 6, 'active', 'mission', { hiddenOnPlanner: true, hiddenOnMap: true });
+        const everything = [l5A, l5E, l5HP, l5HM, l5HB], plain = [l5A, l5E];
+        const bad: string[] = [];
+        const idsOf = (t: SceneThreats | undefined) => t?.visible.map((x) => x.id).join() ?? 'no threat data';
+        const planner = { onPlanner: true, onMap: false }, map = { onPlanner: false, onMap: true };
+        // The press itself, with each pair of switches.
+        for (const [name, reveal, want] of [['nothing revealed', NO_REVEAL, 'l5-a,l5-e'], ['the planner\'s switch only', planner, 'l5-a,l5-e,l5-hp'], ['the map\'s switch only', map, 'l5-a,l5-e,l5-hm'], ['both switches', ALL_REVEALED, 'l5-a,l5-e,l5-hp,l5-hm,l5-hb']] as const) {
+          const t = threatsAtPress(everything, refSystems, reveal);
+          if (idsOf(t) !== want) bad.push(`${name}: visible ${idsOf(t)} (want ${want})`);
+          if (t.visible.some((x) => !isThreatVisible(x, reveal)) || t.reveal !== reveal) bad.push(`${name}: a threat the rule refuses is in, or the switches are not the ones given`);
+        }
+        const rows = threatsAtPress([], [...refSystems, { id: 'no-altitude', max_range_nm: 9 }, { id: 'nan-altitude', max_range_nm: 9, max_altitude_ft: NaN }], NO_REVEAL).systems;
+        if (rows.length !== refSystems.length || rows.some((s, i) => s !== refSystems[i])) bad.push(`the rows are not the planner's own rows, every one with an altitude and none without (${rows.length} of ${refSystems.length})`);
+        if (rows.find((s) => s.id === 'p19')?.threat_type !== 'EWR' || rows.find((s) => s.id === 'sa6')?.nato_designation !== 'SA-6 Gainful') bad.push('a row lost its type or its NATO name');
+        // Both doors, with nothing revealed (the store's own switches, as the planner has them).
+        const store = useMissionStore, ui = useUiStore;
+        const list = (threats: ThreatInstance[]) => {
+          store.getState().loadMission(mk(threats));
+          const t = playbackLaunchFromMission({ strikeId: 'b3' }, refWeapons as never, refSystems)?.threats;
+          store.getState().closeMission();
+          return t;
+        };
+        const editor = (threats: ThreatInstance[], viewOf: (m: Mission) => Mission = (m) => m) => apPlay(apEditor(viewOf(mk(threats)), 'b3'), { systems: refSystems })?.threats;
+        const want = JSON.stringify(threatsAtPress(plain, refSystems, NO_REVEAL));
+        const doors: [string, SceneThreats | undefined][] = [
+          ['the attack list without the hidden threats', list(plain)],
+          ['the attack list with them', list(everything)],
+          ['the editor without them', editor(plain)],
+          ['the editor, its own filtered view of the plan with them', editor(everything, (m) => visibleMission(m, NO_REVEAL))],
+          ['the editor, handed the whole plan unfiltered', editor(everything)],
+        ];
+        for (const [name, t] of doors) if (JSON.stringify(t) !== want) bad.push(`${name}: ${idsOf(t)} (want the same as without: l5-a,l5-e)`);
+        // The whole chain from the press: the domes, the rows and the notes made from them are the same too.
+        const chain = (t: SceneThreats | undefined) => {
+          const set = sceneDomes(t, s4Pb.frame, s4Box);
+          return JSON.stringify([set.domes.map((d) => d.threatId), set.systems, set.outside, set.capped, buildNotes(noteFactsFrom(s4Pb, s4Timing, { threats: set })).map((n) => `${n.key}:${n.text}`)]);
+        };
+        if (doors.some(([, t]) => chain(t) !== chain(doors[0][1]))) bad.push(`the domes, rows or notes made from the two doors differ with the hidden threats in the plan: ${doors.map(([, t]) => chain(t).length).join('/')}`);
+        // With the Admin switches on, the five come, by both doors.
+        ui.getState().setRevealHidden(ALL_REVEALED);
+        try {
+          const all = [list(everything), editor(everything)];
+          if (all.some((t) => idsOf(t) !== 'l5-a,l5-e,l5-hp,l5-hm,l5-hb' || JSON.stringify(t?.reveal) !== JSON.stringify(ALL_REVEALED))) bad.push(`both switches on: list ${idsOf(all[0])}, editor ${idsOf(all[1])} (want all five)`);
+        } finally {
+          ui.getState().setRevealHidden(NO_REVEAL);
+        }
+        // Nothing handed over: no threat data, no domes and no rows.
+        const empty = sceneDomes(undefined, s4Pb.frame, s4Box);
+        if (empty.domes.length || empty.systems.length || empty.outside || empty.capped) bad.push('no threat data still gave domes or rows');
+        // The mission the list hands the view still carries none of its own (L4); the threats ride beside it.
+        ok('playback B3 [L5]: the press keeps only the threats the planner may see (switches as they stand) and every row with an altitude, whole; a mission with hidden threats gives playback exactly what the same mission without them does by both doors, down to the domes, rows and notes; the Admin switches bring them',
+           bad.length === 0, bad.join('; ') || `press 2, 3, 3 and 5 of 5 by the switches; 5 doors/arms identical (${want.length} characters); both switches on: 5`);
+      }
+    } catch (e) {
+      ok('playback B3 [threat data]: the section ran without throwing', false, String((e as Error)?.stack ?? e));
+    }
 
     // ─── The jets' roll and load factor (attitude.ts) ─────────────────────────
     // The roll is the lift vector's, from the displayed track's 3D acceleration, built once per jet into
@@ -13626,8 +14242,17 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
     // [N4] Each note is there exactly when it should be, in the words and the tone it should have: the start and the altitudes
     // always; the push note only with a card push; the hatching only where there are stripes, in the words of the rule; a member
     // not flown and a gap in amber; the gray lines and Apply's lines as they come; the drawing checks last, under their heading.
+    // The threat notes (2026-11-18): the radars' note only when there are radars (a count of 0 gives none), the note for envelopes
+    // beyond the drawn area and for those past the 64 nearest only when there are some (one, or n), the legend only when some
+    // envelope is drawn, all four in their words and in that order, after the gray lines and before the stripes; and the start
+    // note says the other thing while Show › Whole run-in is on, where its first sentence would not be true.
     // Mutation proof (seen red 2026-11-17): notes.ts buildNotes `if (f.hasCardPush)` → `if (true)`:
     //   FAIL playback B3 [N4]: each note is there exactly when it should be, in its words and tone … no facts: "push,start,agl" (want start, agl); stripes only: "hatch,push,start,agl" (want hatch, start, agl); a member not flown: "skip-a,push,start,agl" (want skip-a, start, agl); …
+    // Mutation proofs (seen red 2026-11-18): notes.ts `if (th && th.ewr > 0)` → `if (th)` (the radars' note with none):
+    //   FAIL playback B3 [N4]: each note is there exactly when it should be, in its words and tone … radars, none: "ewr,start,agl" (want start, agl); envelopes beyond the drawn area: "ewr,outside,start,agl" (want outside, start, agl); …
+    // and `f.wholeRunIn ? START_NOTE_WHOLE : START_NOTE` → `START_NOTE`:
+    //   FAIL playback B3 [N4]: each note is there exactly when it should be, in its words and tone … start, with Show › Whole run-in on: "The time bar starts 10 s before the first jet's first action. Show › Whole run-in starts it before the IP." (want "The time bar starts at the beginning of the run-in, before the IP: Show › Whole run-in is on. Switch it off to start it 10 s before the first jet's first action.")
+    //   (with [N8] red beside each: it builds the same notes from real playbacks)
     {
       const why: string[] = [];
       const base: NoteFacts = { rule: 'time', skipped: [], trackWarnings: [], gaps: [], hasCardPush: false, hatch: false, blast: [], applied: [] };
@@ -13644,12 +14269,31 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
         ['a drawing check', { trackWarnings: [{ id: 'a', label: '#1', text: 'x' }] }, 'start,agl,warn-a-0'],
         ['all of it', { skipped: [{ id: 'a', label: '#2', reason: 'r' }], gaps: [gapA], blast: ['x'], applied: ['y'], hatch: true, hasCardPush: true, trackWarnings: [{ id: 'a', label: '#1', text: 'z' }] },
           'apply-0,skip-a,gap-target-1,blast-0,hatch,push,start,agl,warn-a-0'],
+        ['radars', { threats: { ewr: 1, outside: 0, capped: 0, domes: 0 } }, 'ewr,start,agl'],
+        ['radars, none', { threats: { ewr: 0, outside: 0, capped: 0, domes: 0 } }, 'start,agl'],
+        ['envelopes beyond the drawn area', { threats: { ewr: 0, outside: 2, capped: 0, domes: 0 } }, 'outside,start,agl'],
+        ['envelopes past the 64 nearest', { threats: { ewr: 0, outside: 0, capped: 6, domes: 0 } }, 'capped,start,agl'],
+        ['envelopes drawn', { threats: { ewr: 0, outside: 0, capped: 0, domes: 2 } }, 'legend,start,agl'],
+        ['every threat note', { threats: { ewr: 1, outside: 1, capped: 1, domes: 1 } }, 'ewr,outside,capped,legend,start,agl'],
+        ['the threat notes among the others', { blast: ['x'], hatch: true, hasCardPush: true, threats: { ewr: 1, outside: 0, capped: 0, domes: 1 } }, 'blast-0,ewr,legend,hatch,push,start,agl'],
+        ['Show › Whole run-in on', { wholeRunIn: true }, 'start,agl'],
       ];
       for (const [name, f, want] of rows) if (keysFor(f) !== want) why.push(`${name}: ${JSON.stringify(keysFor(f))} (want ${want.replace(/,/g, ', ')})`);
       const wordsOf = (f: Partial<NoteFacts>) => Object.fromEntries(buildNotes({ ...base, ...f }).map((n) => [n.key, n]));
-      const all = wordsOf({ skipped: [{ id: 'a', label: '#2', callsign: 'Viper 1-2', reason: 'Its target waypoint is missing.' }], gaps: [gapA], blast: ['b'], applied: ['a'], hatch: true, hasCardPush: true, trackWarnings: [{ id: 'w', label: '#1', text: 'No IP.' }] });
+      const all = wordsOf({ skipped: [{ id: 'a', label: '#2', callsign: 'Viper 1-2', reason: 'Its target waypoint is missing.' }], gaps: [gapA], blast: ['b'], applied: ['a'], hatch: true, hasCardPush: true, trackWarnings: [{ id: 'w', label: '#1', text: 'No IP.' }],
+        threats: { ewr: 2, outside: 1, capped: 3, domes: 4 } });
       const exact: [string, string | undefined, string][] = [
         ['start', all.start?.text, "The time bar starts 10 s before the first jet's first action. Show › Whole run-in starts it before the IP."],
+        ['start, with Show › Whole run-in on', wordsOf({ wholeRunIn: true }).start?.text, "The time bar starts at the beginning of the run-in, before the IP: Show › Whole run-in is on. Switch it off to start it 10 s before the first jet's first action."],
+        ['the whole run-in start note is the exported one', START_NOTE_WHOLE, "The time bar starts at the beginning of the run-in, before the IP: Show › Whole run-in is on. Switch it off to start it 10 s before the first jet's first action."],
+        ['radars', all.ewr?.text, 'Early-warning radars (2) are off at first: their rings are detection range, not a weapon envelope. Show turns them on.'],
+        ['radars, one', ewrNote(1), 'Early-warning radars (1) are off at first: their rings are detection range, not a weapon envelope. Show turns them on.'],
+        ['envelopes beyond the area, one', all.outside?.text, "1 threat envelope is beyond the drawn area and isn't drawn."],
+        ['envelopes beyond the area, several', outsideNote(2), "2 threat envelopes are beyond the drawn area and aren't drawn."],
+        ['envelopes past the 64 nearest, several', all.capped?.text, "3 more threat envelopes aren't drawn: only the 64 nearest the lead's target are."],
+        ['envelopes past the 64 nearest, one', cappedNote(1), "1 more threat envelope isn't drawn: only the 64 nearest the lead's target are."],
+        ['the legend', all.legend?.text, 'Threat envelopes: cage = active, ground ring only = degraded, suppressed, destroyed or unknown; dashed = planning assumption, solid = mission intel. Red and grey as on the map. An early-warning radar you switch on is a ground ring with its detection range written beside it.'],
+        ['the legend is the exported one', LEGEND_NOTE, all.legend?.text ?? ''],
         ['push', all.push?.text, "Push IP is the card's time (the outlined IP mark on the lanes): fly that. The 3D flies the whole profile, so it crosses the IP a few seconds off (the filled IP mark)."],
         ['agl', all.agl?.text, "Altitudes are the planner's: AGL is above each jet's own target, not the ground under it."],
         ['hatch, spacing rule', all.hatch?.text, "Hatched amber on the time bar and the lanes: times when a jet would be over the target inside another jet's frag (est.)."],
@@ -13663,9 +14307,11 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
       ];
       for (const [name, got, want] of exact) if (got !== want) why.push(`${name}: ${JSON.stringify(got)} (want ${JSON.stringify(want)})`);
       const tones = JSON.stringify(Object.fromEntries(Object.entries(all).map(([k, n]) => [k, n.group ? `${n.tone}/${n.group}` : n.tone])));
-      const wantTones = JSON.stringify({ 'apply-0': 'info', 'skip-a': 'warn', 'gap-target-1': 'warn', 'blast-0': 'info', hatch: 'info', push: 'info', start: 'info', agl: 'info', 'warn-w-0': 'info/drawing' });
+      const wantTones = JSON.stringify({
+        'apply-0': 'info', 'skip-a': 'warn', 'gap-target-1': 'warn', 'blast-0': 'info', ewr: 'info', outside: 'info', capped: 'info', legend: 'info', hatch: 'info', push: 'info', start: 'info', agl: 'info', 'warn-w-0': 'info/drawing',
+      });
       if (tones !== wantTones) why.push(`tones ${tones} (want ${wantTones})`);
-      ok('playback B3 [N4]: each note is there exactly when it should be, in its words and tone: the start and the altitudes always, the push note only with a card push, the hatching in the rule\'s words, amber for a member not flown and a gap, the drawing checks last',
+      ok('playback B3 [N4]: each note is there exactly when it should be, in its words and tone: the start and the altitudes always, the push note only with a card push, the hatching in the rule\'s words, amber for a member not flown and a gap, the threat notes only with threats to say them of, the start note for Whole run-in, the drawing checks last',
          why.length === 0, why.join('; ') || `${rows.length} cases, ${exact.length} sentences, tones ${tones}`);
     }
 
@@ -13787,7 +14433,8 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
     }
 
     // [N7] The notes say nothing about threats the mission's author hid: no count, no note, no hint. Whatever facts are handed over,
-    // no note's words mention a threat that is hidden or probable; the facts have no field for one.
+    // no note's words mention a threat that is hidden or probable; the facts have no field for one. The threat notes (the radars, the
+    // envelopes not drawn, the legend) are in the facts handed over here: they count only the threats the planner may see.
     // Mutation proof (seen red 2026-11-17): notes.ts buildNotes gaining `notes.push({ key: 'probable', tone: 'info', text: 'Probable threats — location unknown (1): the mission author hid where these are.' });` before its return:
     //   FAIL playback B3 [N7]: the notes say nothing about threats the author hid … a note says it: "Probable threats — location unknown (1): the mission author hid where these are." (three times, one for each fact set)
     //   (with [N3], [N4] and [N5] red beside it: they pin the exact lists of notes)
@@ -13796,6 +14443,7 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
       const everything: NoteFacts = {
         rule: 'burst', skipped: [{ id: 'a', label: '#2', reason: 'Its target waypoint is missing.' }], trackWarnings: [{ id: 'a', label: '#1', text: 'No IP.' }],
         gaps: [{ key: 'target-1', name: 'TGT2', seatLabels: ['#3'], gap_m: 365.76 }], hasCardPush: true, hatch: true, blast: ['No blast radius on file for CBU-87 (#1 and #2).'], applied: ['Applied.'],
+        wholeRunIn: true, threats: { ewr: 1, outside: 1, capped: 1, domes: 1 },
       };
       const hint = /hidden|\bhid\b|probable|location unknown|author/i;
       for (const f of [everything, { ...everything, rule: 'time' as const }, { ...everything, skipped: [], gaps: [], blast: [], applied: [], trackWarnings: [] }]) {
@@ -13805,6 +14453,51 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
       const fields = Object.keys(everything).filter((k) => hint.test(k));
       if (fields.length) why.push(`the facts have a field for it: ${fields.join(', ')}`);
       ok('playback B3 [N7]: the notes say nothing about threats the author hid: no count, no note and no hint, whatever the facts', why.length === 0, why.join('; ') || 'three fact sets, 0 notes with a threat word');
+    }
+
+    // [N8] The notes are made from the dome set and Show's choice, as handed to noteFactsFrom: on the four-ship's threats (an SA-6 and an SA-8
+    // to draw, a P-19 whose range covers the whole area, so no ring and 1 radar) there is the radars' note and the legend; with an envelope
+    // beyond the drawn area the outside note, with 70 near ones the capped note too (6) and the outside one (1); with only a radar that covers
+    // the area there is no legend (nothing drawn); with two radars, one covering and one out of reach, both are counted; with no threat data
+    // no note about threats; and with Show › Whole run-in on the start note is the other one. The counts come from the rows, not from the
+    // domes drawn (a radar that covers the area has no dome and still counts).
+    // Mutation proofs (seen red 2026-11-18): notes.ts threatFactsOf `ewr: set.systems.filter((r) => r.group === 'EWR').reduce((n, r) => n + r.threats, 0),` →
+    // `ewr: set.domes.filter((d) => d.ewr).length,` (radars counted from the ones drawn):
+    //   FAIL playback B3 [N8]: … the four-ship's threats: "legend,push,start,agl" (want ewr, legend, push, start, agl); the four-ship's threats: the ewr note says undefined; a radar that covers the area and nothing else: "push,start,agl" (want ewr, push, start, agl); …
+    // and noteFactsFrom `wholeRunIn: extra.wholeRunIn ?? false,` → `wholeRunIn: false,`:
+    //   FAIL playback B3 [N8]: … Show › Whole run-in on: the start note is the ordinary one
+    {
+      const why: string[] = [];
+      const pb = fxStrike(flatM, [0, 1].map(() => ({ target: wpTgt.id, weapon: 'mk82', profile: 'f16c.popup.std' })), [0, 60], { strikeId: 'n8' }).pb;
+      const timing = retime(pb);
+      const box = terrainBoxOf(playbackBounds(pb));
+      const sys = (JSON.parse(readFileSync('crates/core/data/reference.json', 'utf8')) as { threat_systems: SceneSystem[] }).threat_systems;
+      const th = (id: string, systemId: string, brg: number, nm: number, status = 'active', source = 'mission') =>
+        ({ id, systemId, position: calculateDestination(tgt, brg, nm), status, source }) as never as ThreatInstance;
+      const setOf = (threats: ThreatInstance[]) => sceneDomes({ visible: threats, systems: sys, reveal: { onPlanner: false, onMap: false } }, pb.frame, box);
+      const sa6 = th('n8-sa6', 'sa6', 45, 3), sa8 = th('n8-sa8', 'sa8', 300, 4, 'suppressed', 'planning'), p19 = th('n8-p19', 'p19', 90, 8);
+      const crowd = [...Array.from({ length: 70 }, (_, i) => th(`n8-c${i}`, 'sa8', (i * 37) % 360, 0.5 + 0.2 * i)), th('n8-far', 'sa8', 0, 100)];
+      const keysOf = (extra: Parameters<typeof noteFactsFrom>[2]) => buildNotes(noteFactsFrom(pb, timing, extra));
+      const cases: [string, DomeSet | undefined, string, Record<string, string>][] = [
+        ['the four-ship\'s threats', setOf([sa6, sa8, p19]), 'ewr,legend,push,start,agl', { ewr: ewrNote(1), legend: LEGEND_NOTE }],
+        ['an SA-8 100 nm north and an SA-6', setOf([sa6, th('n8-north', 'sa8', 0, 100)]), 'outside,legend,push,start,agl', { outside: outsideNote(1) }],
+        ['70 near envelopes and one far north', setOf(crowd), 'outside,capped,legend,push,start,agl', { outside: outsideNote(1), capped: cappedNote(6) }],
+        ['a radar that covers the area and nothing else', setOf([p19]), 'ewr,push,start,agl', { ewr: ewrNote(1) }],
+        ['two radars, one covering the area and one out of reach', setOf([p19, th('n8-far-radar', 'ewr1l13', 90, 500)]), 'ewr,push,start,agl', { ewr: ewrNote(2) }],
+        ['no threat data', undefined, 'push,start,agl', {}],
+      ];
+      for (const [name, set, want, words] of cases) {
+        const notes = keysOf({ threats: set });
+        const keys = notes.map((n) => n.key).join();
+        if (keys !== want) why.push(`${name}: "${keys}" (want ${want.replace(/,/g, ', ')})`);
+        for (const [k, text] of Object.entries(words)) if (notes.find((n) => n.key === k)?.text !== text) why.push(`${name}: the ${k} note says ${JSON.stringify(notes.find((n) => n.key === k)?.text)}`);
+      }
+      const facts = threatFactsOf(setOf([sa6, sa8, p19]));
+      if (JSON.stringify(facts) !== JSON.stringify({ ewr: 1, outside: 0, capped: 0, domes: 2 })) why.push(`the four-ship's facts ${JSON.stringify(facts)} (want 1 radar, 2 domes)`);
+      const plain = keysOf({}).find((n) => n.key === 'start')?.text, whole = keysOf({ wholeRunIn: true }).find((n) => n.key === 'start')?.text;
+      if (plain !== START_NOTE || whole !== START_NOTE_WHOLE) why.push(`Show › Whole run-in on: the start note is ${whole === START_NOTE ? 'the ordinary one' : JSON.stringify(whole)}`);
+      ok('playback B3 [N8]: noteFactsFrom hands the notes the dome set\'s counts (every radar, the envelopes beyond the area and past the 64 nearest, the domes drawn) and Show\'s start choice: the radars\' note even when no ring is drawn, the legend only when something is, none without threat data, the other start note with Whole run-in on',
+         why.length === 0, why.join('; ') || `${cases.length} sets; facts ${JSON.stringify(facts)}`);
     }
 
     // [BX13] The dropper's own guard is untouched by the frag rule: a Mk-82 dive released at 2,999 ft AGL is still an error inside

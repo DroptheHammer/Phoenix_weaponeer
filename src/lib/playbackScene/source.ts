@@ -17,7 +17,8 @@
  *   callsign and altitude reference, its weapon's blast radius (the ring where
  *   its bomb lands), the strike window, the box the terrain is
  *   built from, the lead's attack axis (for the home camera), the frame
- *   (what Home frames is homeBox in homeView.ts, from the poses);
+ *   (what Home frames is homeBox in homeView.ts, from the poses), and the
+ *   threat domes the planner may see (made by domes.ts and handed in whole);
  * - each jet's moments on the strike clock: in the picture from, first
  *   action, release, impact, hidden after.
  *
@@ -35,6 +36,7 @@ import {
   type JetTrack, type LocalFrame, type PlaybackBounds, type PlaybackPhase, type StrikePlayback, type StrikeTiming,
 } from '../playback';
 import { firstActionTau, labelMoments, markerMoments, type ActionKind } from './actionPoints';
+import type { SceneDome } from './domes';
 import { groupTargets, type SceneTarget } from './targets';
 
 export type ScenePhase = PlaybackPhase;
@@ -238,7 +240,21 @@ export interface SceneSource {
   hideOf(jet: number): number;
   /** Strike time jet k releases. */
   releaseOf(jet: number): number;
+  /**
+   * The threat domes the planner may see, made once per open (they do not depend on the times): the very array
+   * the source was given, never a copy, so a layer can tell by identity that nothing changed when the times did.
+   */
+  readonly domes: readonly SceneDome[];
 }
+
+/** What a source is given besides the playback and its timing. */
+export interface SourceExtras {
+  /** The threat domes (domes.ts sceneDomes). Left out: none. */
+  domes?: readonly SceneDome[];
+}
+
+/** The domes of a source given none: one array for them all, so "no domes" is the same array every time. */
+const NO_DOMES: readonly SceneDome[] = [];
 
 export function newSceneJetPose(): SceneJetPose {
   return { visible: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, heading_deg: 0, pitch_deg: 0, bank_deg: 0, load_g: 1, phase: 'leadIn', agl_ft: 0, msl_ft: 0, tas_kt: 0 };
@@ -267,9 +283,10 @@ const ON_ANCHOR_S = 1e-6;
 
 /**
  * The scene's view of one built playback at one timing. Build it once per
- * open (and again if the timing changes): the planned paths are sampled here.
+ * open (and again if the timing changes): the planned paths are sampled here. The threat domes do not depend on the
+ * times: they come in whole, and every source made for one open carries the same array.
  */
-export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathStep_s = PATH_STEP_S): SceneSource {
+export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathStep_s = PATH_STEP_S, extras: SourceExtras = {}): SceneSource {
   // One scratch state per source: every call overwrites it, so nothing is allocated per frame.
   const js = newJetState();
   const bs = newBombState();
@@ -452,5 +469,6 @@ export function sceneSourceFrom(pb: StrikePlayback, timing: StrikeTiming, pathSt
     visibleFromOf: (jet) => visibleFrom_s[jet],
     hideOf: (jet) => timing.jets[jet].hide_s,
     releaseOf: (jet) => timing.jets[jet].release_s,
+    domes: extras.domes ?? NO_DOMES,
   };
 }

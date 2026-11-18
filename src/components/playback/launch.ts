@@ -14,8 +14,12 @@
  *
  * The attack list's Play hands over the plan as saved instead (a strike, or
  * one attack), and for a strike a way to write the times into the plan itself.
+ *
+ * Both also hand over the threats the planner may see, taken at the press with the Settings switches as they
+ * stand: a threat the mission's author hid is not among them unless the planner revealed it, so playback gets
+ * exactly what the same plan without those threats would give it.
  */
-import type { Attack, DbWeapon, Mission } from '../../types';
+import type { Attack, DbWeapon, Mission, ThreatInstance } from '../../types';
 import type { IpAnchor } from '../../lib/ipAnchor';
 import type { ResolvedDraft } from '../../lib/attackDraft';
 import type { PlaybackInput, PlaybackJetInput, PlaybackSubject, SkippedJet } from '../../lib/playback';
@@ -23,9 +27,12 @@ import type { FragRule } from '../../types/strike.types';
 import { attackSpeedOf, strikeFragRule } from '../../lib/strike';
 import { getTheaterInfo } from '../../stores/theaterStore';
 import { useMissionStore } from '../../stores/missionStore';
+import { useUiStore } from '../../stores/uiStore';
 import { isRealWorld } from '../../lib/strikeNearMe';
 import { formatCallsign } from '../../lib/callsign';
-import type { EditorLaunch, PlaybackApply, PlaybackLaunch } from './types';
+import { isThreatVisible, type HiddenReveal } from '../../lib/threatVisibility';
+import type { SceneSystem, SceneThreats } from '../../lib/playbackScene/domes';
+import type { EditorLaunch, PlaybackApply, PlaybackLaunch, PlaybackSystemRow } from './types';
 
 /** One jet as the editor holds it: the attack as it would save, and where its run-in starts. */
 export interface EditorDraft {
@@ -49,6 +56,26 @@ export interface EditorLaunchArgs {
   applyOffsets?: (offsets: number[]) => void;
   /** The strike's frag rule as the editor holds it (unsaved choice included). Left out: the app's default, as a saved strike reads it. */
   fragRule?: FragRule;
+  /** The threat systems the planner has, for the threats on `mission` (which is the planner's own view of the plan). Left out: none. */
+  systems?: readonly PlaybackSystemRow[];
+}
+
+/**
+ * The threats and systems playback is handed: every threat in `threats` the planner may see (an author-hidden one only if
+ * its switch is on; `reveal` is those switches, read from the settings when not given) and every system row with a maximum
+ * altitude to draw, rows kept whole. The planner's own view of the plan has already left the hidden ones out; this is
+ * the same rule again at the press, so the attack list's whole plan and the editor's filtered one give the same answer.
+ */
+export function threatsAtPress(
+  threats: readonly ThreatInstance[],
+  systems: readonly PlaybackSystemRow[] = [],
+  reveal: HiddenReveal = useUiStore.getState().revealHidden,
+): SceneThreats {
+  return {
+    visible: threats.filter((t) => isThreatVisible(t, reveal)),
+    systems: systems.filter((s): s is SceneSystem => Number.isFinite(s.max_altitude_ft)),
+    reveal,
+  };
 }
 
 /** The strike strip's line when the blast check could not be loaded or run. Here, not with the blast words, because the start-up code shows it. */
@@ -67,7 +94,7 @@ const NOT_READY = 'Not ready in the editor yet.';
  * the normal path.
  */
 export function playbackLaunchFromEditor(a: EditorLaunchArgs): EditorLaunch | undefined {
-  const { mission, drafts, resolved, offsets, strikeName, selectedIndex, applyOffsets } = a;
+  const { mission, drafts, resolved, offsets, strikeName, selectedIndex, applyOffsets, systems } = a;
   const jets: PlaybackJetInput[] = [];
   const skipped: SkippedJet[] = [];
   const tie: [number, number][] = [];
@@ -103,17 +130,17 @@ export function playbackLaunchFromEditor(a: EditorLaunchArgs): EditorLaunch | un
   const input: PlaybackInput = { name: title, jets, skipped, fragRule: strikeFragRule(a) };
   // Apply needs a strike to write into: two jets or more, and the editor's own way to set their sliders.
   const apply: PlaybackApply | undefined = strikeName !== undefined && applyOffsets && drafts.length >= 2 ? { to: 'editor', write: applyOffsets } : undefined;
-  return { input, title, jetId: drafts[selectedIndex]?.attack?.id, notes: theaterNotes(mission), apply, tie };
+  return { input, title, jetId: drafts[selectedIndex]?.attack?.id, notes: theaterNotes(mission), apply, tie, threats: threatsAtPress(mission.threats, systems) };
 }
 
 /**
  * The attack list's Play: a strike, or one attack, of the plan as it is saved now. The lazily loaded view
- * builds the jets from it. The mission goes along without its threats: nothing in playback draws them yet,
- * and a threat the author hid must not cross into the view. The theater notes come from the whole mission.
- * Only a strike has times to apply: they go straight into the plan (one Undo step each), re-based on whoever
- * is first over the target. Undefined when no plan is open.
+ * builds the jets from it. The mission goes along without its threats, so one the author hid cannot cross by
+ * this road; the threats the planner may see come as `threats`, worked out here from the whole plan. The
+ * theater notes come from the whole mission. Only a strike has times to apply: they go straight into the plan
+ * (one Undo step each), re-based on whoever is first over the target. Undefined when no plan is open.
  */
-export function playbackLaunchFromMission(subject: PlaybackSubject, weapons: DbWeapon[]): PlaybackLaunch | undefined {
+export function playbackLaunchFromMission(subject: PlaybackSubject, weapons: DbWeapon[], systems?: readonly PlaybackSystemRow[]): PlaybackLaunch | undefined {
   const { mission, setStrikeOffsets } = useMissionStore.getState();
   if (!mission) return undefined;
   return {
@@ -121,6 +148,7 @@ export function playbackLaunchFromMission(subject: PlaybackSubject, weapons: DbW
     jetId: 'attackId' in subject ? subject.attackId : undefined,
     notes: theaterNotes(mission),
     apply: 'strikeId' in subject ? { to: 'mission', write: (offsets) => setStrikeOffsets(subject.strikeId, offsets) } : undefined,
+    threats: threatsAtPress(mission.threats, systems),
   };
 }
 

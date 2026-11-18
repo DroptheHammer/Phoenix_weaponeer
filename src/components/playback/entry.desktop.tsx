@@ -48,7 +48,7 @@ export function PlayStrikeButton({ disabled, title, variant, build, fromMission 
   const close = useCallback(() => setOpen(undefined), []);
   // What the planner gives now: the press asks it, and Try again after a crash asks it afresh (an Apply may have moved the times since).
   const launchNow = useCallback(
-    () => (build ? build() : fromMission && playbackLaunchFromMission(fromMission.subject, fromMission.weapons)),
+    () => (build ? build() : fromMission && playbackLaunchFromMission(fromMission.subject, fromMission.weapons, fromMission.systems)),
     [build, fromMission],
   );
   return (

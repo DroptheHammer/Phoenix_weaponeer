@@ -11,6 +11,7 @@ import { GroupPanel } from './GroupPanel';
 import { JetStrip, JET_COLORS } from './JetStrip';
 import { AttackPreviewMap, type PreviewAttack } from '../map/AttackPreviewMap';
 import { FragPanel, PlayStrikeButton, playbackLaunchFromEditor } from '@playback';
+import type { PlaybackSystemRow } from '../playback/types';
 import { draftAttackData, draftFromAttack, draftIpAnchor, resolveDraft, setIp, type DraftContext, type ResolvedDraft } from '../../lib/attackDraft';
 import { newJet, newStrike, jetsOfStrike, respace, sortJets, setStrikeIp, strikeIpOf, syncJetIp, jetFired, assignFlanks, leadSideOf, withTotOffsets, type Jet } from '../../lib/strikeDraft';
 import { attackSpeedOf, coneGrade, fmtStrikeTime, strikeFlank, strikeFragRule, strikeOf, strikeReadout, type StrikeJet } from '../../lib/strike';
@@ -23,11 +24,6 @@ import type { RunInSummary } from '../../lib/runIn';
 import type { Attack, AttackProfile, Coordinates, DbWeapon, FuzeOption, IpAnchorFields, LoftCCRPProfile, Mission, Strike } from '../../types';
 import type { FragRule } from '../../types/strike.types';
 
-interface ThreatSystemLite {
-  id: string;
-  max_range_nm: number;
-}
-
 interface AttackEditorProps {
   /** The attack to edit. A strike member opens its whole strike. */
   attack?: Attack;
@@ -38,10 +34,10 @@ interface AttackEditorProps {
   weapons: DbWeapon[];
   fuzeOptions: Map<string, FuzeOption[]>;
   aircraft: AircraftLite[];
-  threatSystems?: ThreatSystemLite[];
+  threatSystems?: PlaybackSystemRow[];
 }
 
-const NO_THREAT_SYSTEMS: ThreatSystemLite[] = [];
+const NO_THREAT_SYSTEMS: PlaybackSystemRow[] = [];
 
 interface EditorInit {
   strike?: Strike;
@@ -239,7 +235,7 @@ export function AttackEditor({ attack, startStrike, onClose, onSaved, weapons, f
     );
 
   // The jets as Play hands them over, and as the strip's blast check builds them, so the two agree.
-  const launchArgs = { mission, drafts, resolved, offsets: jets.map((j) => j.totOffset_s), strikeName: strike?.name, selectedIndex, fragRule: strike?.fragRule };
+  const launchArgs = { mission, drafts, resolved, offsets: jets.map((j) => j.totOffset_s), strikeName: strike?.name, selectedIndex, fragRule: strike?.fragRule, systems: threatSystems };
   const fragRule = strikeFragRule(strike);
 
   const canMakeStrike = !strike && mission.flightMembers.length > 1 && !!jets[0]?.draft.targetWaypointId;
