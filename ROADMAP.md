@@ -277,7 +277,7 @@ waypoint list on 2026-10-03).
 
 ## Shipped
 
-### Unreleased (0.4.0, on `main`)
+### v0.4.0 — 2026-11-19
 - **3D strike playback** (desktop, 2026-11-14 to 2026-11-19). A strike flies
   every jet in 3D over real terrain, from the planner's own picture, with the
   impact pinned to the time over target. Times over target are dragged on
