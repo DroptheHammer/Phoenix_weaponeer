@@ -22,6 +22,7 @@ import { calculateDistance } from '../../lib/coordinates';
 import { loftPullUpTimer_s } from '../../lib/loftPlanning';
 import { formatCallsign } from '../../lib/callsign';
 import { isFired, weaponClassOf } from '../../lib/weaponClass';
+import { SIGHT_OWN_RANGE, type SightFigure } from '../../lib/sightSetting';
 import { targetCandidates, ipCandidates, waypointLabel } from '../../lib/waypointOptions';
 import { SliderField } from '../common/SliderField';
 import { IpPicker } from './IpPicker';
@@ -97,7 +98,9 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
   // A manual delivery's sight setting, as the card prints it. The preview map no
   // longer carries it (it is set before the IP, not at the roll-in), so it is
   // shown here with the other numbers the pilot flies.
-  const sight = build.attack?.deliveryMode === 'MAN' ? build.attack.sightDepression_mils : undefined;
+  const sight = resolved.sight;
+  // The box for the pilot's own figure: on any manual bomb attack (the A-4E-C's computed dive sets nothing).
+  const ownSightBox = build.attack?.deliveryMode === 'MAN' && (build.weaponClass === 'bomb_ld' || build.weaponClass === 'bomb_hd');
   // A LABS loft's pull-up timer is a before-the-IP number like the sight: read off
   // the live IP, so it is right whatever the saved profile says.
   const ipToTarget_nm = build.ipAnchor && target ? calculateDistance(build.ipAnchor.point, target.coordinates) : undefined;
@@ -264,7 +267,7 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
           </div>
           <div className="text-xs text-gray-400 mt-2">{angleOffHint}</div>
 
-          {profile && <KeyNumbers profile={profile} sightDepression_mils={sight} pullUpTimer_s={timer} />}
+          {profile && <KeyNumbers profile={profile} sightText={sight?.editorText} pullUpTimer_s={timer} />}
 
           {/* These describe what auto-build did. Once the numbers are
               hand-edited they no longer describe what is on screen, so they
@@ -343,6 +346,8 @@ export function JetPanel({ draft, resolved, ctx, onChange, fuzeOptions, aircraft
               deliveryMode={build.profile?.deliveryMode}
               onChange={edit}
             />
+
+            {ownSightBox && <SightBox sight={sight} own={draft.sightOwn_mils} onChange={(v) => onChange({ ...draft, sightOwn_mils: v })} />}
           </div>
         )}
       </div>
@@ -421,17 +426,61 @@ export function Problems({ resolved, prefix }: { resolved: ResolvedDraft; prefix
 }
 
 /**
+ * The pilot's own sight figure, under Customize. Empty, the card prints what
+ * the jet's table gives (shown as the box's placeholder); a typed figure
+ * prints as "(own)" until it is cleared.
+ */
+function SightBox({ sight, own, onChange }: { sight: SightFigure | null; own?: number; onChange: (mils: number | undefined) => void }) {
+  const auto = own != null ? sight?.auto : sight;
+  const autoWords = auto?.mils != null ? `the table's ${auto.mils}` : 'no figure';
+  return (
+    <div>
+      <label className={label}>Sight — set before the IP</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={SIGHT_OWN_RANGE.min}
+          max={SIGHT_OWN_RANGE.max}
+          step={1}
+          className={`${select} !w-28`}
+          aria-label="Your own sight figure, in mils"
+          value={own ?? ''}
+          placeholder={auto?.mils != null ? String(auto.mils) : 'none'}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            onChange(e.target.value === '' || !Number.isFinite(v) ? undefined : Math.max(SIGHT_OWN_RANGE.min, Math.min(SIGHT_OWN_RANGE.max, Math.round(v))));
+          }}
+        />
+        <span className="text-xs text-gray-400">mils</span>
+        {own != null && (
+          <button type="button" className="text-xs text-gray-300 underline" onClick={() => onChange(undefined)}>
+            Use {autoWords}
+          </button>
+        )}
+      </div>
+      <div className="mt-1 text-xs text-gray-400">
+        {own != null
+          ? `Your own figure: the card prints it as "(own)". Clear the box to go back to ${autoWords}.`
+          : (sight?.hint ?? 'Nothing gives a sight figure for this attack, so the card prints no sight line. Type one to print it.')}
+        {sight?.rcvr && own == null ? ' The table itself warns that recovery is marginal at this point.' : ''}
+      </div>
+    </div>
+  );
+}
+
+/**
  * The numbers a pilot actually flies, in one line. A manual delivery's sight
  * setting and a LABS loft's pull-up timer lead it: they are the first things
  * to set, before the IP.
  */
 export function KeyNumbers({
   profile,
-  sightDepression_mils,
+  sightText,
   pullUpTimer_s,
 }: {
   profile: AttackProfile;
-  sightDepression_mils?: number;
+  /** The sight setting in the editor's words, when the attack has one. */
+  sightText?: string;
   pullUpTimer_s?: number;
 }) {
   const ft = (v: number) => `${Math.round(v).toLocaleString()} ft`;
@@ -453,7 +502,7 @@ export function KeyNumbers({
       text = '';
   }
   const line = [
-    sightDepression_mils != null ? `Sight ${Math.round(sightDepression_mils)} mils (set before IP)` : '',
+    sightText ?? '',
     pullUpTimer_s != null ? `Timer ${pullUpTimer_s.toFixed(1)} s (set before IP)` : '',
     text,
   ]

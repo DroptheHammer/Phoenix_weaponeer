@@ -13,6 +13,7 @@ import { getTheaterInfo } from '../stores/theaterStore';
 import { compareThreatsForCard, CARD_THREAT_POOL } from './cardThreats';
 import { strikeCardInfo } from './strike';
 import { isFired } from './weaponClass';
+import { sightFigure } from './sightSetting';
 
 // Minimal threat system shape (matches what App.tsx gets from the DB)
 export interface ThreatSystemInfo {
@@ -444,9 +445,23 @@ export function buildKneeboardCard(
       targetSteerpoint: targetWp.steerpoint,
       cautions: cautions.length ? cautions : undefined,
       strikeLine: strikeCardInfo(mission, attack)?.strikeLine,
-      // A manual delivery's sight, and only a manual delivery's: a stray value on
-      // any other attack must not print a setting the jet has no use for.
-      sightDepression_mils: attack.deliveryMode === 'MAN' ? attack.sightDepression_mils : undefined,
+      // A manual bomb delivery's sight, worked from the attack as it stands (the pilot's own figure, a
+      // squadron profile's, or the jet's table); nothing on any other attack.
+      sight: (() => {
+        const f = sightFigure({
+          aircraftId: attacker.aircraftId,
+          weaponId: attack.weaponId,
+          weaponClass: attack.weaponClass,
+          deliveryMode: attack.deliveryMode,
+          sourceProfileId: attack.sourceProfileId,
+          profile: attack.profile,
+          targetElevation_ft: targetWp.elevation_ft,
+          customized: attack.customized,
+          own_mils: attack.sightOwn_mils,
+          profile_mils: attack.sightProfile_mils,
+        });
+        return f ? { text: f.cardText, settable: f.settable } : undefined;
+      })(),
       // The F-4E's pull-up timer, and only a LABS loft's (a CCRP loft's jet cues it
       // itself). Set before the IP, so it is a header number like the sight.
       pullUpTimer_s: labsTimerOf(mission, attack, targetWp),

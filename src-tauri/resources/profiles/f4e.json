@@ -23,10 +23,6 @@
       "releaseSpeed_ktas": 450,
       "pulloutG": 4
     },
-    "sight": {
-      "depression_mils": 105,
-      "notes": "Mk-82 LD, 30° / 450 KCAS / 4,500 ft — check against the depression table for the actual load"
-    },
     "procedure": [
       "Delivery mode DIRECT, weapon selected, sight depression set",
       "Roll in, establish 30° and 450 kt — a steady dive is the whole trick",
@@ -54,10 +50,6 @@
       "releaseAltitude_ft": 6500,
       "releaseSpeed_ktas": 450,
       "pulloutG": 5
-    },
-    "sight": {
-      "depression_mils": 85,
-      "notes": "Mk-82 LD, 45° / 450 KCAS / 6,500 ft — check against the depression table"
     },
     "procedure": [
       "Delivery mode DIRECT, weapon selected, sight depression set",

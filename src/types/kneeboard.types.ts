@@ -30,10 +30,12 @@ export interface KneeboardHeader {
   /** In a strike: "STRIKE Viper 1 · #2 of 2 · R flank · TOT +0:30 · push IP T-2:05 (est)". */
   strikeLine?: string;
   /**
-   * Manual deliveries: the fixed-sight setting a legacy pilot needs. Drawn in the
-   * header after the profile label: it is set at or before the IP, not at the roll-in.
+   * Manual bomb deliveries: the sight setting, in the card's own words ("SIGHT 118
+   * mils", "SIGHT 121 mils (est.)", "SIGHT — no figure (outside table)"). Drawn in
+   * the header after the profile label: it is set at or before the IP, not at the
+   * roll-in. `settable` is false when there is no number to set.
    */
-  sightDepression_mils?: number;
+  sight?: { text: string; settable: boolean };
   /**
    * F-4E LABS loft: the pull-up timer, seconds. Like the sight it is set before
    * the IP (the bomb button over the IP starts it), so it rides in the header

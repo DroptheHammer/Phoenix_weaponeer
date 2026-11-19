@@ -658,9 +658,10 @@ export function autoBuildAttack(input: AutoBuildInput): AutoBuildResult {
     sourceProfileName: profile.name,
     deliveryMode: profile.deliveryMode,
     estimated: !profile.verified,
-    // The profiles' sight settings are worked out for a Mk-82; a rocket or a
-    // gun needs its own table, so no number beats a wrong one.
-    sightDepression_mils: weaponClass === 'bomb_ld' || weaponClass === 'bomb_hd' ? profile.sight?.depression_mils : undefined,
+    // A squadron profile file may carry its own sight number. It is a bomb's: a
+    // rocket or a gun needs its own table, so no number beats a wrong one. The
+    // bundled profiles carry none; their figure comes from the jet's table.
+    sightProfile_mils: weaponClass === 'bomb_ld' || weaponClass === 'bomb_hd' ? profile.sight?.depression_mils : undefined,
     weaponClass,
     procedure: profile.procedure?.length ? [...profile.procedure] : undefined,
   };

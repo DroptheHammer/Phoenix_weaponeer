@@ -9,7 +9,6 @@
     "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
     "defaultFor": ["bomb_ld", "bomb_hd", "rocket"],
     "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4500, "releaseSpeed_ktas": 450, "pulloutG": 4 },
-    "sight": { "depression_mils": 95, "notes": "Mk-82 LD, 30° / 450 kt / 4,500 ft — check the Mirage F1 manual depression tables (§7.7) for the actual load" },
     "procedure": [
       "Sight in manual bombing mode, depression set, station selected",
       "Roll in, establish 30° and 450 kt — hold them",
@@ -27,7 +26,6 @@
     "deliveryMode": "MAN",
     "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
     "params": { "ingressAltitude_ft": 12000, "rollInAltitude_ft": 12000, "diveAngle_deg": 45, "releaseAltitude_ft": 6500, "releaseSpeed_ktas": 450, "pulloutG": 5 },
-    "sight": { "depression_mils": 75, "notes": "Mk-82 LD, 45° / 450 kt / 6,500 ft — check the depression tables" },
     "procedure": [
       "Sight in manual bombing mode, depression set",
       "Steep roll-in; throttle back to hold 450 kt",

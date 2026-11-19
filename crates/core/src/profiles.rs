@@ -663,18 +663,34 @@ mod tests {
     /// and it was once lost between the file and the frontend: the struct
     /// expected `depressionMils`, the files and the TypeScript say
     /// `depression_mils`, and serde dropped the mismatch without a word.
-    /// Loaded here the way both apps load the library.
+    /// Loaded here the way both apps load the library. Since 0.4.0 the
+    /// bundled profiles carry no sight number (the card works it from the
+    /// jet's table), so the number here comes from a squadron's own file,
+    /// which may still carry one.
     #[test]
-    fn bundled_sight_setting_reaches_the_frontend() {
-        let library = load_all(Vec::new()).expect("the bundled library loads");
+    fn a_squadron_files_sight_setting_reaches_the_frontend() {
+        let bundled = bundled_profiles().expect("the bundled library loads");
+        assert!(
+            bundled.iter().all(|p| p.sight.is_none()),
+            "no bundled profile carries a fixed sight number: the figure comes from the jet's table"
+        );
+        let file = r#"[{
+            "id": "a4ec.dive.man30", "aircraftId": "a4ec", "name": "30° Manual Dive (squadron)", "geometry": "dive",
+            "deliveryMode": "MAN", "weaponClasses": ["bomb_ld"],
+            "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4000, "releaseSpeed_ktas": 400, "pulloutG": 4 },
+            "sight": { "depression_mils": 100, "notes": "the squadron's own figure" },
+            "source": "squadron practice", "verified": false
+        }]"#;
+        let library = load_all(vec![UserFile { name: "squadron.json".into(), contents: Ok(file.into()) }]).expect("the library loads");
+        assert!(library.warnings.is_empty(), "the squadron file loads cleanly: {:?}", library.warnings);
         let profile = library
             .profiles
             .iter()
             .find(|p| p.id == "a4ec.dive.man30")
-            .expect("a4ec.dive.man30 is bundled");
+            .expect("the squadron's a4ec.dive.man30 replaces the bundled one");
 
-        let sight = profile.sight.as_ref().expect("a4ec.dive.man30 carries a sight setting");
-        assert_eq!(sight.depression_mils, Some(100.0), "the bundled file says 100 mils");
+        let sight = profile.sight.as_ref().expect("the squadron's profile carries a sight setting");
+        assert_eq!(sight.depression_mils, Some(100.0), "the squadron file says 100 mils");
 
         // What the frontend receives; src/lib/autoBuildAttack.ts reads sight.depression_mils.
         let sent = serde_json::to_value(profile).unwrap();

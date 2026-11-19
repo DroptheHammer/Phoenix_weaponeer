@@ -218,6 +218,8 @@ import { useTheaterStore, type TheaterInfo } from '../src/stores/theaterStore';
 import { hexOf as tokenHex } from './tokens.mjs';
 import { appVersion, appDefines } from './app-version.mjs';
 import { creditList, versionLine, ABOUT_WORDS, type CreditEntry } from '../src/components/about/credits';
+import { iasToTas_kt } from '../src/lib/airspeed';
+import { SIGHT_SOURCES } from '../src/lib/sightTables';
 import { ELEVATION_ENTRY } from '../src/components/playback/elevationCredit';
 import { MAP_CREDIT as MAP_CREDIT_LINE } from '../src/components/map/MapCredit';
 import { ELEVATION_CREDIT, MAP_CREDIT as SCENE_MAP_CREDIT } from '../src/lib/playbackScene';
@@ -970,20 +972,22 @@ if (diveProfiles.length) {
      strafeText.includes('Fire by') && !strafeText.includes('Release by') && !strafeText.includes('Pickle by'));
   ok('rockets: Hydras build the A-10 rocket profile', build(hog, 'hydra70', lib('a10c')).attack?.sourceProfileId === 'a10c.dive.rockets');
 
-  // The A-4's manual dive profile carries a sight setting worked out for a Mk-82.
-  // NB: `lib()` reads the profile JSON straight off disk, so these checks never
-  // run the Rust loader. Whether the sight value survives the loader and reaches
-  // the frontend as `sight.depression_mils` is covered by the Rust tests
-  // `bundled_sight_setting_reaches_the_frontend` and
-  // `no_bundled_profile_loses_a_key_on_the_way_to_the_frontend` in
-  // crates/core/src/profiles.rs.
+  // The A-4's manual dive. Since 0.4.0 no bundled profile carries a fixed sight number and an attack saves
+  // none: the card works the figure from the jet's table when it is built (sightSetting.ts, sight-check.ts).
+  // A squadron's own profile file may still carry a number; it rides on the attack as `sightProfile_mils`
+  // (the Rust test `a_squadron_files_sight_setting_reaches_the_frontend` holds the file's road to the frontend).
   const a4Bombs = build(scooter, 'mk82', lib('a4ec'));
   const a4Rockets = build(scooter, 'ffar275', lib('a4ec'));
-  ok('manual dive: the Mk-82 sight setting stays on a bomb attack',
-     a4Bombs.attack?.sightDepression_mils === 100, String(a4Bombs.attack?.sightDepression_mils));
-  ok('manual dive: a rocket attack on the same profile carries no (Mk-82) sight setting',
-     a4Rockets.attack?.sourceProfileId === 'a4ec.dive.man30' && a4Rockets.attack?.sightDepression_mils === undefined,
-     `${a4Rockets.attack?.sourceProfileId} / ${a4Rockets.attack?.sightDepression_mils}`);
+  const squadronLib = lib('a4ec').map((p: { id: string }) => (p.id === 'a4ec.dive.man30' ? { ...p, sight: { depression_mils: 105 } } : p));
+  const a4Squadron = build(scooter, 'mk82', squadronLib);
+  const a4SquadronRockets = build(scooter, 'ffar275', squadronLib);
+  ok('manual dive: a new bomb attack saves no fixed sight number of its own, and a squadron profile\'s number rides on it for bombs only',
+     a4Bombs.attack != null && a4Bombs.attack.sightDepression_mils === undefined && a4Bombs.attack.sightProfile_mils === undefined &&
+     a4Squadron.attack?.sightProfile_mils === 105 && a4SquadronRockets.attack?.sightProfile_mils === undefined,
+     `${a4Bombs.attack?.sightDepression_mils} / ${a4Bombs.attack?.sightProfile_mils} / ${a4Squadron.attack?.sightProfile_mils} / ${a4SquadronRockets.attack?.sightProfile_mils}`);
+  ok('manual dive: a rocket attack on the same profile carries no sight number',
+     a4Rockets.attack?.sourceProfileId === 'a4ec.dive.man30' && a4Rockets.attack?.sightDepression_mils === undefined && a4Rockets.attack?.sightProfile_mils === undefined,
+     `${a4Rockets.attack?.sourceProfileId} / ${a4Rockets.attack?.sightProfile_mils}`);
 
   // The sight is set at or before the IP, while the pilot's head is still in the
   // cockpit, not at the roll-in. So it rides in the card header, beside the
@@ -994,10 +998,24 @@ if (diveProfiles.length) {
         threats: [], flightMembers: [hog, scooter, pilot], attacks: [{ ...attack, id: 'atk' }], notes: '', createdAt: '', updatedAt: '' } as never,
       'atk', weapons as never, new Map(), [],
     )!;
-  const a4Card = cardOf(a4Bombs.attack);
-  ok('manual dive card: the sight setting is carried at header level (A-4E, Mk-82: 100 mils)',
-     a4Card.header.sightDepression_mils === 100 && a4Card.attackSection.profileType.endsWith('· MAN'),
-     `${a4Card.attackSection.profileType} / ${a4Card.header.sightDepression_mils}`);
+  // The target stands at 4,000 ft. At the profile's own numbers (30° / 4,000 ft / 400 kt true) the mod's four
+  // kneeboard rows have no printed point near; on its 30° / 3,000 ft / 450-on-the-gauge row over this higher
+  // ground the figure is worked from that one row; the pilot's own figure leads; a squadron profile's prints
+  // while the attack is still on the profile's numbers.
+  const a4Default = cardOf(a4Bombs.attack);
+  const a4Row = cardOf({ ...a4Bombs.attack, customized: true, profile: { ...a4Bombs.attack!.profile, releaseAltitude_ft: 3000, releaseSpeed_ktas: iasToTas_kt(450, 7000) } });
+  const a4Card = cardOf({ ...a4Bombs.attack, sightOwn_mils: 100 });
+  const a4SquadronCard = cardOf(a4Squadron.attack);
+  const a4SquadronEdited = cardOf({ ...a4Squadron.attack, customized: true });
+  const headerSights = [a4Default, a4Row, a4Card, a4SquadronCard, a4SquadronEdited].map((c) => `${c.header.sight?.text}|${c.header.sight?.settable}`);
+  ok('manual dive card: the header carries the sight in the card\'s own words: no figure outside the table, an estimate near a printed row, the pilot\'s own figure first, a squadron profile\'s while its numbers stand',
+     headerSights.join('; ') === 'SIGHT — no figure (outside table)|false; SIGHT 32 mils (est.)|true; SIGHT 100 mils (own)|true; SIGHT 105 mils (profile)|true; SIGHT — no figure (outside table)|false' &&
+     a4Card.attackSection.profileType.endsWith('· MAN'),
+     headerSights.join('; '));
+  // No card names a document, a pack or an author: credits are in the About dialog.
+  const cardWords = JSON.stringify([a4Default, a4Row, a4Card, a4SquadronCard]);
+  const named = Object.values(SIGHT_SOURCES).flatMap((s) => [s.title, s.author, s.file_no]).filter((w): w is string => !!w && cardWords.includes(w));
+  ok('manual dive card: nothing on the card names a sight table\'s title, author or file number', named.length === 0 && !/table\)|kneeboard/i.test(a4Row.header.sight?.text ?? ''), named.join('; '));
 
   const rollMarker = buildAttackPicture({ ...a4Bombs.attack, id: 'atk' } as never, anchorOf(wpIp, wpTgt), wpTgt as never)?.markers.find((m) => m.kind === 'ROLL');
   ok('manual dive: the ROLL marker carries no sight line (the pilot sets it before the IP)',
@@ -1010,10 +1028,14 @@ if (diveProfiles.length) {
     overrides: { weaponId: 'mk82', profileId: 'f16c.dive.ccip30' },
   } as never);
   // A stray sight value on a non-manual attack (an old save, a hand edit) must not print.
-  const ccipCard = cardOf({ ...viperBuilt.attack, sightDepression_mils: 100 });
-  ok('CCIP dive card: no header sight, even when the attack carries a stray value',
-     viperBuilt.attack?.deliveryMode === 'CCIP' && ccipCard.header.sightDepression_mils === undefined,
-     `${viperBuilt.attack?.deliveryMode} / ${ccipCard.header.sightDepression_mils}`);
+  const ccipCard = cardOf({ ...viperBuilt.attack, sightDepression_mils: 100, sightOwn_mils: 100, sightProfile_mils: 100 });
+  ok('CCIP dive card: no header sight, even when the attack carries stray values',
+     viperBuilt.attack?.deliveryMode === 'CCIP' && ccipCard.header.sight === undefined,
+     `${viperBuilt.attack?.deliveryMode} / ${JSON.stringify(ccipCard.header.sight)}`);
+  // An attack saved before 0.4.0 carries the old fixed number; it is no longer printed.
+  const oldSave = cardOf({ ...a4Bombs.attack, sightDepression_mils: 100 });
+  ok('manual dive card: the fixed number an old save carries is not printed; the table answers instead',
+     oldSave.header.sight?.text === 'SIGHT — no figure (outside table)', JSON.stringify(oldSave.header.sight));
 
   // The card as drawn: a stand-in canvas that records each line of text, so the
   // header's sight can be found where it lands and shown to be the only one.
@@ -1048,9 +1070,13 @@ if (diveProfiles.length) {
   const a4Lines = drawnText(a4Card);
   const sightLines = a4Lines.filter((t) => /sight/i.test(t.text));
   ok('manual dive card: the header prints the sight in bold amber, on the profile-label line',
-     sightLines[0] != null && sightLines[0].text.includes('SIGHT 100 mils · set before IP') && sightLines[0].y === 55 &&
+     sightLines[0] != null && sightLines[0].text.includes('SIGHT 100 mils (own) · set before IP') && sightLines[0].y === 55 &&
      sightLines[0].font.startsWith('bold') && isAmber(sightLines[0].fill),
      JSON.stringify(sightLines[0]));
+  const noFigureLines = drawnText(a4Default).filter((t) => /sight/i.test(t.text));
+  ok('manual dive card: "no figure" is drawn in the same place and never says "set before IP" (there is nothing to set)',
+     noFigureLines.length === 1 && noFigureLines[0].text === '·  SIGHT — no figure (outside table)' && noFigureLines[0].y === 55 && isAmber(noFigureLines[0].fill),
+     JSON.stringify(noFigureLines.map((t) => t.text)));
   ok('manual dive card: the sight is printed nowhere else (not the roll-in marker, not the side view)',
      sightLines.length === 1, JSON.stringify(sightLines.map((t) => t.text)));
   ok('manual dive card: the header sight sits after the profile label and short of the date', sightClearOfDate(a4Lines, a4Card));
@@ -1059,7 +1085,7 @@ if (diveProfiles.length) {
 
   const rocketCard = cardOf(a4Rockets.attack);
   ok('manual dive card with no sight number (rockets): the header draws nothing extra',
-     rocketCard.header.sightDepression_mils === undefined && !drawnText(rocketCard).some((t) => /sight/i.test(t.text)));
+     rocketCard.header.sight === undefined && !drawnText(rocketCard).some((t) => /sight/i.test(t.text)));
   ok('CCIP dive card: nothing about a sight is drawn, even with a stray value on the attack',
      !drawnText(ccipCard).some((t) => /sight/i.test(t.text)));
 
@@ -2267,7 +2293,7 @@ ok('customizeKnobs: the auto-built NTTR level attack opens inside its sliders', 
   ok('LABS loft card with the IP inside the pull-up range: no timer is printed (there is no run-in to time)',
      insideCard.header.pullUpTimer_s === undefined && !loftDrawn(insideCard).some((t) => /TIMER \d/.test(t.text)));
 
-  const both = loftDrawn({ ...labsCard, header: { ...labsCard.header, sightDepression_mils: 100 } }).filter((t) => /SIGHT/.test(t.text));
+  const both = loftDrawn({ ...labsCard, header: { ...labsCard.header, sight: { text: 'SIGHT 100 mils', settable: true } } }).filter((t) => /SIGHT/.test(t.text));
   ok('a header with a sight and a timer prints both on the one line, once',
      both.length === 1 && both[0].text.includes(`SIGHT 100 mils · TIMER ${wantTimer.toFixed(1)} s · set before IP`), JSON.stringify(both.map((t) => t.text)));
 
@@ -3656,7 +3682,12 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   // ESTIMATED strips, IP and egress labels), an F-16 in a strike (strike strip, the
   // other two jets faint, level release, IP off the frame), and an F-16 pop-up
   // (climb and pull-down lines, apex star, hard deck, warning strips).
-  const a4e = cardOf(solo(build(scooter, mk82, lib('a4ec'))), 'atk', [mk82]);
+  // The pins below were taken when a manual card's header read "SIGHT 100 mils · set before IP". Its words now come
+  // from the jet's sight table (sight-check.ts holds them), so these cards are given the old words: the pins then
+  // hold every other stroke of the card exactly as before, and prove the sight change moved nothing else.
+  const PINNED_SIGHT = { text: 'SIGHT 100 mils', settable: true };
+  const a4eBuilt = cardOf(solo(build(scooter, mk82, lib('a4ec'))), 'atk', [mk82]);
+  const a4e = { ...a4eBuilt, header: { ...a4eBuilt.header, sight: PINNED_SIGHT } };
   const strikeLead = strikeMembers(withIp, sId)[1];
   const strike = cardOf({ ...withIp }, strikeLead.id, [gbu31]);
   const popup = cardOf(solo(build(viper, mk82, lib('f16c'), 'f16c.popup.std')), 'atk', [strictMk82]);
@@ -3666,7 +3697,7 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
   const diagram = a4e.attackSection.diagram!;
   const bare = {
     ...a4e,
-    header: { ...a4e.header, cautions: undefined, sightDepression_mils: undefined },
+    header: { ...a4e.header, cautions: undefined, sight: undefined },
     threatSection: { threats: [] },
     weaponSection: { ...a4e.weaponSection, fired: true, minSafeAlt_ft: undefined },
     attackSection: { ...a4e.attackSection, diagram: { ...diagram, picture: undefined } },

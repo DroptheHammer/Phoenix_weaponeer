@@ -128,10 +128,10 @@ function drawHeader(ctx: CanvasRenderingContext2D, theme: CardTheme, card: Kneeb
   // them at or before the IP, not at the roll-in or pull-up, where their head is
   // outside. It is placed by measuring each text in its own font, and held short
   // of the date on the right.
-  const sight = card.header.sightDepression_mils;
+  const sight = card.header.sight;
   const timer = card.header.pullUpTimer_s;
   const setBefore = [
-    ...(sight != null ? [`SIGHT ${Math.round(sight)} mils`] : []),
+    ...(sight ? [sight.text] : []),
     ...(timer != null ? [`TIMER ${timer.toFixed(1)} s`] : []),
   ];
   if (setBefore.length) {
@@ -139,7 +139,9 @@ function drawHeader(ctx: CanvasRenderingContext2D, theme: CardTheme, card: Kneeb
     const dateLeft = KNEEBOARD_WIDTH - 10 - ctx.measureText(date).width;
     ctx.font = `bold 14px ${MONO}`;
     const x = 10 + ctx.measureText(label).width + 8;
-    txt(ctx, `·  ${setBefore.join(' · ')} · set before IP`, x, 55, { color: theme.headerAmber, size: 14, bold: true, family: MONO, maxW: dateLeft - 12 - x });
+    // "set before IP" only when there is a number to set: "no figure" has nothing to set.
+    const settable = timer != null || sight?.settable;
+    txt(ctx, `·  ${setBefore.join(' · ')}${settable ? ' · set before IP' : ''}`, x, 55, { color: theme.headerAmber, size: 14, bold: true, family: MONO, maxW: dateLeft - 12 - x });
   }
   hLine(ctx, HEADER_H, theme.headerRule, 2);
   return HEADER_H + 2;

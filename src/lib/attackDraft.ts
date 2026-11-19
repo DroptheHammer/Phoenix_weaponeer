@@ -16,6 +16,7 @@ import { runAttackChecks, hasErrors, type AttackCheck } from './attackChecks';
 import { describeRunIn, type RunInSummary } from './runIn';
 import { applyEgress, applyFlank, moveIp } from './attackFlank';
 import { isFired, weaponClassOf } from './weaponClass';
+import { sightFigure, type SightFigure } from './sightSetting';
 import { calculateDistance } from './coordinates';
 import type { Side } from './attackGeometry';
 
@@ -42,6 +43,8 @@ export interface AttackDraft {
   /** Once the planner changes a number, auto-build stops overwriting the profile. */
   customized: boolean;
   customProfile?: AttackProfile;
+  /** The pilot's own sight figure (manual bomb attacks). Kept through number changes; cleared with the profile, weapon or jet. */
+  sightOwn_mils?: number;
 
   /**
    * A saved, uncustomized attack re-opens with the run-in it was built with —
@@ -88,6 +91,7 @@ export function draftFromAttack(attack: Attack | undefined, mission: Mission | n
     customIp: ip.customIp,
     customized,
     customProfile: attack?.profile,
+    sightOwn_mils: attack?.sightOwn_mils,
     seed: {
       actionRange_nm: savedRunIn?.actionRange_nm,
       offsetTurn_deg: savedRunIn?.offsetAngle_deg,
@@ -113,6 +117,8 @@ export interface ResolvedDraft {
   runIn: RunInSummary | undefined;
   /** What "Auto" resolves to for this target. */
   autoIpWaypoint: Waypoint | undefined;
+  /** The sight setting the card will print for what will be saved; null when the attack has none. */
+  sight: SightFigure | null;
 }
 
 // Resolving runs auto-build, so cache it per draft object: the strike editor
@@ -186,6 +192,21 @@ export function resolveDraft(draft: AttackDraft, ctx: DraftContext): ResolvedDra
     canSave: Boolean(profile && profileType && problems.length === 0 && !hasErrors(checks)),
     runIn,
     autoIpWaypoint: target ? inferIp(mission, target) : undefined,
+    sight:
+      profile && build.attack
+        ? sightFigure({
+            aircraftId: mission.flightMembers.find((m) => m.id === draft.attackerId)?.aircraftId ?? '',
+            weaponId,
+            weaponClass: build.attack.weaponClass,
+            deliveryMode: build.attack.deliveryMode,
+            sourceProfileId: build.attack.sourceProfileId,
+            profile,
+            targetElevation_ft: target?.elevation_ft,
+            customized: draft.customized,
+            own_mils: draft.sightOwn_mils,
+            profile_mils: build.attack.sightProfile_mils,
+          })
+        : null,
   };
   resolveCache.set(draft, { ctx, resolved });
   return resolved;
@@ -218,9 +239,11 @@ export function draftAttackData(
     sourceProfileName: base?.sourceProfileName ?? original?.sourceProfileName,
     deliveryMode: base?.deliveryMode ?? original?.deliveryMode,
     estimated: base?.estimated ?? original?.estimated,
-    // A fresh build decides both outright: switching Mk-82 → rockets must
-    // drop the Mk-82 sight, not keep the saved one.
-    sightDepression_mils: base ? base.sightDepression_mils : original?.sightDepression_mils,
+    // The pilot's own sight figure rides with the attack. A squadron profile's number and the weapon's
+    // class are decided outright by a fresh build: switching Mk-82 → rockets must drop the bomb's
+    // number, not keep the saved one. The old fixed number (`sightDepression_mils`) is not written.
+    sightOwn_mils: draft.sightOwn_mils,
+    sightProfile_mils: base ? base.sightProfile_mils : original?.sightProfile_mils,
     weaponClass: base ? base.weaponClass : original?.weaponClass,
     procedure: base?.procedure ?? original?.procedure,
     customized: draft.customized || undefined,
@@ -236,7 +259,7 @@ export function draftIpAnchor(attack: Attack | undefined, mission: Mission): IpA
 
 /** Back to the library profile: numbers, and the IP, return to auto-build's. */
 export function resetToProfile(draft: AttackDraft): AttackDraft {
-  return { ...draft, customized: false, customProfile: undefined, ipMode: 'auto', ipWaypointId: undefined, customIp: undefined };
+  return { ...draft, customized: false, customProfile: undefined, sightOwn_mils: undefined, ipMode: 'auto', ipWaypointId: undefined, customIp: undefined };
 }
 
 export function setTarget(draft: AttackDraft, targetWaypointId: string): AttackDraft {

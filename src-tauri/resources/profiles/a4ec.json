@@ -9,7 +9,6 @@
     "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
     "defaultFor": ["bomb_ld", "bomb_hd", "rocket"],
     "params": { "ingressAltitude_ft": 8000, "rollInAltitude_ft": 8000, "diveAngle_deg": 30, "releaseAltitude_ft": 4000, "releaseSpeed_ktas": 400, "pulloutG": 4 },
-    "sight": { "depression_mils": 100, "notes": "Mk-82 LD, 30° / 400 KIAS / 4,000 ft — check the mod's depression tables for the actual load" },
     "procedure": [
       "Bombing mode MANUAL, station selected, sight depression set",
       "Roll in, establish 30° and 400 kt — hold them",
@@ -27,7 +26,6 @@
     "deliveryMode": "MAN",
     "weaponClasses": ["bomb_ld", "bomb_hd", "rocket"],
     "params": { "ingressAltitude_ft": 10000, "rollInAltitude_ft": 10000, "diveAngle_deg": 45, "releaseAltitude_ft": 5500, "releaseSpeed_ktas": 420, "pulloutG": 4.5 },
-    "sight": { "depression_mils": 80, "notes": "Mk-82 LD, 45° / 420 KIAS / 5,500 ft — check the depression tables" },
     "procedure": [
       "Bombing mode MANUAL, sight depression set",
       "Steep roll-in; speed brakes as needed to hold 420 kt",

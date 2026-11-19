@@ -33,10 +33,15 @@ export interface Attack {
   /** The profile had not been flown in DCS when this attack was built — the card says so */
   estimated?: boolean;
   /**
-   * Fixed-sight depression for manual deliveries (F-4E, A-4, F-5, Mirage F1).
-   * Bombs only: the profiles' numbers are Mk-82 settings.
+   * Before 0.4.0: the one fixed sight number a manual profile carried. Still
+   * read off old files by older app versions, no longer written or printed:
+   * the card works the sight from the jet's table (sightSetting.ts).
    */
   sightDepression_mils?: number;
+  /** The pilot's own sight figure, typed under Customize. Printed as "(own)" ahead of any table. */
+  sightOwn_mils?: number;
+  /** A squadron profile file's own sight number, kept from when the attack was built. Bombs only. */
+  sightProfile_mils?: number;
   /** The weapon's class when built. A gun or rocket attack is fired, not released, on the card. */
   weaponClass?: WeaponClass;
   /** Aircraft-specific setup lines from the profile, printed as the first step */
