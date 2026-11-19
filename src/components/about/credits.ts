@@ -1,4 +1,5 @@
 import { MAP_CREDIT } from '../map/MapCredit';
+import { SIGHT_SOURCES } from '../../lib/sightTables';
 
 /**
  * What the About dialog says, as data. The dialog draws the list and knows no entry by name, so a
@@ -70,10 +71,26 @@ const CHUCKS_GUIDES: CreditEntry = {
 };
 
 /**
+ * The sight tables: one entry for each source in the data file the figures are read from, so the file and this
+ * list cannot drift apart. The owner is the author as the source's own page gives it, and where it is found.
+ * No card names any of them (the owner's ruling, 2026-11-18): this dialog and the read-me are where they are credited.
+ */
+export const SIGHT_ESTIMATES_NOTE = 'Around its printed figures the app works its own estimates, marked "est."; the source\'s author has not checked those.';
+const SIGHT_TABLE_ENTRIES: CreditEntry[] = Object.entries(SIGHT_SOURCES).map(([id, s]) => {
+  const where = s.file_no ? `${s.site} no. ${s.file_no}` : s.site;
+  return {
+    key: `sight-${id}`,
+    name: s.title,
+    owner: s.author ? `${s.author}, ${where}` : `${where} (the pack names no author)`,
+    takes: `${s.takes} ${SIGHT_ESTIMATES_NOTE}`,
+  };
+});
+
+/**
  * The list, in the order it is shown. `fromPlayback` is what the 3D playback adds (the elevation data, on the desktop build
  * only: the phone has no 3D playback and draws no heights, so its list has no such entry). It stands after the map.
  */
-export const creditList = (fromPlayback: readonly CreditEntry[]): CreditEntry[] => [MAP, ...fromPlayback, FIGTREE, JETBRAINS_MONO, PYDCS, CHUCKS_GUIDES];
+export const creditList = (fromPlayback: readonly CreditEntry[]): CreditEntry[] => [MAP, ...fromPlayback, FIGTREE, JETBRAINS_MONO, PYDCS, CHUCKS_GUIDES, ...SIGHT_TABLE_ENTRIES];
 
 /** The strings of the dialog that are not entries, for the checks that read every word it prints. */
 export const ABOUT_WORDS = [APP_NAME, ABOUT_TITLE, COPYRIGHT, LICENCE_NAME, LICENCE_PLAIN, CREDITS_HEADING] as const;

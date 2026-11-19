@@ -15672,8 +15672,12 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
   const empty = (list: CreditEntry[], where: string) => list.filter((e) => !e.name.trim() || !e.owner.trim() || !e.takes.trim()).map((e) => `${e.key} (${where})`);
   const emptyFields = [...empty(desktopList, 'desktop'), ...empty(phoneList, 'phone')];
   const phoneHasElevation = /elevation|mapzen|terrain tiles/i.test(JSON.stringify(phoneList));
-  ok('About [AB1]: the credits are the map data, the elevation data (desktop only), Figtree, JetBrains Mono, pydcs and Chuck\'s Guides and no others, each with a name, an owner and a line of what the app takes',
-     keysOf(desktopList) === 'map,elevation,figtree,jetbrains-mono,pydcs,chucks-guides' && keysOf(phoneList) === 'map,figtree,jetbrains-mono,pydcs,chucks-guides' && emptyFields.length === 0 && !phoneHasElevation,
+  // Since the sight tables (2026-11-19) the list ends with one entry for each source in crates/core/data/sight_tables.json,
+  // built from that file, so a table cannot be carried without its credit.
+  const sightKeys = Object.keys(SIGHT_SOURCES).map((id) => `sight-${id}`).join(',');
+  ok('About [AB1]: the credits are the map data, the elevation data (desktop only), Figtree, JetBrains Mono, pydcs, Chuck\'s Guides and one entry for each sight table\'s source, and no others, each with a name, an owner and a line of what the app takes',
+     Object.keys(SIGHT_SOURCES).length === 4 &&
+     keysOf(desktopList) === `map,elevation,figtree,jetbrains-mono,pydcs,chucks-guides,${sightKeys}` && keysOf(phoneList) === `map,figtree,jetbrains-mono,pydcs,chucks-guides,${sightKeys}` && emptyFields.length === 0 && !phoneHasElevation,
      `desktop ${keysOf(desktopList)}; phone ${keysOf(phoneList)}; empty ${emptyFields.join(', ') || 'none'}; elevation words in the phone's list ${phoneHasElevation}`);
 
   // [AB2] The map and elevation entries say what the app's own credit lines say, so they cannot drift: the map's owner is the line drawn on the

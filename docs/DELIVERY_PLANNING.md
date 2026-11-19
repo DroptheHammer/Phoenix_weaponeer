@@ -559,3 +559,82 @@ What the two bundled profiles give:
   marked "not for planning".
 - The "predictable straight-in" warning does not apply: a loft runs straight
   from the IP by design.
+
+## Manual sight (2026-11-19)
+
+A jet with a fixed sight (F-5E, F-4E, Mirage F1, A-4E-C) needs a depression
+setting before the IP. Until 0.4.0 each manual-dive profile carried one fixed
+number that traced to no table and never moved when the attack was
+customized. Now the card and the editor work the figure from the jet's own
+sight table every time (`src/lib/sightTables.ts`, `src/lib/sightSetting.ts`;
+data in `crates/core/data/sight_tables.json`).
+
+### Sources
+
+Carried with the owner's approval (2026-11-18) and credited in the About
+dialog and the read-me, never on a card:
+
+| Jet | Source | What it prints |
+|---|---|---|
+| F-5E | *F-5E Bomb And Rocket Depression Tables For Kneeboard*, DCS User Files no. 3320266 (no author named) | Mk 82 low drag: dives of 15° to 60°, 1,000 to 6,000 ft, 400 to 550 kt on the gauge. Mk 82 Snakeye: level to 30°, low heights |
+| F-4E | *F-4E Kneeboards* by AKA_Relent, DCS User Files no. 3338073 | three low-drag dive rows at 3,000 ft and two Snakeye laydown rows, with their true airspeeds; released at 0 G |
+| Mirage F1 | *Mirage F1 Kneeboards* by AKA_Relent, DCS User Files no. 3329090 | SAMP 250 LD at 10° and 20°, given as excerpts from the module's flight manual, for an 11,000 kg jet |
+| A-4E-C | the mod's own *Kneeboard Manual*, version 2.3 | four rows for any low-drag bomb |
+
+181 printed points, 160 of them figures; the rest are cells the F-5E pack
+marks ">200" (more depression than the sight can be set to). Cells it marks
+as never tested are left out.
+
+Not used: any real-world weapons manual (the sources rule), and the F-5E
+module manual's own two rows. A module's own manual outranks a third-party
+document, but the manual that ships with today's game was not to hand; the
+check against it is pinned on the roadmap.
+
+### The rule
+
+- **On a printed point** (within 0.5°, 50 ft, 5 kt on the gauge; 10 ft for a
+  retarded bomb), the document's own figure.
+- **Between printed points**, the planner's vacuum bomb-fall figure plus the
+  table's own difference from it, carried across the gap along speed, then
+  height, then dive. Marked "est.".
+- **One step beyond the printed points**, on one axis only (30 kt, 500 ft
+  below or 1,000 ft above, 5°), the nearest points' difference. Marked "est.".
+- **Anywhere else, no figure.** The vacuum figure never prints on its own: it
+  knows nothing of drag, angle of attack or where the sight sits.
+- A retarded bomb's figure moves fast with height and dive, so it is carried
+  between printed speeds only.
+- Beside a ">200" cell there is no figure: the document itself says the
+  setting there is past the sight's limit.
+- A slick bomb the document does not name borrows the jet's slick table and
+  is always marked "est."; a retarded bomb never borrows.
+
+The tables are printed for the speed on the gauge and the planner holds true
+airspeed, so the lookup converts on a standard day at the release height
+above sea level (`src/lib/airspeed.ts`). A printed point's own true airspeed
+is worked over a sea-level target, except the F-4E pack's, which prints it.
+
+### What prints
+
+| Case | Card header |
+|---|---|
+| The document's own figure | `SIGHT 118 mils · set before IP` |
+| An estimate | `SIGHT 121 mils (est.) · set before IP` |
+| The pilot's own figure (Customize) | `SIGHT 110 mils (own) · set before IP` |
+| A squadron profile file's number, at that profile's own settings | `SIGHT 105 mils (profile) · set before IP` |
+| The A-4E-C's computed dive | `SIGHT 0 mils (CP-741) · set before IP` |
+| No figure | `SIGHT — no figure (outside table)`, `(no table)`, `(over 200 mils)`, `(near 200-mil limit)` |
+
+The editor's key line also names the table (`est. near F-5E table`), because
+the planner has to judge the figure. A level laydown with no table for its
+bomb prints no sight line, as before.
+
+### What it does not do
+
+- Nothing was flown to check any table against today's game. The F-5E pack's
+  pages are dated January 2022.
+- The default dives do not all sit on printed points, so several default
+  cards say "no figure". Moving a default is the owner's decision, jet by jet.
+- The card's release label still shows true airspeed only.
+- No notice on opening a mission saved before 0.4.0: its old fixed number is
+  simply no longer printed.
+- The F-4E's own bombing calculator is not read.
