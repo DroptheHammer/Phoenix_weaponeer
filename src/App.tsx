@@ -16,6 +16,7 @@ import { W } from "./components/landing/words";
 import { adoptSavedMission } from "./lib/landing/platformBindings";
 import type { LoadOutcome } from "./lib/landing/loadRouter";
 import { phoneHeader } from "./lib/landing/phoneHeader";
+import { hideSplash } from "./lib/splash";
 import { MapView } from "./components/map/MapView";
 import { WaypointList } from "./components/waypoints/WaypointList";
 import { ThreatList } from "./components/threats/ThreatList";
@@ -150,6 +151,10 @@ function App() {
   const [fuzeOptions, setFuzeOptions] = useState<Map<string, FuzeOption[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The loading splash (plain HTML in index.html) goes the moment loading ends, whether it worked or not.
+  useEffect(() => {
+    if (!loading) hideSplash();
+  }, [loading]);
   const [showSettings, setShowSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   // The front page shows whenever no mission is open, and also when the planner goes back to it with one open.

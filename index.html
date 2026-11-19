@@ -2,11 +2,20 @@
 <html lang="en" style="background-color: #1a1a2e">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Phoenix Weaponeer</title>
   </head>
   <body>
+    <!-- The loading splash: the patch on the window's own colour, drawn with the first frame and
+         taken away by src/lib/splash.ts the moment the app has loaded. It has no timer of its own. -->
+    <div
+      id="splash"
+      aria-hidden="true"
+      style="position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background-color: #1a1a2e; transition: opacity 0.3s ease"
+    >
+      <img src="/splash.webp" alt="" width="672" height="672" style="width: min(56vmin, 480px); height: auto" />
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
