@@ -537,7 +537,11 @@ than 1,024 B over its baseline.
 |---|---|---|---|
 | Start-up JavaScript (desktop, the chunks loaded at start) | 707,000 B | `bundle-budget.json` (`eagerMaxBytes`) | 673,172 B |
 | CSS, either build | 78,500 B | `style-budget.json` (`cssMaxBytes`) | 74,740 B desktop, 74,722 B web |
-| The phone's offline cache (every file the web build precaches) | 1,854,000 B | `style-budget.json` (`precacheMaxBytes`) | 1,765,245 B |
+| The phone's offline cache (every file the web build precaches) | 1,960,000 B | `style-budget.json` (`precacheMaxBytes`) | 1,866,240 B on GitHub's build, 1,765,245 B on the main Mac |
+
+The offline-cache ceiling is set from GitHub's build, the one that gets
+published: its wasm file comes out about 100 KB larger than the main Mac's
+(1,010 kB against 909 kB on 2026-11-19).
 | Font files | exactly 3, 60,000 to 71,000 B | `style-check.mjs` (not a budget: proves the files are the ones meant) | 70,840 B |
 
 The building blocks cost start-up bytes only once a start-up screen imports
