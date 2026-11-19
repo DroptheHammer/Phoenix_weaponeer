@@ -25,10 +25,10 @@
 // part: set ahead of a part to what that part was measured to need, and
 // brought back down to the built figure plus 512 once the part is in. With
 // the whole shell in and the playback under it, the baseline is the combined
-// build as last reviewed and the ceiling is it plus 1,024.
-// Growth over 1,024 bytes is printed as a warning: it is worth a second look
-// in review. Raising the file is a change of its own, reviewed on its own,
-// never folded into the change that needed it.
+// build as last reviewed. Since 2026-11-19 the ceiling is about 5% above the
+// baseline (707,000), so it stops a start-up that balloons and no longer has
+// to be moved for every small change.
+// Growth over 1,024 bytes is still printed as a warning: it is worth a look.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';

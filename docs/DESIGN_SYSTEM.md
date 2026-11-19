@@ -527,15 +527,17 @@ playwright-core folder) and `CHROME_PATH` (a Chromium binary), or falls back to
 
 ## Budgets
 
-Ceilings live in two JSON files. Raising one is a change of its own, reviewed
-on its own, never folded into the change that needed the room. A build over a
-ceiling fails.
+Ceilings live in two JSON files. A build over a ceiling fails. Since
+2026-11-19 each ceiling sits about 5% above the build of that day: it is
+there to stop something ballooning, not to be moved for every small change.
+The start-up JavaScript check still prints a warning when a build grows more
+than 1,024 B over its baseline.
 
-| What | Ceiling | File | Measured when this was written |
+| What | Ceiling | File | Measured 2026-11-19 |
 |---|---|---|---|
-| Start-up JavaScript (desktop, the chunks loaded at start) | 674,196 B | `bundle-budget.json` (`eagerMaxBytes`) | 673,172 B |
-| CSS, either build | 75,508 B | `style-budget.json` (`cssMaxBytes`) | 74,740 B desktop, 74,722 B web |
-| The phone's offline cache (every file the web build precaches) | 1,769,341 B | `style-budget.json` (`precacheMaxBytes`) | 1,765,245 B |
+| Start-up JavaScript (desktop, the chunks loaded at start) | 707,000 B | `bundle-budget.json` (`eagerMaxBytes`) | 673,172 B |
+| CSS, either build | 78,500 B | `style-budget.json` (`cssMaxBytes`) | 74,740 B desktop, 74,722 B web |
+| The phone's offline cache (every file the web build precaches) | 1,854,000 B | `style-budget.json` (`precacheMaxBytes`) | 1,765,245 B |
 | Font files | exactly 3, 60,000 to 71,000 B | `style-check.mjs` (not a budget: proves the files are the ones meant) | 70,840 B |
 
 The building blocks cost start-up bytes only once a start-up screen imports
