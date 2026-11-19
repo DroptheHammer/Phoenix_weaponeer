@@ -19,6 +19,7 @@ fs.mkdirSync(out, { recursive: true });
   const browser = await chromium.launch();
   // A phone gets touch events, which the attack editor's swipe between jets needs.
   const context = await browser.newContext({ viewport: { width: +w, height: +h }, acceptDownloads: true, hasTouch: +w < 768 || +h < 500 });
+  await require('./no-splash.cjs').noSplash(context);
   const page = await context.newPage();
   const problems = [];
   let lastStep = 'start';

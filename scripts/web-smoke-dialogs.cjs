@@ -39,6 +39,7 @@ const TABS = 30;
 (async () => {
   const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await require('./no-splash.cjs').noSplash(page);
   const problems = [];
   let lastStep = 'start';
   page.on('pageerror', (e) => problems.push(`pageerror after "${lastStep}": ${e.message}`));

@@ -92,6 +92,7 @@ async function openTheMap(page) {
 }
 async function newPage(browser, w, h, phone) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, hasTouch: phone, reducedMotion: 'reduce' });
+  await require('./no-splash.cjs').noSplash(ctx);
   const page = await ctx.newPage();
   const errors = [];
   const hosts = new Set();

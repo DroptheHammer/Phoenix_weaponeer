@@ -29,6 +29,7 @@ function pngSize(file) {
 (async () => {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true, hasTouch: true });
+  await require('./no-splash.cjs').noSplash(context);
   const page = await context.newPage();
   const problems = [];
   let lastStep = 'start';

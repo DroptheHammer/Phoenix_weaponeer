@@ -5,6 +5,7 @@ import { platform } from '@platform';
 import { Modal } from '../common/Modal';
 import { chooseKneeboardFolder, folderStillThere } from '../../lib/dcsExport';
 import type { AircraftFolderInfo } from '../../lib/kneeboardExportPlan';
+import { SPLASH_SECONDS_DEFAULT, SPLASH_SECONDS_MAX, cleanSplashSeconds } from '../../lib/splash';
 
 interface SettingsModalProps {
   aircraft: AircraftFolderInfo[];
@@ -19,6 +20,16 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
   const kneeboardFolders = useSettingsStore((state) => state.settings.kneeboardFolders);
   const warning = useSettingsStore((state) => state.warning);
   const setKneeboardFolder = useSettingsStore((state) => state.setKneeboardFolder);
+
+  // The splash time: typed freely, kept as the settings keep it (0 to 10 seconds, in tenths) when the box is left.
+  const splashSeconds = useSettingsStore((state) => state.settings.splashSeconds);
+  const setSplashSeconds = useSettingsStore((state) => state.setSplashSeconds);
+  const [splashText, setSplashText] = useState(splashSeconds.toFixed(1));
+  const commitSplash = (text: string) => {
+    const seconds = cleanSplashSeconds(text);
+    setSplashText(seconds.toFixed(1));
+    if (seconds !== splashSeconds) void setSplashSeconds(seconds);
+  };
 
   const reveal = useUiStore((state) => state.revealHidden);
   const setRevealHidden = useUiStore((state) => state.setRevealHidden);
@@ -141,6 +152,40 @@ export function SettingsModal({ aircraft, onClose }: SettingsModalProps) {
           )}
 
           <div className={platform.isWeb ? '' : 'pt-3 mt-3 border-t border-gray-700'}>
+            <h3 className="font-medium text-dcs-accent">Loading splash</h3>
+            <p className="text-xs text-gray-400 mt-1">
+              How long the Phoenix Weaponeer patch stays up when the app starts, from 0 to {SPLASH_SECONDS_MAX} seconds.
+              At 0 it shows only for as long as loading takes.
+            </p>
+            <div className="mt-2 flex items-center gap-2 text-sm">
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={SPLASH_SECONDS_MAX}
+                step={0.1}
+                aria-label="Loading splash, in seconds"
+                className="w-24 bg-gray-700 text-white p-2 rounded border border-gray-600"
+                value={splashText}
+                onChange={(e) => setSplashText(e.target.value)}
+                onBlur={() => commitSplash(splashText)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitSplash(splashText);
+                }}
+              />
+              <span className="text-gray-400">seconds</span>
+              {splashSeconds !== SPLASH_SECONDS_DEFAULT && (
+                <button
+                  onClick={() => commitSplash(String(SPLASH_SECONDS_DEFAULT))}
+                  className="bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium px-2 py-1 rounded"
+                >
+                  Reset to {SPLASH_SECONDS_DEFAULT.toFixed(1)}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-3 mt-3 border-t border-gray-700">
             <button
               onClick={() => setShowAdmin((open) => !open)}
               className="text-sm text-gray-400 hover:text-white"

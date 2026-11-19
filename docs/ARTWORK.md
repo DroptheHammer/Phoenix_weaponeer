@@ -24,9 +24,17 @@ a splash that shows only while the app loads.
 - Plain HTML in `index.html`, so it is on screen with the first frame, over
   the window's own colour (`#1a1a2e`). Both white-flash fixes stay: the
   window's `backgroundColor` in `tauri.conf.json` and the `<html>` background.
-- `src/lib/splash.ts` fades it out (300 ms) and removes it when `App.tsx`'s
-  loading ends. No minimum time and no animation: if loading takes a third of
-  a second, that is how long it shows.
+- `src/lib/splash.ts` fades it out (300 ms) and removes it once `App.tsx`'s
+  loading has ended and the splash has been up for the time set in Settings
+  ("Loading splash": 2 seconds unless changed, any tenth from 0 to 10; the
+  owner's choice, 2026-11-19). At 0 it shows only for as long as loading
+  takes, which on the desktop is a few hundredths of a second. No animation.
+- The time is a setting like the others: `splash_seconds` in the desktop's
+  settings file (`src-tauri/src/settings.rs`), `splashSeconds` in the
+  browser's storage on the phone. Both keep it in range.
+- The browser checks start the app with the time at 0
+  (`scripts/no-splash.cjs`), or every start would hold the splash over the
+  screen being checked.
 - The patch is cut out on a circle because a generated picture never matches
   the window's navy exactly; a square would show its edge.
 - The phone build shares the page, so the splash shows there too.

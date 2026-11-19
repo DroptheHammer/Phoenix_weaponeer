@@ -381,6 +381,19 @@ pub fn set_kneeboard_map(app: AppHandle, on: bool) -> Result<settings::Settings,
     Ok(next)
 }
 
+/// Set how long the loading splash stays up when the app starts, in seconds
+/// (kept between 0 and 10, in tenths). Returns the settings as now saved.
+#[tauri::command]
+pub fn set_splash_seconds(app: AppHandle, seconds: f64) -> Result<settings::Settings, String> {
+    let path = settings_path(&app)?;
+    let next = settings::Settings {
+        splash_seconds: settings::clean_splash_seconds(seconds),
+        ..settings::read_settings(&path).settings
+    };
+    settings::write_settings(&path, &next)?;
+    Ok(next)
+}
+
 /// Put a mission file at the top of the front page's recent list. Returns the
 /// settings as now saved.
 #[tauri::command]

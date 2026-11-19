@@ -151,9 +151,10 @@ function App() {
   const [fuzeOptions, setFuzeOptions] = useState<Map<string, FuzeOption[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // The loading splash (plain HTML in index.html) goes the moment loading ends, whether it worked or not.
+  // The loading splash (plain HTML in index.html) goes once loading has ended, whether it worked or not,
+  // and the splash has been up for the time set in Settings. The settings are read in the same load.
   useEffect(() => {
-    if (!loading) hideSplash();
+    if (!loading) hideSplash(useSettingsStore.getState().settings.splashSeconds);
   }, [loading]);
   const [showSettings, setShowSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);

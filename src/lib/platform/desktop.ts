@@ -47,6 +47,7 @@ export const platform: Platform = {
   getSettings: () => invoke<SettingsLoad>('get_settings'),
   setKneeboardFolder: (aircraftId, folder) => invoke<Settings>('set_kneeboard_folder', { aircraftId, folder }),
   setKneeboardMap: (on) => invoke<Settings>('set_kneeboard_map', { on }),
+  setSplashSeconds: (seconds) => invoke<Settings>('set_splash_seconds', { seconds }),
   rememberRecentMission: (path) => invoke<Settings>('remember_recent_mission', { path }),
   forgetRecentMission: (path) => invoke<Settings>('forget_recent_mission', { path }),
 

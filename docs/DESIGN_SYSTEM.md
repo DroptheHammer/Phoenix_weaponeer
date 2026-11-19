@@ -535,7 +535,7 @@ than 1,024 B over its baseline.
 
 | What | Ceiling | File | Measured 2026-11-19 |
 |---|---|---|---|
-| Start-up JavaScript (desktop, the chunks loaded at start) | 707,000 B | `bundle-budget.json` (`eagerMaxBytes`) | 673,172 B |
+| Start-up JavaScript (desktop, the chunks loaded at start) | 707,000 B | `bundle-budget.json` (`eagerMaxBytes`) | 675,123 B |
 | CSS, either build | 78,500 B | `style-budget.json` (`cssMaxBytes`) | 74,740 B desktop, 74,722 B web |
 | The phone's offline cache (every file the web build precaches) | 2,400,000 B | `style-budget.json` (`precacheMaxBytes`) | 2,183,919 B on the main Mac with the icon and splash in (about 2,285,000 B expected on GitHub's build) |
 

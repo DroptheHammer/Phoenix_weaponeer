@@ -29,15 +29,42 @@ pub struct Settings {
     /// Mission files last opened or saved, newest first, for the front page.
     #[serde(default)]
     pub recent_missions: Vec<String>,
+    /// How long the loading splash stays up when the app starts, in seconds:
+    /// 0 to 10, in tenths. 0 shows it only for as long as loading takes.
+    #[serde(default = "default_splash_seconds")]
+    pub splash_seconds: f64,
 }
 
 fn on() -> bool {
     true
 }
 
+/// The splash time a new install starts with (the owner's choice, 2026-11-19).
+pub const SPLASH_SECONDS_DEFAULT: f64 = 2.0;
+/// The longest the splash may be held.
+pub const SPLASH_SECONDS_MAX: f64 = 10.0;
+
+fn default_splash_seconds() -> f64 {
+    SPLASH_SECONDS_DEFAULT
+}
+
+/// A splash time as the settings keep it: 0 to 10 seconds, in tenths.
+/// Anything that is not a number is the default.
+pub fn clean_splash_seconds(seconds: f64) -> f64 {
+    if !seconds.is_finite() {
+        return SPLASH_SECONDS_DEFAULT;
+    }
+    (seconds.clamp(0.0, SPLASH_SECONDS_MAX) * 10.0).round() / 10.0
+}
+
 impl Default for Settings {
     fn default() -> Self {
-        Settings { kneeboard_folders: BTreeMap::new(), kneeboard_map: true, recent_missions: Vec::new() }
+        Settings {
+            kneeboard_folders: BTreeMap::new(),
+            kneeboard_map: true,
+            recent_missions: Vec::new(),
+            splash_seconds: SPLASH_SECONDS_DEFAULT,
+        }
     }
 }
 
@@ -80,8 +107,9 @@ pub fn read_settings(path: &Path) -> SettingsLoad {
     let (settings, warning) = match std::fs::read_to_string(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Settings::default(), None),
         Err(e) => (Settings::default(), Some(format!("Cannot read {}: {e}", path.display()))),
-        Ok(json) => match serde_json::from_str(&json) {
-            Ok(settings) => (settings, None),
+        Ok(json) => match serde_json::from_str::<Settings>(&json) {
+            // A file edited by hand may hold any number: the splash time is brought into its range.
+            Ok(settings) => (Settings { splash_seconds: clean_splash_seconds(settings.splash_seconds), ..settings }, None),
             Err(e) => (
                 Settings::default(),
                 Some(format!("{} is damaged ({e}); using defaults", path.display())),
@@ -236,6 +264,41 @@ mod tests {
         write_settings(&path, &off).unwrap();
         assert!(std::fs::read_to_string(&path).unwrap().contains("\"kneeboardMap\": false"));
         assert!(!read_settings(&path).settings.kneeboard_map);
+    }
+
+    #[test]
+    fn the_splash_time_is_two_seconds_unless_set_and_stays_between_zero_and_ten_in_tenths() {
+        assert_eq!(Settings::default().splash_seconds, 2.0);
+
+        // A settings file from before the setting existed.
+        let path = scratch("splash_old_file").join(SETTINGS_FILE);
+        std::fs::write(&path, r#"{ "kneeboardFolders": {}, "kneeboardMap": false }"#).unwrap();
+        let old = read_settings(&path);
+        assert!(old.warning.is_none());
+        assert_eq!(old.settings.splash_seconds, 2.0, "an older file gets the default");
+        assert!(!old.settings.kneeboard_map, "and keeps what it had");
+
+        assert_eq!(clean_splash_seconds(0.0), 0.0);
+        assert_eq!(clean_splash_seconds(3.14), 3.1);
+        assert_eq!(clean_splash_seconds(0.05), 0.1);
+        assert_eq!(clean_splash_seconds(10.0), 10.0);
+        assert_eq!(clean_splash_seconds(10.04), 10.0);
+        assert_eq!(clean_splash_seconds(60.0), 10.0, "never longer than ten seconds");
+        assert_eq!(clean_splash_seconds(-1.0), 0.0);
+        assert_eq!(clean_splash_seconds(f64::NAN), 2.0);
+        assert_eq!(clean_splash_seconds(f64::INFINITY), 2.0);
+
+        // What is written is what is read back, under the name the frontend uses.
+        let set = Settings { splash_seconds: clean_splash_seconds(4.5), ..Settings::default() };
+        write_settings(&path, &set).unwrap();
+        assert!(std::fs::read_to_string(&path).unwrap().contains("\"splashSeconds\": 4.5"));
+        assert_eq!(read_settings(&path).settings.splash_seconds, 4.5);
+
+        // A file edited by hand to a silly number is brought into range, not refused.
+        std::fs::write(&path, r#"{ "splashSeconds": 999 }"#).unwrap();
+        let silly = read_settings(&path);
+        assert!(silly.warning.is_none());
+        assert_eq!(silly.settings.splash_seconds, 10.0);
     }
 
     /// A real `.json` file in a scratch folder, for the recent-missions tests.

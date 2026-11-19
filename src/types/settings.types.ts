@@ -6,6 +6,8 @@ export interface Settings {
   kneeboardMap: boolean;
   /** Mission files last opened or saved, newest first. */
   recentMissions: string[];
+  /** How long the loading splash stays up when the app starts: 0 to 10 seconds, in tenths (`src/lib/splash.ts`). */
+  splashSeconds: number;
 }
 
 export interface SettingsLoad {

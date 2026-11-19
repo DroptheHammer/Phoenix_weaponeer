@@ -44,6 +44,7 @@ const phone = +w < 768 || +h < 500;
 (async () => {
   const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
   const context = await browser.newContext({ viewport: { width: +w, height: +h }, hasTouch: phone });
+  await require('./no-splash.cjs').noSplash(context);
   await context.addInitScript(() => {
     IDBObjectStore.prototype.put = function () {
       throw new DOMException('Storage refused (smoke test)', 'QuotaExceededError');

@@ -277,9 +277,22 @@ changes what a card prints (the user looks first).
   `docs/ARTWORK.md`, and a metadata check on every picture
   (`scripts/art-check.ts`). The phone's offline-cache ceiling is 2,400,000.
   Windows and Linux get the navy square: a see-through emblem needs the same
-  picture on white. The splash is up only while loading takes, about a
-  third of a second on the desktop, most of it the fade; he was told so and
-  offered a minimum of about one second.
+  picture on white. **The splash stays up for a time set in Settings** (his
+  spec, 20:13 UTC: default 2 seconds, any tenth from 0 to 10): ⚙ Settings →
+  Loading splash; `splash_seconds` in `settings.rs`, `splashSeconds` in the
+  browser's storage; the hold is in `src/lib/splash.ts`. The browser check
+  scripts start the app with it at 0 (`scripts/no-splash.cjs`).
+- **The once-before-release browser checks were run on 2026-11-19** (about
+  20:13 to 20:35 UTC): the redesign's screenshot check 126 passes, the
+  playback's 215 steps, and the five phone smoke scripts plus the main one
+  at phone size, all clean; then the screenshot check and the smoke scripts
+  again on the build with the splash setting. The smoke scripts need
+  `require('playwright')`: a three-line shim over `playwright-core` in the
+  scratch folder, run with `NODE_PATH`. Rust: core 160, desktop 40 and 2
+  ignored. **0.4.0 is ready for "release 0.4.0"**: the release checklist's
+  own gates, the privacy scan and the release notes are still to do then
+  (known issue to list: the manual sight figures, fix in 0.4.1; and "open
+  and save again any dive attack made before this version").
 - **Ultracode, his policy:** never silently ignore it. If it is on and a job
   is better done directly, say so and ask him to turn it off; suggest it for
   several parallel builds (memory `feedback-work-lighter`).

@@ -295,8 +295,10 @@ waypoint list on 2026-10-03).
   fonts, pydcs and Chuck's Guides.
 - **App icon and loading splash** (2026-11-19). A phoenix emblem on every
   platform, in the browser tab and on the phone's home screen, and the
-  Phoenix Weaponeer patch on screen while the app loads. Both pictures are
-  the owner's, AI-generated; `docs/ARTWORK.md`.
+  Phoenix Weaponeer patch on screen when the app starts: for 2 seconds
+  unless changed under ⚙ Settings → Loading splash (0 to 10 seconds; at 0,
+  only while the app loads). Both pictures are the owner's, AI-generated;
+  `docs/ARTWORK.md`.
 - **New app frame** (2026-11-18, part of the 0.4.0 redesign). One 48 px header
   on every desktop screen, with a red button for the screen's main action where
   it has one (Save in the planner, Open the map on the Flight overview) and

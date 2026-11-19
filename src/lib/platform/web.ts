@@ -2,6 +2,7 @@ import init, * as core from '../../generated/weaponeer-wasm/weaponeer_wasm.js';
 import type { Mission } from '../../types/mission.types';
 import type { Settings, SettingsLoad } from '../../types/settings.types';
 import type { CoreCommand, Platform } from './types';
+import { SPLASH_SECONDS_DEFAULT, cleanSplashSeconds } from '../splash';
 
 /**
  * The browser platform: the Rust core runs as WebAssembly (`crates/wasm`,
@@ -21,7 +22,7 @@ const FETCH_TIMEOUT_MS = 20_000;
 // ---- Settings: kept in this browser's localStorage ----
 
 const SETTINGS_KEY = 'phoenix-weaponeer.settings';
-const DEFAULT_SETTINGS: Settings = { kneeboardFolders: {}, kneeboardMap: true, recentMissions: [] };
+const DEFAULT_SETTINGS: Settings = { kneeboardFolders: {}, kneeboardMap: true, recentMissions: [], splashSeconds: SPLASH_SECONDS_DEFAULT };
 
 function readSettings(): SettingsLoad {
   try {
@@ -32,6 +33,8 @@ function readSettings(): SettingsLoad {
       settings: {
         ...DEFAULT_SETTINGS,
         kneeboardMap: typeof saved.kneeboardMap === 'boolean' ? saved.kneeboardMap : true,
+        // Whatever was saved is brought into range; nothing saved is the default.
+        splashSeconds: cleanSplashSeconds(saved.splashSeconds),
       },
       warning: null,
     };
@@ -42,7 +45,7 @@ function readSettings(): SettingsLoad {
 
 function writeSettings(settings: Settings): Settings {
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ kneeboardMap: settings.kneeboardMap }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ kneeboardMap: settings.kneeboardMap, splashSeconds: settings.splashSeconds }));
   } catch {
     // Private browsing or storage turned off: the setting still applies now.
   }
@@ -161,6 +164,7 @@ export const platform: Platform = {
   // The web build never writes into a DCS folder, so there is none to remember.
   setKneeboardFolder: async () => readSettings().settings,
   setKneeboardMap: async (on) => writeSettings({ ...readSettings().settings, kneeboardMap: on }),
+  setSplashSeconds: async (seconds) => writeSettings({ ...readSettings().settings, splashSeconds: cleanSplashSeconds(seconds) }),
   // There are no paths to reopen in a browser, so no recent-files list.
   rememberRecentMission: async () => readSettings().settings,
   forgetRecentMission: async () => readSettings().settings,

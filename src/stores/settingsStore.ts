@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { platform } from '@platform';
 import type { Settings } from '../types/settings.types';
 import { useUiStore } from './uiStore';
+import { SPLASH_SECONDS_DEFAULT, cleanSplashSeconds } from '../lib/splash';
 
 interface SettingsState {
   settings: Settings;
@@ -13,6 +14,8 @@ interface SettingsState {
   setKneeboardFolder: (aircraftId: string, folder: string | null) => Promise<void>;
   /** Turn the card's map layer on or off, now and for later launches. */
   setKneeboardMap: (on: boolean) => Promise<void>;
+  /** How long the loading splash stays up at the next start, in seconds (kept between 0 and 10, in tenths). */
+  setSplashSeconds: (seconds: number) => Promise<void>;
   /**
    * Put a mission file at the top of the front page's recent list. Never
    * throws: a list that fails to update must not fail the save or open.
@@ -30,7 +33,7 @@ interface SettingsState {
  * app — it lands in `warning` instead.
  */
 export const useSettingsStore = create<SettingsState>((set) => ({
-  settings: { kneeboardFolders: {}, kneeboardMap: true, recentMissions: [] },
+  settings: { kneeboardFolders: {}, kneeboardMap: true, recentMissions: [], splashSeconds: SPLASH_SECONDS_DEFAULT },
   warning: null,
   loaded: false,
 
@@ -57,6 +60,18 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({ settings, warning: null });
     } catch (error) {
       set({ warning: `The map setting could not be saved: ${String(error)}` });
+    }
+  },
+
+  setSplashSeconds: async (seconds) => {
+    // Shown as set at once; only remembering it can fail.
+    const clean = cleanSplashSeconds(seconds);
+    set((state) => ({ settings: { ...state.settings, splashSeconds: clean } }));
+    try {
+      const settings = await platform.setSplashSeconds(clean);
+      set({ settings, warning: null });
+    } catch (error) {
+      set({ warning: `The splash time could not be saved: ${String(error)}` });
     }
   },
 

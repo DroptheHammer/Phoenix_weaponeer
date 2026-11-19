@@ -26,6 +26,7 @@ const SYNTHETIC = { latitude: 10, longitude: 20, accuracy: 12 };
     permissions: ['geolocation'],
     geolocation: SYNTHETIC,
   });
+  await require('./no-splash.cjs').noSplash(context);
   const page = await context.newPage();
   const problems = [];
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));

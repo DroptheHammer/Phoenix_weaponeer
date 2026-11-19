@@ -45,6 +45,8 @@ export interface Platform {
   getSettings(): Promise<SettingsLoad>;
   setKneeboardFolder(aircraftId: string, folder: string | null): Promise<Settings>;
   setKneeboardMap(on: boolean): Promise<Settings>;
+  /** How long the loading splash stays up, in seconds; kept between 0 and 10, in tenths. */
+  setSplashSeconds(seconds: number): Promise<Settings>;
   rememberRecentMission(path: string): Promise<Settings>;
   forgetRecentMission(path: string): Promise<Settings>;
 

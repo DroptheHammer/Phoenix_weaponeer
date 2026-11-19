@@ -47,6 +47,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_kneeboard_folder,
             commands::set_kneeboard_map,
+            commands::set_splash_seconds,
             commands::remember_recent_mission,
             commands::forget_recent_mission,
             commands::folder_exists,
