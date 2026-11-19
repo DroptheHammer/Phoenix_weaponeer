@@ -266,10 +266,19 @@ changes what a card prints (the user looks first).
   Checking them against the current manual is pinned on the roadmap. The
   manual's rows are not loaded, so the lookup needs no ranking between
   documents.
-- **Icon and splash:** he looked for pictures in `Other Items/Artwork/v040/`
-  and found none. Making them is his step; the prompts are now in a text
-  file in that folder. If he would rather not, 0.4.0 ships with today's icon
-  and no splash.
+- **Icon and splash: built, waiting for his look** (2026-11-19 20:04 UTC).
+  He put `ICON.jpeg` and `Splash.jpeg` in `Other Items/Artwork/v040/`. They
+  are in the app on the branch **`v040-art`, one commit on top of `main`,
+  LOCAL ONLY on the main Mac: not pushed until he has looked** in
+  `Other Items/v040-builds/Art look 1.app`. The icon set, the Mac tile, the
+  tab icon, a splash in `index.html` that goes when loading ends
+  (`src/lib/splash.ts`), `docs/ARTWORK.md`, and a metadata check on every
+  picture (`scripts/art-check.ts`). The phone's offline-cache ceiling goes to
+  2,400,000 on that branch. Windows and Linux get the navy square: a
+  see-through emblem needs the same picture on white.
+- **Ultracode, his policy:** never silently ignore it. If it is on and a job
+  is better done directly, say so and ask him to turn it off; suggest it for
+  several parallel builds (memory `feedback-work-lighter`).
 
 **The sight figures are built on the branch `v040-sight` (pushed, three
 commits on top of `main`, 2026-11-19 19:50 UTC), and wait for the user's
