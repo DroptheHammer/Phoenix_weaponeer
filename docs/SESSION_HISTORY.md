@@ -2,6 +2,246 @@
 
 Full session-by-session pickup notes for the DCS Attack Planner, archived here so `CLAUDE.md` stays short. Sessions are newest-first. `CLAUDE.md`'s own "Session Pickup Notes" section should hold only the current/latest session — when a session ends, move the outgoing notes here (prepend, since this file is newest-first) rather than letting them pile up in CLAUDE.md. Durable lessons and decisions that should shape future sessions regardless of when they happened belong in the memory system, not just here — check `~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md` before assuming something here is the only record of it.
 
+**Session:** 2026-11-19 UTC (Fable 5.2 on the main Mac): the last day of the
+0.4.0 build, ending with the release. Moved here whole from `CLAUDE.md` when
+0.4.0 was published (2026-11-19 20:50 UTC). Read it top to bottom as it was
+written: the UPDATE paragraphs near the top are later than the "STATE 05:40"
+text under them, and where they disagree the later one is right. After it
+was written the sight fix was put off to 0.4.1, the icon and splash were
+merged, and 0.4.0 was released; the pickup notes in `CLAUDE.md` say so.
+
+### STATE 2026-11-19 05:40 UTC
+
+**UPDATE 2026-11-19 19:30 UTC: what this block says below about two
+branches and a second working copy is history.** The user looked at the
+combined app and approved the look. The redesign, the playback and the About
+dialog are merged to `main` (`5204fff`). The main Mac's checkout is on
+`main`, and the working copy `.claude/worktrees/shell` is removed. The
+branches `v040-shell` and `v040-playback-full` still exist on GitHub and are
+no longer needed. New work goes on `main`, or on a short branch when it
+changes what a card prints (the user looks first).
+
+**The user's decisions of 2026-11-19:**
+- **Work far lighter.** In force: the director writes the code itself, with
+  no agent teams; new checks only where a wrong number could reach a card,
+  or a hidden threat or private data could leak; the slow browser runs once,
+  before the release; the size ceilings sit about 5% above the build; notes
+  once per session; small choices of wording and layout are made and
+  reported, not asked. Memory `feedback-work-lighter`.
+- **The sight figures are a known issue in 0.4.0 and are fixed in 0.4.1**
+  (his decision, 20:08 UTC, after seeing the built fix and its table of
+  default moves). 0.4.0 ships with the sight line exactly as 0.3.4 prints
+  it. The branch `v040-sight` is NOT merged for 0.4.0. The roadmap says so,
+  and the 0.4.0 release notes must list it as a known issue.
+- **No current F-5E manual is to hand:** when the sight fix goes in, the
+  F-5E rests on the community pack and the planner's estimates, and the
+  check against the current manual is pinned on the roadmap. Do not ask him
+  for the manual again.
+- **Icon and splash: approved by him and on `main`** (`ca1f7ab`, 20:09 UTC).
+  His pictures are `ICON.jpeg` and `Splash.jpeg` in
+  `Other Items/Artwork/v040/`. The icon set, the Mac tile, the tab icon, a
+  splash in `index.html` that goes when loading ends (`src/lib/splash.ts`),
+  `docs/ARTWORK.md`, and a metadata check on every picture
+  (`scripts/art-check.ts`). The phone's offline-cache ceiling is 2,400,000.
+  Windows and Linux get the navy square: a see-through emblem needs the same
+  picture on white. **The splash stays up for a time set in Settings** (his
+  spec, 20:13 UTC: default 2 seconds, any tenth from 0 to 10): ⚙ Settings →
+  Loading splash; `splash_seconds` in `settings.rs`, `splashSeconds` in the
+  browser's storage; the hold is in `src/lib/splash.ts`. The browser check
+  scripts start the app with it at 0 (`scripts/no-splash.cjs`).
+- **The once-before-release browser checks were run on 2026-11-19** (about
+  20:13 to 20:35 UTC): the redesign's screenshot check 126 passes, the
+  playback's 215 steps, and the five phone smoke scripts plus the main one
+  at phone size, all clean; then the screenshot check and the smoke scripts
+  again on the build with the splash setting. The smoke scripts need
+  `require('playwright')`: a three-line shim over `playwright-core` in the
+  scratch folder, run with `NODE_PATH`. Rust: core 160, desktop 40 and 2
+  ignored. **0.4.0 is ready for "release 0.4.0"**: the release checklist's
+  own gates, the privacy scan and the release notes are still to do then
+  (known issue to list: the manual sight figures, fix in 0.4.1; and "open
+  and save again any dive attack made before this version").
+- **Ultracode, his policy:** never silently ignore it. If it is on and a job
+  is better done directly, say so and ask him to turn it off; suggest it for
+  several parallel builds (memory `feedback-work-lighter`).
+
+**The sight fix for 0.4.1 is built on the branch `v040-sight` (pushed, three
+commits on top of `main` as it stood at 19:33 UTC on 2026-11-19).** A build
+of it is `Other Items/v040-builds/Sight look 1.app`. On the branch: the
+tables' data (`crates/core/data/sight_tables.json`), the lookup
+(`src/lib/sightTables.ts`, `airspeed.ts`), what prints
+(`src/lib/sightSetting.ts`), the card's SIGHT line, the editor's key line
+and a box under Customize for the pilot's own figure, the four sources in
+About and the read-me, and a "Manual sight" section in
+`docs/DELIVERY_PLANNING.md`. The eight fixed numbers are out of the bundled
+profiles. geo-check 1,436, cargo core 160, both builds pass.
+- **Not built, and his decision, to be put to him again for 0.4.1:** moving
+  the default dives onto the tables' own settings. Without it most default
+  cards say `SIGHT — no figure (outside table)`, and over a high target
+  (Nevada) all of them do, because the defaults are in true airspeed and the
+  tables in gauge speed. He was shown one before-and-after table and chose
+  to put the whole fix off. The moves as recommended: F-5E 30° dive to release 5,000 ft at 450 on the gauge
+  (118); F-5E 45° to 5,000 ft at 500 (49); F-5E Snakeyes start as the 500 ft
+  laydown (185); A-4E-C 30° to 3,000 ft at 450 (40) and 45° to 4,000 ft at
+  400 (40); a new Mirage F1 20° dive, 3,000 ft at 420 (185); the F-4E dives
+  stay. A moved default needs a release speed held on the gauge
+  (`releaseSpeed_kias` on the profile, turned into true airspeed at the
+  target's height), rocket profiles that keep today's numbers, and the
+  card's release label showing the gauge speed.
+- **Left out and to be pinned on the roadmap at the merge:** the notice on
+  opening an old save, the F-4E's own bombing calculator, the F-5E test
+  drops.
+- **Before it merges:** raise `baselineBytes` in `scripts/bundle-budget.json`
+  to the built figure (start-up JS grew about 23 KB, the tables' data), run
+  `scripts/shell-shots.cjs` once (its About check counts the list's
+  entries), and add the roadmap's "Unreleased" entry.
+
+**0.4.0 "Polish and Playback" is being built on two branches; nothing of it
+is on `main` except documents** (brief and decisions: `docs/V040_PLAN.md`;
+rollback tag `pre-0.4.0`). Fable 5.2 directs, with Opus and Sonnet agents.
+The five days of notes before this block are at the top of
+`docs/SESSION_HISTORY.md`. The working papers are git-ignored and exist only
+on the main Mac (`Other Items/v040-work/`); memory
+`project-v040-polish-and-playback` has the run ids and paths.
+
+**History was rewritten on 2026-11-18, with the user's yes** (text that
+should never have been written was taken out of unreleased commits). **A
+clone made before 2026-11-18 must be cloned again, never merged.** Releases
+and their tags are untouched.
+
+**Playback, `v040-playback-full`, pushed tip `3e6f35a`, all of it
+reviewed** (updated 2026-11-19 12:40 UTC). A strike flies every jet in 3D
+over real terrain; times over target are dragged on lanes and applied back;
+bombs fall, flash and show their blast ring; a Notes list and a Side view;
+and the threats the planner may see are drawn in 3D, switched on and off by
+system from Show, with early-warning radars on demand. A jet inside an
+active envelope gets a white ring round its arrow and a label line naming
+the threat; labels that would cover each other slide clear, with a thin line
+back to their jet. The last commit: every target of a strike sets the ground
+level, the sea stays flat beside a target that stands below sea level, and a
+place with no elevation data says so. geo-check 1,128; 215 screenshot steps;
+start-up JS 634,822 (ceiling 636,073).
+
+**Redesign, `v040-shell`, pushed tip `0d43b0c`: the whole of 0.4.0 so far
+in one branch** (updated 2026-11-19 13:50 UTC). It sits on top of the
+playback's tip (the push of 2026-11-19 replaced the branch, as the user had
+agreed), so it holds both the redesign and the playback. Every stage is
+built and reviewed: the design foundation (`docs/DESIGN_SYSTEM.md` there is
+the guide), the front page with its load box and recent-mission cards, the
+flight chooser, the header with its File menu, the Flight overview, the
+planner's icon rail and floating side panel, the map's Legend as a small
+corner button, the phone's bars, tabs and sheet, a screenshot proof
+(`scripts/shell-shots.cjs`), and an About dialog (last row of the File menu
+and of the phone's Menu: version, licence, credits; the credits are data in
+`src/components/about/credits.ts`). The size ceilings follow what is built.
+On the tip: geo-check 1,425; the shell's screenshot run 126 checks and the
+playback's 215 steps, all passing; cargo core 160, desktop 39 and 2 ignored.
+Working copy on the main Mac: `.claude/worktrees/shell`. New work goes on
+this branch.
+
+**The About dialog's credits today:** the map data, the elevation data
+(desktop only: the phone draws no heights, and the credit's words are the
+size check's proof that the playback has not leaked into the phone build),
+the two fonts, pydcs, Chuck's Guides. Left out on purpose: the pop-up
+model's source (an open question to the user) and the sight sources (they
+come with the sight figures). Two more may be owed and wait for the same
+credits question: the A-4E-C community mod and the modules' own manuals.
+
+**The user has a combined app to look at:** `Combined look 2.app` in
+`Other Items/v040-builds/` on the main Mac, built from `9c2ec5b` (look 1 is
+the same without About). **Nothing merges to `main` before he has looked.**
+Asked of him first: whether the three-line labels and the white ring on a
+jet inside an envelope are too busy. Still to show him there: the slid
+labels with their thin lines; the white ring's size, which is a thick band
+close up in Chase; the capital letters on the threat list's group headings;
+the About dialog's wording; and the questions left open at "Shell look 4".
+The list of judgement questions is §9.13 of the working paper
+`Other Items/v040-work/b3/BUILD_SPEC_S9.md`.
+
+**The pace, raised by the user on 2026-11-19:** the last stages took far
+longer than earlier features. The cause was the process (agent teams with
+repeated review rounds, the 17-minute screenshot run repeated per agent, a
+deliberate break for every new check), not the 3D. A lighter way of working
+was proposed to him and was waiting for his answer when this was written:
+one builder per change, the director reads the diff and runs the fast
+checks, one full screenshot run per batch, deliberate breaks only for checks
+that guard hidden threats, numbers on a card and saved mission data, and the
+full treatment only for the hidden-threat rule and the release. The About
+dialog was built that way (the builder still showed each new check failing
+once): 36 minutes of builder and about 15 of the director's.
+
+**The sight groundwork was not started**, though it shows nothing: its
+lookup must rank a module manual's table above a pack's, and how far a
+manual's two printed points displace the pack's cells is still open until
+the current F-5E manual is read.
+
+**The phone web build needs its wasm file made fresh before any size figure
+is trusted.** The tool that makes it (`wasm-bindgen`) is not installed on
+the main Mac, and the generated wasm files there (git-ignored) can be older
+than the Rust core. On 2026-11-19 that hid a real miss: built fresh, the
+offline cache stood over a ceiling set from the old file (corrected in
+`0d43b0c`; the whole `npm run build:web` and the shell's screenshot run pass
+on the fresh build). The tool was put in the session's scratch folder, which
+does not survive a restart: `cargo install wasm-bindgen-cli --version
+0.2.129 --locked --root <scratch>/wasm-tools`, then run the build with that
+folder's `bin` on the PATH. Do it again before 0.4.0 merges to `main`. The
+`web-smoke*.cjs` scripts have not been run on 0.4.0 yet; they belong to the
+release checks.
+
+**Sight figures (mils): designed, nothing built.** The user's three
+decisions of 2026-11-18:
+1. The app may carry the community kneeboard packs' figures.
+2. Credits go in an About section of the app and in the read-me, **never on
+   a kneeboard card**. The app has no About section, so one is to be built
+   (the File menu, and the phone's Menu). A card prints only the number,
+   with "(est.)" when the planner worked it out.
+3. **A DCS module's own manual always outranks a third-party document.** The
+   F-5E manual's own two bombing rows go in and win where they apply; a pack
+   only fills what a manual leaves out. Only old editions of the F-5E and
+   Mirage F1 manuals have been read: the user was asked to copy the current
+   ones from the DCS folder into `Other Items/Reference Docs/`. A known
+   snag: the F-5E manual's 30° row releases at 2,000 ft, and the app refuses
+   a Mk-82 release under 3,000 ft (a seed floor with no source). That is its
+   own question to the user, with a table.
+
+The design paper is `Other Items/v040-work/b3/BUILD_SPEC_S18_SIGHT_TABLES.md`
+(its last section holds the rulings). It is built last, on the redesign's
+line, and only what he has said yes to.
+
+**Waiting on the user, one question at a time, each showing the thing
+itself:** whether to work the lighter way; the look at the combined app; the
+two current manuals; then the sight questions jet by jet; how to credit the
+pop-up model's source; a small table of weapon numbers that would change (a
+release floor and a speed warning among them).
+
+### START OF NEXT SESSION
+
+1. `git pull origin main`. The main Mac's checkout is on `main`.
+2. `git status` must be clean; `git branch` shows any short branch with
+   work the user has not looked at yet.
+3. **Never `cd` into a subfolder**, and edit files only with Edit/Write
+   (memory `feedback-commands-that-dont-prompt`). **`git push`, `gh`,
+   `cargo`, `git worktree add/remove` and the headless browser run outside
+   the Bash sandbox.** A command run outside it has a different `$TMPDIR`.
+4. **Commits:** `TZ=UTC`, and credited with the `Co-Authored-By` line only.
+   The session link is left out because this repo is public.
+5. **Never run two browser-driven runs at once on the main Mac**; the full
+   screenshot run takes about 17 minutes and runs alone.
+6. **The session's scratch folder does not survive a restart**: the browser
+   driver is installed again with `npm install --prefix <scratch>/pw
+   --cache <scratch>/npm-cache playwright-core`.
+7. **Usage:** read `~/.claude/rate-limits.json` before each launch and keep
+   a watcher armed; at 90% of the weekly limit start nothing new, at 95%
+   stop cleanly, at 98.5% stop at once (memory
+   `feedback-usage-limit-wind-down`).
+8. **Look-and-feel work goes in front of the user in the real app first.**
+   Review every agent's diff and show each new check failing once. Agents
+   can litter the repo root: check `git status` before committing.
+9. **Still open from before 0.4.0:** the 0.3.3 loadout screens on the iPhone
+   (ask only if the user has the phone); the CLI loadouts have never been
+   looked at on screen; a real Android phone check
+   (`docs/MOBILE_WEB_PLAN.md`); `docs/BUILD_SESSIONS_PLAN.md` is finished and
+   can move to `docs/archive/`.
+
 **Sessions:** 2026-11-14 to 2026-11-18 UTC (Fable 5.2 directing on the main
 Mac; the 0.4.0 build). These notes piled up in `CLAUDE.md` over one long
 session and were moved here whole on 2026-11-19, newest block first. Commit
