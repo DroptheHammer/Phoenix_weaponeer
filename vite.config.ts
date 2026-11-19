@@ -1,10 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import { appDefines } from "./scripts/app-version.mjs";
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
   plugins: [react()],
+
+  // The version the About dialog shows, read from package.json at build time.
+  define: appDefines(),
 
   resolve: {
     alias: {

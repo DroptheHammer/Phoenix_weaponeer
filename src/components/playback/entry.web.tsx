@@ -6,8 +6,12 @@
  */
 import type { FragPanelProps, PlayStrikeButtonProps } from './types';
 import type { playbackLaunchFromEditor as DesktopLaunch } from './launch';
+import type { CreditEntry } from '../about/credits';
 
 export const PLAYBACK_AVAILABLE = false;
+
+/** The phone draws no heights, so the playback adds no credit to the About dialog (the desktop's adds the elevation data). */
+export const loadPlaybackCredits = (): Promise<readonly CreditEntry[]> => Promise.resolve([]);
 
 /**
  * Nothing to build on the phone: the Play button never shows there, so this

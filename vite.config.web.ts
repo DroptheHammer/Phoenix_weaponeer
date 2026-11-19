@@ -4,6 +4,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { hexOf } from "./scripts/tokens.mjs";
+import { appDefines } from "./scripts/app-version.mjs";
 
 // The web build: the same app, with the Rust core as WebAssembly and the
 // browser for files. Run `npm run build:wasm` first. Output goes to
@@ -97,6 +98,9 @@ export default defineConfig({
   // Relative asset paths, so the site works under any folder
   // (GitHub Pages serves it at /Phoenix_weaponeer/).
   base: "./",
+
+  // The version the About dialog shows, read from package.json at build time.
+  define: appDefines(),
 
   resolve: {
     alias: {

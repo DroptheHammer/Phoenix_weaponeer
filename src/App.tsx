@@ -108,6 +108,25 @@ const FlightOverview = lazy(() =>
 );
 
 /**
+ * What stands in for the About dialog when its code cannot be loaded (a tab left open across a site update): it says so
+ * and offers the way back, rather than throwing to the root error boundary and blanking the app.
+ */
+function AboutUnavailable({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="About" onClose={onClose}>
+      <p className="text-ui-body text-ink-2">The About box could not be opened. Reload the app, then try again.</p>
+    </Modal>
+  );
+}
+
+// The About dialog, its words and its credits load when it is opened, never at start-up.
+const AboutDialog = lazy(() =>
+  import("./components/about/AboutDialog")
+    .then((m) => ({ default: m.AboutDialog }))
+    .catch(() => ({ default: AboutUnavailable })),
+);
+
+/**
  * "Strike near me" needs the phone's GPS, so it is a web-build feature; the
  * desktop app, with no GPS and a squadron's real missions, leaves it out.
  */
@@ -132,6 +151,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   // The front page shows whenever no mission is open, and also when the planner goes back to it with one open.
   const [screen, setScreen] = useState<Screen>('front');
   // Where "Open now" on the front page goes back to: the screen the planner left for it.
@@ -567,6 +587,12 @@ function App() {
     <>
       {showSettings && <SettingsModal aircraft={aircraft} onClose={() => setShowSettings(false)} />}
 
+      {showAbout && (
+        <Suspense fallback={null}>
+          <AboutDialog onClose={() => setShowAbout(false)} />
+        </Suspense>
+      )}
+
       {/* Before the "Unsaved changes" dialog, on purpose: a dialog drawn later stands on top, and that one must
           stand over this one, which stays open under it and takes no Escape until it is answered. */}
       {chooser && (
@@ -660,6 +686,8 @@ function App() {
     // leads with the way back to the load box, and the map's with the way back to the overview.
     const strikeItem: PhoneMenuItem[] = STRIKE_NEAR_ME_AVAILABLE ? [{ label: W.strikeNearMe, icon: 'pin', onClick: handleStrikeNearMe }] : [];
     const settingsItem: PhoneMenuItem = { label: 'Settings', icon: 'settings', onClick: () => setShowSettings(true) };
+    // The last row of every screen's menu.
+    const aboutItem: PhoneMenuItem = { label: 'About', icon: 'info', onClick: () => setShowAbout(true) };
     const overviewMenu: PhoneMenuItem[] = [
       { label: W.heroTitle, icon: 'folder', onClick: handleImportClick },
       { label: W.createNew, icon: 'plus', onClick: handleNewMission },
@@ -691,7 +719,7 @@ function App() {
           onBack={shown === 'overview' ? toFront : undefined}
           backLabel={W.backToFront}
           dirty={header.dirty}
-          menu={phoneMenu}
+          menu={[...phoneMenu, aboutItem]}
           message={fileMsg}
           onDismissMessage={() => setFileMsg(null)}
           // Only over the map: on the front page it would cover the page's own lines.
@@ -733,6 +761,8 @@ function App() {
   // In the browser every save is a fresh download, so Save As would be the same as Save.
   const saveAsItems: FileMenuItem[] = platform.isWeb ? [] : [{ id: 'save-as', label: 'Save As', sub: 'Save a copy under a new name', icon: 'save', onSelect: () => void handleSaveAs() }];
   const closeItem: FileMenuItem = { id: 'close', label: 'Close', sub: 'Close this mission', icon: 'close', onSelect: handleCloseMission };
+  // The last row of every screen's File menu, added where the bar is drawn.
+  const aboutFileItem: FileMenuItem = { id: 'about', label: 'About', sub: 'Version, licence and credits', icon: 'info', onSelect: () => setShowAbout(true) };
   // The planner's filled button is Save; on the screens that have a mission but no such button, File carries it. A File
   // row has no disabled state, so it is always there: saving a saved mission saves it again.
   const saveItem: FileMenuItem = {
@@ -837,7 +867,7 @@ function App() {
   const onOverview = shown === 'overview' && !loading && !error;
   return (
     <div className="flex h-screen flex-col bg-dcs-dark text-white">
-      <AppBar {...bar} />
+      <AppBar {...bar} fileItems={[...bar.fileItems, aboutFileItem]} />
 
       {onFront ? (
         <main className="flex min-h-0 flex-1 flex-col">{frontPage}</main>

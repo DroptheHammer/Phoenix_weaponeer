@@ -1,6 +1,7 @@
 // Screenshot checks for the app shell: the header on every screen, the planner's icon rail and
 // floating side panel, the map's zoom, credit and Legend (shut and open), the File menu, where
-// the header and the dialogs stand in the stack, and the phone's bars, Layers button, sheet and menu (also from the keyboard).
+// the header and the dialogs stand in the stack, the About dialog (opened from File's last row and the phone's Menu), and the phone's bars,
+// Layers button, sheet and menu (also from the keyboard).
 // It serves a finished web build itself, loads the synthetic mission through the front page (no
 // real mission needed), blocks map tiles (a plain, repeatable map), measures, and writes a PNG
 // of every state it checks.
@@ -33,6 +34,10 @@ if (!distArg || !out) {
 const dist = path.resolve(distArg);
 fs.mkdirSync(out, { recursive: true });
 const fixture = fs.readFileSync(path.join(__dirname, '../test-data/nevada_SYNTHETIC_link_payload.json'), 'utf8');
+// What the About dialog has to show. The version is package.json's. The entries are the data module's own, read from its source,
+// so a source added there is counted without this script changing (the web build has no elevation entry, which lives in a desktop-only file).
+const appVersion = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8')).version;
+const creditNames = [...fs.readFileSync(path.join(__dirname, '../src/components/about/credits.ts'), 'utf8').matchAll(/^\s+name: (?:'([^']*)'|"([^"]*)")/gm)].map((m) => m[1] ?? m[2]);
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain' };
 const server = http.createServer((q, r) => {
   let p = decodeURIComponent(q.url.split('?')[0]);
@@ -110,6 +115,54 @@ async function shutFile(page) {
   await sleep(100);
 }
 
+// The About dialog, once its row has been pressed: whether it opened, its title, what it says and how it sits. Waits for the credits'
+// heading, since the list is drawn a moment after the dialog. Reads nothing (opened false) when no dialog comes, so a missing row fails
+// its checks instead of stopping the run.
+const ABOUT = 'About Phoenix Weaponeer';
+async function readAbout(page) {
+  const dialog = page.getByRole('dialog', { name: ABOUT });
+  const opened = await dialog.waitFor({ timeout: 5000 }).then(() => true, () => false);
+  if (!opened) return { opened };
+  await dialog.getByRole('heading', { name: 'Credits and sources' }).waitFor({ timeout: 5000 }).catch(() => {});
+  await sleep(200);
+  const title = await dialog.getByRole('heading', { level: 2 }).innerText().catch(() => '');
+  const text = (await dialog.innerText()).replace(/\s+/g, ' ');
+  const entries = await dialog.locator('ul > li').evaluateAll((lis) => lis.map((li) => [...li.querySelectorAll('p')].map((p) => p.textContent.trim())));
+  const closeButtons = await dialog.getByRole('button', { name: /^Close/ }).count();
+  const fit = await page.evaluate(() => {
+    const d = document.querySelector('[role="dialog"]');
+    const r = d.getBoundingClientRect();
+    const all = [d, ...d.querySelectorAll('*')];
+    return {
+      box: { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom) },
+      view: { w: window.innerWidth, h: window.innerHeight },
+      pageWide: document.documentElement.scrollWidth > window.innerWidth,
+      // An element whose content is wider than it is, or a part that sticks out of the dialog's sides: a sideways scroll.
+      wide: all.filter((el) => el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1).map((el) => el.tagName.toLowerCase()),
+      outside: all.filter((el) => { const b = el.getBoundingClientRect(); return b.width > 0 && (b.right > r.right + 1 || b.left < r.left - 1); }).length,
+    };
+  });
+  return { opened, title, text, entries, closeButtons, fit };
+}
+// What the dialog must say, in order: the name and version, the owner and the licence, then the credits.
+function aboutSays(a) {
+  if (!a.opened) return { content: false, entries: false, detail: 'no dialog' };
+  const at = ['Phoenix Weaponeer', `Version ${appVersion}`, '© DroptheHammer', 'PolyForm Strict License 1.0.0', 'Credits and sources'].map((s) => a.text.indexOf(s));
+  const inOrder = at.every((n, i) => n >= 0 && (i === 0 || n > at[i - 1]));
+  const plain = a.text.includes('Free to download and use for any noncommercial purpose') && a.text.includes('without written permission');
+  const names = a.entries.map((e) => e[0]);
+  const entriesOk = a.entries.length === creditNames.length && same([...names].sort(), [...creditNames].sort()) && a.entries.every((e) => e.length === 3 && e.every((line) => line.length > 0));
+  const noElevation = !/Mapzen|Terrain Tiles|Elevation/i.test(a.text);
+  return {
+    content: inOrder && plain,
+    entries: entriesOk && noElevation,
+    detail: `order ${at.join('<')} plain ${plain}; version "${a.text.match(/Version \S+/)?.[0]}" (want "Version ${appVersion}"); entries ${a.entries.length} of ${creditNames.length}: ${names.join(' | ')}; elevation words ${!noElevation}`,
+  };
+}
+const aboutFits = (a, w, h, full) => a.opened && !a.fit.pageWide && a.fit.wide.length === 0 && a.fit.outside === 0
+  && a.fit.box.l >= 0 && a.fit.box.r <= w && a.fit.box.t >= 0 && a.fit.box.b <= h && (!full || (a.fit.box.l === 0 && a.fit.box.r === w));
+const aboutFitText = (a) => (a.opened ? `box [${a.fit.box.l},${a.fit.box.t} to ${a.fit.box.r},${a.fit.box.b}] in ${a.fit.view.w}x${a.fit.view.h}; page wide ${a.fit.pageWide}; wider than itself ${a.fit.wide.join(',') || 'none'}; parts outside the dialog ${a.fit.outside}` : 'no dialog');
+
 let browser;
 (async () => {
   await new Promise((res) => server.listen(0, '127.0.0.1', res));
@@ -132,9 +185,11 @@ let browser;
     await shutFile(page);
     await page.screenshot({ path: path.join(out, `shell-${tag}-front.png`) });
     // Red when: AppBar's `{onQuit ? (` becomes `{onSettings ? (` (a Quit button in the browser); or its `h-bar` becomes `h-14`.
-    // Seen: FAIL 1400x900 FH1 the front page's header is one 48 px bar, … and no Quit in the browser  header [0,0 1400x48] rows Open|Import   (each of the two, at all four sizes; the second printed header [0,0 1400x56])
-    ok(`${tag} FH1 the front page's header is one 48 px bar, edge to edge, with File (Open, Import) and Settings, and no Quit in the browser`,
-      frontBar.h === 48 && frontBar.l === 0 && frontBar.t === 0 && frontBar.w === w && same(frontRows, ['Open', 'Import'])
+    // Seen: FAIL 1400x900 FH1 the front page's header is one 48 px bar, … and no Quit in the browser  header [0,0 1400x48] rows Open|Import   (each of the two, at all four sizes; the second printed header [0,0 1400x56]. Seen before About was a row: the rows in those lines now end with About.)
+    // Also red when: App's `fileItems={[...bar.fileItems, aboutFileItem]}` becomes `fileItems={bar.fileItems}` (About is not a row).
+    // Seen: FAIL 1400x900 FH1 the front page's header is one 48 px bar, …  header [0,0 1400x48] rows Open|Import   (at all four sizes; the same change turned red OH1, FH2, FM1 and AB1 to AB5 at every size: 36 FAIL lines)
+    ok(`${tag} FH1 the front page's header is one 48 px bar, edge to edge, with File (Open, Import, About) and Settings, and no Quit in the browser`,
+      frontBar.h === 48 && frontBar.l === 0 && frontBar.t === 0 && frontBar.w === w && same(frontRows, ['Open', 'Import', 'About'])
         && (await page.getByRole('button', { name: 'Settings', exact: true }).count()) === 1 && (await page.getByRole('button', { name: 'Quit' }).count()) === 0,
       `header ${fmt(frontBar)} rows ${frontRows.join('|')}`);
     // Red when: the name's `max-[1099px]:hidden` is taken out of AppBar (the name would stay under 1100 px).
@@ -153,12 +208,14 @@ let browser;
     const ovLine = await barLineOf(page);
     const ovHeader = page.locator('header').first();
     // Red when: `saveItem` is taken out of `missionFileItems` in App; or AppBar's `h-bar` becomes `h-14`. (Argued, not run: App's overview bar loses `primary`.)
-    // Seen: FAIL 1400x900 OH1 the overview's header is one 48 px bar with the way back (Front page), …  header [0,0 1400x48] main [0,48 1400x852] rows Open|Import|Close   (the second change: header [0,0 1400x56] main [0,56 1400x844])
-    ok(`${tag} OH1 the overview's header is one 48 px bar with the way back (Front page), "Open the map" as its filled button, and File (Save, Open, Import, Close) over a page that fills the window`,
+    // Seen: FAIL 1400x900 OH1 the overview's header is one 48 px bar with the way back (Front page), …  header [0,0 1400x48] main [0,48 1400x852] rows Open|Import|Close   (the second change: header [0,0 1400x56] main [0,56 1400x844]. Seen before About was a row: the rows in those lines now end with About.)
+    // Also red when: App's `fileItems={[...bar.fileItems, aboutFileItem]}` becomes `fileItems={bar.fileItems}`.
+    // Seen: FAIL 1400x900 OH1 …  header [0,0 1400x48] main [0,48 1400x852] rows Export .json|Open|Import|Close   (at all four sizes)
+    ok(`${tag} OH1 the overview's header is one 48 px bar with the way back (Front page), "Open the map" as its filled button, and File (Save, Open, Import, Close, About) over a page that fills the window`,
       ovBar.h === 48 && ovBar.l === 0 && ovBar.w === w && ovMain.t === 48 && ovMain.b === h
         && (await ovHeader.getByRole('button', { name: 'Front page', exact: true }).count()) === 1
         && (await ovHeader.getByRole('button', { name: 'Open the map', exact: true }).count()) === 1
-        && same(ovRows, ['Export .json', 'Open', 'Import', 'Close']),
+        && same(ovRows, ['Export .json', 'Open', 'Import', 'Close', 'About']),
       `header ${fmt(ovBar)} main ${fmt(ovMain)} rows ${ovRows.join('|')}`);
     // Red when: App's overview bar drops its `{isDirty ? dirtyWords : null}` (the words for work not yet exported).
     // Seen: FAIL 1400x900 OH2 the overview's small line ends with "Not exported", at every width  Viper11 - Viper 1 · Nevada (NTTR) · edited today, HH:MM ·   (and an empty line at 768 wide)
@@ -172,9 +229,11 @@ let browser;
     await shutFile(page);
     await page.screenshot({ path: path.join(out, `shell-${tag}-front-mission-open.png`) });
     // Red when: `saveItem` is taken out of `missionFileItems` in App.
-    // Seen: FAIL 1400x900 FH2 with a mission kept open behind it, the front page's File carries Save, Open, Import and Close  Open|Import|Close
-    ok(`${tag} FH2 with a mission kept open behind it, the front page's File carries Save, Open, Import and Close`,
-      same(openRows, ['Export .json', 'Open', 'Import', 'Close']), openRows.join('|'));
+    // Seen: FAIL 1400x900 FH2 with a mission kept open behind it, the front page's File carries Save, Open, Import, Close and About  Open|Import|Close   (before About was a row: the line now ends with About)
+    // Also red when: App's `fileItems={[...bar.fileItems, aboutFileItem]}` becomes `fileItems={bar.fileItems}`.
+    // Seen: FAIL 1400x900 FH2 …  Export .json|Open|Import|Close   (at all four sizes)
+    ok(`${tag} FH2 with a mission kept open behind it, the front page's File carries Save, Open, Import, Close and About`,
+      same(openRows, ['Export .json', 'Open', 'Import', 'Close', 'About']), openRows.join('|'));
     await page.getByRole('button', { name: /Open now/ }).first().click();
     await openTheMap(page);
 
@@ -270,7 +329,7 @@ let browser;
     info(`${tag} zoom clicked`);
     // The open panel under the File menu: the menu hangs over it and over the map.
     if ((await page.getByRole('button', { name: 'Close panel' }).count()) === 0) { await rail.getByRole('button', { name: /^Attacks/ }).click(); await sleep(250); }
-    // File menu: keyboard. The planner's rows: Flight overview first (the way back), Close last.
+    // File menu: keyboard. The planner's rows: Flight overview first (the way back), About last.
     const fileBtn = page.getByRole('button', { name: 'File', exact: true });
     await fileBtn.click();
     await sleep(100);
@@ -286,9 +345,11 @@ let browser;
     await page.keyboard.press('Escape');
     await sleep(100);
     // Red when: FileMenu's `rows.current[0]?.focus();` is taken out; or App's planner list loses its "Flight overview" row.
-    // Seen: FAIL 1400x900 FM1 File opens on its first row (Flight overview), …  first File, rows Flight overview|Open|Import|Close, last File   (the second: first Open, rows Open|Import|Close, last Close)
-    ok(`${tag} FM1 File opens on its first row (Flight overview), lists Flight overview, Open, Import, Close, End reaches Close, Escape returns to File`,
-      firstFocused === 'Flight overview' && same(rows, ['Flight overview', 'Open', 'Import', 'Close']) && lastFocused === 'Close' && (await page.getByRole('menu').count()) === 0 && (await activeLabel(page)) === 'File',
+    // Seen: FAIL 1400x900 FM1 File opens on its first row (Flight overview), …  first File, rows Flight overview|Open|Import|Close, last File   (the second: first Open, rows Open|Import|Close, last Close. Seen before About was a row: the rows in those lines now end with About, and End reaches About.)
+    // Also red when: App's `fileItems={[...bar.fileItems, aboutFileItem]}` becomes `fileItems={bar.fileItems}`.
+    // Seen: FAIL 1400x900 FM1 …  first Flight overview, rows Flight overview|Open|Import|Close, last Close   (at all four sizes)
+    ok(`${tag} FM1 File opens on its first row (Flight overview), lists Flight overview, Open, Import, Close, About, End reaches About, Escape returns to File`,
+      firstFocused === 'Flight overview' && same(rows, ['Flight overview', 'Open', 'Import', 'Close', 'About']) && lastFocused === 'About' && (await page.getByRole('menu').count()) === 0 && (await activeLabel(page)) === 'File',
       `first ${firstFocused}, rows ${rows.join('|')}, last ${lastFocused}`);
     // Red when: AppBar's `z-[1100]` becomes `z-[900]` (the planner's floating layer, 1000, then covers the menu).
     // Seen: FAIL 1400x900 Z1 the File menu hangs over the open panel and the map: the top element at every row is that row  rows Open|Import|Close top ||   (the panel, not the menu, was the top element at every row's middle)
@@ -299,6 +360,46 @@ let browser;
     // Red when: PlannerShell's `closePanel` loses `opener?.focus();`.
     // Seen: FAIL 1400x900 P1 closing the panel puts the keyboard back on its rail button   (at all four sizes)
     ok(`${tag} P1 closing the panel puts the keyboard back on its rail button`, /^Attacks/.test((await activeLabel(page)) || ''));
+    // About: File's last row opens it. It holds the app's name and version, who owns it and under what licence, and the credits; it fits the
+    // window with no sideways scroll; Escape and its close button each shut it and the keyboard goes back to File, where the dialog took it from.
+    const openAbout = async () => {
+      // (With a dialog still open the press cannot land: it gives up after 3 s instead of stopping the run.)
+      await fileBtn.click({ timeout: 3000 }).catch(() => {});
+      await sleep(100);
+      await page.getByRole('menuitem', { name: 'About', exact: true }).click({ timeout: 3000 }).catch(() => {});
+    };
+    await openAbout();
+    const about = await readAbout(page);
+    await page.screenshot({ path: path.join(out, `shell-${tag}-about.png`) });
+    const aboutSaid = aboutSays(about);
+    const closeName = `Close ${ABOUT}`;
+    // Red when: App's `fileItems={[...bar.fileItems, aboutFileItem]}` becomes `fileItems={bar.fileItems}`; or credits.ts's ABOUT_TITLE becomes `'About'` (the dialog is not named in full).
+    // Seen: FAIL 1400x900 AB1 pressing About in File opens a dialog named "About Phoenix Weaponeer", titled so, with a close button named for it  dialog false, title "undefined", close buttons 0   (each change, at 1400x900; the shorter title left the dialog open, so that run stopped at the Settings press after AB5)
+    ok(`${tag} AB1 pressing About in File opens a dialog named "${ABOUT}", titled so, with a close button named for it`,
+      about.opened && about.title === ABOUT && (await page.getByRole('button', { name: closeName, exact: true }).count()) === 1,
+      `dialog ${about.opened}, title "${about.title}", close buttons ${about.opened ? about.closeButtons : 0}`);
+    // Red when: AboutDialog's `versionLine(__APP_VERSION__)` becomes `versionLine('0.3.3')` (the version typed, not read from package.json).
+    // Seen: FAIL 1400x900 AB2 the dialog shows the app's name, "Version " + package.json's version, "© DroptheHammer", the licence's name and its two plain sentences, then the heading "Credits and sources", in that order  order 6<-1<56<72<290 plain true; version "Version 0.3.3" (want "Version 0.3.4"); entries 5 of 5: Map data | Figtree | JetBrains Mono | pydcs | Chuck's Guides; elevation words false
+    ok(`${tag} AB2 the dialog shows the app's name, "Version " + package.json's version, "© DroptheHammer", the licence's name and its two plain sentences, then the heading "Credits and sources", in that order`, aboutSaid.content, aboutSaid.detail);
+    // Red when: creditList in credits.ts loses an entry (`, CHUCKS_GUIDES` taken out); or the web build is made to carry the elevation entry (entry.web.tsx importing it from ./elevationCredit and returning it from loadPlaybackCredits).
+    // Seen: FAIL 1400x900 AB3 under the heading, one entry (name, owner, what the app takes) for each source in the data module, and none of the elevation credit's words in the web build  order 6<42<56<72<290 plain true; version "Version 0.3.4" (want "Version 0.3.4"); entries 4 of 5: Map data | Figtree | JetBrains Mono | pydcs; elevation words false
+    //   (the second change: … entries 6 of 5: Map data | Elevation data | Figtree | JetBrains Mono | pydcs | Chuck's Guides; elevation words true. scripts/bundle-check.mjs fails that build as well: "the playback library is in the web build".)
+    ok(`${tag} AB3 under the heading, one entry (name, owner, what the app takes) for each source in the data module, and none of the elevation credit's words in the web build`, aboutSaid.entries, aboutSaid.detail);
+    // Red when: a part of the dialog is made wider than it (`whitespace-nowrap` added to each entry's "takes" line in AboutDialog).
+    // Seen: FAIL 1400x900 AB4 the dialog sits inside the window and does not scroll sideways, on the page or inside itself  box [444,112 to 956,788] in 1400x900; page wide false; wider than itself div,div; parts outside the dialog 30   (at all four sizes)
+    ok(`${tag} AB4 the dialog sits inside the window and does not scroll sideways, on the page or inside itself`, aboutFits(about, w, h, false), aboutFitText(about));
+    await page.keyboard.press('Escape');
+    await sleep(150);
+    // (A dialog that never opened shuts nothing: each way of shutting counts only for a dialog that was open first.)
+    const shutByKey = about.opened && (await page.getByRole('dialog', { name: ABOUT }).count()) === 0 && (await activeLabel(page)) === 'File';
+    await openAbout();
+    const again = await readAbout(page);
+    await page.getByRole('button', { name: closeName, exact: true }).click({ timeout: 3000 }).catch(() => {});
+    await sleep(150);
+    const shutByButton = again.opened && (await page.getByRole('dialog', { name: ABOUT }).count()) === 0 && (await activeLabel(page)) === 'File';
+    // Red when: AboutDialog's `onClose={onClose}` becomes `onClose={() => {}}` (neither closes it); or Modal's cleanup loses `if (opener && opener !== document.body && opener.isConnected) opener.focus({ preventScroll: true });` (the keyboard is not given back).
+    // Seen: FAIL 1400x900 AB5 Escape and the close button each shut the dialog and put the keyboard back on File  Escape: shut and keyboard on File false; close button: false   (both changes, the second at all four sizes; the first stops the run at the Settings press after it, since the dialog stays up)
+    ok(`${tag} AB5 Escape and the close button each shut the dialog and put the keyboard back on File`, shutByKey && shutByButton, `Escape: shut and keyboard on File ${shutByKey}; close button: ${shutByButton}`);
     // A dialog stands over the header and the planner: the stack is the map, the planner's floats (1000), the header (1100), the dialogs (2000).
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('dialog', { name: 'Settings' }).waitFor({ timeout: 5000 });
@@ -347,10 +448,12 @@ let browser;
     await page.getByRole('button', { name: 'Menu' }).click();
     await page.screenshot({ path: path.join(out, 'shell-phone-390-front.png') });
     // Red when: PhoneShell's header `min-h-[calc(var(--bar)+var(--safe-top))]` becomes `min-h-[56px]`. (Argued, not run: a menu row loses its icon.)
-    // Seen: FAIL phone FH1 the front page: a 45 px bar edge to edge titled "Phoenix Weaponeer", …  bar [0,0 390x56] "Phoenix Weaponeer" rows Create new mission|Strike near me|Settings
-    ok('phone FH1 the front page: a 45 px bar edge to edge titled "Phoenix Weaponeer", no back arrow, and a menu of icon rows (Create new mission, Strike near me, Settings)',
+    // Seen: FAIL phone FH1 the front page: a 45 px bar edge to edge titled "Phoenix Weaponeer", …  bar [0,0 390x56] "Phoenix Weaponeer" rows Create new mission|Strike near me|Settings   (seen before About was a row: the rows now end with About)
+    // Also red when: App's `menu={[...phoneMenu, aboutItem]}` becomes `menu={phoneMenu}`; or the About row loses its `icon: 'info'` (the rows read right and the row has no icon).
+    // Seen: FAIL phone FH1 …  bar [0,0 390x45] "Phoenix Weaponeer" rows Create new mission|Strike near me|Settings   (the first; the second: … rows Create new mission|Strike near me|Settings|About)
+    ok('phone FH1 the front page: a 45 px bar edge to edge titled "Phoenix Weaponeer", no back arrow, and a menu of icon rows (Create new mission, Strike near me, Settings, About)',
       frontTop.h === 45 && frontTop.l === 0 && frontTop.w === 390 && frontTitle === 'Phoenix Weaponeer' && (await page.getByRole('button', { name: 'Back to the front page' }).count()) === 0
-        && same(rowNames(frontMenu), ['Create new mission', 'Strike near me', 'Settings']) && frontMenu.every((r) => r.icon),
+        && same(rowNames(frontMenu), ['Create new mission', 'Strike near me', 'Settings', 'About']) && frontMenu.every((r) => r.icon),
       `bar ${fmt(frontTop)} "${frontTitle}" rows ${rowNames(frontMenu).join('|')}`);
 
     // ---- The overview: the back arrow, the flight over its line, the menu that leads with the way to the load box.
@@ -362,10 +465,12 @@ let browser;
     await page.getByRole('button', { name: 'Menu' }).click();
     await page.screenshot({ path: path.join(out, 'shell-phone-390-overview.png') });
     // Red when: PhoneShell's `{subtitle ? <p ...>` line is taken out (the overview's second line goes); or the header becomes `min-h-[56px]`. (Argued, not run: App's `onBack` is taken out.)
-    // Seen: FAIL phone OH1 the overview: a 45 px bar with the back arrow, the flight, a second line starting "Not exported", …  bar [0,0 390x45] line "" rows Load a mission|Create new mission|Strike near me|Export .json|Close mission|Settings   (the second: bar [0,0 390x56])
-    ok('phone OH1 the overview: a 45 px bar with the back arrow, the flight, a second line starting "Not exported", and a menu of icon rows that leads with Load a mission',
+    // Seen: FAIL phone OH1 the overview: a 45 px bar with the back arrow, the flight, a second line starting "Not exported", …  bar [0,0 390x45] line "" rows Load a mission|Create new mission|Strike near me|Export .json|Close mission|Settings   (the second: bar [0,0 390x56]. Seen before About was a row: the rows now end with About.)
+    // Also red when: App's `menu={[...phoneMenu, aboutItem]}` becomes `menu={phoneMenu}`; or the About row loses its `icon: 'info'`.
+    // Seen: FAIL phone OH1 …  rows Load a mission|Create new mission|Strike near me|Export .json|Close mission|Settings   (the first; the second: the same rows with About)
+    ok('phone OH1 the overview: a 45 px bar with the back arrow, the flight, a second line starting "Not exported", and a menu of icon rows that leads with Load a mission and ends with About',
       ovTop.h === 45 && (await page.getByRole('button', { name: 'Back to the front page' }).count()) === 1 && /^Not exported/.test(ovLine)
-        && same(rowNames(ovMenu), ['Load a mission', 'Create new mission', 'Strike near me', 'Export .json', 'Close mission', 'Settings']) && ovMenu.every((r) => r.icon),
+        && same(rowNames(ovMenu), ['Load a mission', 'Create new mission', 'Strike near me', 'Export .json', 'Close mission', 'Settings', 'About']) && ovMenu.every((r) => r.icon),
       `bar ${fmt(ovTop)} line "${ovLine}" rows ${rowNames(ovMenu).join('|')}`);
 
     // ---- Back to the front page with the mission open (its menu gains Close mission), then on to the map.
@@ -375,8 +480,10 @@ let browser;
     const openMenu = await menuRows();
     await page.getByRole('button', { name: 'Menu' }).click();
     // Red when: App's front menu loses `...(mission ? [{ label: 'Close mission', ... }] : [])`.
-    // Seen: FAIL phone FH2 with a mission kept open behind it, the front page's menu adds Close mission  Create new mission|Strike near me|Settings
-    ok('phone FH2 with a mission kept open behind it, the front page\'s menu adds Close mission', same(rowNames(openMenu), ['Create new mission', 'Strike near me', 'Close mission', 'Settings']), rowNames(openMenu).join('|'));
+    // Seen: FAIL phone FH2 with a mission kept open behind it, the front page's menu adds Close mission  Create new mission|Strike near me|Settings   (seen before About was a row: the rows now end with About)
+    // Also red when: App's `menu={[...phoneMenu, aboutItem]}` becomes `menu={phoneMenu}`.
+    // Seen: FAIL phone FH2 …  Create new mission|Strike near me|Close mission|Settings
+    ok('phone FH2 with a mission kept open behind it, the front page\'s menu adds Close mission', same(rowNames(openMenu), ['Create new mission', 'Strike near me', 'Close mission', 'Settings', 'About']), rowNames(openMenu).join('|'));
     await page.getByRole('button', { name: /Open now/ }).first().click();
     await openTheMap(page);
 
@@ -494,10 +601,12 @@ let browser;
     const mapMenu = await menuRows();
     await page.screenshot({ path: path.join(out, 'shell-phone-390-menu.png') });
     // Red when: App's map menu loses its `{ label: 'Flight overview', ... }` row. (Argued, not run: a row loses its icon.)
-    // Seen: FAIL phone S3 the map's menu leads with Flight overview, keeps Export .json and Close mission, and every row has an icon  Load a mission|Create new mission|Strike near me|Export .json|Close mission|Settings
-    ok('phone S3 the map\'s menu leads with Flight overview, keeps Export .json and Close mission, and every row has an icon',
-      same(rowNames(mapMenu), ['Flight overview', 'Load a mission', 'Create new mission', 'Strike near me', 'Export .json', 'Close mission', 'Settings']) && mapMenu.every((r) => r.icon), rowNames(mapMenu).join('|'));
-    // ---- The menu from the keyboard, as the desktop's File menu answers it (the map's menu has seven rows).
+    // Seen: FAIL phone S3 the map's menu leads with Flight overview, keeps Export .json and Close mission, and every row has an icon  Load a mission|Create new mission|Strike near me|Export .json|Close mission|Settings   (seen before About was a row: the rows now end with About)
+    // Also red when: App's `menu={[...phoneMenu, aboutItem]}` becomes `menu={phoneMenu}`; or the About row loses its `icon: 'info'`.
+    // Seen: FAIL phone S3 …  Flight overview|Load a mission|Create new mission|Strike near me|Export .json|Close mission|Settings   (the first; the second: the same rows with About, and the one row without an svg)
+    ok('phone S3 the map\'s menu leads with Flight overview, keeps Export .json and Close mission, ends with About, and every row has an icon',
+      same(rowNames(mapMenu), ['Flight overview', 'Load a mission', 'Create new mission', 'Strike near me', 'Export .json', 'Close mission', 'Settings', 'About']) && mapMenu.every((r) => r.icon), rowNames(mapMenu).join('|'));
+    // ---- The menu from the keyboard, as the desktop's File menu answers it (the map's menu has eight rows).
     const menuBtn = page.getByRole('button', { name: 'Menu' });
     const focusedText = () => page.evaluate(() => document.activeElement?.textContent?.trim() ?? null);
     // (The menu was left open by the step above.)
@@ -533,11 +642,40 @@ let browser;
     if ((await page.getByRole('menu').count()) > 0) await menuBtn.click();
     // Red when: PhoneShell's window Escape listener (`window.addEventListener('keydown', onEscape);`) is taken out (the menu stays open on its third row).
     // Seen: FAIL phone K1 the Menu from the keyboard: …  opened true, first "Flight overview", Down twice "Create new mission", End "Settings", Down "Flight overview", Up "Settings", Home "Flight overview", Escape: menu shut false, keyboard on "null"; Tab: menu shut true, moved on true
-    //   (the later Tab line is not to be trusted there: the Enter that reopens the menu lands on the row the shut menu should have left)
-    ok('phone K1 the Menu from the keyboard: Enter opens it with the keyboard on its first row, Down twice reaches the third, End, Down, Up and Home move round it, Escape shuts it and puts the keyboard back on Menu, and Tab shuts it and moves on',
-      kOpened && kFirst === 'Flight overview' && kThird === 'Create new mission' && kLast === 'Settings' && kWrapped === 'Flight overview' && kUpWrapped === 'Settings' && kHome === 'Flight overview'
+    //   (the later Tab line is not to be trusted there: the Enter that reopens the menu lands on the row the shut menu should have left. Seen before About was a row: End and Up now land on About.)
+    // Also red when: App's `menu={[...phoneMenu, aboutItem]}` becomes `menu={phoneMenu}` (End and Up land on Settings, not About).
+    // Seen: FAIL phone K1 …  opened true, first "Flight overview", Down twice "Create new mission", End "Settings", Down "Flight overview", Up "Settings", Home "Flight overview", Escape: menu shut true, keyboard on "Menu"; Tab: menu shut true, moved on true
+    ok('phone K1 the Menu from the keyboard: Enter opens it with the keyboard on its first row, Down twice reaches the third, End, Down, Up and Home move round it (the last row is About), Escape shuts it and puts the keyboard back on Menu, and Tab shuts it and moves on',
+      kOpened && kFirst === 'Flight overview' && kThird === 'Create new mission' && kLast === 'About' && kWrapped === 'Flight overview' && kUpWrapped === 'About' && kHome === 'Flight overview'
         && kShut && kBack === 'Menu' && kTabShut && kTabOn,
       `opened ${kOpened}, first "${kFirst}", Down twice "${kThird}", End "${kLast}", Down "${kWrapped}", Up "${kUpWrapped}", Home "${kHome}", Escape: menu shut ${kShut}, keyboard on "${kBack}"; Tab: menu shut ${kTabShut}, moved on ${kTabOn}`);
+    // ---- About, from the Menu's last row: a full-screen page with the same contents, no sideways scroll; Escape and its Close button shut it.
+    const openAboutOnPhone = async () => {
+      await menuBtn.click({ timeout: 3000 }).catch(() => {});
+      await page.getByRole('menuitem', { name: 'About', exact: true }).click({ timeout: 3000 }).catch(() => {});
+    };
+    await openAboutOnPhone();
+    const pAbout = await readAbout(page);
+    await page.screenshot({ path: path.join(out, 'shell-phone-390-about.png') });
+    const pSaid = aboutSays(pAbout);
+    // Red when: App's `menu={[...phoneMenu, aboutItem]}` becomes `menu={phoneMenu}`; or AboutDialog's `versionLine(__APP_VERSION__)` becomes `versionLine('0.3.3')`; or `, CHUCKS_GUIDES` is taken out of creditList; or the web build is made to carry the elevation entry.
+    // Seen: FAIL phone AB6 pressing About in the Menu opens the dialog named "About Phoenix Weaponeer", with the name and version, the owner and licence, the heading "Credits and sources" and an entry for each source  no dialog   (the first change; the second: order 6<-1<56<72<290 plain true; version "Version 0.3.3" (want "Version 0.3.4"); entries 5 of 5 …; the third: … entries 4 of 5: Map data | Figtree | JetBrains Mono | pydcs …; the fourth: … entries 6 of 5: Map data | Elevation data | … elevation words true)
+    ok(`phone AB6 pressing About in the Menu opens the dialog named "${ABOUT}", with the name and version, the owner and licence, the heading "Credits and sources" and an entry for each source`,
+      pAbout.opened && pAbout.title === ABOUT && pSaid.content && pSaid.entries, pSaid.detail);
+    // Red when: a part of the dialog is made wider than it (`whitespace-nowrap` added to each entry's "takes" line in AboutDialog); or App's `menu={[...phoneMenu, aboutItem]}` becomes `menu={phoneMenu}` (no dialog).
+    // Seen: FAIL phone AB7 the dialog is a page the width of the phone (390 px) and does not scroll sideways  box [0,0 to 390,844] in 390x844; page wide false; wider than itself div,div; parts outside the dialog 30   (the second change: no dialog)
+    ok('phone AB7 the dialog is a page the width of the phone (390 px) and does not scroll sideways', aboutFits(pAbout, 390, 844, true), aboutFitText(pAbout));
+    await page.keyboard.press('Escape');
+    await sleep(150);
+    const pShutByKey = pAbout.opened && (await page.getByRole('dialog', { name: ABOUT }).count()) === 0;
+    await openAboutOnPhone();
+    const pAgain = await readAbout(page);
+    await page.getByRole('dialog', { name: ABOUT }).getByRole('button', { name: 'Close', exact: true }).click({ timeout: 3000 }).catch(() => {});
+    await sleep(150);
+    const pShutByButton = pAgain.opened && (await page.getByRole('dialog', { name: ABOUT }).count()) === 0;
+    // Red when: DialogFrame's phone Close button `onClick={onClose}` becomes `onClick={() => {}}`; or App's `menu={[...phoneMenu, aboutItem]}` becomes `menu={phoneMenu}` (no dialog to shut).
+    // Seen: FAIL phone AB8 Escape and its Close button each shut the dialog  Escape: shut true; Close button: shut false   (the first change; the second: Escape: shut false; Close button: shut false)
+    ok('phone AB8 Escape and its Close button each shut the dialog', pShutByKey && pShutByButton, `Escape: shut ${pShutByKey}; Close button: shut ${pShutByButton}`);
     // Red when, Seen: as the desktop E1 (a stray request to another host).
     ok('phone E1 no page errors; only this server (tiles blocked)', errors.length === 0 && onlyLocal(hosts), `${errors.join('; ')} hosts ${[...hosts].join(',')}`);
     await ctx.close();

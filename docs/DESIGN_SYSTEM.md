@@ -330,8 +330,14 @@ screen has its own list. The planner's: Flight overview, Save As (desktop
 only), Open, Import, Close; its filled button is Save. The Flight overview's,
 and the front page's while a mission is open: Save ("Export .json" in the
 browser), Save As (desktop only), Open, Import, Close. The front page with no
-mission: Open, Import. Opening puts the keyboard on the first row; arrow keys,
-Home and End move; Escape shuts it from wherever the keyboard is and gives it
+mission: Open, Import. Every list ends with About, which App adds where the bar
+is drawn. It opens the About dialog (`src/components/about/`): the version
+(package.json's, defined by both builds), the licence and the credits. Its code
+loads when it opens, and the credits are data in `credits.ts`, so the dialog
+names no source. The elevation credit reaches the desktop build only, through
+`loadPlaybackCredits` in the `@playback` entry files (the phone's returns
+none). Opening puts the keyboard on the first row; arrow keys, Home and End
+move; Escape shuts it from wherever the keyboard is and gives it
 back to File; Tab shuts it; a press anywhere outside shuts it. A row shuts the
 menu before it runs, so a dialog it opens never meets an open menu. It is not
 shared with the Flight overview's waypoint list: that list picks one
@@ -390,7 +396,7 @@ over a smaller second line (on the map the place, then "Not exported" while
 there is work not yet downloaded; on the Flight overview "Not exported" comes
 first, because a phone cuts that line at its right end), a back arrow where a
 screen has one, the dot named "unsaved changes", and a Menu button whose list
-has an icon on every row. The menu answers a keyboard as File does: opening
+has an icon on every row and ends with About. The menu answers a keyboard as File does: opening
 puts the keyboard on the first row, Up, Down, Home and End move round it (the
 same `menuKey` rule), Escape shuts it from wherever the keyboard is and gives it
 back to Menu, Tab shuts it and moves on, and a tap outside shuts it. A bar of

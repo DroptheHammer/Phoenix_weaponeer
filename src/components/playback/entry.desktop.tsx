@@ -9,6 +9,7 @@
  */
 import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
 import type { FragPanelProps, PlaybackLaunch, PlayStrikeButtonProps } from './types';
+import type { CreditEntry } from '../about/credits';
 import { PlaybackOverlay } from './PlaybackOverlay';
 import { PlaybackErrorBoundary, PlaybackUnavailable } from './PlaybackErrorBoundary';
 import { probeWebGL2 } from './webgl';
@@ -18,6 +19,12 @@ export const PLAYBACK_AVAILABLE = true;
 
 /** Builds what Play hands the playback from the attack editor's drafts (see launch.ts). */
 export { playbackLaunchFromEditor } from './launch';
+
+/**
+ * What the 3D playback adds to the About dialog's credits: the elevation data. Loaded when the dialog opens (the credit's
+ * words live in terrain.ts, which must not load at start-up); the phone's `entry.web.tsx` returns none.
+ */
+export const loadPlaybackCredits = (): Promise<readonly CreditEntry[]> => import('./elevationCredit').then((m) => [m.ELEVATION_ENTRY]);
 
 // The blast check builds the playback, so its panel loads the first time a strike is open, never at start-up.
 // A chunk that fails to load leaves one line in its place rather than an editor that cannot open.

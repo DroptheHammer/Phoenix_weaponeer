@@ -216,6 +216,11 @@ import { draftIpAnchor } from '../src/lib/attackDraft';
 import { useTheaterStore, type TheaterInfo } from '../src/stores/theaterStore';
 // @ts-expect-error plain JS helper with a .d.mts beside it
 import { hexOf as tokenHex } from './tokens.mjs';
+import { appVersion, appDefines } from './app-version.mjs';
+import { creditList, versionLine, ABOUT_WORDS, type CreditEntry } from '../src/components/about/credits';
+import { ELEVATION_ENTRY } from '../src/components/playback/elevationCredit';
+import { MAP_CREDIT as MAP_CREDIT_LINE } from '../src/components/map/MapCredit';
+import { ELEVATION_CREDIT, MAP_CREDIT as SCENE_MAP_CREDIT } from '../src/lib/playbackScene';
 
 const ok = (name: string, cond: boolean, detail = '') => {
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  ' + detail : ''));
@@ -15616,6 +15621,135 @@ const BLAST_APPROVED: string[] = Object.keys(BLAST_FIGURES).sort();
   } catch (e) {
     ok('offset leg and gun pass ring: the section ran without throwing', false, String((e as Error)?.stack ?? e));
   }
+}
+
+// ─── The About dialog ────────────────────────────────────────────────────────────────────────────────────────────
+// Each check below was turned red by the one change to the app written beside it, and the change undone.
+{
+  const pkgVersion = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version;
+  const source = (path: string) => readFileSync(path, 'utf8');
+  // The desktop build's list (the playback adds the elevation entry) and the phone's (it has no 3D playback, so none).
+  const desktopList = creditList([ELEVATION_ENTRY]);
+  const phoneList = creditList([]);
+  const keysOf = (list: CreditEntry[]) => list.map((e) => e.key).join(',');
+
+  // [AB1] The credits are the entries the About dialog is meant to hold and no others, each with a name, an owner and a line saying
+  // what the app takes. The desktop has six; the phone five, with no elevation entry and none of the elevation credit's words.
+  // Mutation proof (2026-11-19): credits.ts, `, CHUCKS_GUIDES` taken out of `creditList`'s array:
+  //   FAIL About [AB1]: …  desktop map,elevation,figtree,jetbrains-mono,pydcs; phone map,figtree,jetbrains-mono,pydcs; empty none; elevation words in the phone's list false
+  // (An entry's `name`, `owner` or `takes` left empty lists its key under "empty"; the phone's list gaining the elevation entry turns the last field true. Argued, not run.)
+  const empty = (list: CreditEntry[], where: string) => list.filter((e) => !e.name.trim() || !e.owner.trim() || !e.takes.trim()).map((e) => `${e.key} (${where})`);
+  const emptyFields = [...empty(desktopList, 'desktop'), ...empty(phoneList, 'phone')];
+  const phoneHasElevation = /elevation|mapzen|terrain tiles/i.test(JSON.stringify(phoneList));
+  ok('About [AB1]: the credits are the map data, the elevation data (desktop only), Figtree, JetBrains Mono, pydcs and Chuck\'s Guides and no others, each with a name, an owner and a line of what the app takes',
+     keysOf(desktopList) === 'map,elevation,figtree,jetbrains-mono,pydcs,chucks-guides' && keysOf(phoneList) === 'map,figtree,jetbrains-mono,pydcs,chucks-guides' && emptyFields.length === 0 && !phoneHasElevation,
+     `desktop ${keysOf(desktopList)}; phone ${keysOf(phoneList)}; empty ${emptyFields.join(', ') || 'none'}; elevation words in the phone's list ${phoneHasElevation}`);
+
+  // [AB2] The map and elevation entries say what the app's own credit lines say, so they cannot drift: the map's owner is the line drawn on the
+  // map (MapCredit.tsx) and is what the playback's map credit says after "Map "; the elevation entry's owner is the playback's elevation credit
+  // less its "Elevation: " label, and is in the line creditsFor prints.
+  // Mutation proof (2026-11-19): credits.ts MAP's `owner: MAP_CREDIT,` → `owner: 'OpenStreetMap',`:
+  //   FAIL About [AB2]: …  map entry "OpenStreetMap" vs the map's own line "© OpenStreetMap contributors": false; the playback's map credit is "Map " + it true; …
+  // and elevationCredit.ts `owner: ELEVATION_CREDIT.replace(/^Elevation: /, ''),` → `owner: 'Terrain Tiles by Mapzen',`:
+  //   FAIL About [AB2]: …  elevation entry "Terrain Tiles by Mapzen" in the playback's line true; "Elevation: " + it is the playback's credit false
+  const mapEntry = desktopList.find((e) => e.key === 'map');
+  const heightEntry = desktopList.find((e) => e.key === 'elevation');
+  const mapLine = creditsFor({ map: true, elevation: false });
+  const heightLine = creditsFor({ map: false, elevation: true });
+  const credits2 = {
+    mapIsDrawnLine: mapEntry?.owner === MAP_CREDIT_LINE,
+    mapIsSceneLine: SCENE_MAP_CREDIT === `Map ${MAP_CREDIT_LINE}` && mapLine.startsWith(SCENE_MAP_CREDIT),
+    samePhone: phoneList[0].owner === mapEntry?.owner,
+    heightInLine: Boolean(heightEntry && heightEntry.owner.length > 0 && heightLine.includes(heightEntry.owner)),
+    heightIsCredit: `Elevation: ${heightEntry?.owner}` === ELEVATION_CREDIT,
+  };
+  ok('About [AB2]: the map entry is the credit drawn on the map (and the playback\'s map credit after "Map "), and the elevation entry is the playback\'s elevation credit, in the line the playback prints',
+     Object.values(credits2).every(Boolean),
+     `map entry "${mapEntry?.owner}" vs the map's own line "${MAP_CREDIT_LINE}": ${credits2.mapIsDrawnLine}; the playback's map credit is "Map " + it ${credits2.mapIsSceneLine}; the phone's map entry is the same ${credits2.samePhone}; elevation entry "${heightEntry?.owner}" in the playback's line ${credits2.heightInLine}; "Elevation: " + it is the playback's credit ${credits2.heightIsCredit}`);
+
+  // [AB3] Nothing the About dialog prints, and none of the three files that hold its words, names a pop-up attack source or a Falcon BMS
+  // document, holds an @, or gives a link to a person's page. (A plain site name such as chucksguides.com is not a link.) Comments are read too.
+  // Mutation proof (2026-11-19): credits.ts CHUCKS_GUIDES `takes` gaining ", and the Falcon BMS pop-up attack manual":
+  //   FAIL About [AB3]: …  39 texts read; hits Falcon in chucks-guides takes, BMS in chucks-guides takes, pop-up in chucks-guides takes, Falcon in credits.ts, BMS in credits.ts, pop-up in credits.ts
+  // and PYDCS's `owner` gaining ", https://github.com/someone/project, me@example.org":
+  //   FAIL About [AB3]: …  39 texts read; hits @ in pydcs owner, a link in pydcs owner, github.com in pydcs owner, @ in credits.ts, a link in credits.ts, github.com in credits.ts
+  const FORBIDDEN: [string, RegExp][] = [['Falcon', /falcon/i], ['BMS', /\bBMS\b/i], ['pop-up', /pop-?up/i], ['@', /@/], ['a link', /https?:|:\/\/|www\./i], ['github.com', /github\.com/i]];
+  const dialogSource = source('src/components/about/AboutDialog.tsx').replace(/^import .*$/gm, '');
+  const printed: [string, string][] = [
+    ...desktopList.flatMap((e): [string, string][] => [[`${e.key} key`, e.key], [`${e.key} name`, e.name], [`${e.key} owner`, e.owner], [`${e.key} licence`, e.licence ?? ''], [`${e.key} takes`, e.takes]]),
+    ...ABOUT_WORDS.map((w, i): [string, string] => [`about words ${i}`, w]),
+    ['AboutDialog.tsx', dialogSource],
+    ['credits.ts', source('src/components/about/credits.ts')],
+    ['elevationCredit.ts', source('src/components/playback/elevationCredit.ts')],
+  ];
+  const hits3 = printed.flatMap(([where, text]) => FORBIDDEN.filter(([, re]) => re.test(text)).map(([what]) => `${what} in ${where}`));
+  ok('About [AB3]: no entry and none of the dialog\'s words names a pop-up attack source or a Falcon BMS document, holds an @, or links to a person\'s page',
+     hits3.length === 0, `${printed.length} texts read; hits ${hits3.join(', ') || 'none'}`);
+
+  // [AB4] The version the dialog shows is package.json's: the dialog gives its line the build's `__APP_VERSION__`, both builds' vite config defines
+  // that from package.json through one helper (scripts/app-version.mjs), and the helper reads the version that is in package.json now.
+  // Mutation proof (2026-11-19): vite.config.web.ts, the line `define: appDefines(),` taken out:
+  //   FAIL About [AB4]: …  package.json 0.3.4; line true; the helper reads package.json's version true; its define is "0.3.4" (true); desktop config true, web config false; dialog reads the build's constant true; declared true
+  // and AboutDialog.tsx `versionLine(__APP_VERSION__)` → `versionLine('0.3.3')`:
+  //   FAIL About [AB4]: …  desktop config true, web config true; dialog reads the build's constant false; declared true
+  // (The browser run, shell-shots.cjs AB2 and phone AB6, holds the same end to end: the built dialog shows "Version " + package.json's version.)
+  const dialogSrc4 = source('src/components/about/AboutDialog.tsx');
+  const defines = (cfg: string) => /import \{ appDefines \} from ["']\.\/scripts\/app-version\.mjs["']/.test(cfg) && /^\s*define: appDefines\(\),/m.test(cfg);
+  const v4 = {
+    line: versionLine('1.2.3') === 'Version 1.2.3' && versionLine(pkgVersion) === `Version ${pkgVersion}`,
+    helper: appVersion() === pkgVersion && /^\d+\.\d+\.\d+/.test(pkgVersion) && appVersion('{"version":"9.8.7"}') === '9.8.7',
+    defined: appDefines().__APP_VERSION__ === JSON.stringify(pkgVersion),
+    desktop: defines(source('vite.config.ts')),
+    web: defines(source('vite.config.web.ts')),
+    dialog: /versionLine\(__APP_VERSION__\)/.test(dialogSrc4) && (dialogSrc4.match(/__APP_VERSION__/g) ?? []).length === 1 && !/\d+\.\d+\.\d+/.test(dialogSrc4),
+    declared: /declare const __APP_VERSION__: string;/.test(source('src/vite-env.d.ts')),
+  };
+  ok('About [AB4]: the dialog shows "Version " + package.json\'s version: it reads the build\'s own constant, both builds define it from package.json through one helper, and the helper reads that file',
+     Object.values(v4).every(Boolean),
+     `package.json ${pkgVersion}; line ${v4.line}; the helper reads package.json's version ${v4.helper}; its define is ${appDefines().__APP_VERSION__} (${v4.defined}); desktop config ${v4.desktop}, web config ${v4.web}; dialog reads the build's constant ${v4.dialog}; declared ${v4.declared}`);
+
+  // [AB5] The two fonts' entries say what their licence files say: the owner and the licence's name are in the LICENSE file of the package
+  // the font comes from, and the fonts the app ships (fonts.css) are these two and no more.
+  // Mutation proof (2026-11-19): credits.ts FIGTREE's `licence: 'SIL Open Font License, Version 1.1'` → `'SIL Open Font License 1.1'`:
+  //   FAIL About [AB5]: …  Figtree true (owner), false (licence); JetBrains Mono true (owner), true (licence); fonts.css names Figtree Variable | JetBrains Mono Variable
+  const fontFace = source('src/styles/fonts.css');
+  const families = [...new Set([...fontFace.matchAll(/font-family:\s*'([^']+)'/g)].map((m) => m[1]))].sort();
+  const fontLines = (key: string, pkgDir: string) => {
+    const e = desktopList.find((x) => x.key === key);
+    const file = source(`node_modules/@fontsource-variable/${pkgDir}/LICENSE`);
+    return { owner: Boolean(e?.owner && file.includes(e.owner)), licence: Boolean(e?.licence && file.includes(e.licence)) };
+  };
+  const figtree5 = fontLines('figtree', 'figtree');
+  const mono5 = fontLines('jetbrains-mono', 'jetbrains-mono');
+  ok('About [AB5]: the Figtree and JetBrains Mono entries give the owner and licence their packages\' LICENSE files state, and they are the only two fonts the app ships',
+     figtree5.owner && figtree5.licence && mono5.owner && mono5.licence && families.join('|') === 'Figtree Variable|JetBrains Mono Variable',
+     `Figtree ${figtree5.owner} (owner), ${figtree5.licence} (licence); JetBrains Mono ${mono5.owner} (owner), ${mono5.licence} (licence); fonts.css names ${families.join(' | ')}`);
+
+  // [AB6] How it is wired: About is the last row of every File menu (App adds it where the bar is drawn) and of the phone's Menu, with its info
+  // icon; the dialog is a lazy import() and nothing of it is imported at start-up; and the elevation entry reaches the desktop build only: the
+  // phone's entry file knows nothing of it and the desktop's loads it with import().
+  // Mutation proof (2026-11-19), each change alone, each flipping only its own field of
+  //   FAIL About [AB6]: …  last File row {…}; last Menu row {…}; dialog loaded lazily and never at start-up {…}; the phone's entry holds none of the elevation credit {…}; the desktop's loads it lazily {…}
+  // App.tsx `fileItems={[...bar.fileItems, aboutFileItem]}` → `fileItems={[aboutFileItem, ...bar.fileItems]}`: last File row false
+  // `menu={[...phoneMenu, aboutItem]}` → `menu={phoneMenu}`: last Menu row false
+  // `import { AboutDialog as AboutAtStartUp } from "./components/about/AboutDialog";` added to App.tsx: dialog loaded lazily false
+  // entry.web.tsx gaining `import { ELEVATION_ENTRY } from './elevationCredit';` and returning it from `loadPlaybackCredits`: the phone's entry holds none of the elevation credit false
+  // entry.desktop.tsx gaining a static `import { ELEVATION_ENTRY } from './elevationCredit';` beside the `import()`: the desktop's loads it lazily false
+  // (The built bundles hold the same from outside: scripts/bundle-check.mjs fails the desktop build if the elevation credit loads at start-up and the web build if it is there at all.)
+  const app6 = source('src/App.tsx');
+  // The phone's entry file is read as code (its comments may talk of the elevation data; only what it imports or says ships).
+  const web6 = source('src/components/playback/entry.web.tsx').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+  const desk6 = source('src/components/playback/entry.desktop.tsx');
+  const w6 = {
+    fileLast: /fileItems=\{\[\.\.\.bar\.fileItems, aboutFileItem\]\}/.test(app6) && /const aboutFileItem: FileMenuItem = \{ id: 'about', label: 'About', sub: [^}]*icon: 'info'/.test(app6),
+    menuLast: /menu=\{\[\.\.\.phoneMenu, aboutItem\]\}/.test(app6) && /const aboutItem: PhoneMenuItem = \{ label: 'About', icon: 'info'/.test(app6),
+    lazy: /const AboutDialog = lazy\(\(\) =>\s*import\("\.\/components\/about\/AboutDialog"\)/.test(app6) && !/^import [^\n]*components\/about\//m.test(app6),
+    webNone: !/elevationCredit|playbackScene|terrain|ELEVATION/i.test(web6),
+    deskLazy: /import\('\.\/elevationCredit'\)/.test(desk6) && !/^(?:import|export)\s[^\n]*from ['"]\.\/elevationCredit['"]/m.test(desk6),
+  };
+  ok('About [AB6]: About is the last row of every File menu and of the phone\'s Menu (with the info icon), the dialog loads on demand only, and the elevation entry is in the desktop build only',
+     Object.values(w6).every(Boolean),
+     `last File row ${w6.fileLast}; last Menu row ${w6.menuLast}; dialog loaded lazily and never at start-up ${w6.lazy}; the phone's entry holds none of the elevation credit ${w6.webNone}; the desktop's loads it lazily ${w6.deskLazy}`);
 }
 import './landing-check';
 import './overview-check';

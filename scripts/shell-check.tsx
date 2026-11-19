@@ -530,19 +530,20 @@ const count = (text: string, re: RegExp) => (text.match(re) ?? []).length;
   const app = read('src/App.tsx');
   const menuSrc = app.slice(Math.max(0, app.indexOf('const strikeItem')), Math.max(0, app.indexOf('const header = phoneHeader(')));
   const wanted = [
-    ["W.strikeNearMe", 'pin'], ["'Settings'", 'settings'], ['W.heroTitle', 'folder'], ['W.createNew', 'plus'], ["'Export .json'", 'file'], ["'Close mission'", 'close'], ["'Flight overview'", 'flight'],
+    ["W.strikeNearMe", 'pin'], ["'Settings'", 'settings'], ["'About'", 'info'], ['W.heroTitle', 'folder'], ['W.createNew', 'plus'], ["'Export .json'", 'file'], ["'Close mission'", 'close'], ["'Flight overview'", 'flight'],
   ];
   const withoutIcon = (menuSrc.match(/\{ label: [^,]+, (?!icon: )/g) ?? []);
   const missing = wanted.filter(([label, icon]) => !new RegExp(`\\{ label: ${label.replace(/[.()']/g, '\\$&')}, icon: '${icon}'`).test(menuSrc));
-  const appRows = { count: count(menuSrc, /\{ label: /g) === 9, allIcons: withoutIcon.length === 0, wanted: missing.length === 0 };
+  const appRows = { count: count(menuSrc, /\{ label: /g) === 10, allIcons: withoutIcon.length === 0, wanted: missing.length === 0 };
   // Red when: PhoneMenuList's `{item.icon ? (<span …><Icon name={item.icon} /></span>) : null}` is taken out (the rows lose their icons); or one of App's rows loses
-  // its `icon: '…'` (a row with no icon); or a row's words change (the wanted list no longer finds it).
-  // Seen: FAIL SH35 the phone's menu is a list of icon rows: each row draws its icon before its label, and App's nine rows keep their words and each has one  drawn false, a menu true; App's rows: 9 of 9 rows, without an icon none, words with their icon: none missing   (the icon taken out of PhoneMenuList)
-  //       FAIL SH35 …  drawn true, a menu true; App's rows: 9 of 9 rows, without an icon { label: W.createNew, , words with their icon: none missing   (the icon taken off the overview menu's "Create new mission" row)
-  //       FAIL SH35 …  drawn true, a menu true; App's rows: 9 of 9 rows, without an icon none, words with their icon: 'Export .json'→file   (that row worded "Export")
-  ok('SH35 the phone\'s menu is a list of icon rows: each row draws its icon before its label, and App\'s nine rows keep their words and each has one',
+  // its `icon: '…'` (a row with no icon); or a row's words change (the wanted list no longer finds it); or the About row is taken out (the count falls to nine).
+  // Seen: FAIL SH35 the phone's menu is a list of icon rows: each row draws its icon before its label, and App's ten rows keep their words and each has one  drawn false, a menu true; App's rows: 10 of 10 rows, without an icon none, words with their icon: none missing   (the icon taken out of PhoneMenuList)
+  //       FAIL SH35 …  drawn true, a menu true; App's rows: 10 of 10 rows, without an icon { label: W.createNew, , words with their icon: none missing   (the icon taken off the overview menu's "Create new mission" row)
+  //       FAIL SH35 …  drawn true, a menu true; App's rows: 10 of 10 rows, without an icon none, words with their icon: 'Export .json'→file   (that row worded "Export")
+  //       FAIL SH35 …  drawn true, a menu true; App's rows: 9 of 10 rows, without an icon none, words with their icon: 'About'→info   (the About row taken out of App)
+  ok('SH35 the phone\'s menu is a list of icon rows: each row draws its icon before its label, and App\'s ten rows keep their words and each has one',
      rows.drawn && rows.menuOf && appRows.count && appRows.allIcons && appRows.wanted,
-     `drawn ${rows.drawn}, a menu ${rows.menuOf}; App's rows: ${count(menuSrc, /\{ label: /g)} of 9 rows, without an icon ${withoutIcon.join(' ') || 'none'}, words with their icon: ${missing.map(([l, i]) => `${l}→${i}`).join(', ') || 'none missing'}`);
+     `drawn ${rows.drawn}, a menu ${rows.menuOf}; App's rows: ${count(menuSrc, /\{ label: /g)} of 10 rows, without an icon ${withoutIcon.join(' ') || 'none'}, words with their icon: ${missing.map(([l, i]) => `${l}→${i}`).join(', ') || 'none missing'}`);
 
   // The phone's tabs come from the same counts as the desktop rail (railCounts, which count only the threats the planner may see), not a list of their own.
   // Red when: App's `const phoneTabs = railCounts ? phoneTabItems(railCounts) : [];` becomes a list of its own (`mission ? [{ id: 'threats', …, count: mission.threats.length }] : []`).
