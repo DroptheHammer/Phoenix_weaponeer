@@ -49,6 +49,44 @@ after 0.3.4 was published; every decision in the table below is theirs.
   is dark today).
 - **Stop.** The user picks a direction (or a mix). Record the pick in
   `docs/V040_PLAN.md` and memory.
+- **2026-11-14: the EFB draft is the base** ("EFB looks the best"), with
+  parts of the other drafts to be added: a mix, not EFB alone. Its fonts are
+  Figtree and JetBrains Mono (both SIL OFL, so they can be bundled). The user
+  saw its iPhone version ("looks good for now"). Nothing of the new UI is
+  built or specified until he agrees a mockup.
+- **His first round of notes** (a second-round mockup is being drawn from
+  them, desktop and iPhone):
+  - **Keep, from the Cockpit/MFD draft:** the row of per-jet cards with each
+    jet's stores listed vertically as quantity then store, the quantities in
+    a different colour from the names, and the attack status at the foot.
+    "Makes it quite easy to see (for a flight leader) the weapons."
+  - **"Mission summary" is the wrong name.** The screen shows the flight,
+    and a mission can hold many flights of many aircraft types. Working
+    name: "Flight overview", titled with the flight.
+  - **Header:** full width, as in the "polished today" draft, but slim: that
+    draft's takes too much of the screen. EFB's is squeezed into the top
+    left.
+  - **No waypoint and position table** on that screen, and no lat/longs:
+    FragOrders already has them. Kneeboards are not to change.
+  - **Threats must fit any mission:** 10-15 systems and 100-500 units are
+    common, so a row per threat will never fit.
+  - **Hidden threats:** "we dont tell to users unless they went into
+    settings and allow it". Decided 2026-11-16: the count the planner showed
+    goes too; with nothing revealed in Settings the app says nothing about
+    them, on any screen.
+- **2026-11-16: his verdict on the second-round mockup. The look is agreed,
+  with two changes; the redesign can be specified and built.**
+  - **Planner screen:** "the legend on the planner is kind out near the
+    middle and taking real-estate. other than that i'm ok with the design
+    there for now." So the Legend is closed by default: one small button at
+    the map's bottom-left corner, opening as a compact panel anchored there.
+  - **Flight overview:** "near threats have a waypoint and it shows the
+    threats actually near that waypoint or covering that waypoint. have the
+    map zoom to that area to show the threats. Rest is OK for now. we can
+    always re-design later." So the near-threats block is about one waypoint
+    (the flight's target by default), lists the threats near it or covering
+    it, and the overview's map is framed on that area.
+  - **Phone:** "for phone, all good".
 
 ### A2. Design foundation
 - Tokens: move colours, spacing, radii and type into CSS variables and the
@@ -152,6 +190,29 @@ profile to egress. Everything it needs exists:
   entry button is hidden on phone.
 - **Gate:** the user looks at one jet flying a pop-up over real terrain in
   the real app before B3 is built.
+- **Gate passed 2026-11-14** (branch `v040-playback`, in the real Mac app,
+  72 frames a second on a Retina screen). Nothing was raised against the
+  ground, the sky or the frame rate. What the user asked for, which B3 now
+  carries:
+  - The opening view was far too zoomed out. Playback opens following the
+    jet, and the home view frames the attack, not the whole run-in.
+  - The run starts **10 seconds before the first action** (a later note the
+    same day), not two minutes out at the start of the run-in. The design
+    reads "first action" as the first planner marker after the IP; the
+    whole run-in stays available from a switch.
+  - Speeds are **1×, 2×, 4×, 8×, 16×** (this replaces the list under B3).
+  - The planner's and the card's colour code on the 3D path (run-in blue,
+    climb yellow, pull-down orange, attack red, egress green) and the same
+    colours on the timeline.
+  - The target drawn as the planner draws it.
+  - Markers at the action points with the planner's own instructions, with a
+    choice of off, shown as the jet reaches them, or always shown.
+  - Threat envelopes switched on and off from a menu, by system.
+    Early-warning radars are in that menu, off by default.
+  - **Windows:** accepted untested for now; fix what turns up.
+  - **Loft "push IP (est)" on the card** reads about 7 s late for an F-16
+    loft and 16 s for an F-4E LABS loft against the flown profile. Parked for
+    a later accuracy pass (see `ROADMAP.md`); no card text changes in 0.4.0.
 
 ### B3. Playback experience
 - **Where it lives:** a "▶ Play strike" entry from the strike/attack editor

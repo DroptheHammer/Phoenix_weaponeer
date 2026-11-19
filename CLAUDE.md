@@ -46,6 +46,25 @@ is readable by anyone, forever. Before every commit, check that it carries
 - **When in doubt, leave it out and ask.** A leak can only be fixed by
   rewriting history and replacing the repo.
 
+## Sources (IMPORTANT — this repo is public)
+
+The user's decision, 2026-11-17: **a real-world military document that
+carries a distribution restriction, an export-control notice or a
+classification marking is never a source here**, however public a scan of it
+is. No number, no table, no figure worked out from one, no test fixture; and
+it is not named in code, docs, notes or commit messages.
+
+- **Fine:** the game's own files, the modules' own manuals, published guides
+  (Chuck's Guides), and physics the planner works out itself.
+- **A figure that such a manual holds may still be used when DCS's own
+  documentation or a published guide prints it too** (the user, 2026-11-17,
+  the more so for an aircraft 30 or more years old). Take it from the DCS
+  document or the guide, check it there, and cite that.
+- **Before using any other real-world document, look at its title page.** If
+  its status is not known, treat it as restricted and ask the user.
+- Anything read from such a document stays out of everything git tracks, and
+  nothing is ever copied into the repo from working papers that hold it.
+
 ## Project Overview
 
 A cross-platform desktop application for planning F-16 (and other aircraft) attack runs against defended targets in DCS World. The tool helps squadron members plan tactical attacks, weaponeer targets, and generate pilot briefing cards (kneeboards).
@@ -224,43 +243,153 @@ anything older than the notes below. Durable lessons and decisions live in
 the memory system (`~/.claude/projects/-Users-<user>-Projects-Phoenix-Weaponeer/memory/MEMORY.md`),
 not here — this section is a snapshot for resuming work, not a journal.
 
+### STATE 2026-11-19 05:40 UTC
 
-**Last session:** 2026-11-14 UTC (Opus 5.5 on the main Mac). **v0.3.4
-released and published, marked Latest** (2026-11-14T08:56Z):
-https://github.com/DroptheHammer/Phoenix_weaponeer/releases/tag/v0.3.4.
-It carries build Sessions 1–5: loft/LABS, 13 more bombs plus the cluster
-and SAMP rows, bare-number rack counts, CLI/.miz loadouts, sourced weapon
-numbers.
-- Privacy scan clean (known false positives only; binaries and commit
-  metadata clean). Gates: geo-check 718/0, core 154, desktop 24 + 1
-  ignored, `npm run build`.
-- Version bump `efd96fe`, tag `v0.3.4`. Release CI run **43576856227**
-  green on all three platforms; all seven installers attached.
-- Web app (GitHub Pages) publish run **43578151796** green (build and
-  deploy). It was the first publish on the Node 24 actions
-  (upload-pages-artifact@v5, deploy-pages@v5), and they worked. The live site
-  was redeployed at 08:58 UTC.
-- Release notes list known gaps: the Mk-82/Mk-84 seed floors versus the
-  Dash-34 (roadmap audit), no F-4E gyro angle, no Harrier strafe.
-- ROADMAP: "Unreleased" became "v0.3.4 — 2026-11-14", with loft added.
+**0.4.0 "Polish and Playback" is being built on two branches; nothing of it
+is on `main` except documents** (brief and decisions: `docs/V040_PLAN.md`;
+rollback tag `pre-0.4.0`). Fable 5.2 directs, with Opus and Sonnet agents.
+The five days of notes before this block are at the top of
+`docs/SESSION_HISTORY.md`. The working papers are git-ignored and exist only
+on the main Mac (`Other Items/v040-work/`); memory
+`project-v040-polish-and-playback` has the run ids and paths.
+
+**History was rewritten on 2026-11-18, with the user's yes** (text that
+should never have been written was taken out of unreleased commits). **A
+clone made before 2026-11-18 must be cloned again, never merged.** Releases
+and their tags are untouched.
+
+**Playback, `v040-playback-full`, pushed tip `3e6f35a`, all of it
+reviewed** (updated 2026-11-19 12:40 UTC). A strike flies every jet in 3D
+over real terrain; times over target are dragged on lanes and applied back;
+bombs fall, flash and show their blast ring; a Notes list and a Side view;
+and the threats the planner may see are drawn in 3D, switched on and off by
+system from Show, with early-warning radars on demand. A jet inside an
+active envelope gets a white ring round its arrow and a label line naming
+the threat; labels that would cover each other slide clear, with a thin line
+back to their jet. The last commit: every target of a strike sets the ground
+level, the sea stays flat beside a target that stands below sea level, and a
+place with no elevation data says so. geo-check 1,128; 215 screenshot steps;
+start-up JS 634,822 (ceiling 636,073).
+
+**Redesign, `v040-shell`, pushed tip `0d43b0c`: the whole of 0.4.0 so far
+in one branch** (updated 2026-11-19 13:50 UTC). It sits on top of the
+playback's tip (the push of 2026-11-19 replaced the branch, as the user had
+agreed), so it holds both the redesign and the playback. Every stage is
+built and reviewed: the design foundation (`docs/DESIGN_SYSTEM.md` there is
+the guide), the front page with its load box and recent-mission cards, the
+flight chooser, the header with its File menu, the Flight overview, the
+planner's icon rail and floating side panel, the map's Legend as a small
+corner button, the phone's bars, tabs and sheet, a screenshot proof
+(`scripts/shell-shots.cjs`), and an About dialog (last row of the File menu
+and of the phone's Menu: version, licence, credits; the credits are data in
+`src/components/about/credits.ts`). The size ceilings follow what is built.
+On the tip: geo-check 1,425; the shell's screenshot run 126 checks and the
+playback's 215 steps, all passing; cargo core 160, desktop 39 and 2 ignored.
+Working copy on the main Mac: `.claude/worktrees/shell`. New work goes on
+this branch.
+
+**The About dialog's credits today:** the map data, the elevation data
+(desktop only: the phone draws no heights, and the credit's words are the
+size check's proof that the playback has not leaked into the phone build),
+the two fonts, pydcs, Chuck's Guides. Left out on purpose: the pop-up
+model's source (an open question to the user) and the sight sources (they
+come with the sight figures). Two more may be owed and wait for the same
+credits question: the A-4E-C community mod and the modules' own manuals.
+
+**The user has a combined app to look at:** `Combined look 2.app` in
+`Other Items/v040-builds/` on the main Mac, built from `9c2ec5b` (look 1 is
+the same without About). **Nothing merges to `main` before he has looked.**
+Asked of him first: whether the three-line labels and the white ring on a
+jet inside an envelope are too busy. Still to show him there: the slid
+labels with their thin lines; the white ring's size, which is a thick band
+close up in Chase; the capital letters on the threat list's group headings;
+the About dialog's wording; and the questions left open at "Shell look 4".
+The list of judgement questions is §9.13 of the working paper
+`Other Items/v040-work/b3/BUILD_SPEC_S9.md`.
+
+**The pace, raised by the user on 2026-11-19:** the last stages took far
+longer than earlier features. The cause was the process (agent teams with
+repeated review rounds, the 17-minute screenshot run repeated per agent, a
+deliberate break for every new check), not the 3D. A lighter way of working
+was proposed to him and was waiting for his answer when this was written:
+one builder per change, the director reads the diff and runs the fast
+checks, one full screenshot run per batch, deliberate breaks only for checks
+that guard hidden threats, numbers on a card and saved mission data, and the
+full treatment only for the hidden-threat rule and the release. The About
+dialog was built that way (the builder still showed each new check failing
+once): 36 minutes of builder and about 15 of the director's.
+
+**The sight groundwork was not started**, though it shows nothing: its
+lookup must rank a module manual's table above a pack's, and how far a
+manual's two printed points displace the pack's cells is still open until
+the current F-5E manual is read.
+
+**The phone web build needs its wasm file made fresh before any size figure
+is trusted.** The tool that makes it (`wasm-bindgen`) is not installed on
+the main Mac, and the generated wasm files there (git-ignored) can be older
+than the Rust core. On 2026-11-19 that hid a real miss: built fresh, the
+offline cache stood over a ceiling set from the old file (corrected in
+`0d43b0c`; the whole `npm run build:web` and the shell's screenshot run pass
+on the fresh build). The tool was put in the session's scratch folder, which
+does not survive a restart: `cargo install wasm-bindgen-cli --version
+0.2.129 --locked --root <scratch>/wasm-tools`, then run the build with that
+folder's `bin` on the PATH. Do it again before 0.4.0 merges to `main`. The
+`web-smoke*.cjs` scripts have not been run on 0.4.0 yet; they belong to the
+release checks.
+
+**Sight figures (mils): designed, nothing built.** The user's three
+decisions of 2026-11-18:
+1. The app may carry the community kneeboard packs' figures.
+2. Credits go in an About section of the app and in the read-me, **never on
+   a kneeboard card**. The app has no About section, so one is to be built
+   (the File menu, and the phone's Menu). A card prints only the number,
+   with "(est.)" when the planner worked it out.
+3. **A DCS module's own manual always outranks a third-party document.** The
+   F-5E manual's own two bombing rows go in and win where they apply; a pack
+   only fills what a manual leaves out. Only old editions of the F-5E and
+   Mirage F1 manuals have been read: the user was asked to copy the current
+   ones from the DCS folder into `Other Items/Reference Docs/`. A known
+   snag: the F-5E manual's 30° row releases at 2,000 ft, and the app refuses
+   a Mk-82 release under 3,000 ft (a seed floor with no source). That is its
+   own question to the user, with a table.
+
+The design paper is `Other Items/v040-work/b3/BUILD_SPEC_S18_SIGHT_TABLES.md`
+(its last section holds the rulings). It is built last, on the redesign's
+line, and only what he has said yes to.
+
+**Waiting on the user, one question at a time, each showing the thing
+itself:** whether to work the lighter way; the look at the combined app; the
+two current manuals; then the sight questions jet by jet; how to credit the
+pop-up model's source; a small table of weapon numbers that would change (a
+release floor and a speed warning among them).
 
 ### START OF NEXT SESSION
 
-1. `git pull origin main`.
-2. **Nothing is queued.** "What's next" = ROADMAP.md "Open" cross-checked
-   against the code (memory `feedback-check-shipped-work-not-one-doc`).
-   Candidates there: the seed-row floor audit (Mk-82/Mk-84), the F-4E gyro
-   angle, per-weapon loft drag, floors for the name-only rows.
-   `docs/BUILD_SESSIONS_PLAN.md` is finished and can move to `docs/archive/`
-   (update the roadmap's pointers to it when it does).
-3. **Still open:** the 0.3.3 loadout screens on the iPhone (ask only if the
-   user has the phone); the CLI loadouts have never been looked at on screen;
-   a real Android phone check (`docs/MOBILE_WEB_PLAN.md`).
-4. **Never `cd` into a subfolder**, and edit files only with Edit/Write (memory
-   `feedback-commands-that-dont-prompt`). **`git push`, `gh` and `cargo` run
-   outside the Bash sandbox.** A command run outside it has a different
-   `$TMPDIR`: don't write a log there and read it back inside.
-5. **Look-and-feel work goes in front of the user in the real app first.**
-   "Simulate" means running the app's own functions on real data.
-6. **Research agents can litter the repo root.** Check `git status` before
-   committing.
+1. `git pull origin main`. The main Mac's checkout is on
+   `v040-playback-full`; leave it there for playback work.
+2. `git status` in both working copies must be clean, and
+   `git log origin/v040-shell..v040-shell` (in `.claude/worktrees/shell`)
+   shows what is built but not yet reviewed: review it before anything else.
+3. **Never `cd` into a subfolder**, and edit files only with Edit/Write
+   (memory `feedback-commands-that-dont-prompt`). **`git push`, `gh`,
+   `cargo`, `git worktree add/remove` and the headless browser run outside
+   the Bash sandbox.** A command run outside it has a different `$TMPDIR`.
+4. **Commits:** `TZ=UTC`, and credited with the `Co-Authored-By` line only.
+   The session link is left out because this repo is public.
+5. **Never run two browser-driven runs at once on the main Mac**; the full
+   screenshot run takes about 17 minutes and runs alone.
+6. **The session's scratch folder does not survive a restart**: the browser
+   driver is installed again with `npm install --prefix <scratch>/pw
+   --cache <scratch>/npm-cache playwright-core`.
+7. **Usage:** read `~/.claude/rate-limits.json` before each launch and keep
+   a watcher armed; at 90% of the weekly limit start nothing new, at 95%
+   stop cleanly, at 98.5% stop at once (memory
+   `feedback-usage-limit-wind-down`).
+8. **Look-and-feel work goes in front of the user in the real app first.**
+   Review every agent's diff and show each new check failing once. Agents
+   can litter the repo root: check `git status` before committing.
+9. **Still open from before 0.4.0:** the 0.3.3 loadout screens on the iPhone
+   (ask only if the user has the phone); the CLI loadouts have never been
+   looked at on screen; a real Android phone check
+   (`docs/MOBILE_WEB_PLAN.md`); `docs/BUILD_SESSIONS_PLAN.md` is finished and
+   can move to `docs/archive/`.
