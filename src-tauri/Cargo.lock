@@ -2279,7 +2279,7 @@ dependencies = [
 
 [[package]]
 name = "phoenix-weaponeer"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "png",
