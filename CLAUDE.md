@@ -267,28 +267,41 @@ level, the sea stays flat beside a target that stands below sea level, and a
 place with no elevation data says so. geo-check 1,128; 215 screenshot steps;
 start-up JS 634,822 (ceiling 636,073).
 
-**Redesign, `v040-shell`, pushed tip `6a441ea`: the whole of 0.4.0 so far
-in one branch.** It now sits on top of the playback's tip (the push of
-2026-11-19 replaced the branch, as the user had agreed), so it holds both
-the redesign and the playback. Every stage is built and reviewed: the design
-foundation (`docs/DESIGN_SYSTEM.md` there is the guide), the front page with
-its load box and recent-mission cards, the flight chooser, the header with
-its File menu, the Flight overview, the planner's icon rail and floating
-side panel, the map's Legend as a small corner button, the phone's bars,
-tabs and sheet, and a screenshot proof (`scripts/shell-shots.cjs`). The size
-ceilings are down to what is built. On the tip: geo-check 1,419; the shell's
-screenshot run 105 checks and the playback's 215 steps, all passing; cargo
-core 160, desktop 39 and 2 ignored. Working copy on the main Mac:
-`.claude/worktrees/shell`. New work goes on this branch.
+**Redesign, `v040-shell`, pushed tip `9c2ec5b`: the whole of 0.4.0 so far
+in one branch** (updated 2026-11-19 13:45 UTC). It sits on top of the
+playback's tip (the push of 2026-11-19 replaced the branch, as the user had
+agreed), so it holds both the redesign and the playback. Every stage is
+built and reviewed: the design foundation (`docs/DESIGN_SYSTEM.md` there is
+the guide), the front page with its load box and recent-mission cards, the
+flight chooser, the header with its File menu, the Flight overview, the
+planner's icon rail and floating side panel, the map's Legend as a small
+corner button, the phone's bars, tabs and sheet, a screenshot proof
+(`scripts/shell-shots.cjs`), and an About dialog (last row of the File menu
+and of the phone's Menu: version, licence, credits; the credits are data in
+`src/components/about/credits.ts`). The size ceilings follow what is built.
+On the tip: geo-check 1,425; the shell's screenshot run 126 checks and the
+playback's 215 steps, all passing; cargo core 160, desktop 39 and 2 ignored.
+Working copy on the main Mac: `.claude/worktrees/shell`. New work goes on
+this branch.
 
-**The user has a combined app to look at:** `Combined look 1.app` in
-`Other Items/v040-builds/` on the main Mac, built from `6a441ea`. **Nothing
-merges to `main` before he has looked.** To show him there: three-line
-labels on jets inside an envelope and the slid labels with their thin lines
-(too busy?); the white ring's size, which is a thick band close up in Chase;
-the capital letters on the threat list's group headings; and the questions
-left open at "Shell look 4". The list of judgement questions is §9.13 of the
-working paper `Other Items/v040-work/b3/BUILD_SPEC_S9.md`.
+**The About dialog's credits today:** the map data, the elevation data
+(desktop only: the phone draws no heights, and the credit's words are the
+size check's proof that the playback has not leaked into the phone build),
+the two fonts, pydcs, Chuck's Guides. Left out on purpose: the pop-up
+model's source (an open question to the user) and the sight sources (they
+come with the sight figures). Two more may be owed and wait for the same
+credits question: the A-4E-C community mod and the modules' own manuals.
+
+**The user has a combined app to look at:** `Combined look 2.app` in
+`Other Items/v040-builds/` on the main Mac, built from `9c2ec5b` (look 1 is
+the same without About). **Nothing merges to `main` before he has looked.**
+Asked of him first: whether the three-line labels and the white ring on a
+jet inside an envelope are too busy. Still to show him there: the slid
+labels with their thin lines; the white ring's size, which is a thick band
+close up in Chase; the capital letters on the threat list's group headings;
+the About dialog's wording; and the questions left open at "Shell look 4".
+The list of judgement questions is §9.13 of the working paper
+`Other Items/v040-work/b3/BUILD_SPEC_S9.md`.
 
 **The pace, raised by the user on 2026-11-19:** the last stages took far
 longer than earlier features. The cause was the process (agent teams with
@@ -298,7 +311,14 @@ was proposed to him and was waiting for his answer when this was written:
 one builder per change, the director reads the diff and runs the fast
 checks, one full screenshot run per batch, deliberate breaks only for checks
 that guard hidden threats, numbers on a card and saved mission data, and the
-full treatment only for the hidden-threat rule and the release.
+full treatment only for the hidden-threat rule and the release. The About
+dialog was built that way (the builder still showed each new check failing
+once): 36 minutes of builder and about 15 of the director's.
+
+**The sight groundwork was not started**, though it shows nothing: its
+lookup must rank a module manual's table above a pack's, and how far a
+manual's two printed points displace the pack's cells is still open until
+the current F-5E manual is read.
 
 **The phone web build on the main Mac is only half checked.** The tool that
 makes the wasm file (`wasm-bindgen`) is not installed there, and the
