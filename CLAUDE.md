@@ -254,44 +254,58 @@ should never have been written was taken out of unreleased commits). **A
 clone made before 2026-11-18 must be cloned again, never merged.** Releases
 and their tags are untouched.
 
-**Playback, `v040-playback-full`, pushed tip `df0670f`, all of it
-reviewed.** A strike flies every jet in 3D over real terrain; times over
-target are dragged on lanes and applied back; bombs fall, flash and show
-their blast ring; a Notes list and a Side view; and the threats the planner
-may see are drawn in 3D, switched on and off by system from Show, with
-early-warning radars on demand. A jet inside an active envelope gets a white
-ring round its arrow and a label line naming the threat; labels that would
-cover each other slide clear, with a thin line back to their jet. geo-check
-1,124; 215 screenshot steps; start-up JS 634,822 (ceiling 636,073).
+**Playback, `v040-playback-full`, pushed tip `3e6f35a`, all of it
+reviewed** (updated 2026-11-19 12:40 UTC). A strike flies every jet in 3D
+over real terrain; times over target are dragged on lanes and applied back;
+bombs fall, flash and show their blast ring; a Notes list and a Side view;
+and the threats the planner may see are drawn in 3D, switched on and off by
+system from Show, with early-warning radars on demand. A jet inside an
+active envelope gets a white ring round its arrow and a label line naming
+the threat; labels that would cover each other slide clear, with a thin line
+back to their jet. The last commit: every target of a strike sets the ground
+level, the sea stays flat beside a target that stands below sea level, and a
+place with no elevation data says so. geo-check 1,128; 215 screenshot steps;
+start-up JS 634,822 (ceiling 636,073).
 
-**A small left-overs stage was being built when this was written** (updated
-2026-11-19 09:50 UTC): one new commit on top of `df0670f`. Every target of a
-strike sets the ground level, the sea stays flat beside a target that stands
-below sea level, a place with no elevation data says so, and a few checks
-are tightened. Its spec is the last bullet group of ruling 9.15 in the
-working paper `Other Items/v040-work/b3/BUILD_SPEC_S9.md`. If the session
-that ran it is gone, any commit on the main Mac past `df0670f` is not yet
-reviewed: review it, or go back to `df0670f` and build it again from the
-spec. After it comes the director's proof stage (the full screenshot run at
-both sizes, the size budgets, a walk-through for the user).
+**Redesign, `v040-shell`, pushed tip `6a441ea`: the whole of 0.4.0 so far
+in one branch.** It now sits on top of the playback's tip (the push of
+2026-11-19 replaced the branch, as the user had agreed), so it holds both
+the redesign and the playback. Every stage is built and reviewed: the design
+foundation (`docs/DESIGN_SYSTEM.md` there is the guide), the front page with
+its load box and recent-mission cards, the flight chooser, the header with
+its File menu, the Flight overview, the planner's icon rail and floating
+side panel, the map's Legend as a small corner button, the phone's bars,
+tabs and sheet, and a screenshot proof (`scripts/shell-shots.cjs`). The size
+ceilings are down to what is built. On the tip: geo-check 1,419; the shell's
+screenshot run 105 checks and the playback's 215 steps, all passing; cargo
+core 160, desktop 39 and 2 ignored. Working copy on the main Mac:
+`.claude/worktrees/shell`. New work goes on this branch.
 
-**To show the user at the next playback look:** three-line labels on jets
-inside an envelope and the slid labels with their thin lines (too busy?);
-the white ring's size, which is a thick band close up in Chase; the capital
-letters on the threat list's group headings.
+**The user has a combined app to look at:** `Combined look 1.app` in
+`Other Items/v040-builds/` on the main Mac, built from `6a441ea`. **Nothing
+merges to `main` before he has looked.** To show him there: three-line
+labels on jets inside an envelope and the slid labels with their thin lines
+(too busy?); the white ring's size, which is a thick band close up in Chase;
+the capital letters on the threat list's group headings; and the questions
+left open at "Shell look 4". The list of judgement questions is §9.13 of the
+working paper `Other Items/v040-work/b3/BUILD_SPEC_S9.md`.
 
-**Redesign, `v040-shell`, tip `5e82e5d` (pushed).** Every stage is built and
-reviewed: the design foundation (`docs/DESIGN_SYSTEM.md` there is the
-guide), the front page with its load box and recent-mission cards, the
-flight chooser, the header with its File menu, the Flight overview, the
-planner's icon rail and floating side panel, the map's Legend as a small
-corner button, the phone's bars, tabs and sheet, and a screenshot proof
-(`scripts/shell-shots.cjs`). Working copy on the main Mac:
-`.claude/worktrees/shell`. Still to do: move the branch onto the playback's
-final tip (that push replaces the branch; the user has agreed), bring the
-three size ceilings down to what is built and refresh the Budgets table in
-`docs/DESIGN_SYSTEM.md` in the same commit, then build one combined app for
-the user to look at. Nothing merges to `main` before he has looked.
+**The pace, raised by the user on 2026-11-19:** the last stages took far
+longer than earlier features. The cause was the process (agent teams with
+repeated review rounds, the 17-minute screenshot run repeated per agent, a
+deliberate break for every new check), not the 3D. A lighter way of working
+was proposed to him and was waiting for his answer when this was written:
+one builder per change, the director reads the diff and runs the fast
+checks, one full screenshot run per batch, deliberate breaks only for checks
+that guard hidden threats, numbers on a card and saved mission data, and the
+full treatment only for the hidden-threat rule and the release.
+
+**The phone web build on the main Mac is only half checked.** The tool that
+makes the wasm file (`wasm-bindgen`) is not installed there, and the
+generated wasm files date from 2026-11-14, older than the Rust core's last
+change. The JS side was built and checked against them. Before 0.4.0 merges
+to `main`, install the tool (the Release Process section names the command)
+and run `npm run build:web` whole.
 
 **Sight figures (mils): designed, nothing built.** The user's three
 decisions of 2026-11-18:
@@ -314,19 +328,18 @@ The design paper is `Other Items/v040-work/b3/BUILD_SPEC_S18_SIGHT_TABLES.md`
 line, and only what he has said yes to.
 
 **Waiting on the user, one question at a time, each showing the thing
-itself:** the two current manuals; then the sight questions jet by jet; the
-redesign's last look ("Shell look 4" in `Other Items/v040-builds/`) with its
-open questions; how to credit the pop-up model's source; a small table of
-weapon numbers that would change (a release floor and a speed warning among
-them).
+itself:** whether to work the lighter way; the look at the combined app; the
+two current manuals; then the sight questions jet by jet; how to credit the
+pop-up model's source; a small table of weapon numbers that would change (a
+release floor and a speed warning among them).
 
 ### START OF NEXT SESSION
 
 1. `git pull origin main`. The main Mac's checkout is on
    `v040-playback-full`; leave it there for playback work.
 2. `git status` in both working copies must be clean, and
-   `git log origin/v040-playback-full..v040-playback-full` shows what is
-   built but not yet reviewed: review it before anything else.
+   `git log origin/v040-shell..v040-shell` (in `.claude/worktrees/shell`)
+   shows what is built but not yet reviewed: review it before anything else.
 3. **Never `cd` into a subfolder**, and edit files only with Edit/Write
    (memory `feedback-commands-that-dont-prompt`). **`git push`, `gh`,
    `cargo`, `git worktree add/remove` and the headless browser run outside
