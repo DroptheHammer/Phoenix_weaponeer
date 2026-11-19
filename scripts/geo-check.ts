@@ -132,7 +132,7 @@ import {
   seaClamp, terrainTileValid, heightMosaic, sampleBilinear, gridLatLon, gridIndices, drapeUvs, buildTerrainMesh, onTriangles,
   heightAt, shadeFromSlope, hillshade, TERRAIN_CREDITS, creditsFor, BOX_MARGIN_M, BOX_MIN_HALF_M, BOX_MAX_HALF_M, BOX_STEP_M,
   MAX_SEGMENTS, MIN_SPACING_M, TERRAIN_TILE_PX, groundFloor, vertexHeights, hasTiles, boxBeyondTiles, MAX_TILE_LAT, MAX_ELEVATION_TILES, MIN_ELEVATION_ZOOM, MAX_ELEVATION_ZOOM,
-  inDryDepression, DRY_DEPRESSIONS, mosaicHeightAt,
+  inDryDepression, DRY_DEPRESSIONS, mosaicHeightAt, planSceneTerrain,
   type TerrainBox, type TerrainGrid, type TerrainMesh, type TileRange, type Vec3, type Pose,
 } from '../src/lib/playbackScene';
 import {
@@ -152,7 +152,7 @@ import {
 } from '../src/lib/playbackScene';
 import {
   calloutAlpha, calloutTargets, CalloutPlacer, CalloutFader, CALLOUT_BEFORE_WALL_S, CALLOUT_AFTER_WALL_S, CALLOUT_FADE_WALL_S, CALLOUT_MAX_PER_JET,
-  labelLine1, labelLine2, LabelText, placeLabels, LABEL_OFFSET_PX, LABEL_SLIDE_STEPS, blockKeepClear, RING_CLEAR_PX, CHROME_BOXES_MAX, type SceneSource,
+  labelLine1, labelLine2, LabelText, placeLabels, LABEL_OFFSET_PX, LABEL_SLIDE_STEPS, LABEL_LINE_PX, blockKeepClear, RING_CLEAR_PX, CHROME_BOXES_MAX, type SceneSource,
 } from '../src/lib/playbackScene';
 import {
   laneMarks, laneBands, laneChips, placeChips, pinnedGroup, axisFraction, axisTime, chipWidth, CHIP_GAP_PX, CHIP_TEXT, BAND_OUTLINE, DIAMOND_EDGE, IP_TEXT,
@@ -7999,7 +7999,9 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     // so a pass cannot come from a ground that never reached below the level.
     // Mutation proof: terrain.ts groundFloor `if (!inDryDepression(lat, lon)) return;` removed (every target's
     // height counted, whatever it stands on):
-    //   FAIL playback scene [RV9b]: … ship over -1000 m (the ground reads -999.9): floor -999.898 m (want 0), the land 1199.898 m above it (want 200), as the old clamp false; …
+    //   FAIL playback scene [RV9b]: … ship over -1000 m (the ground reads -999.9): floor -999.898 m (want 0), the land 200.000 m above it (want 200), as the old clamp true; …
+    // (red through the level alone: the picture holds, because the sea bed outside every box is levelled at 0 whatever
+    // the level; [RV12] (5) goes red beside it)
     // inDryDepression `for (const d of DRY_DEPRESSIONS) {` → `for (const d of [] as typeof DRY_DEPRESSIONS) {` (no target ever counts, a valley target too; RV9 goes red as well, its valley arms at floor 0):
     //   FAIL playback scene [RV9b]: … 2 dry depressions; wrongly placed: the Dead Sea, the Sea of Galilee, Jericho, Badwater, Furnace Creek
     //   FAIL playback scene [RV9]: … valley target: floor 0.000 m (want -200), relief 300.000 m (want 500; the old level gave 300.000), …
@@ -8075,6 +8077,138 @@ ok('validateMission: fixing the lighting is done on a copy, never on the file th
     ok('playback scene [RV10]: a box poleward of the tiles, or over the 64-tile cap even at zoom 8, asks for no elevation; every other box asks for what it asked before',
        rvBad === '' && latEdgeOk && !hasTiles(polarPlan.elevation),
        rvBad || `${rvLines.join('; ')}; the plan at 89.9 N asks for ${polarPlan.elevation.nx * polarPlan.elevation.ny} tiles; the tiles end at ${MAX_TILE_LAT}°, as the map's top row does: ${latEdgeOk}`);
+
+    // Made-up heights laid by latitude and longitude, so a region's edge sits exactly on a box edge of DRY_DEPRESSIONS.
+    const lonOfGx = (gx: number, z: number) => (gx / (TERRAIN_TILE_PX * 2 ** z)) * 360 - 180;
+    const byLatLon = (f: (lat: number, lon: number) => number) => (gx: number, gy: number, z: number) => f(latOfGy(gy, z), lonOfGx(gx, z));
+    const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+    // [RV11] Every target sets the ground's level, not only the lead's. A scene source whose lead's target stands on high
+    // ground west of the Jordan rift (31.8°N 35.0°E, outside every depression, at +800 m) and whose second target stands in
+    // the rift (40 km east and 6 km north, in a basin at −300 m inside the rift's box): the plan planSceneTerrain makes from it
+    // holds both targets at their east and north (the source gives three.js x and z = −north); buildTerrainMesh on that
+    // plan lowers the level to the second target's height as decoded; and terrainLayer.ts makes its plan through
+    // planSceneTerrain alone, never naming planTerrain (comments aside). A second source whose first target is not at the
+    // origin (the jet the frame was made from cannot be flown, so its target is not in the scene, and the first scene
+    // target is the one in the rift) lowers the level too.
+    // Mutation proofs (seen red 2026-11-19): terrain.ts planSceneTerrain `for (let i = 0; …` → `for (let i = source.targets.length; …` (the targets left out):
+    //   FAIL playback scene [RV11]: … the plan's targets [] (want [{"e_m":0,"n_m":0},{"e_m":40000,"n_m":6000}]); the level 0.000 m (want the second target's -300.000; the lead's ground reads 800.0); with the first target away from the origin: the level 0.000 m (want -300.000); …
+    // `for (let i = 0; …` → `for (let i = 1; …` (the first scene target taken to be at the origin):
+    //   FAIL playback scene [RV11]: … the plan's targets [{"e_m":40000,"n_m":6000}] (want [{"e_m":0,"n_m":0},{"e_m":40000,"n_m":6000}]); the level -300.000 m (…); with the first target away from the origin: the level 0.000 m (want -300.000); …
+    // `n_m: -source.targets[i].z` → `n_m: source.targets[i].z` (north taken as +z):
+    //   FAIL playback scene [RV11]: … the plan's targets [{"e_m":0,"n_m":0},{"e_m":40000,"n_m":-6000}] (want [{"e_m":0,"n_m":0},{"e_m":40000,"n_m":6000}]); the level 0.000 m (…); with the first target away from the origin: the level 0.000 m (want -300.000); …
+    // terrainLayer.ts planning through an aliased import (`planTerrain as makePlan` imported, `makePlan(o.source.bounds, o.source.frame, …)` in place of `planSceneTerrain(o.source, …)`):
+    //   FAIL playback scene [RV11]: … the level -300.000 m (…); with the first target away from the origin: the level -300.000 m (…); terrainLayer.ts names planTerrain true, plans through planSceneTerrain(o.source) false
+    {
+      const f11 = frameAt(31.8, 35.0);
+      const e11 = 40000, n11 = 6000, at11 = fromLocal(f11, e11, n11);
+      const fill11 = byLatLon((lat, lon) => (Math.hypot((lon - at11.lon) * 94.6, (lat - at11.lat) * 111.3) < 3 ? -300 : 800));
+      const src11 = {
+        bounds: { min_e_m: -2000, max_e_m: e11 + 2000, min_n_m: -2000, max_n_m: n11 + 2000, min_up_m: 0, max_up_m: 3000 },
+        frame: f11,
+        targets: [{ x: 0, y: 0, z: 0 }, { x: e11, y: -300, z: -n11 }],
+      };
+      const plan11 = planSceneTerrain(src11);
+      const mosaic11 = hasTiles(plan11.elevation) ? synthMosaic(plan11.elevation, fill11) : undefined;
+      const mesh11 = mosaic11 ? buildTerrainMesh(plan11, mosaic11) : undefined;
+      const want11 = mosaic11 ? mosaicHeightAt(mosaic11, at11.lat, at11.lon, -Infinity) : NaN;
+      const lead11 = mosaic11 ? mosaicHeightAt(mosaic11, f11.origin.lat, f11.origin.lon, -Infinity) : NaN;
+      const t11 = plan11.targets ?? [];
+      // The jet the frame was made from left out of the scene: its first target is the one in the rift.
+      const plan11b = planSceneTerrain({ ...src11, targets: [src11.targets[1]] });
+      const mesh11b = mosaic11 && JSON.stringify(plan11b.elevation) === JSON.stringify(plan11.elevation) ? buildTerrainMesh(plan11b, mosaic11) : undefined;
+      const layer11 = codeOnly(readFileSync('src/components/playback/scene/terrainLayer.ts', 'utf8'));
+      const ownPlan = /\bplanTerrain\b/.test(layer11), viaSource = /\bplanSceneTerrain\s*\(\s*o\.source\b/.test(layer11);
+      const inRift = inDryDepression(at11.lat, at11.lon) && !inDryDepression(f11.origin.lat, f11.origin.lon);
+      ok('playback scene [RV11]: every target of the strike sets the ground\'s level: a second target in the rift, the lead\'s on high ground, lowers it to the second target\'s height, so does a first scene target away from the origin, and the layer plans through the scene source',
+         inRift && t11.length === 2 && t11[0].e_m === 0 && t11[0].n_m === 0 && t11[1].e_m === e11 && t11[1].n_m === n11 && !!mesh11 && want11 < -250 && lead11 > 700 &&
+           Math.abs(mesh11.floor_m - want11) < 1e-6 && !!mesh11b && Math.abs(mesh11b.floor_m - want11) < 1e-6 && !ownPlan && viaSource,
+         `the second target in the rift ${inRift}; the plan's targets ${JSON.stringify(t11)} (want [{"e_m":0,"n_m":0},{"e_m":${e11},"n_m":${n11}}]); ` +
+         `the level ${mesh11 ? mesh11.floor_m.toFixed(3) : 'no mesh'} m (want the second target's ${want11.toFixed(3)}; the lead's ground reads ${lead11.toFixed(1)}); ` +
+         `with the first target away from the origin: the level ${mesh11b ? mesh11b.floor_m.toFixed(3) : 'no mesh'} m (want ${want11.toFixed(3)}); ` +
+         `terrainLayer.ts names planTerrain ${ownPlan}, plans through planSceneTerrain(o.source) ${viaSource}`);
+    }
+
+    // [RV12] The sea stays flat beside a target below sea level. Made-up heights over the real Jordan rift box (its west
+    // edge at 35.15°E): a basin at −400 m from that edge east, holding the lead's target (31.6°N 35.2°E), a ridge at +300 m
+    // wholly outside the box just west of the edge (so the stepping meets it outside a box and must stop at ground above
+    // sea level), land at +50 m west of the ridge with a pit at −100 m in it (outside the box, joined to nothing), and west
+    // of that a sea whose bed runs from −30 m at the shore to −600 m. The level is the basin's −400 m. Holds: (1) every vertex
+    // over the sea is at real height 0, all alike; (2) the basin's vertices are at their decoded heights and the target at
+    // 0 on the playback's datum; (3) a target near the box's north edge (32.9°N) with the basin running on north of the
+    // edge at −150 m: the vertices on both sides of the edge are at their decoded heights, so there is no step at the
+    // edge beyond the decoded one; (4) the pit is drawn at 0; (5) a plan with no target in a depression (RV9b's Black Sea
+    // coast): every height is, number for number, mosaicHeightAt(…, 0) + shift_m, as before, with or without the grid
+    // handed over; (6) the lead's target on the sea (bed −50 m) with a second target in the basin: shift_m is 0 and the
+    // sea is at the target's level; (7) the lead's target on the −150 m floor just north of the box (outside it, joined to
+    // it) with a second target in the box: shift_m is minus its decoded height, so it is drawn at 0.
+    // Mutation proofs (seen red 2026-11-19): terrain.ts buildTerrainMesh `vertexHeights(latlon, plan.frame, mosaic, floor_m, grid)` → `…, floor_m)` (the old rule, one level for all):
+    //   FAIL playback scene [RV12]: … (1) the level -400.000 m (want -400); 37303 vertices over the sea, the farthest from real height 0 by 400.000 m (want 0); (4) the pit's vertex 10 m from its middle reads -100.0 m, drawn at real -100.000 m (want 0); (6) the lead's target on the sea (reads -50.0 m), the second in the basin true: level -400.000 m, shift 50.000 m (want 0), 129283 sea vertices, the farthest from the target's level by 350.000 m (want 0)
+    // lowGround's stepping loop run over nothing (`while (head < tail)` → `while (false)`: inside a box only):
+    //   FAIL playback scene [RV12]: … (3) the level -400.000 m; 18796 vertices just north of the box's edge, 18907 just inside it, the farthest from its decoded height by 150.000 m (want 0)
+    // lowGround stepping through any height outside the boxes (`} else if (under) open[v] = 1;` → `} else open[v] = 1;`):
+    //   FAIL playback scene [RV12]: … (1) the level -400.000 m (want -400); 37303 vertices over the sea, the farthest from real height 0 by 400.000 m (want 0); (4) the pit's vertex 10 m from its middle reads -100.0 m, drawn at real -100.000 m (want 0); (6) the lead's target on the sea (reads -50.0 m), the second in the basin true: level -400.000 m, shift 50.000 m (want 0), 129283 sea vertices, the farthest from the target's level by 350.000 m (want 0)
+    // vertexHeights' lead's level from the boxes alone (`targetLow = inDryDepression(…) || low[…] === 1` → `inDryDepression(…)`):
+    //   FAIL playback scene [RV12]: … (7) the lead's target just north of the box (reads -150.0 m, in a box false), the second in it true: level -400.000 m, shift 0.000 m (want 150.000), the target drawn at -150.000 m (want 0)
+    {
+      const rift12 = byLatLon((lat, lon) => (lon >= 35.15 ? -400 : lon >= 35.09 ? 300
+        : lon >= 35.03 ? (Math.hypot((lon - 35.06) * 94.8, (lat - 31.6) * 111.3) < 0.8 ? -100 : 50)
+          : -30 - Math.min(570, ((35.03 - lon) / 0.08) * 570)));
+      const north12 = byLatLon((lat) => (lat < 32.9 ? -400 : lat < 32.97 ? -150 : 200));
+      type B12 = ReturnType<typeof rvBuildWith>;
+      const real12 = (b: B12, v: number) => b.mesh.up![v] - b.mesh.shift_m;
+      const dec12 = (b: B12, ll: Float64Array, v: number) => mosaicHeightAt(b.mosaic, ll[2 * v], ll[2 * v + 1], -Infinity);
+      // (1), (2), (4): the lead's target in the basin.
+      const f12 = frameAt(31.6, 35.2), b12 = rvBuildWith(f12, rift12), ll12 = gridLatLon(b12.grid, f12);
+      let seaN = 0, seaWorst = 0, basinN = 0, basinWorst = 0, pitV = -1, pitBest = Infinity;
+      for (let v = 0; v < ll12.length / 2; v++) {
+        const lat = ll12[2 * v], lon = ll12[2 * v + 1];
+        if (lon < 35.025) { seaN++; seaWorst = Math.max(seaWorst, Math.abs(real12(b12, v))); }
+        else if (lon > 35.18) { basinN++; basinWorst = Math.max(basinWorst, Math.abs(real12(b12, v) - dec12(b12, ll12, v))); }
+        const dPit = Math.hypot((lon - 35.06) * 94.8, (lat - 31.6) * 111.3);
+        if (dPit < pitBest) { pitBest = dPit; pitV = v; }
+      }
+      const target12 = heightAt(b12.mesh, 0, 0, 'real'), pitDec = dec12(b12, ll12, pitV), pitReal = real12(b12, pitV);
+      // (3): near the box's north edge.
+      const fN = frameAt(32.85, 35.5), bN = rvBuildWith(fN, north12), llN = gridLatLon(bN.grid, fN);
+      let outN = 0, inN = 0, edgeWorst = 0;
+      for (let v = 0; v < llN.length / 2; v++) {
+        const lat = llN[2 * v], d = dec12(bN, llN, v);
+        const out = lat > 32.9 && lat < 32.93 && d < 0, inside = lat > 32.87 && lat <= 32.9;
+        if (!out && !inside) continue;
+        if (out) outN++; else inN++;
+        edgeWorst = Math.max(edgeWorst, Math.abs(real12(bN, v) - d));
+      }
+      // (5): a coast with no target in a depression.
+      const b5 = rvBuildWith(fSea, rvSeaFill(-1000, false)), ll5 = gridLatLon(b5.grid, fSea);
+      let same5 = Object.is(b5.mesh.shift_m, -mosaicHeightAt(b5.mosaic, fSea.origin.lat, fSea.origin.lon, 0));
+      for (let v = 0; v < ll5.length / 2 && same5; v++) same5 = Object.is(b5.mesh.up![v], mosaicHeightAt(b5.mosaic, ll5[2 * v], ll5[2 * v + 1], 0) + b5.mesh.shift_m);
+      const withGrid5 = sameBits(vertexHeights(ll5, fSea, b5.mosaic, 0, b5.grid).up, b5.mesh.up!);
+      // (6): the lead's target on the sea, a second target in the basin.
+      const f6 = frameAt(31.6, 35.03 - (20 / 570) * 0.08), second6 = { e_m: 16000, n_m: 0 }, at6 = fromLocal(f6, second6.e_m, second6.n_m);
+      const b6 = rvBuildWith(f6, rift12, [second6]), ll6 = gridLatLon(b6.grid, f6);
+      let sea6 = 0, sea6Worst = 0;
+      for (let v = 0; v < ll6.length / 2; v++) if (ll6[2 * v + 1] < 35.025) { sea6++; sea6Worst = Math.max(sea6Worst, Math.abs(b6.mesh.up![v])); }
+      const lead6 = mosaicHeightAt(b6.mosaic, f6.origin.lat, f6.origin.lon, -Infinity);
+      // (7): the lead's target on the −150 m floor just north of the box's edge (outside it, but joined), a second in the box.
+      const f7 = frameAt(32.935, 35.5), b7 = rvBuildWith(f7, north12, [{ e_m: 0, n_m: -8000 }]), at7 = fromLocal(f7, 0, -8000);
+      const lead7 = mosaicHeightAt(b7.mosaic, f7.origin.lat, f7.origin.lon, -Infinity), target7 = heightAt(b7.mesh, 0, 0, 'real');
+      const bad: string[] = [];
+      if (!(near(b12.mesh.floor_m, -400) && seaN > 100 && seaWorst < 1e-9)) bad.push(`(1) the level ${b12.mesh.floor_m.toFixed(3)} m (want -400); ${seaN} vertices over the sea, the farthest from real height 0 by ${seaWorst.toFixed(3)} m (want 0)`);
+      if (!(basinN > 100 && basinWorst < 1e-6 && Math.abs(target12) < 1e-9)) bad.push(`(2) ${basinN} basin vertices, the farthest from its decoded height by ${basinWorst.toFixed(3)} m (want 0); the target drawn at ${target12.toFixed(3)} m (want 0)`);
+      if (!(near(bN.mesh.floor_m, -400) && outN > 50 && inN > 50 && edgeWorst < 1e-6)) bad.push(`(3) the level ${bN.mesh.floor_m.toFixed(3)} m; ${outN} vertices just north of the box's edge, ${inN} just inside it, the farthest from its decoded height by ${edgeWorst.toFixed(3)} m (want 0)`);
+      if (!(pitBest < 0.1 && pitDec < -50 && Math.abs(pitReal) < 1e-9)) bad.push(`(4) the pit's vertex ${(pitBest * 1000).toFixed(0)} m from its middle reads ${pitDec.toFixed(1)} m, drawn at real ${pitReal.toFixed(3)} m (want 0)`);
+      if (!(b5.mesh.floor_m === 0 && same5 && withGrid5)) bad.push(`(5) the coast: level ${b5.mesh.floor_m}, every height as mosaicHeightAt(…, 0) + shift ${same5}, the same with the grid handed over ${withGrid5}`);
+      if (!(inDryDepression(at6.lat, at6.lon) && !inDryDepression(f6.origin.lat, f6.origin.lon) && lead6 < -40 && lead6 > -60 && b6.mesh.floor_m < -300 && b6.mesh.shift_m === 0 && sea6 > 100 && sea6Worst < 1e-9))
+        bad.push(`(6) the lead's target on the sea (reads ${lead6.toFixed(1)} m), the second in the basin ${inDryDepression(at6.lat, at6.lon)}: level ${b6.mesh.floor_m.toFixed(3)} m, shift ${b6.mesh.shift_m.toFixed(3)} m (want 0), ${sea6} sea vertices, the farthest from the target's level by ${sea6Worst.toFixed(3)} m (want 0)`);
+      if (!(inDryDepression(at7.lat, at7.lon) && !inDryDepression(f7.origin.lat, f7.origin.lon) && near(lead7, -150) && near(b7.mesh.floor_m, -400) && Math.abs(b7.mesh.shift_m + lead7) < 1e-6 && Math.abs(target7) < 1e-6))
+        bad.push(`(7) the lead's target just north of the box (reads ${lead7.toFixed(1)} m, in a box ${inDryDepression(f7.origin.lat, f7.origin.lon)}), the second in it ${inDryDepression(at7.lat, at7.lon)}: level ${b7.mesh.floor_m.toFixed(3)} m, shift ${b7.mesh.shift_m.toFixed(3)} m (want ${(-lead7).toFixed(3)}), the target drawn at ${target7.toFixed(3)} m (want 0)`);
+      ok('playback scene [RV12]: with a target below sea level, only the depression\'s own ground goes below sea level: a sea and a pit beside it stay flat at sea level, the basin keeps its depth past the box\'s edge, and a plan with no target in a depression is as before to the bit',
+         bad.length === 0,
+         bad.join('; ') || `level -400 m; ${seaN} sea vertices at real 0; ${basinN} basin vertices at their decoded heights, the target at 0; ${outN} + ${inN} vertices round the north edge at their decoded heights; ` +
+           `the pit (reads ${pitDec.toFixed(1)} m) drawn at 0; the coast as before to the bit; the lead's target at sea (reads ${lead6.toFixed(1)} m) with the second in the basin: shift 0, ${sea6} sea vertices at its level; ` +
+           `the lead's target on the joined floor north of the box (reads ${lead7.toFixed(1)} m): shift ${b7.mesh.shift_m.toFixed(3)} m, drawn at 0`);
+    }
 
     // [C1] The near plane never cuts off what must be seen: over a high-altitude delivery (camera
     // 3,170 m above the ground) at full zoom-in (150 m from the point it orbits) it sits at most 75 m
@@ -8249,12 +8383,33 @@ void (async () => {
     // asks the tile source for nothing and answers flat ground (not heights), straight away.
     // Mutation proof: terrain.ts heightMosaic `!hasTiles(range) ||` removed (an empty block built as a 0 × 0 grid):
     //   FAIL playback loader [RV10b]: … block 0×0; answer ok (want flat ground), 0 tiles asked   (T3's "no tiles" arm goes red with it)
+    // Since loadHeights answers an empty block itself, before any mosaic is built ([L8]), that edit alone turns only T3 red;
+    // seen red 2026-11-19 with loadHeights' own `if (!hasTiles(range)) return …` removed as well (L8 red beside it):
+    //   FAIL playback loader [RV10b]: … block 0×0; answer ok (want flat ground), 0 tiles asked
     const polar10 = planElevation(terrainGridOf({ west_m: -45 * 1852, east_m: 45 * 1852, south_m: -45 * 1852, north_m: 45 * 1852 }), makeLocalFrame({ lat: 89.9, lon: 33 }, 0));
     const none10 = source3();
     const out10 = await loadHeights(none10, polar10, f3, new AbortController().signal);
     ok('playback loader [RV10b]: a plan with no elevation block asks the tile source for nothing and gets flat ground',
        !hasTiles(polar10) && none10.calls.length === 0 && !out10.ok,
        `block ${polar10.nx}×${polar10.ny}; answer ${out10.ok ? 'ok (want flat ground)' : `flat ground (${out10.reason})`}, ${none10.calls.length} tiles asked`);
+
+    // [L8] A plan with no elevation tiles says the true reason: the polar plan's empty block answers 'missing', before even a
+    // timer of 0 ms has run, with no tile asked for, so the ground line reads "Terrain unavailable (there is no elevation data
+    // for this area): …". A tile of the wrong size, and one with impossible heights (20,000 m), still answer 'broken'.
+    // Mutation proof (seen red 2026-11-19): tileLoading.ts loadHeights `if (!hasTiles(range)) return Promise.resolve({ ok: false, reason: 'missing' });` removed:
+    //   FAIL playback loader [L8]: … the polar block → broken, 0 tiles asked; the ground line: Terrain unavailable (the elevation data could not be read): flat ground at the target's planned elevation.; a short tile → broken, a tile at 20,000 m → broken
+    {
+      const none8 = source3();
+      const first8 = await Promise.race([loadHeights(none8, polar10, f3, new AbortController().signal), sleep(0).then(() => 'timer' as const)]);
+      const why8 = first8 === 'timer' ? 'still waiting' : why(first8);
+      const line8 = groundNote({ heights: 'failed', heightsFailure: first8 === 'timer' || first8.ok ? undefined : first8.reason, map: { total: 0, loaded: 0, failed: 0, done: true }, wanted: 'real', ground: 'flat', credits: '' });
+      const short8 = await loadHeights(source3((c, r) => (c === 2 && r === 2 ? new Float32Array(100) : undefined)), range3, f3, new AbortController().signal);
+      const wild8 = await loadHeights(source3((c, r) => (c === 1 && r === 0 ? new Float32Array(TERRAIN_TILE_PX * TERRAIN_TILE_PX).fill(20000) : undefined)), range3, f3, new AbortController().signal);
+      ok('playback loader [L8]: a plan with no elevation tiles answers "missing" at once and asks for nothing, so the ground line says there is no elevation data for the area; a broken tile still says broken',
+         !hasTiles(polar10) && why8 === 'missing' && none8.calls.length === 0 &&
+         line8 === "Terrain unavailable (there is no elevation data for this area): flat ground at the target's planned elevation." && why(short8) === 'broken' && why(wild8) === 'broken',
+         `the polar block → ${why8}, ${none8.calls.length} tiles asked; the ground line: ${line8}; a short tile → ${why(short8)}, a tile at 20,000 m → ${why(wild8)}`);
+    }
 
     // [L5] The drape's upload pace: the first tile after a quiet second goes at once; tiles inside the
     // second are held and go together when it is up (or at the end); never two sends within a second.
@@ -9892,6 +10047,22 @@ void (async () => {
          `the order: ${order.map(([name, got, want]) => `${name} (${got[0]}, ${got[1]}) slid ${got[2]}${got.join() === want.join() ? '' : ` (want ${want[0]}, ${want[1]}${want[2] ? '' : ', not slid'})`}`).join(', ')}`);
     }
 
+    // [LB5b] The screenshot script's copy of the placer's numbers is today's. Its step 74 decides whether a label had a
+    // free spot by trying what placeLabels tries, with these three numbers typed in rather than read from the app: that
+    // is what lets a change to the placer show there (with the steps read from the app, a placer that stopped sliding
+    // would simply let the label off). This holds the copies to labels.ts and sceneStyle.ts, so a later change to the
+    // placer cannot leave the script testing spots the placer no longer tries.
+    // Seen red 2026-11-19: labels.ts `LABEL_SLIDE_STEPS = 6` → `5`:
+    //   FAIL playback B3 [LB5b]: … LABEL_OFFSET_PX 14 in the script, 14 in the app; LABEL_SLIDE_STEPS 6 in the script, 5 in the app; LABEL_LINE_PX 16 in the script, 16 in the app   ([LB5] red beside it)
+    {
+      const shotsText = readFileSync('scripts/playback-shots.cjs', 'utf8');
+      const copyOf = (name: string) => { const m = new RegExp(`^const ${name} = (\\d+);`, 'm').exec(shotsText); return m ? Number(m[1]) : NaN; };
+      const pairs: [string, number, number][] = [['LABEL_OFFSET_PX', copyOf('LABEL_OFFSET_PX'), LABEL_OFFSET_PX], ['LABEL_SLIDE_STEPS', copyOf('LABEL_SLIDE_STEPS'), LABEL_SLIDE_STEPS], ['LABEL_LINE_PX', copyOf('LABEL_LINE_PX'), LABEL_LINE_PX]];
+      ok('playback B3 [LB5b]: the screenshot script\'s copies of the label placer\'s offset, slide steps and line height are the app\'s own',
+         pairs.every(([, script, app]) => script === app),
+         pairs.map(([name, script, app]) => `${name} ${script} in the script, ${app} in the app`).join('; '));
+    }
+
     // [LB7] A jet's label keeps off the other jets' arrows and their rings. Two labels (100 × 32) on arrows at (200, 150) and
     // (250, 120), each arrow with a square 18 px each way round it to keep clear: #1's up-right spot (214…314 × 104…136) lies
     // over #2's arrow (232…268 × 102…138), so #1 goes up-left (86, 104); #2 takes its up-right spot (264, 74). Its own arrow
@@ -11463,7 +11634,16 @@ void (async () => {
       // The playback library (src/lib/playback/, which every playback file imports) is held too: none of its files reads either
       // store, and only its threats.ts uses the visibility rule (as a filter, the press's own). Code only (comments are
       // stripped), every import form (from, import() with quotes or backticks, require()), with or without a .js/.ts ending or
-      // a folder's /index.
+      // a folder's /index. And launch.ts, the one reader, hands neither on: no `export … from` a store module or the rule,
+      // and no name it imported from one exported again, so no playback file can reach a store through it.
+      // What it still does not see: an app module two or more imports away (only one level is followed); an import whose
+      // path is worked out at run time (a variable, a string built up); a store handed on inside a value (an object
+      // that holds it, a function that returns it, a member of it such as `useMissionStore.getState`, a name in
+      // brackets) rather than by name; a store given a local name first and that name exported (`const s =
+      // useMissionStore; export { s };`); and a name bound from a dynamic import (`const m = await import(…)`), because
+      // only the names of static `import … from` lines are followed.
+      // Seen red 2026-11-19 for the second road, `export { useMissionStore } from '../../stores/missionStore';` added to launch.ts:
+      //   FAIL playback B3 [SH7]: … 65 files; …; launch.ts hands on ["export { useMissionStore } from '../../stores/missionStore'"] (want nothing); the hand-on patterns see every form true and pass the plain ones true
       // Mutation proofs (seen red 2026-11-19): `import { useMissionStore } from '../../stores/missionStore';` added to PlaybackView.tsx:
       //   FAIL playback B3 [SH7]: … 65 files; readers ["src/components/playback/PlaybackView.tsx","src/components/playback/launch.ts"] (want only launch.ts); the pattern catches every import form true
       // and `import { useMissionStore } from '../../stores/missionStore';` added to src/lib/playback/threats.ts:
@@ -11534,10 +11714,52 @@ void (async () => {
           "import { useUiStore } from '../../stores/uiStore.js';", "const m = await import(`../../stores/missionStore`);", "import { isThreatVisible } from '../../lib/threatVisibility/index';",
           "import { useLocalMissionStore } from '../../stores/localMissionStore';", "import { useMissionStore } from '@/stores/missionStore';"]
           .every((s) => specs(s).some(isRoad));
-        ok('playback B3 [SH7]: only launch.ts, of every playback file, reads a store or the visibility rule, and of the playback library only threats.ts uses the rule (no store); no app module they import reads either: the press is the one road a threat takes into playback',
-           readers.join() === 'src/components/playback/launch.ts' && files.length > 20 && libOk && libFiles.length > 10 && caught && followed,
+        // launch.ts may read the stores and the rule, but must not hand them on, or any playback file could take a hidden
+        // threat through it: no `export … from` a store module or the rule, and no name it imported from one exported again
+        // (`export { name }`, `export { name as other }`, `export default name`, `export const other = name`).
+        const handsOn = (s: string): string[] => {
+          const c = code(s), out: string[] = [];
+          for (const m of c.matchAll(/\bexport\s+(?:type\s+)?(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*['"`]([^'"`]+)['"`]/g)) if (isRoad(m[1])) out.push(m[0]);
+          const names = new Set<string>();
+          for (const m of c.matchAll(/\bimport\s+(?:type\s+)?([^'"`;]*?)\s*from\s*['"`]([^'"`]+)['"`]/g)) {
+            if (!isRoad(m[2])) continue;
+            const clause = m[1];
+            const ns = /\*\s*as\s+([\w$]+)/.exec(clause);
+            if (ns) names.add(ns[1]);
+            const def = /^\s*([\w$]+)\s*(?:,|$)/.exec(clause);
+            if (def && def[1] !== 'type') names.add(def[1]);
+            const braces = /\{([^}]*)\}/.exec(clause);
+            if (braces) for (const part of braces[1].split(',')) {
+              const local = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()?.trim();
+              if (local) names.add(local);
+            }
+          }
+          for (const m of c.matchAll(/\bexport\s+(?:type\s+)?\{([^}]*)\}(?!\s*from)/g)) {
+            for (const part of m[1].split(',')) {
+              const local = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]?.trim();
+              if (local && names.has(local)) out.push(`export { ${part.trim()} }`);
+            }
+          }
+          for (const m of c.matchAll(/\bexport\s+default\s+([\w$]+)\s*(?:;|$)/gm)) if (names.has(m[1])) out.push(m[0].trim());
+          for (const m of c.matchAll(/\bexport\s+(?:const|let|var)\s+[\w$]+\s*(?::[^=;]+)?=\s*([\w$]+)\s*(?:;|$)/gm)) if (names.has(m[1])) out.push(m[0].trim());
+          return out;
+        };
+        const launchHandsOn = handsOn(readFileSync('src/components/playback/launch.ts', 'utf8'));
+        // Its control, on literals: each hand-on is seen; launch.ts's own sort of exports (and a name imported elsewhere) is not.
+        const handOnSeen = [
+          "export { useMissionStore } from '../../stores/missionStore';", "export * from '../../lib/threatVisibility';", "export type { HiddenReveal } from '../../lib/threatVisibility';",
+          "import { isThreatVisible as seen } from '../../lib/threatVisibility';\nexport { seen };", "import { useUiStore } from '../../stores/uiStore';\nexport default useUiStore;",
+          "import * as S from '../../stores/missionStore';\nexport const store = S;", "import { useMissionStore } from '../../stores/missionStore';\nexport { useMissionStore as missionStore };",
+        ].every((s) => handsOn(s).length > 0);
+        const handOnQuiet = [
+          "import { useMissionStore } from '../../stores/missionStore';\nexport const BLAST = 'x';\nexport function f() { return useMissionStore.getState(); }",
+          "import { formatCallsign } from '../../lib/callsign';\nexport { formatCallsign };", "export type { EditorLaunch } from './types';",
+        ].every((s) => handsOn(s).length === 0);
+        ok('playback B3 [SH7]: only launch.ts, of every playback file, reads a store or the visibility rule, and of the playback library only threats.ts uses the rule (no store); no app module they import reads either, and launch.ts hands neither on: the press is the one road a threat takes into playback',
+           readers.join() === 'src/components/playback/launch.ts' && files.length > 20 && libOk && libFiles.length > 10 && caught && followed && launchHandsOn.length === 0 && handOnSeen && handOnQuiet,
            `${files.length} files; readers ${JSON.stringify(readers)} (want only launch.ts); ${libFiles.length} library files; the library's readers ${JSON.stringify(libReaders)} (want only threats.ts, with the visibility rule alone); ` +
-           `read at second hand ${JSON.stringify(secondHand)} (want none); the follower resolves imports and sees missionFile's stores ${followerWorks}; the pattern catches every import form ${caught}`);
+           `read at second hand ${JSON.stringify(secondHand)} (want none); the follower resolves imports and sees missionFile's stores ${followerWorks}; the pattern catches every import form ${caught}; ` +
+           `launch.ts hands on ${JSON.stringify(launchHandsOn)} (want nothing); the hand-on patterns see every form ${handOnSeen} and pass the plain ones ${handOnQuiet}`);
       }
     } catch (e) {
       ok('playback B3 [threat data]: the section ran without throwing', false, String((e as Error)?.stack ?? e));
@@ -13201,10 +13423,14 @@ void (async () => {
       //   must not block them after they have gone).
       // - As they come, at a moment no callout shows, with the words laid over one of #1's action-point discs: left out (the
       //   words never cover a disc that is on).
+      // - The ground changes under a radar's point (a new ground version, the ground 500 m higher there): its words move up the
+      //   picture by what 500 m projects to (the height is read again only when the ground changes, never every frame).
       // Mutation proofs (seen red 2026-11-19): scene/labelLayer.ts `cPlaced.fill(0)` taken out of the Off branch:
       //   FAIL playback B3 [LB6]: … Off after Always: left out at (545.4, 215.3); a fresh open with Off: placed at (545.4, 215.3) (want both placed, the same)
       // and the action-point discs taken out of coversWords (its disc loop run over none):
       //   FAIL playback B3 [LB6]: … As they come at -68.5 s, the words over the disc at (685.4, 245.9): placed, 0 callouts (want left out, none)
+      // and the new ground version noted without the height read again (the height loop run on the first frame only, `if (ewrGround < 0) for …`):
+      //   FAIL playback B3 [LB6]: … the ground raised 500 m under the radar's point (a new ground version): its words moved up 0.0 px (want 9.2)
       {
         const lb6Doc = (globalThis as { document?: unknown }).document;
         const lb6G = new Proxy({}, { get: (_t, k) => (k === 'measureText' ? () => ({ width: 50 }) : () => undefined), set: () => true });
@@ -13282,8 +13508,22 @@ void (async () => {
             const e = d.ewr[0];
             if (d.callouts.length !== 0 || !e || e.placed) bad.push(`As they come at ${tQuiet.toFixed(1)} s, the words over the disc at (${disc.x.toFixed(1)}, ${disc.y.toFixed(1)}): ${e ? (e.placed ? 'placed' : 'left out') : 'none'}, ${d.callouts.length} callouts (want left out, none)`);
           }
-          ok('playback B3 [LB6]: a radar\'s words are left out where a callout plate or an action-point disc is, and placed again once Action points is Off, as on a fresh open',
-             bad.length === 0, bad.join('; ') || `over the plate: left out with Always, placed with Off as on a fresh open; over a disc with As they come at ${tQuiet.toFixed(1)} s: left out`);
+          // The ground under the words changes (a new ground version, 500 m higher under the radar's point): the words move with it.
+          const pG = groundAt(W / 2, H / 2), srcG = sceneSourceFrom(s4Pb, s4Timing, PATH_STEP_S, { domes: [radarAt(pG)] });
+          const lG = layerOf(srcG), cG = ctxOf(srcG, 'off', tRel);
+          frames(lG, cG, 1);
+          const before = lG.debugLabels().ewr[0];
+          (cG as { groundVersion: number }).groundVersion = 1;
+          (cG as { heightAt: (x: number, z: number) => number }).heightAt = () => 500;
+          frames(lG, cG, 1);
+          const after = lG.debugLabels().ewr[0];
+          lG.dispose();
+          const syAt = (y: number) => { const q = new Vector3(pG.x, y, pG.z).project(cam); return ((1 - q.y) / 2) * H; };
+          const wantRise = syAt(1) - syAt(501);
+          const rose = before && after ? before.y - after.y : NaN;
+          if (!(wantRise > 5 && Math.abs(rose - wantRise) < 0.5)) bad.push(`the ground raised 500 m under the radar's point (a new ground version): its words moved up ${rose.toFixed(1)} px (want ${wantRise.toFixed(1)})`);
+          ok('playback B3 [LB6]: a radar\'s words are left out where a callout plate or an action-point disc is, and placed again once Action points is Off, as on a fresh open; they follow the ground when it changes',
+             bad.length === 0, bad.join('; ') || `over the plate: left out with Always, placed with Off as on a fresh open; over a disc with As they come at ${tQuiet.toFixed(1)} s: left out; the ground raised 500 m: the words up ${rose.toFixed(1)} px (want ${wantRise.toFixed(1)})`);
         } finally {
           (globalThis as { document?: unknown }).document = lb6Doc;
         }

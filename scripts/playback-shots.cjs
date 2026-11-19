@@ -1905,19 +1905,35 @@ const wordsOnOverlay = (d) => [
 const fmtBox = (b) => `${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.w)}×${Math.round(b.h)}`;
 /** Two boxes overlap by more than half a pixel each way (the layer's float32 arithmetic and the page's can differ by less). */
 const coversBox = (a, b) => a.x < b.x + b.w - 0.5 && a.x + a.w > b.x + 0.5 && a.y < b.y + b.h - 0.5 && a.y + a.h > b.y + 0.5;
+/*
+ * The label placer's three numbers, copied on purpose rather than read from the app: a placer that stopped sliding
+ * (its steps set to 0) then shows in step 74 as a label under the buttons, where with the app's own number the helper
+ * would stop trying the slid spots too and simply let the label off. geo-check [LB5b] holds the copies to the app's.
+ */
 /** A jet's label stands this far from its arrow, diagonally, CSS pixels (labels.ts LABEL_OFFSET_PX). */
 const LABEL_OFFSET_PX = 14;
+/** With no corner free, a label's spots slide away from its arrow's row a line at a time, this many lines at most (labels.ts LABEL_SLIDE_STEPS)… */
+const LABEL_SLIDE_STEPS = 6;
+/** …of this many CSS pixels each (sceneStyle.ts LABEL_LINE_PX). */
+const LABEL_LINE_PX = 16;
 /**
- * Whether jet label `i` of the overlay's list (anchored at `anchor` on the canvas) had a corner wholly in the `w`×`h` view
- * and clear of the labels laid out before it and of every box in `boxes`: then it must have taken one.
+ * Whether jet label `i` of the overlay's list had a free spot among those the label placer tries: the four corners round
+ * its arrow (the layer's own anchor, from the read-out), then each corner slid 1 to LABEL_SLIDE_STEPS lines away from the
+ * arrow's row (the upper ones up, the lower ones down). A spot is free when it lies wholly in the `w`×`h` view and covers
+ * none of the labels laid out before it, none of the boxes in `boxes`, and no other jet's square (its arrow with its ring,
+ * half size `keepR` from the read-out). Then the label must have taken one.
  */
-function labelHadClearCorner(d, i, anchor, boxes, w, h) {
+function labelHadClearSpot(d, i, boxes, w, h) {
   const j = d.jets[i];
-  for (let c = 0; c < 4; c++) {
-    const b = { x: c === 0 || c === 2 ? anchor[0] + LABEL_OFFSET_PX : anchor[0] - LABEL_OFFSET_PX - j.w, y: c < 2 ? anchor[1] - LABEL_OFFSET_PX - j.h : anchor[1] + LABEL_OFFSET_PX, w: j.w, h: j.h };
-    if (b.x < 0 || b.y < 0 || b.x + b.w > w || b.y + b.h > h) continue;
-    if (d.jets.slice(0, i).some((o) => coversBox(b, o)) || boxes.some((o) => coversBox(b, o))) continue;
-    return true;
+  const squares = d.jets.filter((o, k) => k !== i && o.keepR > 0).map((o) => ({ x: o.ax - o.keepR, y: o.ay - o.keepR, w: 2 * o.keepR, h: 2 * o.keepR }));
+  for (let s = 0; s <= LABEL_SLIDE_STEPS; s++) {
+    const dy = s * LABEL_LINE_PX;
+    for (let c = 0; c < 4; c++) {
+      const b = { x: c === 0 || c === 2 ? j.ax + LABEL_OFFSET_PX : j.ax - LABEL_OFFSET_PX - j.w, y: c < 2 ? j.ay - LABEL_OFFSET_PX - j.h - dy : j.ay + LABEL_OFFSET_PX + dy, w: j.w, h: j.h };
+      if (b.x < 0 || b.y < 0 || b.x + b.w > w || b.y + b.h > h) continue;
+      if (d.jets.slice(0, i).some((o) => coversBox(b, o)) || boxes.some((o) => coversBox(b, o)) || squares.some((o) => coversBox(b, o))) continue;
+      return true;
+    }
   }
   return false;
 }
@@ -1935,10 +1951,14 @@ function labelHadClearCorner(d, i, anchor, boxes, w, h) {
  *   between: #1's label passes under the buttons for half a second only): none of them overlaps the button row (the
  *   camera buttons, Home view and Show, measured on the page) or the name chip at the top left; and the boxes the scene
  *   holds for them (`__pb.chrome()`) are those two, within 1 px.
- * A jet's label is let off only where none of its four spots was clear (of the view's edge, the labels before it, the
- * targets, the ring and the controls), as at the release, where the ring pulsing to twice its size reaches past all four
- * of #1's spots 14 px off the arrow: the label then takes the least covering one, and the step lists each such moment.
- * At 1400×900 and 1024×768.
+ * A jet's label is let off only where none of the spots the label placer tries was free (labelHadClearSpot: the four
+ * corners 14 px off the arrow, then each slid 1 to 6 lines away from the arrow's row; free means wholly in the view and
+ * clear of the labels before it, the targets, the ring, the controls and the other jets' arrows with their rings): the
+ * label then takes the least covering one, and the step lists each such moment. At 1400×900 and 1024×768.
+ *
+ * Let off today (2026-11-19, the slid spots counted): in the four dives #1's label 2.25 s after the release, under the
+ * buttons, at both sizes; in the lone pop-up #1's label 2.50 s after it, under the buttons, at both sizes. Nothing is let
+ * off at the release any more: a slid spot clears the pulsing ring there.
  *
  * Measured on the first green run (2026-11-16): 35 moments of the fall and 45 for the controls at both sizes, nothing over
  * the ring or under the controls; let off: #1's label at the release (both sizes) and, at 1024×768, 1.75 s after it, under
@@ -1966,6 +1986,24 @@ function labelHadClearCorner(d, i, anchor, boxes, w, h) {
  *   STEP FAIL 74 … (1024x768-dive4) — …; 1 overlap(s): +1.50 s label "#1 Viper 1-1" at 604,4 143×32 under the buttons 576,8 436×26; the scene holds none; …
  *   STEP FAIL 74 … (1400x900-one) — …; 2 overlap(s): +1.75 s label "#1 Viper 1-1" at 832,4 143×32 under the buttons 952,8 436×26; +2.00 s label "#1 Viper 1-1" at 869,4 143×32 under the buttons 952,8 436×26; the scene holds none; …
  *   STEP FAIL 74 … (1024x768-one) — …: nothing under them; the scene holds none; …
+ *
+ * The let-off following the placer's slid spots, proven red 2026-11-19 by one temporary edit to labels.ts, no sliding
+ * (`LABEL_SLIDE_STEPS = 6` → `0`): labels that had a free slid spot are no longer let off, at the release and, at 1024×768,
+ * under the buttons:
+ *   STEP FAIL 74 … (1400x900-dive4) — …; the fall, 35 moments, 35 with #1's ring drawn: 1 overlap(s): +0.00 s label "#1 Viper 1-1" at 714,260 143×32 over the ring's box 674,280 52×52; the controls, 45 moments (buttons 876,8 512×26, name chip 12,8 60×24): nothing under them; …; labels let off: none
+ *   STEP FAIL 74 … (1024x768-dive4) — …; 1 overlap(s): +0.00 s label "#1 Viper 1-1" at 526,194 143×32 over the ring's box 486,214 52×52; the controls, 45 moments (buttons 500,8 512×26, name chip 12,8 60×24): 1 overlap(s): +1.75 s label "#1 Viper 1-1" at 464,14 143×32 under the buttons 500,8 512×26; …; labels let off: none
+ *   STEP FAIL 74 … (1400x900-one) — …; 1 overlap(s): +0.00 s label "#1 Viper 1-1" at 714,295 143×32 over the ring's box 674,315 52×52; …; labels let off: none
+ *   STEP FAIL 74 … (1024x768-one) — …; 1 overlap(s): +0.00 s label "#1 Viper 1-1" at 526,229 143×32 over the ring's box 486,249 52×52; the controls, …: 1 overlap(s): +2.00 s label "#1 Viper 1-1" at 480,6 143×32 under the buttons 500,8 512×26; …; labels let off: none
+ * And both edits recorded above seen red again the same day with the slid spots counted. No ring kept clear:
+ *   STEP FAIL 74 … (1400x900-dive4) — …; 2 overlap(s): +0.00 s plate "Release by 4,500ft AGL @ 450 KTAS" at 455,265 229×25 over the ring's box 674,280 52×52; +0.00 s label "#1 Viper 1-1" at 714,260 143×32 over the ring's box 674,280 52×52; …
+ *   STEP FAIL 74 … (1024x768-dive4) — …; 2 overlap(s): +0.00 s plate "Release by 4,500ft AGL @ 450 KTAS" at 267,199 229×25 over the ring's box 486,214 52×52; …
+ *   STEP FAIL 74 … (1400x900-one) — …; 2 overlap(s): +0.00 s plate "Release by 3,500ft AGL · 1.1nm from TGT" at 430,300 254×25 over the ring's box 674,315 52×52; …
+ *   STEP FAIL 74 … (1024x768-one) — …; 3 overlap(s): …; +1.00 s plate "Release by 3,500ft AGL · 1.1nm from TGT" at 248,259 254×25 over the ring's box 497,260 30×30; …
+ * The controls' boxes never handed over:
+ *   STEP FAIL 74 … (1400x900-dive4) — …; the controls, 45 moments (buttons 876,8 512×26, name chip 12,8 60×24): 3 overlap(s): +1.50 s label "#1 Viper 1-1" at 814,18 143×32 under the buttons 876,8 512×26; …; the scene holds none; …
+ *   STEP FAIL 74 … (1024x768-dive4) — …; 3 overlap(s): +1.50 s label "#1 Viper 1-1" at 604,4 143×32 under the buttons 500,8 512×26; …; the scene holds none; …
+ *   STEP FAIL 74 … (1400x900-one) — …; 3 overlap(s): +1.75 s label "#1 Viper 1-1" at 832,4 143×32 under the buttons 876,8 512×26; …; the scene holds none; …
+ *   STEP FAIL 74 … (1024x768-one) — …; 2 overlap(s): +2.00 s label "#1 Viper 1-1" at 651,6 143×32 under the buttons 500,8 512×26; …; the scene holds none; …
  */
 async function checkWordsClear(page, tag, what = 'the four dives') {
   const { rel, imp } = await pbEval(page, () => ({ rel: __pb.moments.jets[0].release, imp: __pb.moments.jets[0].impact }));
@@ -1982,10 +2020,9 @@ async function checkWordsClear(page, tag, what = 'the four dives') {
 
   // One pass, every 0.25 s from the release to 3 s after the impact: while the bomb falls nothing over its ring; from
   // 0.5 s after the release nothing under the button row or the name chip, and the scene holds their boxes. A jet's label
-  // that covers one of them is let off only when it had no clear corner at all (each of its four spots met the view's
-  // edge, a label before it, a target's disc and tag, the ring or a control, all measured here): then it takes the least
-  // covering one, as the layout says. At the release the bomb leaves from under the jet and the ring, pulsing twice its
-  // size, reaches past all four of #1's spots.
+  // that covers one of them is let off only when it had no free spot at all among those the placer tries (each corner and
+  // each corner slid away a line at a time met the view's edge, a label before it, a target's disc and tag, the ring, a
+  // control or another jet's arrow with its ring): then it takes the least covering one, as the layout says.
   const ringHits = [], chromeHits = [], letOff = [];
   let samples = 0, ringed = 0, chromeSamples = 0, chromeFound = true, heldOk = true, held = null, measured = null;
   const same = (a, b) => !!a && !!b && Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1 && Math.abs(a.w - b.w) <= 1 && Math.abs(a.h - b.h) <= 1;
@@ -2005,24 +2042,15 @@ async function checkWordsClear(page, tag, what = 'the four dives') {
     if (ring) ringed++;
     const checkChrome = t >= rel + 0.5;
     const keptOff = [...d.targets.map((g) => ({ x: g.box[0], y: g.box[1], w: g.box[2], h: g.box[3] })), ...(ringBox ? [ringBox] : []), c.row, c.chip];
-    let anchors = null;
     for (const w of wordsOnOverlay(d)) {
       const over = [];
       if (ringBox && coversBox(w, ringBox)) over.push([ringHits, `over the ring's box ${fmtBox(ringBox)}`]);
       if (checkChrome && coversBox(w, c.row)) over.push([chromeHits, `under the buttons ${fmtBox(c.row)}`]);
       if (checkChrome && coversBox(w, c.chip)) over.push([chromeHits, `under the name chip ${fmtBox(c.chip)}`]);
       if (over.length === 0) continue;
-      if (w.label !== undefined) {
-        anchors ??= await pbEval(page, () => {
-          const s = __pb.source(), r = document.querySelector('[role="dialog"] canvas').getBoundingClientRect(), out = {};
-          for (let j = 0; j < s.jetCount; j++) { const p = __pb.project(j, 'jet'); if (p) out[s.labelOf(j)] = [p[0] - r.left, p[1] - r.top]; }
-          return out;
-        });
-        const anchor = anchors[d.jets[w.label].key];
-        if (anchor && !labelHadClearCorner(d, w.label, anchor, keptOff, cv.w, cv.h)) {
-          letOff.push(`${when} ${w.name} ${over.map(([, s]) => s).join(', ')} (no clear corner)`);
-          continue;
-        }
+      if (w.label !== undefined && !labelHadClearSpot(d, w.label, keptOff, cv.w, cv.h)) {
+        letOff.push(`${when} ${w.name} ${over.map(([, s]) => s).join(', ')} (no free spot, slid or not)`);
+        continue;
       }
       for (const [list, s] of over) list.push(`${when} ${w.name} at ${fmtBox(w)} ${s}`);
     }
@@ -3398,8 +3426,8 @@ async function checkFourArrows(page, tag) {
  * Viper 1-1" … "#4 Viper 1-4" (one each), each with its altitude and speed and then "◎ inside SA-6 Gainful" (three lines);
  * Show › Labels unticked, four two-line labels (the name and the inside line: a warning is not switched off with the
  * numbers); ticked again, three lines each. Each time: no two labels overlap, none covers a target's disc or tag (at least
- * one target is in the picture, so that test tests something), none covers another jet's arrow with its ring (the square
- * round the arrow's point, half the ring's outer radius as the scene reports it, never less than 14 px), and every plate
+ * one target is in the picture, so that test tests something), none covers another jet's arrow with its ring (a square
+ * round the arrow's point whose half size is the ring's outer radius as the scene reports it, never less than 14 px), and every plate
  * lies wholly inside the picture. At 1024×768 the four three-line labels do not fit round the arrows' corners, so at least
  * one slides clear (listed as "slid"); each slid label's leader is seen on the label canvas, in the jet's colour, at 3 or
  * more 1 px steps along the line from its arrow to its plate.
@@ -3413,7 +3441,8 @@ async function checkFourArrows(page, tag) {
  *   STEP FAIL 11 … (1024x768-strike4) — the same
  * and by one temporary edit to labels.ts, no sliding (`LABEL_SLIDE_STEPS = 6` → `0`): the four three-line labels overlap at 1024×768:
  *   STEP FAIL 11 four jets' labels with the threats on: … (1024x768-strike4) — on: 4 labels [#1 Viper 1-1 | #2 Viper 1-2 | #3 Viper 1-3 | #4 Viper 1-4], lines 3/3/3/3, last lines ["◎ inside SA-6 Gainful"], overlapping true, on a target 0, outside the picture 0, slid none; off: …, overlapping false, …; on again: …, overlapping true, …
- * (green 2026-11-19: no overlap at either size; at 1024×768 #4's label slides clear with Labels on.)
+ * (green 2026-11-19: no overlap at either size; at 1024×768 #3's label slides clear with Labels on, and nothing slides at
+ * 1400×900.)
  * The labels kept off the other jets' arrows, seen red 2026-11-19 with the label layer handing placeLabels no squares (its
  * last argument, `jKeepR`, left out), at both sizes:
  *   STEP FAIL 11 … (1400x900-strike4) — on: …, on another jet's arrow 0, …; off: …, on another jet's arrow 1, …
@@ -3477,8 +3506,8 @@ async function checkFourLabels(page, tag) {
   const overlaps = (ls) => ls.some((a, i) => ls.some((b, j) => j > i && overlap(a, b)));
   const onTargets = (d) => d.jets.filter((l) => d.targets.some((t) => overlap(l, { x: t.box[0], y: t.box[1], w: t.box[2], h: t.box[3] }))).length;
   const outside = (d) => d.jets.filter((l) => l.x < -0.5 || l.y < -0.5 || l.x + l.w > cv.w + 0.5 || l.y + l.h > cv.h + 0.5).length;
-  // Each other jet's arrow with its ring: the square round the arrow's point, half the ring's outer radius as the scene
-  // reports it for that jet, and never less than half the arrow's usual 28 px.
+  // Each other jet's arrow with its ring: a square round the arrow's point whose half size is the ring's outer radius as
+  // the scene reports it for that jet, never less than 14 px (half the arrow's usual 28 px).
   const rings = await pbEval(page, () => __pb.moments.jets.map((j, k) => ({ key: `#${j.seat + 1}`, r: Math.max(14, __pb.inside(k)?.haloPx ?? 0) })));
   const ringOf = (key) => rings.find((x) => x.key === key)?.r ?? 14;
   const onArrows = (d) => d.jets.filter((l) => d.jets.some((m) => m !== l && overlap(l, { x: m.ax - ringOf(m.key), y: m.ay - ringOf(m.key), w: 2 * ringOf(m.key), h: 2 * ringOf(m.key) }))).length;
@@ -3631,6 +3660,11 @@ async function checkAttackColours(page, tag) {
  * the jet at the release); what was on is read first and put back in a `finally`. The same edit again 2026-11-19, so set up:
  *   STEP FAIL 52 … (1400x900-strike4-watch2) — times as the check expects; at -4.5: jet 0 r 10 alpha 0.75; #1's bomb at 836,321: 11 white px (need under 3); #2's own bomb at 819,307: 39 (need 12); …
  *   STEP FAIL 52 … (1024x768-strike4-watch2) — …; #1's bomb at 616,262: 8 white px (need under 3); #2's own bomb at 603,251: 35 (need 12); …
+ * The step also proves it put them back: after the `finally`, the switched-on list is the one read before (and not empty).
+ * Proven red 2026-11-19 by one temporary edit to this script, the restore in the `finally` dropped:
+ *   STEP FAIL 52 … (1400x900-strike4-watch2) — times as the check expects; …; #1's seat button: jet 0 r 11 alpha 1; the threats switched on before ["sa6","sa8"], after [] (want the same, and some)
+ *   STEP FAIL 52 … (1024x768-strike4-watch2) — times as the check expects; …; #1's seat button: jet 0 r 11 alpha 1; the threats switched on before ["sa6","sa8"], after [] (want the same, and some)
+ * (green: before ["sa6","sa8"], after ["sa6","sa8"], at both sizes.)
  */
 const OTHER_PATCH = 10;
 async function checkBombOthers(page, tag) {
@@ -3641,11 +3675,19 @@ async function checkBombOthers(page, tag) {
   // white ring round an arrow inside an active envelope (check 16's) sits by the jet at the release, right where its bomb is
   // read. What was switched on is read first and put back afterwards, whatever happens in between.
   const threatsWere = await pbEval(page, () => __pb.show().threatsOn);
+  let r;
   try {
-    await checkBombOthersAt(page, tag, T, m, setup);
+    r = await checkBombOthersAt(page, tag, T, m, setup);
   } finally {
     await pbEval(page, (ids) => __pb.setThreats(ids), threatsWere);
   }
+  // And it did put them back: the switched-on list is what it was before the step (in any order).
+  const sorted = (ids) => JSON.stringify([...(ids || [])].sort());
+  await page.waitForFunction((want) => JSON.stringify([...(__pb.show()?.threatsOn ?? [])].sort()) === want, sorted(threatsWere), { timeout: 5000, polling: 100 }).catch(() => {});
+  const threatsNow = await pbEval(page, () => __pb.show().threatsOn);
+  const restored = sorted(threatsNow) === sorted(threatsWere) && (threatsWere || []).length > 0;
+  step(`52 the other jets' bombs: a 10 px ring at 0.75, a dark outline; the colour code and the watch change them (${tag})`,
+    r.ok && restored, `${r.detail}; the threats switched on before ${JSON.stringify(threatsWere)}, after ${JSON.stringify(threatsNow)} (want the same, and some)`);
 }
 async function checkBombOthersAt(page, tag, T, m, setup) {
   await pbEval(page, () => { __pb.pause(); __pb.setThreats([]); __pb.setSpeed(1); __pb.setRange(false); __pb.setGround('flat'); __pb.goHome(); });
@@ -3683,13 +3725,14 @@ async function checkBombOthersAt(page, tag, T, m, setup) {
   await page.getByRole('button', { name: 'Watch #2 Viper 1-2', exact: true }).click(); // as it opened
   await settle(page, 300);
   const only = (l, r, a) => l.length === 1 && l[0].jet === 0 && l[0].r === r && l[0].alpha === a;
-  step(`52 the other jets' bombs: a 10 px ring at 0.75, a dark outline; the colour code and the watch change them (${tag})`,
-    setup && only(first, 10, 0.75) && !!p0 && n0 >= 0 && n0 < 3 && !!p1 && n1 >= BOMB_WHITE_MIN_HOME &&
-      only(all, 11, 1) && only(back, 10, 0.75) && only(seat1, 11, 1),
-    `${setup ? 'times as the check expects' : `times are not as the check expects (#1 ${m[0].release.toFixed(1)}…${m[0].impact.toFixed(1)}, #2 released ${m[1].release.toFixed(1)})`}; at ${T}: ${fmt(first)}; ` +
-      `#1's bomb at ${p0 ? Math.round(p0[0]) + ',' + Math.round(p0[1]) : 'none'}: ${n0} white px (need under 3); #2's own bomb at ${p1 ? Math.round(p1[0]) + ',' + Math.round(p1[1]) : 'none'}: ${n1} (need ${BOMB_WHITE_MIN_HOME}); ` +
-      `All jets: ${fmt(all)}; Watched jet: ${fmt(back)}; #1's seat button: ${fmt(seat1)}`);
   await pbEval(page, () => __pb.goHome());
+  return {
+    ok: setup && only(first, 10, 0.75) && !!p0 && n0 >= 0 && n0 < 3 && !!p1 && n1 >= BOMB_WHITE_MIN_HOME &&
+      only(all, 11, 1) && only(back, 10, 0.75) && only(seat1, 11, 1),
+    detail: `${setup ? 'times as the check expects' : `times are not as the check expects (#1 ${m[0].release.toFixed(1)}…${m[0].impact.toFixed(1)}, #2 released ${m[1].release.toFixed(1)})`}; at ${T}: ${fmt(first)}; ` +
+      `#1's bomb at ${p0 ? Math.round(p0[0]) + ',' + Math.round(p0[1]) : 'none'}: ${n0} white px (need under 3); #2's own bomb at ${p1 ? Math.round(p1[0]) + ',' + Math.round(p1[1]) : 'none'}: ${n1} (need ${BOMB_WHITE_MIN_HOME}); ` +
+      `All jets: ${fmt(all)}; Watched jet: ${fmt(back)}; #1's seat button: ${fmt(seat1)}`,
+  };
 }
 
 // ── Moving a time over target on its lane (the four-ship): the handle on each diamond, the box, Reset.
@@ -6005,7 +6048,8 @@ async function checkThreatMenu(page, tag) {
  * laid as the layer's buffers hold them: the SA-6 active, 176 segments with a cage, the SA-8 suppressed and planned, its ring
  * alone, dashed, 32 segments; 208 in all. They are seen, not only counted: at Home, the 2D overlay hidden, at least
  * RING_RED_MIN of the SA-6's ring points (the layer's own read-back) have red within 2 px and RING_GREY_MIN of the SA-8's have
- * grey; with every threat off, none. At the first moment #1 is inside the SA-6 (an active, solid envelope): the scene's
+ * grey; with every threat off, none, read at the same points (as many of each ring's points on screen as with the threats
+ * on, so the control cannot pass by looking at nothing). At the first moment #1 is inside the SA-6 (an active, solid envelope): the scene's
  * inside test names the SA-6, a white ring is drawn round #1's arrow (white pixels round it in Chase, the 2D overlay hidden)
  * and #1's label carries the words "◎ inside SA-6 Gainful"; with every threat switched off there is no ring (0 to 5 white
  * pixels, and the arrow found), no words and the test names none. The ring's draw order, read off the meshes, puts it after
@@ -6047,6 +6091,11 @@ async function checkThreatMenu(page, tag) {
  *   STEP FAIL 16 … — …; every threat off: {"dome":-1,"halo":true,…}, 354 white px (want 0 to 5), …; the same pose with every threat off: white at 32 of the band's 32 points (want 2 or fewer); …
  * (green: inner radius as laid 87.6 and 66.4 px against the arrow's 46.3 and 35.1 as seen, 82.2 and 62.3 side on; 0 of 32
  * white just inside the band; the control 0 of 32.)
+ * Proven red 2026-11-19 for the control's points, by one temporary edit to this script, the threats-off reading at Home
+ * handed no points (`domeColours(page, \`${tag}-16-envelopes-off\`, points)` → `…, {})`; every other arm stayed green):
+ *   STEP FAIL 16 … (1400x900-strike4) — …; seen at Home: the SA-6's ring red at 8 of 8 points on screen (want 4 or more), the SA-8's grey at 10 of 14 (want 5 or more); every threat off: red at 0 of 0 points, grey at 0 of 0 (want none, of as many points as with them on); …
+ *   STEP FAIL 16 … (1024x768-strike4) — …; the same words, the same counts (8 of 8 red, 10 of 14 grey; off, 0 of 0 and 0 of 0).
+ * (green: off, red at 0 of 8 points and grey at 0 of 14, at both sizes.)
  * RING_RED_MIN and RING_GREY_MIN: measured 2026-11-19 at both sizes: the SA-6's ring red at 8 of its 8 points on screen, the
  * SA-8's grey at 10 of 14, and with every threat off red at 0 and grey at 0. The floors sit at half of what was seen, room for
  * the software renderer.
@@ -6079,10 +6128,12 @@ async function checkThreatInside(page, tag) {
     const seenOff = await domeColours(page, `${tag}-16-envelopes-off`, points);
     await pbEval(page, () => __pb.setThreats(['sa6', 'sa8']));
     await domesDrawn(page, 2);
-    const a = seenOn['h-sa6'], b = seenOn['h-sa8'], a0 = seenOff['h-sa6'], b0 = seenOff['h-sa8'];
-    note(a.red >= RING_RED_MIN && b.grey >= RING_GREY_MIN && a0.red === 0 && b0.grey === 0,
+    // The control looks at the very points the reading with the threats on did: as many of each ring's points on screen.
+    const none = { shown: 0, red: 0, grey: 0 };
+    const a = seenOn['h-sa6'] ?? none, b = seenOn['h-sa8'] ?? none, a0 = seenOff['h-sa6'] ?? none, b0 = seenOff['h-sa8'] ?? none;
+    note(a.red >= RING_RED_MIN && b.grey >= RING_GREY_MIN && a0.red === 0 && b0.grey === 0 && a0.shown === a.shown && b0.shown === b.shown,
       `seen at Home: the SA-6's ring red at ${a.red} of ${a.shown} points on screen (want ${RING_RED_MIN} or more), the SA-8's grey at ${b.grey} of ${b.shown} (want ${RING_GREY_MIN} or more); ` +
-        `every threat off: red at ${a0.red}, grey at ${b0.grey} (want none)`);
+        `every threat off: red at ${a0.red} of ${a0.shown} points, grey at ${b0.grey} of ${b0.shown} (want none, of as many points as with them on)`);
   }
   const t = await insideSa6Moment(page);
   note(t !== null, `#1 is first inside the SA-6 at ${t === null ? 'no moment' : `${t.toFixed(1)} s`}`);

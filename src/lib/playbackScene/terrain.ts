@@ -14,10 +14,11 @@
  *
  * Heights use the library's datum, not sea level: shown height = real height
  * − real height at the lead's target, with every decoded pixel first levelled
- * at sea level (0 m), or lower where a target stands in one of the few known
- * stretches of dry land below sea level (`DRY_DEPRESSIONS`). So the ground at
- * the target is at 0, where the bomb lands, the sea is flat instead of a
- * trench, and a target in such a depression keeps the ridges round it at
+ * at sea level (0 m). Where one of the strike's targets stands in one of the
+ * few known stretches of dry land below sea level (`DRY_DEPRESSIONS`), that
+ * stretch, and low ground joined to it, is levelled lower instead. So the
+ * ground at the target is at 0, where the bomb lands, the sea is flat instead
+ * of a trench, and a target in such a depression keeps the ridges round it at
  * their real height above it.
  *
  * Map tiles: the planner's own OpenStreetMap tiles, in colour. Elevation:
@@ -249,9 +250,9 @@ export interface TerrainPlan {
   /** Undefined when no drape fits (then the ground is plain land colour). */
   drape: TileRange | undefined;
   /**
-   * The strike's targets besides the lead's, which stands at the frame's origin and is always counted.
-   * Where the heights are levelled, the ground at each of them is read (see `groundFloor`). Left out,
-   * the lead's target alone sets the level.
+   * The strike's targets. The frame's origin (the lead's target) is always counted, so one standing on
+   * it changes nothing. Where the heights are levelled, the ground at each of them is read (see
+   * `groundFloor`). Left out, the lead's target alone sets the level.
    */
   targets?: readonly GroundPoint[];
 }
@@ -260,6 +261,28 @@ export interface TerrainPlan {
 export function planTerrain(bounds: EnuBox, frame: LocalFrame, maxTextureSize = MAX_DRAPE_PX, targets: readonly GroundPoint[] = []): TerrainPlan {
   const grid = terrainGridOf(terrainBoxOf(bounds));
   return { frame, grid, elevation: planElevation(grid, frame), drape: planDrape(grid.box, frame, maxTextureSize), targets };
+}
+
+/** What the scene's plan is made from: the playback's bounds and frame, and its distinct targets (the lead's first) in three.js axes. */
+export interface TerrainSourceLike {
+  readonly bounds: EnuBox;
+  readonly frame: LocalFrame;
+  readonly targets: readonly { readonly x: number; readonly z: number }[];
+}
+
+/**
+ * The plan for a scene source. Every target goes in as a ground point, so a wingman's target in a
+ * depression lowers the level just as the lead's would: left out, a strike whose second target stands in
+ * the Jordan valley would draw that valley flat at sea level. The first is not skipped: the frame's origin
+ * is the first planned jet's target, but a jet the playback cannot fly (a stand-off shot, say) has no
+ * target in the scene, so the first scene target may be another jet's, away from the origin. One that does
+ * stand on the origin costs a second read of the same point. The targets come in three.js axes (x east,
+ * z = −north), the plan wants east and north.
+ */
+export function planSceneTerrain(source: TerrainSourceLike, maxTextureSize = MAX_DRAPE_PX): TerrainPlan {
+  const points: GroundPoint[] = [];
+  for (let i = 0; i < source.targets.length; i++) points.push({ e_m: source.targets[i].x, n_m: -source.targets[i].z });
+  return planTerrain(source.bounds, source.frame, maxTextureSize, points);
 }
 
 /** A block's tiles in mosaic order (row by row from the north-west): the order `heightMosaic` expects them in. */
@@ -312,13 +335,14 @@ export function tileErrorOf(e: unknown): TileError {
 /**
  * Heights below `floor_m` are drawn at it. Terrarium carries sea-bed depths,
  * not "no data", so the floor is sea level (0 by default): a coast runs down
- * to the water and the water is flat. The floor goes lower only where a
- * target stands on one of the known stretches of dry land below sea level
- * (`groundFloor`), because there is no way to tell a depression on land from
- * the sea bed per pixel: the tiles carry no land mask, only heights, and both
- * are simply negative numbers. A mask from another source would be one more
- * download, one more credit and one more thing that can disagree with the
- * heights, for ground that matters only where a target stands.
+ * to the water and the water is flat. The floor goes lower only on a known
+ * stretch of dry land below sea level where a target stands, and on low
+ * ground joined to it (`groundFloor`, `lowGround`), because there is no way to
+ * tell a depression on land from the sea bed per pixel: the tiles carry no
+ * land mask, only heights, and both are simply negative numbers. A mask from
+ * another source would be one more download, one more credit and one more
+ * thing that can disagree with the heights, for ground that matters only
+ * round a target.
  */
 export function seaClamp(h: number, floor_m = 0): number {
   return h < floor_m ? floor_m : h;
@@ -411,12 +435,15 @@ export interface GeoBox {
  * sea and no coast inside it: the Mediterranean shore by the rift is west of
  * 35.1°E, and the Gulf of Aqaba is south of 29.6°N. The tiles cannot say land
  * from sea bed (see `seaClamp`), so a target is taken to stand in a
- * depression only if it is inside one of these. Without that, a ship over a
- * deep sea bed, or a target on a steep shore whose read height blends in
- * sea-bed pixels, would lower the level to the sea's depth and draw the land
- * beside it a whole depth too high. A depression missing from this list costs
- * only its relief (the ground is drawn flat at sea level, as before): it can
- * never draw a wrong picture.
+ * depression only if it is inside one of these, and ground is drawn below sea
+ * level only inside one or joined to one by low ground (`lowGround`). Without
+ * that, a ship over a deep sea bed, or a target on a steep shore whose read
+ * height blends in sea-bed pixels, would lower the level to the sea's depth
+ * and draw the land beside it a whole depth too high, and a sea in the same
+ * picture as a valley target would be drawn as its bed. A depression missing
+ * from this list costs only its relief (the ground is drawn flat at sea
+ * level, as before): it can never draw a wrong picture. The boxes need not
+ * hold the whole depression: its floor is followed out past a box's edge.
  */
 export const DRY_DEPRESSIONS: readonly (GeoBox & { name: string })[] = [
   // The Sea of Galilee (about 210 m below sea level), the Jordan valley, the Dead Sea (about 430 m) and the Arabah south of it.
@@ -434,14 +461,16 @@ export function inDryDepression(lat: number, lon: number): boolean {
 }
 
 /**
- * The level the ground is drawn flat at, real metres: 0 (sea level), or lower
- * where the lead's target (at the frame's origin) or any of the others stands
- * in a known stretch of dry land below sea level (`DRY_DEPRESSIONS`): then the
- * lowest height as decoded at such a target. That target sits at its real
- * height with the ridges round it at theirs, and sea bed or valley floor
- * deeper than it is still drawn flat. Every other target, whatever its height
- * reads (a ship over a deep sea bed, a shore), leaves the level at 0, as
- * before. A target whose height cannot be read is not counted.
+ * The lowest level any ground is drawn at, real metres: 0 (sea level), or
+ * lower where the lead's target (at the frame's origin) or any of the others
+ * stands in a known stretch of dry land below sea level (`DRY_DEPRESSIONS`):
+ * then the lowest height as decoded at such a target. That target sits at its
+ * real height with the ridges round it at theirs, and valley floor deeper
+ * than it is still drawn flat. The lower level holds only on the depression's
+ * own ground (`lowGround`); a sea elsewhere in the picture stays at 0. Every
+ * other target, whatever its height reads (a ship over a deep sea bed, a
+ * shore), leaves the level at 0, as before. A target whose height cannot be
+ * read is not counted.
  */
 export function groundFloor(mosaic: HeightMosaic, frame: LocalFrame, targets: readonly GroundPoint[] = []): number {
   const asDecoded = -Infinity;
@@ -532,17 +561,83 @@ export function drapeUvs(latlon: Float64Array, drape: TileRange): Float32Array {
 }
 
 /**
- * The shown height at every vertex, m, on the playback's datum: the
- * mosaic's height there, nothing below `floor_m` (see `groundFloor`), minus
- * that levelled height at the lead's target, so the target is at 0. `shift_m`
- * is that constant (minus the levelled real height at the target). Float64,
- * for `heightAt`; the GPU gets float32 copies.
+ * Which vertices may be drawn below sea level once a target in a depression
+ * has lowered the level (1 for those): every vertex inside a `DRY_DEPRESSIONS`
+ * box, and every vertex joined to ground below sea level inside one, stepping
+ * from a vertex only to the four beside it and only where the height as
+ * decoded is below 0. The tiles cannot say land from sea bed, so this is what
+ * keeps a sea flat beside a valley target: no land below sea level joins the
+ * sea to the depression, so the stepping never reaches it. Stepping out past a
+ * box's edge follows a valley floor that runs on beyond the box, so no false
+ * wall stands along the edge. Worked once, when the heights are built.
  */
-export function vertexHeights(latlon: Float64Array, frame: LocalFrame, mosaic: HeightMosaic, floor_m: number): { up: Float64Array; shift_m: number } {
-  const shift_m = -mosaicHeightAt(mosaic, frame.origin.lat, frame.origin.lon, floor_m);
+export function lowGround(grid: TerrainGrid, latlon: Float64Array, mosaic: HeightMosaic): Uint8Array {
+  const { segX, segY } = grid, row = segX + 1, nv = vertexCount(grid);
+  const low = new Uint8Array(nv);
+  const open = new Uint8Array(nv); // outside every box, below sea level as decoded, not yet reached
+  const queue = new Int32Array(nv);
+  let head = 0, tail = 0;
+  for (let v = 0; v < nv; v++) {
+    const lat = latlon[2 * v], lon = latlon[2 * v + 1];
+    const under = mosaicHeightAt(mosaic, lat, lon, -Infinity) < 0; // a NaN is never under
+    if (inDryDepression(lat, lon)) {
+      low[v] = 1;
+      if (under) queue[tail++] = v;
+    } else if (under) open[v] = 1;
+  }
+  const reach = (u: number) => {
+    if (!open[u]) return;
+    open[u] = 0;
+    low[u] = 1;
+    queue[tail++] = u;
+  };
+  while (head < tail) {
+    const v = queue[head++], i = v % row;
+    if (i > 0) reach(v - 1);
+    if (i < segX) reach(v + 1);
+    if (v >= row) reach(v - row);
+    if (v < segY * row) reach(v + row);
+  }
+  return low;
+}
+
+/**
+ * The shown height at every vertex, m, on the playback's datum: the
+ * mosaic's height there, levelled, minus the levelled height at the lead's
+ * target, so the target is at 0. `shift_m` is that constant (minus the
+ * levelled real height at the target). Float64, for `heightAt`; the GPU gets
+ * float32 copies.
+ *
+ * At a level of 0 (or with no grid given) every vertex is levelled at
+ * `floor_m`, exactly as it always was. Below 0 (a target in a depression, see
+ * `groundFloor`) only the depression's own ground (`lowGround`) is levelled at
+ * `floor_m` and every other vertex at 0, so a sea in the same picture stays
+ * flat instead of showing its bed. The lead's target is levelled like the
+ * ground it stands on: at `floor_m` if it is inside a box or its vertex is
+ * low ground, else at 0 (a lead's target at sea, a wingman's in the valley).
+ * A vertex beside low ground that is not low itself (a rim, a shore) is
+ * levelled at 0 pixel by pixel like any coast, so where the pixels its height
+ * is blended from take in some below sea level it stands above its decoded
+ * height, one vertex wide, as at any shore.
+ */
+export function vertexHeights(latlon: Float64Array, frame: LocalFrame, mosaic: HeightMosaic, floor_m: number, grid?: TerrainGrid): { up: Float64Array; shift_m: number } {
+  if (!(floor_m < 0) || !grid) {
+    const shift_m = -mosaicHeightAt(mosaic, frame.origin.lat, frame.origin.lon, floor_m);
+    const nv = latlon.length / 2;
+    const up = new Float64Array(nv);
+    for (let v = 0; v < nv; v++) up[v] = mosaicHeightAt(mosaic, latlon[2 * v], latlon[2 * v + 1], floor_m) + shift_m;
+    return { up, shift_m };
+  }
+  const low = lowGround(grid, latlon, mosaic);
+  // The box's edges are whole steps from the origin and a step is a whole number of cells, so the origin
+  // is a vertex: levelling the target as that vertex is levelled puts the mesh there at exactly 0.
+  const i0 = Math.min(grid.segX, Math.max(0, Math.round(-grid.box.west_m / grid.dx_m)));
+  const j0 = Math.min(grid.segY, Math.max(0, Math.round(grid.box.north_m / grid.dy_m)));
+  const targetLow = inDryDepression(frame.origin.lat, frame.origin.lon) || low[j0 * (grid.segX + 1) + i0] === 1;
+  const shift_m = -mosaicHeightAt(mosaic, frame.origin.lat, frame.origin.lon, targetLow ? floor_m : 0);
   const nv = latlon.length / 2;
   const up = new Float64Array(nv);
-  for (let v = 0; v < nv; v++) up[v] = mosaicHeightAt(mosaic, latlon[2 * v], latlon[2 * v + 1], floor_m) + shift_m;
+  for (let v = 0; v < nv; v++) up[v] = mosaicHeightAt(mosaic, latlon[2 * v], latlon[2 * v + 1], low[v] ? floor_m : 0) + shift_m;
   return { up, shift_m };
 }
 
@@ -608,7 +703,10 @@ export interface TerrainMesh {
   up: Float64Array | undefined;
   /** Minus the levelled real height at the lead's target, m (0 without heights). */
   shift_m: number;
-  /** The real height the ground is drawn flat below, m: 0, or lower for a strike with a target in a depression (0 without heights). */
+  /**
+   * The lowest real height any ground is drawn at, m: 0, or lower for a strike with a target in a depression, and then
+   * only on that depression's own ground (0 without heights).
+   */
   floor_m: number;
   /** Undefined without a drape plan. */
   uvs: Float32Array | undefined;
@@ -623,7 +721,7 @@ export function buildTerrainMesh(plan: TerrainPlan, mosaic: HeightMosaic | undef
   const { grid } = plan;
   const nv = vertexCount(grid);
   const floor_m = mosaic ? groundFloor(mosaic, plan.frame, plan.targets) : 0;
-  const heights = mosaic ? vertexHeights(latlon, plan.frame, mosaic, floor_m) : undefined;
+  const heights = mosaic ? vertexHeights(latlon, plan.frame, mosaic, floor_m, grid) : undefined;
   return {
     grid,
     index: gridIndices(grid.segX, grid.segY),

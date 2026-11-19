@@ -6,9 +6,9 @@
  * falling bomb and the flash where it lands, whether Chase watches the bomb land, where the time bar starts, and
  * the threats: one switch per threat system, grouped by kind (SAM, SHORAD, AAA, MANPADS, Early warning, Other),
  * with All and None, the weapons on and the early-warning radars off as it opens. The list holds only the systems
- * the planner may see: a threat the mission's author hid is not in playback's data, unless the planner's Settings
- * switch reveals it, when it counts as any other; so it is neither named nor counted, and a plan whose threats are
- * all hidden reads exactly as a plan with none. The choices
+ * the planner may see: a threat the mission's author hid is not in playback's data, so it is neither named nor
+ * counted and a plan whose threats are all hidden reads exactly as a plan with none; unless the planner's Settings
+ * switch reveals it, when it counts as any other. The choices
  * are the pure ShowState (src/lib/playbackScene/show.ts); nothing here is saved.
  *
  * Behaviour:

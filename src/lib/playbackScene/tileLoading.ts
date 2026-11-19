@@ -20,7 +20,7 @@
 import type { LocalFrame } from '../playback';
 import type { TileKey } from '../kneeboardBasemap';
 import {
-  heightMosaic, tileErrorOf, tilesNearestFirst, TERRAIN_TILE_PX,
+  hasTiles, heightMosaic, tileErrorOf, tilesNearestFirst, TERRAIN_TILE_PX,
   type GroundMode, type HeightMosaic, type TerrainMesh, type TileRange, type TileSource,
 } from './terrain';
 
@@ -115,6 +115,12 @@ export function mosaicSlot(r: TileRange, t: TileKey): number {
  * tile, else 'offline'); a tile of the wrong size or with impossible heights
  * is 'broken'; past the time limit it is 'timeout'. Tiles still in flight
  * then are simply ignored (the desktop has cached them for next time).
+ *
+ * A block with no tiles in it is how a plan says there is no elevation for
+ * its area (the box reaches past the tiles' own latitude, or is too large to
+ * fetch): that answers 'missing' at once, with nothing asked for, so the
+ * ground line gives the true reason rather than "could not be read" (or
+ * 'aborted' if the view has already closed, as for any other block).
  */
 export function loadHeights(
   source: Pick<TileSource<unknown>, 'terrainTile'>,
@@ -123,6 +129,7 @@ export function loadHeights(
   signal: AbortSignal,
   opts: { inFlight?: number; deadline_ms?: number } = {},
 ): Promise<HeightsOutcome> {
+  if (!hasTiles(range)) return Promise.resolve({ ok: false, reason: signal.aborted ? 'aborted' : 'missing' });
   const inFlight = opts.inFlight ?? TERRAIN_IN_FLIGHT, deadline = opts.deadline_ms ?? HEIGHTS_DEADLINE_MS;
   const stop = new AbortController();
   const tiles: (Float32Array | undefined)[] = new Array(range.nx * range.ny).fill(undefined);

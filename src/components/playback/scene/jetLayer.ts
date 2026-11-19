@@ -116,9 +116,11 @@ const MIN_SPEED_MPS = 0.5;
  * jet's, so where they cross the watched jet's colour code lies on top. The bomb's outline draws just
  * before the bomb: it is seen from inside, so the bomb must come after it. The bomb's line draws over
  * the trail and under the posts (which are 35, here and in the target layer). The white ring round an arrow inside an
- * active envelope draws after the posts and the target layer's ring (40) and before every bomb and arrow: it has no
- * depth test, so whatever draws after it lies on top of it. Its number is its own, not shared with the target's ring, so
- * which of the two lies on top never rests on the order the layers were made in.
+ * active envelope draws after the posts of the colour-coded jets only, and after the target layer's ring (40), and before
+ * every bomb and arrow: a faint jet's posts are see-through, and see-through things are drawn after the solid ones
+ * whatever their number, so those posts land on top of the ring. It has no depth test, so whatever draws after it lies
+ * on top of it. Its number is its own, not shared with the target's ring, so which of the two lies on top never rests on
+ * the order the layers were made in.
  */
 const ORDER = {
   otherPath: 5, pathCasing: 6, path: 7, otherTrailCasing: 29, otherTrail: 30, trailCasing: 31, trail: 32,

@@ -20,7 +20,7 @@ import {
   SRGBColorSpace, type Fog, type Object3D, type WebGLRenderer,
 } from 'three';
 import {
-  buildTerrainMesh, creditsFor, fogRange, gridLatLon, heightAt as meshHeightAt, planTerrain, skirtHeight,
+  buildTerrainMesh, creditsFor, fogRange, gridLatLon, heightAt as meshHeightAt, planSceneTerrain, skirtHeight,
   type GroundMode, type HeightsFailure, type SceneSource, type TerrainMesh, type TerrainPlan, type TileSource,
 } from '../../../lib/playbackScene';
 import { LAND_COLOR, loadTerrain, type MapProgress, type TerrainLoad } from '../terrain/terrainLoader';
@@ -81,7 +81,8 @@ const WALL_SHADE = 0.72;
 
 export function createTerrainLayer(o: TerrainLayerOptions): TerrainLayer {
   const { bag, renderer } = o;
-  const plan = planTerrain(o.source.bounds, o.source.frame, renderer.capabilities.maxTextureSize);
+  // Every target of the strike goes into the plan, not only the lead's: any of them in a depression sets the ground's level.
+  const plan = planSceneTerrain(o.source, renderer.capabilities.maxTextureSize);
   const { box } = plan.grid;
   // Each vertex's lat/lon, kept only until the heights are built (the real mesh needs them once).
   let latlon: Float64Array | undefined = gridLatLon(plan.grid, plan.frame);
