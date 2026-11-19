@@ -261,28 +261,32 @@ changes what a card prints (the user looks first).
   before the release; the size ceilings sit about 5% above the build; notes
   once per session; small choices of wording and layout are made and
   reported, not asked. Memory `feedback-work-lighter`.
-- **No current F-5E manual is to hand, so the F-5E sight figures go ahead
-  for this release on the community pack and the planner's estimates.**
-  Checking them against the current manual is pinned on the roadmap. The
-  manual's rows are not loaded, so the lookup needs no ranking between
-  documents.
-- **Icon and splash: built, waiting for his look** (2026-11-19 20:04 UTC).
-  He put `ICON.jpeg` and `Splash.jpeg` in `Other Items/Artwork/v040/`. They
-  are in the app on the branch **`v040-art`, one commit on top of `main`,
-  LOCAL ONLY on the main Mac: not pushed until he has looked** in
-  `Other Items/v040-builds/Art look 1.app`. The icon set, the Mac tile, the
-  tab icon, a splash in `index.html` that goes when loading ends
-  (`src/lib/splash.ts`), `docs/ARTWORK.md`, and a metadata check on every
-  picture (`scripts/art-check.ts`). The phone's offline-cache ceiling goes to
-  2,400,000 on that branch. Windows and Linux get the navy square: a
-  see-through emblem needs the same picture on white.
+- **The sight figures are a known issue in 0.4.0 and are fixed in 0.4.1**
+  (his decision, 20:08 UTC, after seeing the built fix and its table of
+  default moves). 0.4.0 ships with the sight line exactly as 0.3.4 prints
+  it. The branch `v040-sight` is NOT merged for 0.4.0. The roadmap says so,
+  and the 0.4.0 release notes must list it as a known issue.
+- **No current F-5E manual is to hand:** when the sight fix goes in, the
+  F-5E rests on the community pack and the planner's estimates, and the
+  check against the current manual is pinned on the roadmap. Do not ask him
+  for the manual again.
+- **Icon and splash: approved by him and on `main`** (`ca1f7ab`, 20:09 UTC).
+  His pictures are `ICON.jpeg` and `Splash.jpeg` in
+  `Other Items/Artwork/v040/`. The icon set, the Mac tile, the tab icon, a
+  splash in `index.html` that goes when loading ends (`src/lib/splash.ts`),
+  `docs/ARTWORK.md`, and a metadata check on every picture
+  (`scripts/art-check.ts`). The phone's offline-cache ceiling is 2,400,000.
+  Windows and Linux get the navy square: a see-through emblem needs the same
+  picture on white. The splash is up only while loading takes, about a
+  third of a second on the desktop, most of it the fade; he was told so and
+  offered a minimum of about one second.
 - **Ultracode, his policy:** never silently ignore it. If it is on and a job
   is better done directly, say so and ask him to turn it off; suggest it for
   several parallel builds (memory `feedback-work-lighter`).
 
-**The sight figures are built on the branch `v040-sight` (pushed, three
-commits on top of `main`, 2026-11-19 19:50 UTC), and wait for the user's
-look** in `Other Items/v040-builds/Sight look 1.app`. On the branch: the
+**The sight fix for 0.4.1 is built on the branch `v040-sight` (pushed, three
+commits on top of `main` as it stood at 19:33 UTC on 2026-11-19).** A build
+of it is `Other Items/v040-builds/Sight look 1.app`. On the branch: the
 tables' data (`crates/core/data/sight_tables.json`), the lookup
 (`src/lib/sightTables.ts`, `airspeed.ts`), what prints
 (`src/lib/sightSetting.ts`), the card's SIGHT line, the editor's key line
@@ -290,12 +294,12 @@ and a box under Customize for the pilot's own figure, the four sources in
 About and the read-me, and a "Manual sight" section in
 `docs/DELIVERY_PLANNING.md`. The eight fixed numbers are out of the bundled
 profiles. geo-check 1,436, cargo core 160, both builds pass.
-- **Not built, and his decision:** moving the default dives onto the
-  tables' own settings. Without it most default cards say `SIGHT — no figure
-  (outside table)`, and over a high target (Nevada) all of them do, because
-  the defaults are in true airspeed and the tables in gauge speed. He was
-  shown one before-and-after table and asked which jets to move. The moves
-  as recommended: F-5E 30° dive to release 5,000 ft at 450 on the gauge
+- **Not built, and his decision, to be put to him again for 0.4.1:** moving
+  the default dives onto the tables' own settings. Without it most default
+  cards say `SIGHT — no figure (outside table)`, and over a high target
+  (Nevada) all of them do, because the defaults are in true airspeed and the
+  tables in gauge speed. He was shown one before-and-after table and chose
+  to put the whole fix off. The moves as recommended: F-5E 30° dive to release 5,000 ft at 450 on the gauge
   (118); F-5E 45° to 5,000 ft at 500 (49); F-5E Snakeyes start as the 500 ft
   laydown (185); A-4E-C 30° to 3,000 ft at 450 (40) and 45° to 4,000 ft at
   400 (40); a new Mirage F1 20° dive, 3,000 ft at 420 (185); the F-4E dives

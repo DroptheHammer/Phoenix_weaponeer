@@ -139,10 +139,19 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       community kneeboard packs, credited in the app's About dialog and never
       on a card. A card prints the document's own figure on a printed point,
       the planner's estimate marked "est." between points, and otherwise no
-      figure. Being built for 0.4.0.
+      figure.
+      **A known issue in 0.4.0, to be fixed in 0.4.1** (the user's decision,
+      2026-11-19): 0.4.0 still prints the old fixed numbers. The fix is built
+      and waits on the branch `v040-sight` (the tables' data, the lookup, the
+      card line, a box for the pilot's own figure, credits in About and the
+      read-me). Still to decide there: which default dives move onto the
+      tables' own settings (without a move most default cards say "no figure",
+      and over a high target all of them do, because the defaults are in true
+      airspeed and the tables in gauge speed), and the card's release label
+      showing the gauge speed.
   - [ ] *F-5E figures against the current DCS F-5E manual* (pinned by the
         user 2026-11-19, a future fix). The manual that ships with today's
-        game was not to hand, so 0.4.0's F-5E figures rest on the community
+        game was not to hand, so the F-5E figures rest on the community
         pack and the planner's estimates. A module's own manual outranks a
         third-party document (the user's rule, 2026-11-18): when someone has
         the current manual, read its depression table, load its rows above
@@ -196,6 +205,10 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       by job with a readiness line, a threat palette you drag onto the map,
       drag handles on the attack (only the IP drags today), and exposure
       shading inside SAM rings.
+- [ ] **3D playback on the phone.** The playback is in the desktop app only;
+      the phone build leaves it out on purpose (its size, and no elevation
+      data there).
+- [ ] **Video export of a playback,** for a briefing.
 
 ### Far future (pinned, not scheduled)
 - [ ] **A full UI/UX overhaul,** with Day card accessibility folded in. The
@@ -264,7 +277,26 @@ waypoint list on 2026-10-03).
 
 ## Shipped
 
-### Unreleased (0.4.0 branch)
+### Unreleased (0.4.0, on `main`)
+- **3D strike playback** (desktop, 2026-11-14 to 2026-11-19). A strike flies
+  every jet in 3D over real terrain, from the planner's own picture, with the
+  impact pinned to the time over target. Times over target are dragged on
+  lanes and applied back to the plan; bombs fall, flash and show their blast
+  ring; a Notes list and a Side view; follow views and speeds from 1× to 16×.
+  The threats the planner may see are drawn in 3D and switched on and off by
+  system, with early-warning radars on demand; a jet inside an active
+  envelope gets a white ring and a label naming the threat. Not on the phone.
+- **Front page and Flight overview** (2026-11-16 to 2026-11-18). One load box
+  takes a link, a file or a paste; recent missions are cards; a flight chooser
+  on import; and every load lands on a Flight overview with the jets, their
+  loadouts and the threats near a waypoint, before the map.
+- **About dialog** (2026-11-19). File, then About (the phone's Menu too):
+  version, licence, and credits for the map data, the elevation data, the
+  fonts, pydcs and Chuck's Guides.
+- **App icon and loading splash** (2026-11-19). A phoenix emblem on every
+  platform, in the browser tab and on the phone's home screen, and the
+  Phoenix Weaponeer patch on screen while the app loads. Both pictures are
+  the owner's, AI-generated; `docs/ARTWORK.md`.
 - **New app frame** (2026-11-18, part of the 0.4.0 redesign). One 48 px header
   on every desktop screen, with a red button for the screen's main action where
   it has one (Save in the planner, Open the map on the Flight overview) and
