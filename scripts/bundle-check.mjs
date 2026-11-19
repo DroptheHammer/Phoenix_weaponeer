@@ -23,7 +23,9 @@
 // shell is start-up code by nature (every screen draws its dialogs, icons,
 // header and rail at once), so from there the ceiling follows it part by
 // part: set ahead of a part to what that part was measured to need, and
-// brought back down to the built figure plus 512 once the part is in.
+// brought back down to the built figure plus 512 once the part is in. With
+// the whole shell in and the playback's threat list under it, the baseline is
+// that combined build (672,320) and the ceiling is it plus 1,024.
 // Growth over 1,024 bytes is printed as a warning: it is worth a second look
 // in review. Raising the file is a change of its own, reviewed on its own,
 // never folded into the change that needed it.
