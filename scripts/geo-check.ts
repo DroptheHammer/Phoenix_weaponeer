@@ -11437,7 +11437,8 @@ void (async () => {
           if (dark < CONTRAST_FLOOR.graphic) bad.push(`the ${name} ${dark.toFixed(2)} against the 3D view's dark (${CONTRAST_FLOOR.graphic}:1 wanted)`);
           printed.push(`${name} ${dark.toFixed(2)} on the dark, ${worst(c, LAND_REF).toFixed(2)} on pale land`);
         }
-        const map = readFileSync('src/components/map/MapView.tsx', 'utf8');
+        // The planner map's markers and threat circles are built in mapMarkers.ts (MapView.tsx only lays them out).
+        const map = readFileSync('src/components/map/mapMarkers.ts', 'utf8');
         if (!map.includes(`threat.status === 'active' ? '${DOME_ACTIVE}' : '${DOME_IDLE}'`)) bad.push('the map no longer colours a threat\'s circle the way the rings do');
         ok('playback B3 [D7]: the threat rings are the map\'s red and grey and stand off the 3D view\'s dark background by 3:1 in all three visions (pale land printed, not held)',
            bad.length === 0, bad.join('; ') || printed.join('; '));
