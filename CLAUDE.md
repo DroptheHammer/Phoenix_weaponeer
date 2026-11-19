@@ -271,9 +271,36 @@ changes what a card prints (the user looks first).
   file in that folder. If he would rather not, 0.4.0 ships with today's icon
   and no splash.
 
-**Next: the sight figures, built the lean way** (the data, the lookup, the
-card line, a box for the pilot's own figure, the notice on an old save; the
-default moves per jet shown to him as one before-and-after table).
+**The sight figures are built on the branch `v040-sight` (pushed, three
+commits on top of `main`, 2026-11-19 19:50 UTC), and wait for the user's
+look** in `Other Items/v040-builds/Sight look 1.app`. On the branch: the
+tables' data (`crates/core/data/sight_tables.json`), the lookup
+(`src/lib/sightTables.ts`, `airspeed.ts`), what prints
+(`src/lib/sightSetting.ts`), the card's SIGHT line, the editor's key line
+and a box under Customize for the pilot's own figure, the four sources in
+About and the read-me, and a "Manual sight" section in
+`docs/DELIVERY_PLANNING.md`. The eight fixed numbers are out of the bundled
+profiles. geo-check 1,436, cargo core 160, both builds pass.
+- **Not built, and his decision:** moving the default dives onto the
+  tables' own settings. Without it most default cards say `SIGHT — no figure
+  (outside table)`, and over a high target (Nevada) all of them do, because
+  the defaults are in true airspeed and the tables in gauge speed. He was
+  shown one before-and-after table and asked which jets to move. The moves
+  as recommended: F-5E 30° dive to release 5,000 ft at 450 on the gauge
+  (118); F-5E 45° to 5,000 ft at 500 (49); F-5E Snakeyes start as the 500 ft
+  laydown (185); A-4E-C 30° to 3,000 ft at 450 (40) and 45° to 4,000 ft at
+  400 (40); a new Mirage F1 20° dive, 3,000 ft at 420 (185); the F-4E dives
+  stay. A moved default needs a release speed held on the gauge
+  (`releaseSpeed_kias` on the profile, turned into true airspeed at the
+  target's height), rocket profiles that keep today's numbers, and the
+  card's release label showing the gauge speed.
+- **Left out and to be pinned on the roadmap at the merge:** the notice on
+  opening an old save, the F-4E's own bombing calculator, the F-5E test
+  drops.
+- **Before it merges:** raise `baselineBytes` in `scripts/bundle-budget.json`
+  to the built figure (start-up JS grew about 23 KB, the tables' data), run
+  `scripts/shell-shots.cjs` once (its About check counts the list's
+  entries), and add the roadmap's "Unreleased" entry.
 
 **0.4.0 "Polish and Playback" is being built on two branches; nothing of it
 is on `main` except documents** (brief and decisions: `docs/V040_PLAN.md`;
