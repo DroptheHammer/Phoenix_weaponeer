@@ -245,6 +245,36 @@ not here — this section is a snapshot for resuming work, not a journal.
 
 ### STATE 2026-11-19 05:40 UTC
 
+**UPDATE 2026-11-19 19:30 UTC: what this block says below about two
+branches and a second working copy is history.** The user looked at the
+combined app and approved the look. The redesign, the playback and the About
+dialog are merged to `main` (`5204fff`). The main Mac's checkout is on
+`main`, and the working copy `.claude/worktrees/shell` is removed. The
+branches `v040-shell` and `v040-playback-full` still exist on GitHub and are
+no longer needed. New work goes on `main`, or on a short branch when it
+changes what a card prints (the user looks first).
+
+**The user's decisions of 2026-11-19:**
+- **Work far lighter.** In force: the director writes the code itself, with
+  no agent teams; new checks only where a wrong number could reach a card,
+  or a hidden threat or private data could leak; the slow browser runs once,
+  before the release; the size ceilings sit about 5% above the build; notes
+  once per session; small choices of wording and layout are made and
+  reported, not asked. Memory `feedback-work-lighter`.
+- **No current F-5E manual is to hand, so the F-5E sight figures go ahead
+  for this release on the community pack and the planner's estimates.**
+  Checking them against the current manual is pinned on the roadmap. The
+  manual's rows are not loaded, so the lookup needs no ranking between
+  documents.
+- **Icon and splash:** he looked for pictures in `Other Items/Artwork/v040/`
+  and found none. Making them is his step; the prompts are now in a text
+  file in that folder. If he would rather not, 0.4.0 ships with today's icon
+  and no splash.
+
+**Next: the sight figures, built the lean way** (the data, the lookup, the
+card line, a box for the pilot's own figure, the notice on an old save; the
+default moves per jet shown to him as one before-and-after table).
+
 **0.4.0 "Polish and Playback" is being built on two branches; nothing of it
 is on `main` except documents** (brief and decisions: `docs/V040_PLAN.md`;
 rollback tag `pre-0.4.0`). Fable 5.2 directs, with Opus and Sonnet agents.
@@ -365,11 +395,9 @@ release floor and a speed warning among them).
 
 ### START OF NEXT SESSION
 
-1. `git pull origin main`. The main Mac's checkout is on
-   `v040-playback-full`; leave it there for playback work.
-2. `git status` in both working copies must be clean, and
-   `git log origin/v040-shell..v040-shell` (in `.claude/worktrees/shell`)
-   shows what is built but not yet reviewed: review it before anything else.
+1. `git pull origin main`. The main Mac's checkout is on `main`.
+2. `git status` must be clean; `git branch` shows any short branch with
+   work the user has not looked at yet.
 3. **Never `cd` into a subfolder**, and edit files only with Edit/Write
    (memory `feedback-commands-that-dont-prompt`). **`git push`, `gh`,
    `cargo`, `git worktree add/remove` and the headless browser run outside

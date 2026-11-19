@@ -135,6 +135,18 @@ counts (2), CLI loadouts (3), numbers (4), loft (5).
       F-5E's figure will be the planner's own calculation from the bomb's
       fall, marked as an estimate, with a box for the pilot's own number, and
       a short test flight in the game is the way to check it.
+      **Since then (2026-11-18):** the user approved carrying the figures of
+      community kneeboard packs, credited in the app's About dialog and never
+      on a card. A card prints the document's own figure on a printed point,
+      the planner's estimate marked "est." between points, and otherwise no
+      figure. Being built for 0.4.0.
+  - [ ] *F-5E figures against the current DCS F-5E manual* (pinned by the
+        user 2026-11-19, a future fix). The manual that ships with today's
+        game was not to hand, so 0.4.0's F-5E figures rest on the community
+        pack and the planner's estimates. A module's own manual outranks a
+        third-party document (the user's rule, 2026-11-18): when someone has
+        the current manual, read its depression table, load its rows above
+        the pack's, and look again at the F-5E default dives.
 - [x] **Loadout from a CLI/.miz import** (2026-11-13, Session 3,
       released in v0.3.4). The CLI writes pylons as DCS CLSIDs; a generated table
       (`scripts/gen-clsids.mjs` → `crates/core/src/parsers/clsid_data.rs`, from
