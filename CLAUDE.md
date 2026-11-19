@@ -267,8 +267,8 @@ level, the sea stays flat beside a target that stands below sea level, and a
 place with no elevation data says so. geo-check 1,128; 215 screenshot steps;
 start-up JS 634,822 (ceiling 636,073).
 
-**Redesign, `v040-shell`, pushed tip `9c2ec5b`: the whole of 0.4.0 so far
-in one branch** (updated 2026-11-19 13:45 UTC). It sits on top of the
+**Redesign, `v040-shell`, pushed tip `0d43b0c`: the whole of 0.4.0 so far
+in one branch** (updated 2026-11-19 13:50 UTC). It sits on top of the
 playback's tip (the push of 2026-11-19 replaced the branch, as the user had
 agreed), so it holds both the redesign and the playback. Every stage is
 built and reviewed: the design foundation (`docs/DESIGN_SYSTEM.md` there is
@@ -320,12 +320,18 @@ lookup must rank a module manual's table above a pack's, and how far a
 manual's two printed points displace the pack's cells is still open until
 the current F-5E manual is read.
 
-**The phone web build on the main Mac is only half checked.** The tool that
-makes the wasm file (`wasm-bindgen`) is not installed there, and the
-generated wasm files date from 2026-11-14, older than the Rust core's last
-change. The JS side was built and checked against them. Before 0.4.0 merges
-to `main`, install the tool (the Release Process section names the command)
-and run `npm run build:web` whole.
+**The phone web build needs its wasm file made fresh before any size figure
+is trusted.** The tool that makes it (`wasm-bindgen`) is not installed on
+the main Mac, and the generated wasm files there (git-ignored) can be older
+than the Rust core. On 2026-11-19 that hid a real miss: built fresh, the
+offline cache stood over a ceiling set from the old file (corrected in
+`0d43b0c`; the whole `npm run build:web` and the shell's screenshot run pass
+on the fresh build). The tool was put in the session's scratch folder, which
+does not survive a restart: `cargo install wasm-bindgen-cli --version
+0.2.129 --locked --root <scratch>/wasm-tools`, then run the build with that
+folder's `bin` on the PATH. Do it again before 0.4.0 merges to `main`. The
+`web-smoke*.cjs` scripts have not been run on 0.4.0 yet; they belong to the
+release checks.
 
 **Sight figures (mils): designed, nothing built.** The user's three
 decisions of 2026-11-18:
