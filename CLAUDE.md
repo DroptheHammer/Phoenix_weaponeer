@@ -254,26 +254,31 @@ should never have been written was taken out of unreleased commits). **A
 clone made before 2026-11-18 must be cloned again, never merged.** Releases
 and their tags are untouched.
 
-**Playback, `v040-playback-full`, pushed tip `02ba085`.** A strike flies
-every jet in 3D over real terrain; times over target are dragged on lanes
-and applied back; bombs fall, flash and show their blast ring; a Notes list
-and a Side view; and the first half of the threat list (Play hands the 3D
-view only the threats the planner may see). geo-check 1,118; 200 screenshot
-steps; start-up JS 634,822 (ceiling 636,073).
+**Playback, `v040-playback-full`, pushed tip `df0670f`, all of it
+reviewed.** A strike flies every jet in 3D over real terrain; times over
+target are dragged on lanes and applied back; bombs fall, flash and show
+their blast ring; a Notes list and a Side view; and the threats the planner
+may see are drawn in 3D, switched on and off by system from Show, with
+early-warning radars on demand. A jet inside an active envelope gets a white
+ring round its arrow and a label line naming the threat; labels that would
+cover each other slide clear, with a thin line back to their jet. geo-check
+1,124; 215 screenshot steps; start-up JS 634,822 (ceiling 636,073).
 
-**One commit is on the main Mac only: `1904cc8`**, the second half of the
-threat list (threats drawn in 3D, switched on and off by system from Show,
-early-warning radars on demand). **Its independent review was running when
-this was written** (four readers on a snapshot of the commit, a second agent
-attacking each one's findings, and one agent running the gates, every new
-check under its mutation and the full screenshot run). If the session that
-ran it is gone, run the review again from scratch; then fix, re-review and
-push. The director's own reading of the diff found these to fix whatever the
-review says: no check proves an envelope is actually drawn on screen (the
-checks count switches and buffer segments, not pixels); the radar tag's
-words go unchecked if the tag is not on screen; one string is built per jet
-per frame for the label's third line. Then the director's proof stage and
-four small left-overs.
+**A small left-overs stage was being built when this was written** (updated
+2026-11-19 09:50 UTC): one new commit on top of `df0670f`. Every target of a
+strike sets the ground level, the sea stays flat beside a target that stands
+below sea level, a place with no elevation data says so, and a few checks
+are tightened. Its spec is the last bullet group of ruling 9.15 in the
+working paper `Other Items/v040-work/b3/BUILD_SPEC_S9.md`. If the session
+that ran it is gone, any commit on the main Mac past `df0670f` is not yet
+reviewed: review it, or go back to `df0670f` and build it again from the
+spec. After it comes the director's proof stage (the full screenshot run at
+both sizes, the size budgets, a walk-through for the user).
+
+**To show the user at the next playback look:** three-line labels on jets
+inside an envelope and the slid labels with their thin lines (too busy?);
+the white ring's size, which is a thick band close up in Chase; the capital
+letters on the threat list's group headings.
 
 **Redesign, `v040-shell`, tip `5e82e5d` (pushed).** Every stage is built and
 reviewed: the design foundation (`docs/DESIGN_SYSTEM.md` there is the
@@ -329,7 +334,7 @@ them).
 4. **Commits:** `TZ=UTC`, and credited with the `Co-Authored-By` line only.
    The session link is left out because this repo is public.
 5. **Never run two browser-driven runs at once on the main Mac**; the full
-   screenshot run takes 25 minutes or more and runs alone.
+   screenshot run takes about 17 minutes and runs alone.
 6. **The session's scratch folder does not survive a restart**: the browser
    driver is installed again with `npm install --prefix <scratch>/pw
    --cache <scratch>/npm-cache playwright-core`.
