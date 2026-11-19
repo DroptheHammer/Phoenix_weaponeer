@@ -533,9 +533,9 @@ ceiling fails.
 
 | What | Ceiling | File | Measured when this was written |
 |---|---|---|---|
-| Start-up JavaScript (desktop, the chunks loaded at start) | 673,344 B | `bundle-budget.json` (`eagerMaxBytes`) | 672,320 B |
+| Start-up JavaScript (desktop, the chunks loaded at start) | 674,196 B | `bundle-budget.json` (`eagerMaxBytes`) | 673,172 B |
 | CSS, either build | 75,508 B | `style-budget.json` (`cssMaxBytes`) | 74,740 B desktop, 74,722 B web |
-| The phone's offline cache (every file the web build precaches) | 1,761,138 B | `style-budget.json` (`precacheMaxBytes`) | 1,757,042 B |
+| The phone's offline cache (every file the web build precaches) | 1,764,273 B | `style-budget.json` (`precacheMaxBytes`) | 1,760,177 B |
 | Font files | exactly 3, 60,000 to 71,000 B | `style-check.mjs` (not a budget: proves the files are the ones meant) | 70,840 B |
 
 The building blocks cost start-up bytes only once a start-up screen imports
